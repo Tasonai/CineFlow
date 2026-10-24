@@ -1,0 +1,2174 @@
+/* Settings Sheet — sleek obsidian glass, sticky header/footer with scrollable body */
+.atv-settings-sheet {
+  width: 100%;
+  max-width: 680px;
+  max-height: 90vh;
+  max-height: 90dvh;
+  display: flex;
+  flex-direction: column;
+  background: #131417;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sheet);
+  overflow: hidden;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.84);
+}
+
+.atv-settings-sheet.atv-stats-sheet {
+  max-width: 840px;
+}
+
+.atv-stats-header {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.atv-stats-header-tabs {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.atv-stats-scroll-body {
+  max-height: 76vh;
+  overflow-y: auto;
+}
+
+.atv-settings-header,
+.atv-settings-footer {
+  padding: 16px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--bg-surface);
+  border: none;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.atv-settings-header > .atv-segmented-tabs,
+.atv-stats-header-tabs > .atv-segmented-tabs {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.atv-settings-header > .atv-segmented-tabs::-webkit-scrollbar,
+.atv-stats-header-tabs > .atv-segmented-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.atv-settings-header > .atv-segmented-tabs > button,
+.atv-stats-header-tabs > .atv-segmented-tabs > button {
+  flex-shrink: 0;
+}
+
+.atv-settings-footer {
+  justify-content: flex-end;
+}
+
+.atv-settings-body {
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+.atv-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.atv-settings-group h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.atv-settings-group label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.atv-settings-group input,
+.atv-settings-group select {
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  border: none;
+  color: #ffffff;
+  font-size: 13px;
+  outline: none;
+}
+
+/* Toast — centered Apple TV floating pill, never overlaps Mini-Player */
+.atv-toast-container {
+  position: fixed;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-radius: 11px;
+  background: rgba(34, 35, 42, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.62);
+  pointer-events: auto;
+}
+
+.toast-action-btn {
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(56, 189, 248, 0.16);
+  color: #7dd3fc;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.toast-action-btn:hover {
+  background: rgba(56, 189, 248, 0.28);
+  color: #e0f2fe;
+}
+
+@media (max-width: 1040px) {
+  .atv-sheet-body {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .atv-player-col,
+  .atv-info-sidebar {
+    overflow-y: visible;
+  }
+  .atv-info-sidebar {
+    border-left: none;
+  }
+}
+
+/* Header Left & Content Type Switcher (Все | Фильмы | Сериалы) — borderless */
+.atv-header-left {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-shrink: 0;
+}
+
+.atv-type-switcher {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  border: none;
+  flex-shrink: 0;
+}
+
+.type-pill {
+  padding: 5px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.type-pill:hover {
+  color: var(--text-primary);
+}
+
+.type-pill.active {
+  background: var(--bg-control-hover);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Unauthenticated Service Prompt Banner — calm matte surface, no border */
+.atv-login-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 22px;
+  margin-bottom: 24px;
+  border-radius: var(--radius-card);
+  background: var(--bg-surface);
+  border: none;
+}
+
+.atv-login-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.atv-login-banner-text strong {
+  font-size: 14px;
+  color: #ffffff;
+}
+
+.atv-login-banner-text span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.atv-login-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* Settings Tabs & Integrations List — borderless */
+.settings-tab {
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.settings-tab.active {
+  background: var(--bg-control-hover);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.integrations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.integrations-group-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(235, 235, 245, 0.52);
+  padding: 2px 4px 1px;
+}
+
+.integration-row + .integrations-group-label {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.integration-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--bg-surface);
+  border: none;
+}
+
+.integration-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.integration-name {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.integration-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.integration-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-badge-ok {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.16);
+  color: #6ee7b7;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.status-badge-warn {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--bg-control);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+/* 30-per-page Pagination Controls */
+.atv-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 28px 0 8px;
+}
+
+.atv-page-btn {
+  min-width: 36px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: var(--bg-surface);
+  border: none;
+  outline: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.atv-page-btn:hover:not(:disabled) {
+  background: var(--bg-control-hover);
+  color: #ffffff;
+}
+
+.atv-page-btn.active {
+  background: #f5f5f7;
+  color: #0b0c0f;
+  font-weight: 700;
+}
+
+.atv-page-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.atv-page-ellipsis {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  padding: 0 4px;
+  user-select: none;
+}
+
+.atv-page-info {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-left: 10px;
+}
+
+/* Kinorium User Badge & Switcher Pill on Main Screen */
+.atv-kinorium-bar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Permanent Previous / Next Episode Navigation Buttons */
+.atv-ep-nav-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.atv-ep-nav-btn {
+  padding: 6px 11px;
+  border-radius: 8px;
+  background: var(--bg-control);
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.16s ease, opacity 0.16s ease;
+}
+
+.atv-ep-nav-btn:hover:not(:disabled) {
+  background: var(--bg-control-hover);
+}
+
+.atv-ep-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Kinorium User Switcher Card inside Settings Modal */
+.integration-row.kinorium-card {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.kin-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: nowrap;
+}
+
+.kin-card-top .integration-info {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.kin-card-top .integration-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kin-card-top .integration-status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kin-card-top .integration-actions {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.kin-switcher-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px 13px;
+  border-radius: 9px;
+  background: var(--bg-elevated);
+}
+
+.kin-switcher-box.is-compact {
+  padding: 8px 12px;
+}
+
+.kin-compact-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.kin-compact-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.kin-switcher-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kin-switcher-input {
+  flex: 1;
+  min-width: 210px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg-control);
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.kin-switcher-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.kin-switcher-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1.35;
+}
+
+.atv-hotkeys-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--bg-surface);
+  cursor: help;
+  user-select: none;
+}
+
+/* Catalog Genre / Year Filter Selects & Random Pick Button (Unified 34px Control Grid) */
+.atv-filter-select {
+  height: 34px;
+  background: var(--bg-control);
+  color: var(--text-primary);
+  border: none;
+  border-radius: 9px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  box-sizing: border-box;
+  outline: none;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+
+.atv-filter-select:hover {
+  background: var(--bg-control-hover);
+}
+
+.atv-filter-select.active-sort {
+  background: rgba(56, 189, 248, 0.2);
+  color: #bae6fd;
+  font-weight: 600;
+}
+
+.atv-random-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 13px;
+  border-radius: 9px;
+  background: var(--bg-control);
+  border: none;
+  outline: none;
+  color: #f5f5f7;
+  font-size: 12.5px;
+  font-weight: 600;
+  box-sizing: border-box;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.atv-random-btn:hover {
+  background: #f5f5f7;
+  color: #0b0c0f;
+}
+
+/* Dismiss Button on Continue Watching / Up Next Cards */
+.atv-upnext-remove {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 6;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: rgba(15, 16, 20, 0.85);
+  border: none;
+  outline: none;
+  color: rgba(245, 245, 247, 0.78);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.atv-upnext-card:hover .atv-upnext-remove {
+  opacity: 1;
+}
+
+.atv-upnext-remove:hover {
+  background: rgba(239, 68, 68, 0.9);
+  color: #ffffff;
+}
+
+/* Friends Rated Filter Button (Unified 34px Control Grid) */
+.atv-friends-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 13px;
+  border-radius: 9px;
+  background: var(--bg-control);
+  border: none;
+  outline: none;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  box-sizing: border-box;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.atv-friends-filter-btn:hover {
+  background: var(--bg-control-hover);
+  color: #ffffff;
+}
+
+.atv-friends-filter-btn.active {
+  background: rgba(59, 130, 246, 0.24);
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+/* Auto-Play Next Episode Countdown Card — inside top-right .atv-endgame-stack */
+.atv-autoplay-card {
+  position: relative;
+  inset: auto;
+  z-index: 29;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 15px;
+  width: 100%;
+  max-width: 100%;
+  border-radius: 12px;
+  background: rgba(18, 19, 24, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65);
+  border: none;
+}
+
+.atv-autoplay-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+
+.atv-autoplay-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Audio Boost & Direct MP4 Download Button */
+#audio-boost-group.boost-active {
+  background: rgba(16, 185, 129, 0.2);
+}
+
+#audio-boost-group.boost-active span,
+#audio-boost-group.boost-active select {
+  color: #6ee7b7;
+  font-weight: 600;
+}
+
+.atv-download-btn {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+.atv-download-btn:hover {
+  background: rgba(59, 130, 246, 0.34);
+  color: #ffffff;
+}
+
+/* Trailer Panel & Stage */
+.atv-trailer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.atv-trailer-btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.atv-trailer-btns .atv-ep-nav-btn.active {
+  background: #f5f5f7;
+  color: #0b0c0f;
+  font-weight: 600;
+}
+
+.atv-trailer-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 22;
+  background: #000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.atv-trailer-stage iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Similar Movies & Series List in Sidebar */
+.atv-similar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.atv-similar-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: background 0.16s ease, transform 0.16s ease;
+}
+
+.atv-similar-card:hover {
+  background: rgba(255, 255, 255, 0.11);
+  transform: translateX(2px);
+}
+
+.atv-similar-poster {
+  width: 38px;
+  height: 56px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #161922;
+}
+
+.atv-similar-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.atv-similar-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-similar-meta {
+  font-size: 11px;
+  color: rgba(235, 235, 245, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Audio Equalizer & Night Mode Active State */
+#audio-eq-group.eq-active {
+  background: rgba(168, 85, 247, 0.22);
+}
+
+#audio-eq-group.eq-active span,
+#audio-eq-group.eq-active select {
+  color: #d8b4fe;
+  font-weight: 600;
+}
+
+/* Top Bar New Episode Notifications Bell & Popover */
+.atv-notif-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.atv-bell-btn {
+  position: relative;
+}
+
+.atv-notif-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.55);
+  pointer-events: none;
+}
+
+.atv-notif-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 350px;
+  max-height: 440px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: #1c1c1f;
+  border: none;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.68);
+  z-index: 250;
+  overflow: hidden;
+}
+
+.atv-notif-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: none;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+
+.atv-notif-read-btn {
+  background: var(--bg-control);
+  border: none;
+  border-radius: 7px;
+  padding: 4px 9px;
+  color: rgba(235, 235, 245, 0.8);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.atv-notif-read-btn:hover {
+  background: var(--bg-control-hover);
+  color: #ffffff;
+}
+
+.atv-notif-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  overflow-y: auto;
+  max-height: 375px;
+}
+
+.atv-notif-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--bg-control);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.atv-notif-item:hover {
+  background: var(--bg-control-hover);
+  transform: translateX(2px);
+}
+
+.atv-notif-item.unread {
+  background: rgba(59, 130, 246, 0.16);
+  border: none;
+}
+
+.atv-notif-poster {
+  width: 40px;
+  height: 58px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #161922;
+}
+
+.atv-notif-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.atv-notif-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f5f7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-notif-ep {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #6ee7b7;
+}
+
+.atv-notif-sub {
+  font-size: 11px;
+  color: rgba(235, 235, 245, 0.55);
+}
+
+.atv-notif-play {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.atv-notif-empty {
+  padding: 22px 14px;
+  text-align: center;
+  font-size: 12.5px;
+  color: rgba(235, 235, 245, 0.52);
+  line-height: 1.45;
+}
+
+/* Quick 1-Click Backup Card in Settings */
+.atv-backup-quick-card {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--bg-surface);
+  border: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.atv-backup-quick-head h4 {
+  margin: 0 0 4px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+
+.atv-backup-quick-head p {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.62);
+  line-height: 1.4;
+}
+
+.atv-backup-quick-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Quick Poster Action: Watching */
+.qa-btn.qa-watching.active-watching {
+  background: rgba(59, 130, 246, 0.92);
+  color: #ffffff;
+  border: none;
+}
+
+/* Sleep Timer Active Highlight */
+#sleep-timer-group.sleep-active {
+  background: rgba(245, 158, 11, 0.22);
+}
+
+#sleep-timer-group.sleep-active span,
+#sleep-timer-group.sleep-active select {
+  color: #fcd34d;
+  font-weight: 600;
+}
+
+/* Visual Season Episodes Strip under Video Stage — minimal borderless macOS dark */
+.atv-episodes-strip-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.atv-episodes-strip-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.atv-episodes-strip {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+  padding: 2px 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.atv-ep-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  border: none;
+  outline: none;
+  background: var(--bg-control);
+  color: rgba(235, 235, 245, 0.85);
+  border-radius: 8px;
+  padding: 5px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.atv-ep-pill:hover {
+  background: var(--bg-control-hover);
+  color: #ffffff;
+}
+
+.atv-ep-pill.watched {
+  color: #6ee7b7;
+  border: none;
+  background: rgba(16, 185, 129, 0.14);
+}
+
+.atv-ep-pill.watched:hover {
+  background: rgba(16, 185, 129, 0.22);
+  color: #a7f3d0;
+}
+
+.atv-ep-pill.active {
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.24), rgba(56, 189, 248, 0.12));
+  color: #f5f5f7;
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.52);
+  border: none;
+}
+
+/* Clickable Directors & Cast Chips in Sidebar */
+.atv-cast-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.atv-cast-chip {
+  border: none;
+  background: var(--bg-surface);
+  color: rgba(235, 235, 245, 0.85);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.atv-cast-chip:hover {
+  background: var(--bg-control-hover);
+  color: #ffffff;
+}
+
+.atv-cast-chip.director {
+  background: rgba(59, 130, 246, 0.15);
+  border: none;
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+.atv-cast-chip.duration {
+  background: var(--bg-surface);
+  color: rgba(235, 235, 245, 0.65);
+  cursor: default;
+}
+
+/* Main Page Collapsible Filters Drawer & Action Buttons */
+.atv-main-bar-actions {
+  margin-left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1120px) {
+  .atv-main-bar-actions {
+    justify-content: flex-start;
+  }
+}
+
+.atv-active-filter-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.atv-filter-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #3b82f6;
+  color: #ffffff;
+  font-size: 10.5px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+.atv-filters-drawer {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg-surface);
+  border: none;
+}
+
+#btn-clear-catalog-filters {
+  margin-left: auto;
+}
+
+/* Player Gear Settings Popover Menu (Inside #video-stage & #atv-custom-controls) */
+.atv-player-gear-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.atv-vc-gear-btn.active {
+  background: rgba(56, 189, 248, 0.24);
+  color: #7dd3fc;
+}
+
+.atv-vc-gear-speed {
+  font-size: 11px;
+  font-weight: 700;
+  color: #7dd3fc;
+  font-variant-numeric: tabular-nums;
+}
+
+.atv-gear-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #38bdf8;
+  box-shadow: none;
+  flex-shrink: 0;
+}
+
+.atv-gear-popover {
+  position: absolute;
+  top: auto;
+  bottom: 78px;
+  right: 12px;
+  width: min(500px, calc(100% - 24px));
+  max-width: calc(100% - 24px);
+  max-height: min(440px, calc(100dvh - 150px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  z-index: 48;
+  background: rgba(20, 21, 27, 0.97);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.84);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Center Apple TV Action Pulse Indicator inside #video-stage */
+.atv-video-center-ind {
+  position: absolute;
+  inset: 0;
+  z-index: 22;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.atv-video-center-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  background: rgba(18, 18, 22, 0.78);
+  color: #f5f5f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  border: none;
+}
+
+.atv-video-center-caption {
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: rgba(18, 18, 22, 0.84);
+  color: #f5f5f7;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  border: none;
+}
+
+.atv-video-center-ind.is-pulsing {
+  animation: atvCenterPulse 0.54s cubic-bezier(0.2, 0.85, 0.3, 1) forwards;
+}
+
+@keyframes atvCenterPulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.76);
+  }
+  24% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+  68% {
+    opacity: 0.96;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.12);
+  }
+}
+
+.atv-gear-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 700;
+  color: #f5f5f7;
+  padding-bottom: 4px;
+  border: none;
+}
+
+.atv-gear-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.atv-gear-grid .atv-select-group {
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.atv-gear-grid .atv-select-group span {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.atv-gear-grid .atv-select-group select {
+  min-width: 0;
+  max-width: 146px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-gear-section {
+  padding-top: 6px;
+  border: none;
+}
+
+.atv-gear-toggle-list,
+.atv-gear-toggle-sublist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.atv-gear-toggle-sublist {
+  grid-column: 1 / -1;
+}
+
+.atv-gear-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  user-select: none;
+}
+
+.atv-gear-toggle-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(245, 245, 247, 0.9);
+  line-height: 1.25;
+}
+
+@media (max-width: 540px) {
+  .atv-gear-grid,
+  .atv-gear-toggle-list,
+  .atv-gear-toggle-sublist {
+    grid-template-columns: 1fr;
+  }
+}
+
+.atv-gear-tools-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.atv-gear-hotkeys {
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  padding: 9px 11px;
+}
+
+.atv-gear-hotkeys-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(235, 235, 245, 0.75);
+  margin-bottom: 4px;
+}
+
+.atv-gear-hotkeys .atv-hotkeys-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(235, 235, 245, 0.62);
+}
+
+.atv-gear-hotkeys code {
+  background: rgba(255, 255, 255, 0.09);
+  padding: 1px 5px;
+  border-radius: 5px;
+  color: #f5f5f7;
+  font-size: 10.5px;
+}
+
+/* Unified Bottom Season & Episodes Panel — sleek obsidian glass card */
+.atv-episodes-bottom-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 13px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.028);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.atv-episodes-panel-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 0;
+}
+
+#btn-toggle-episodes-strip {
+  margin-left: auto;
+}
+
+.atv-episodes-subbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 2px 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.atv-ep-batch-group {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Current / Hovered Episode Title Subtitle Bar under the Player */
+.atv-current-ep-bar {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  padding: 7px 11px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.035);
+  border: none;
+  min-height: 32px;
+  transition: background 0.16s ease;
+}
+
+.atv-current-ep-bar.is-preview {
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.atv-current-ep-code {
+  font-size: 12px;
+  font-weight: 700;
+  color: #7dd3fc;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.atv-current-ep-bar.is-preview .atv-current-ep-code {
+  color: #bae6fd;
+}
+
+.atv-current-ep-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f5f7;
+  min-width: 0;
+}
+
+.atv-current-ep-sub {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+/* Per-Episode Progress Bar & Episode Title inside Episode Pill */
+.atv-ep-pill {
+  position: relative;
+  overflow: hidden;
+  padding-bottom: 6px;
+}
+
+.atv-ep-pill.has-title {
+  gap: 6px;
+  padding: 5px 11px 6px;
+  max-width: 220px;
+  justify-content: flex-start;
+}
+
+.atv-ep-pill-num {
+  font-weight: 700;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.atv-ep-pill-name {
+  font-weight: 500;
+  font-size: 11.5px;
+  opacity: 0.86;
+  max-width: 148px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atv-ep-pill.active .atv-ep-pill-name {
+  opacity: 0.95;
+  font-weight: 600;
+}
+
+.atv-ep-pill-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: #38bdf8;
+  border-radius: 0 3px 0 0;
+  pointer-events: none;
+}
+
+.atv-ep-pill.active .atv-ep-pill-progress {
+  background: #2563eb;
+}
+
+/* Video Crop / Aspect Ratio Modes */
+#native-video.crop-contain {
+  object-fit: contain;
+  transform: none;
+}
+
+#native-video.crop-cover {
+  object-fit: cover;
+  transform: none;
+}
+
+#native-video.crop-zoom115 {
+  object-fit: contain;
+  transform: scale(1.15);
+}
+
+#native-video.crop-fill {
+  object-fit: fill;
+  transform: none;
+}
+
+#video-crop-group.crop-active {
+  border: none;
+  background: rgba(56, 189, 248, 0.16);
+}
+
+/* In-App Floating Mini-Player Mode */
+.atv-modal-overlay.mini-player-mode {
+  z-index: var(--z-floating-player);
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  pointer-events: none;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 20px;
+}
+
+.atv-modal-overlay.mini-player-mode .atv-cinema-sheet {
+  pointer-events: auto;
+  width: 420px;
+  max-width: 92vw;
+  height: auto;
+  max-height: none;
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  background: #141416;
+}
+
+.atv-modal-overlay.mini-player-mode .atv-sheet-header,
+.atv-modal-overlay.mini-player-mode #rezka-controls-bar,
+.atv-modal-overlay.mini-player-mode .atv-subpanel,
+.atv-modal-overlay.mini-player-mode #current-episode-bar,
+.atv-modal-overlay.mini-player-mode #episodes-bottom-panel,
+.atv-modal-overlay.mini-player-mode #meta-cast-section,
+.atv-modal-overlay.mini-player-mode #video-ambilight-glow,
+.atv-modal-overlay.mini-player-mode .atv-info-sidebar {
+  display: none !important;
+}
+
+.atv-modal-overlay.mini-player-mode .atv-sheet-body {
+  display: block;
+  padding: 0;
+}
+
+.atv-modal-overlay.mini-player-mode .atv-player-col {
+  padding: 0 !important;
+  gap: 0 !important;
+  overflow: hidden !important;
+}
+
+.atv-modal-overlay.mini-player-mode .atv-video-stage {
+  aspect-ratio: 16 / 9;
+  min-height: 210px;
+  max-height: 240px;
+  border-radius: 0;
+}
+
+.atv-modal-overlay.mini-player-mode .atv-skip-btn {
+  bottom: 44px;
+  right: 12px;
+  padding: 6px 11px;
+  font-size: 11px;
+}
+
+.atv-modal-overlay.mini-player-mode #skip-outro-btn {
+  top: 10px;
+  right: 10px;
+  bottom: auto;
+}
+
+.atv-modal-overlay.mini-player-mode .atv-endgame-stack {
+  top: 10px;
+  right: 10px;
+  left: 10px;
+  width: auto;
+  align-items: stretch;
+}
+
+.atv-modal-overlay.mini-player-mode .atv-autoplay-card {
+  position: relative;
+  inset: auto;
+  max-width: none;
+  padding: 10px 12px;
+  gap: 6px;
+}
+
+.atv-modal-overlay.mini-player-mode .atv-postwatch-overlay {
+  display: none !important;
+}
+
+.atv-miniplayer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: none;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.atv-miniplayer-bar.dragging {
+  cursor: grabbing;
+}
+
+.atv-miniplayer-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.atv-miniplayer-grip {
+  color: rgba(235, 235, 245, 0.42);
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.atv-miniplayer-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-miniplayer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  pointer-events: auto;
+}
+
+.atv-miniplayer-actions button {
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+/* Stremio Native Panel & Addon Manager — Dark Obsidian Glass */
+.atv-stremio-head-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.atv-stremio-head-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.atv-stremio-title-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+
+.atv-stremio-imdb-chip,
+.atv-stremio-subs-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.atv-stremio-imdb-chip {
+  background: rgba(245, 158, 11, 0.16);
+  color: #fcd34d;
+}
+
+.atv-stremio-subs-chip {
+  background: rgba(16, 185, 129, 0.15);
+  color: #6ee7b7;
+}
+
+.atv-stremio-head-right {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.atv-stremio-filters {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.045);
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.atv-stremio-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.atv-stremio-filter-pill {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: rgba(235, 235, 245, 0.72);
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.atv-stremio-filter-pill:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.atv-stremio-filter-pill.active {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.atv-stremio-badges-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.atv-stremio-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.075);
+  color: rgba(235, 235, 245, 0.85);
+}
+
+.atv-stremio-badge.is-addon {
+  background: rgba(139, 92, 246, 0.2);
+  color: #ddd6fe;
+}
+
+.atv-stremio-badge.is-4k {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fde68a;
+}
+
+.atv-stremio-badge.is-ru {
+  background: rgba(56, 189, 248, 0.18);
+  color: #bae6fd;
+}
+
+.atv-stremio-badge.is-voice {
+  background: rgba(16, 185, 129, 0.16);
+  color: #a7f3d0;
+}
+
+.atv-settings-subnote {
+  margin: -2px 0 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(235, 235, 245, 0.6);
+}
+
+.atv-stremio-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.atv-stremio-add-row input {
+  flex: 1 1 0;
+  min-width: 0;
+  margin-bottom: 0 !important;
+}
+
+.atv-stremio-addons-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.atv-stremio-addon-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.atv-stremio-addon-row.is-disabled {
+  opacity: 0.56;
+}
+
+.atv-stremio-addon-info {
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.atv-stremio-addon-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+
+.atv-stremio-addon-sub {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: rgba(235, 235, 245, 0.56);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-stremio-addon-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* App Language & Default Audio Card in Settings */
+.atv-settings-lang-card {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px 15px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: var(--bg-surface);
+}
+
+.atv-settings-lang-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.atv-settings-lang-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+
+.atv-lang-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.atv-lang-seg-btn {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: rgba(235, 235, 245, 0.72);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.atv-lang-seg-btn:hover {
+  color: #ffffff;
+}
+
+.atv-lang-seg-btn.active {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+}
+
+.atv-settings-lang-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.42;
+  color: rgba(235, 235, 245, 0.68);
+}
+
+.atv-settings-lead {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.atv-stats-loading-placeholder {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.atv-notif-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.atv-trailer-label {
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.78);
+}
+
+.atv-advanced-details {
+  margin-top: 4px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 8px 12px;
+}
+
+.atv-advanced-details > summary {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.atv-advanced-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.atv-advanced-details > summary::after {
+  content: "+";
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.atv-advanced-details[open] > summary::after {
+  content: "−";
+}
+
+.atv-advanced-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.atv-sys-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.atv-sys-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.atv-sys-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.atv-sys-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+
+.atv-sys-sub {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.atv-lan-qr-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.atv-lan-qr-box {
+  width: 108px;
+  height: 108px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.atv-lan-qr-box svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.atv-lan-qr-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.atv-lan-url-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.atv-lan-url-row code {
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.14);
+  color: #7dd3fc;
+  font-size: 12.5px;
+  font-weight: 600;
+  user-select: all;
+}
+
+.atv-lan-qr-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.42;
+  color: rgba(235, 235, 245, 0.62);
+}
+
+@media (max-width: 520px) {
+  .atv-lan-qr-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .atv-settings-header,
+  .atv-settings-footer {
+    padding: 12px 14px;
+  }
+  .atv-settings-body {
+    padding: 14px;
+  }
+  .settings-tab {
+    padding: 6px 10px;
+    font-size: 11.5px;
+    white-space: nowrap;
+  }
+  .atv-stremio-add-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+
+

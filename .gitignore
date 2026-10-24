@@ -1,0 +1,22 @@
+# Python bytecode & virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local user data, session cookies & runtime caches
+data/*.json
+data/*.tmp
+data/*.log
+data/torrserver/
+
+# Downloaded or compiled local runtime binaries (TorrServer, FFmpeg, FFprobe, Vision)
+backend/bin/torrserver
+backend/bin/ffmpeg
+backend/bin/ffprobe
+backend/bin/vision_ad_detector
+
+# macOS & editor files
+.DS_Store
+.idea/
+.vscode/

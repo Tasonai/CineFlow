@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <title>CineFlow</title>
+  <meta name="theme-color" content="#090a0f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="CineFlow" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+  <link rel="shortcut icon" href="/favicon.svg" />
+  <link rel="stylesheet" href="/css/base-and-hero.css?v=20261024v4" />
+  <link rel="stylesheet" href="/css/catalog-and-player-layout.css?v=20261024v4" />
+  <link rel="stylesheet" href="/css/modals-and-search.css?v=20261024v4" />
+  <link rel="stylesheet" href="/css/settings-and-episodes.css?v=20261024v4" />
+  <link rel="stylesheet" href="/css/video-controls-and-person.css?v=20261024v4" />
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+</head>
+<body>
+  <div id="ambient-glow" class="ambient-glow"></div>
+
+  <!-- Apple TV Minimalist Top Navigation -->
+  <header class="atv-header">
+    <div class="atv-header-left">
+      <div class="atv-brand" id="brand-home" tabindex="0" role="button" aria-label="CineFlow — На главную">
+        <img class="atv-logo-icon" src="/favicon.svg" alt="" width="24" height="24" />
+        <span class="atv-brand-name">CineFlow</span>
+      </div>
+
+      <!-- Content Type Switcher: Все | Фильмы | Сериалы -->
+      <div class="atv-type-switcher" id="media-type-bar">
+        <button class="type-pill active" data-type="all">Все</button>
+        <button class="type-pill" data-type="movie">Фильмы</button>
+        <button class="type-pill" data-type="series">Сериалы</button>
+      </div>
+    </div>
+
+    <!-- Apple TV Segmented Channel Bar (Connected Streaming Catalogs) -->
+    <nav class="atv-nav-pills hidden" id="provider-filter-bar">
+      <button class="atv-pill active" data-provider="all">Главная</button>
+      <button class="atv-pill hidden" data-provider="hdrezka">HDRezka</button>
+      <button class="atv-pill hidden" data-provider="stremio">Stremio</button>
+      <button class="atv-pill hidden" data-provider="appletv">Apple TV+</button>
+      <button class="atv-pill hidden" data-provider="netflix">Netflix</button>
+      <button class="atv-pill hidden" data-provider="prime">Prime Video</button>
+      <button class="atv-pill hidden" data-provider="disney">Disney+</button>
+      <button class="atv-pill hidden" data-provider="max">Max</button>
+      <button class="atv-pill hidden" data-provider="playerpl">Player.pl</button>
+      <button class="atv-pill hidden" data-provider="backup4k">4K Remux</button>
+    </nav>
+
+    <div class="atv-header-right">
+      <div class="atv-search" id="global-search-wrap">
+        <svg class="atv-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input
+          type="text"
+          id="global-search"
+          placeholder="Поиск фильмов, сериалов и актёров..."
+          autocomplete="off"
+        />
+        <span class="atv-search-kbd" id="search-kbd-hint" title="Быстрый поиск (Cmd+K / Ctrl+K)">Cmd+K</span>
+        <button type="button" class="atv-search-clear hidden" id="btn-clear-search" title="Очистить поиск">
+          <svg class="atv-ico" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+        <div class="atv-search-popover hidden" id="search-live-popover"></div>
+      </div>
+
+      <button class="atv-icon-btn" id="btn-open-stats-modal" title="Моя статистика и история просмотров">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 20V10M12 20V4M6 20v-6"></path>
+        </svg>
+      </button>
+
+      <div class="atv-notif-wrap" id="notifications-wrap">
+        <button class="atv-icon-btn atv-bell-btn" id="notifications-bell-btn" title="Уведомления о новых сериях («Смотрю»)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+          <span class="atv-notif-badge hidden" id="notifications-badge">0</span>
+        </button>
+        <div class="atv-notif-popover hidden" id="notifications-popover">
+          <div class="atv-notif-header">
+            <span class="atv-inline-icon-label">
+              <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+              <span>Новые серии («Смотрю»)</span>
+            </span>
+            <div class="atv-notif-header-actions">
+              <button type="button" class="atv-notif-read-btn" id="btn-check-rezka-updates" title="Проверить реальные вышедшие серии и озвучки на HDRezka">
+                <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+                <span>HDRezka</span>
+              </button>
+              <button type="button" class="atv-notif-read-btn" id="btn-mark-notifs-read" title="Отметить все уведомления прочитанными">
+                <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                <span>Прочитано</span>
+              </button>
+            </div>
+          </div>
+          <div class="atv-notif-list" id="notifications-list"></div>
+        </div>
+      </div>
+
+      <button class="atv-icon-btn" id="open-settings-btn" title="Настройки и интеграции">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="atv-main">
+    <!-- Unauthenticated Service Prompt Banner (Shown when selecting a paid service where user is not logged in) -->
+    <div class="atv-login-banner hidden" id="service-login-banner">
+      <div class="atv-login-banner-text">
+        <strong id="login-banner-title">Вы не вошли в аккаунт сервиса</strong>
+        <span id="login-banner-sub">Войдите в аккаунт для прямого запуска по подписке или смотрите бесплатно без регистрации через HDRezka.</span>
+      </div>
+      <div class="atv-login-banner-actions">
+        <button class="atv-btn-primary atv-btn-sm" id="banner-login-btn">Войти в аккаунт</button>
+        <button class="atv-btn-primary atv-btn-sm hidden" id="banner-confirm-login-btn">Подтвердить вход</button>
+        <button class="atv-btn-secondary atv-btn-sm" id="banner-open-integrations-btn">Все интеграции</button>
+      </div>
+    </div>
+
+    <!-- Apple TV+ Hero Showcase Carousel -->
+    <section class="atv-hero" id="hero-banner">
+      <div class="atv-hero-backdrop" id="hero-backdrop"></div>
+      <div class="atv-hero-vignette"></div>
+      <div class="atv-hero-content" id="hero-content"></div>
+      <div class="atv-hero-controls hidden" id="hero-carousel-controls">
+        <button type="button" class="atv-hero-arrow" id="hero-prev-btn" title="Предыдущий слайд">
+          <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <div class="atv-hero-dots" id="hero-dots"></div>
+        <button type="button" class="atv-hero-arrow" id="hero-next-btn" title="Следующий слайд">
+          <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- Unified Catalog Control Bar: Kinorium Sections + Sort / Filters / Random Pick -->
+    <section class="atv-kinorium-bar-wrap" id="kinorium-sections-wrap">
+      <div class="atv-catalog-topbar" id="catalog-topbar">
+        <div class="atv-kinorium-pills" id="kinorium-sections-bar">
+          <button class="kin-sec-pill active" data-ksec="all">Весь каталог</button>
+          <button class="kin-sec-pill" data-ksec="premieres">
+            Премьеры онлайн <span class="kin-sec-count" id="kcount-premieres">0</span>
+          </button>
+          <button class="kin-sec-pill" data-ksec="watching">
+            Смотрю <span class="kin-sec-count" id="kcount-watching">0</span>
+          </button>
+          <button class="kin-sec-pill" data-ksec="watchlist">
+            Буду смотреть <span class="kin-sec-count" id="kcount-watchlist">0</span>
+          </button>
+          <button class="kin-sec-pill" data-ksec="watched">
+            Просмотрено <span class="kin-sec-count" id="kcount-watched">0</span>
+          </button>
+          <button class="kin-sec-pill" data-ksec="never">
+            Не буду смотреть <span class="kin-sec-count" id="kcount-never">0</span>
+          </button>
+        </div>
+
+        <div class="atv-main-bar-actions" id="catalog-shelf-toolbar">
+          <select id="select-catalog-sort" class="atv-filter-select atv-sort-inline-select" title="Сортировка каталога">
+            <option value="default">Сортировка: По умолчанию</option>
+            <option value="user_rating">По моей оценке (10 - 1)</option>
+            <option value="friends_rating">По оценкам друзей (10 - 1)</option>
+            <option value="kinorium_rating">По рейтингу Кинориума</option>
+            <option value="year_desc">По году (сначала новые)</option>
+          </select>
+          <button class="atv-friends-filter-btn" id="btn-toggle-catalog-filters" title="Показать или скрыть панель фильтров">
+            <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="var(--bg-surface)"/><circle cx="15" cy="12" r="2" fill="var(--bg-surface)"/><circle cx="10" cy="18" r="2" fill="var(--bg-surface)"/></svg>
+            <span>Фильтры</span>
+            <span class="atv-filter-count-badge hidden" id="active-filters-badge">0</span>
+          </button>
+          <button class="atv-random-btn" id="btn-random-pick" title="Выбрать случайный фильм или сериал из текущего списка">
+            <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="m15 15 6 6"/><path d="M4 4l5 5"/></svg>
+            <span>Что посмотреть?</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="atv-active-filter-chips hidden" id="active-filter-chips-bar"></div>
+
+      <div class="atv-filters-drawer hidden" id="catalog-filters-drawer">
+        <select id="select-catalog-genre" class="atv-filter-select" title="Фильтр по жанру">
+          <option value="all">Все жанры</option>
+        </select>
+        <select id="select-catalog-year" class="atv-filter-select" title="Фильтр по году выпуска">
+          <option value="all">Все годы</option>
+        </select>
+        <button class="atv-friends-filter-btn" id="btn-hide-watched" title="Скрыть уже просмотренные фильмы и сериалы">
+          <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+          <span>Скрыть просмотренные</span>
+        </button>
+        <button class="atv-friends-filter-btn" id="btn-friends-filter" title="Показать только тайтлы, которые оценили ваши друзья на Kinorium">
+          <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Оценили друзья</span>
+        </button>
+        <select id="select-friend-filter" class="atv-filter-select" title="Фильтр по конкретному другу из Kinorium">
+          <option value="all">Друг: Все друзья</option>
+        </select>
+        <button class="atv-friends-filter-btn" id="btn-clear-catalog-filters" title="Сбросить все активные фильтры и сортировку">
+          <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          <span>Сбросить</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Up Next / Continue Watching -->
+    <section class="atv-section" id="continue-watching-section">
+      <div class="atv-section-header">
+        <h2>Новые серии и продолжить просмотр</h2>
+      </div>
+      <div class="atv-upnext-row" id="continue-watching-grid"></div>
+    </section>
+
+    <!-- Unified Kinorium Section Shelf (Strictly 30 cards per page; synced with top #media-type-bar) -->
+    <section class="atv-section hidden" id="unified-kinorium-section">
+      <div class="atv-section-header" id="unified-kinorium-header">
+        <div class="atv-section-title-group">
+          <h2 id="unified-kinorium-heading">Буду смотреть</h2>
+          <span class="atv-section-count" id="unified-kinorium-count">0</span>
+          <span class="atv-section-breakdown hidden" id="unified-kinorium-breakdown"></span>
+        </div>
+      </div>
+      <div class="atv-posters-grid" id="unified-kinorium-grid"></div>
+    </section>
+
+    <!-- Series Shelf -->
+    <section class="atv-section" id="series-section">
+      <div class="atv-section-header" id="series-section-header">
+        <div class="atv-section-title-group">
+          <h2 id="series-heading">Сериалы</h2>
+          <span class="atv-section-count" id="series-count"></span>
+        </div>
+      </div>
+      <div class="atv-posters-grid" id="series-grid"></div>
+    </section>
+
+    <!-- Movies Shelf -->
+    <section class="atv-section" id="movies-section">
+      <div class="atv-section-header" id="movies-section-header">
+        <div class="atv-section-title-group">
+          <h2 id="movies-heading">Фильмы</h2>
+          <span class="atv-section-count" id="movies-count"></span>
+        </div>
+      </div>
+      <div class="atv-posters-grid" id="movies-grid"></div>
+    </section>
+
+    <!-- Search Similar Titles Shelf -->
+    <section class="atv-section hidden" id="search-similar-section">
+      <div class="atv-section-header">
+        <div class="atv-similar-shelf-title-wrap">
+          <h2 id="search-similar-heading">Похожие тайтлы</h2>
+          <span class="atv-similar-shelf-sub" id="search-similar-sub"></span>
+        </div>
+        <span class="atv-section-count" id="search-similar-count"></span>
+      </div>
+      <div class="atv-posters-grid" id="search-similar-grid"></div>
+    </section>
+  </main>
+
+  <!-- Apple TV Cinema Player Modal -->
+  <div class="atv-modal-overlay hidden" id="player-modal">
+    <div class="atv-cinema-sheet">
+      <div class="atv-sheet-header">
+        <div class="atv-sheet-title-wrap">
+          <h2 id="modal-title">Название</h2>
+          <span class="atv-sheet-sub" id="modal-orig-title"></span>
+        </div>
+
+        <div class="atv-hdr-center-bar">
+          <div class="atv-segmented-tabs">
+            <button class="source-tab active" data-tab="hdrezka" title="Прямой поток 1080p с HDRezka без регистрации">HDRezka</button>
+            <button class="source-tab" data-tab="stremio" title="Потоки и субтитры из аддонов Stremio (Torrentio, OpenSubtitles и свои manifest.json)">Stremio</button>
+            <button class="source-tab" data-tab="backup4k" title="Потоки 4K UHD HDR / BDRemux">4K</button>
+            <button class="source-tab" data-tab="trailer" id="tab-btn-trailer" title="Русский и оригинальный трейлер">Трейлер</button>
+          </div>
+          <div class="atv-hdr-audio-bar" id="hdr-rezka-audio-bar">
+            <button type="button" class="atv-hdr-orig-btn" id="btn-quick-original" title="Смотреть в оригинальной озвучке (Оригинал)">
+              <span class="atv-hdr-orig-tag">ORIG</span>
+              <span id="hdr-orig-label">Оригинал</span>
+            </button>
+            <div class="atv-hdr-studio-wrap" id="hdr-studio-wrap">
+              <button type="button" class="atv-hdr-studio-btn" id="btn-hdr-studio" title="Выбрать студию озвучки или Оригинал">
+                <span class="atv-hdr-studio-prefix">Озвучка:</span>
+                <span id="hdr-studio-label">Загрузка...</span>
+                <svg class="atv-ico atv-caret-svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <div class="atv-hdr-studio-popover hidden" id="hdr-studio-popover"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="atv-sheet-actions">
+          <div class="atv-status-dropdown-wrap" id="kinorium-status-dropdown-wrap">
+            <button type="button" class="atv-action-pill atv-status-trigger" id="btn-kinorium-status-menu" title="Изменить статус фильма или сериала в Kinorium">
+              <span class="atv-inline-icon-label" id="kinorium-status-summary-label"><span>Статус</span></span>
+              <svg class="atv-ico atv-caret-svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="atv-status-popover hidden" id="kinorium-status-popover">
+              <div class="atv-status-popover-title">Список в Kinorium</div>
+              <button type="button" class="atv-action-pill atv-status-menu-item" id="btn-toggle-watching">
+                <span class="atv-inline-icon-label" id="watching-text"><span>Смотрю</span></span>
+              </button>
+              <button type="button" class="atv-action-pill atv-status-menu-item" id="btn-toggle-watched">
+                <span class="atv-inline-icon-label" id="watched-text"><span>Не просмотрено</span></span>
+              </button>
+              <button type="button" class="atv-action-pill atv-status-menu-item" id="btn-toggle-watchlist">
+                <span class="atv-inline-icon-label" id="watchlist-text"><span>Буду смотреть</span></span>
+              </button>
+              <button type="button" class="atv-action-pill atv-status-menu-item" id="btn-toggle-never">
+                <span class="atv-inline-icon-label" id="never-text"><span>Не буду смотреть</span></span>
+              </button>
+            </div>
+          </div>
+          <div class="atv-rate-dropdown-wrap" id="kinorium-rate-dropdown-wrap">
+            <button type="button" class="atv-action-pill" id="btn-open-rate" title="Поставить оценку в Kinorium">
+              <span class="atv-inline-icon-label" id="user-rating-label"><span>Оценить</span></span>
+            </button>
+            <div class="atv-postwatch-overlay is-header-popover hidden" id="kinorium-postwatch-overlay">
+              <div class="atv-postwatch-card">
+                <div class="atv-postwatch-head">
+                  <div class="atv-postwatch-scope hidden" id="postwatch-scope-switch">
+                    <button type="button" class="postwatch-scope-btn active" id="postwatch-scope-ep" data-scope="episode">Эта серия</button>
+                    <button type="button" class="postwatch-scope-btn" id="postwatch-scope-series" data-scope="series">Весь сериал</button>
+                  </div>
+                  <div class="atv-postwatch-tag" id="postwatch-tag">Ваша оценка</div>
+                  <div class="atv-postwatch-head-right">
+                    <button type="button" class="atv-rate-clear-btn hidden" id="postwatch-clear-rate-btn" title="Удалить поставленную оценку">Сбросить</button>
+                    <button type="button" class="atv-close-btn atv-postwatch-close" id="close-postwatch-btn" title="Скрыть карточку оценки">
+                      <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <h3 id="postwatch-title">Оцените просмотр</h3>
+                <div class="atv-stars-row" id="postwatch-stars">
+                  <button type="button" data-score="1">1</button>
+                  <button type="button" data-score="2">2</button>
+                  <button type="button" data-score="3">3</button>
+                  <button type="button" data-score="4">4</button>
+                  <button type="button" data-score="5">5</button>
+                  <button type="button" data-score="6">6</button>
+                  <button type="button" data-score="7">7</button>
+                  <button type="button" data-score="8">8</button>
+                  <button type="button" data-score="9">9</button>
+                  <button type="button" data-score="10">10</button>
+                </div>
+                <input
+                  type="text"
+                  id="postwatch-comment"
+                  placeholder="Комментарий к оценке (необязательно)"
+                />
+              </div>
+            </div>
+          </div>
+          <button type="button" class="atv-action-pill" id="btn-toggle-mini-player" title="Свернуть в плавающий мини-плеер в углу страницы">
+            <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2.2"/><rect x="11.5" y="10.5" width="8.5" height="7.5" rx="1.4" fill="currentColor" fill-opacity="0.28"/><path d="M6 8l4 4m0-3.2V12H6.8"/></svg>
+            <span>Мини-плеер</span>
+          </button>
+          <button class="atv-close-btn" id="close-player-modal" title="Закрыть (Esc)">
+            <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Floating Mini-Player Top Bar (Visible only when minimized; draggable!) -->
+      <div class="atv-miniplayer-bar hidden" id="mini-player-bar" title="Перетащите за панель в любой угол экрана (двойной клик — развернуть)">
+        <div class="atv-miniplayer-title-wrap">
+          <span class="atv-miniplayer-grip">
+            <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
+          </span>
+          <div class="atv-miniplayer-title" id="mini-player-title">Просмотр</div>
+        </div>
+        <div class="atv-miniplayer-actions">
+          <button type="button" class="atv-ep-nav-btn" id="btn-mini-play-pause" title="Пауза / Воспроизведение">
+            <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+          </button>
+          <button type="button" class="atv-ep-nav-btn hidden" id="btn-mini-next-ep" title="Следующая серия">
+            <span>Далее</span>
+            <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+          </button>
+          <button type="button" class="atv-ep-nav-btn" id="btn-restore-mini-player" title="Развернуть плеер на весь экран">
+            <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+            <span>Развернуть</span>
+          </button>
+          <button type="button" class="atv-close-btn atv-close-btn-sm" id="btn-close-mini-player" title="Закрыть плеер">
+            <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="atv-sheet-body">
+        <div class="atv-player-col">
+          <!-- Hidden Backing Sync Elements for Custom Apple TV Video Bar (No Duplicate Top Bar Above Video) -->
+          <div class="hidden" id="rezka-controls-bar" aria-hidden="true">
+            <select id="select-studio"></select>
+            <select id="select-quality"></select>
+            <div class="hidden" id="subtitle-group">
+              <select id="select-subtitle"></select>
+            </div>
+            <span id="geo-bypass-indicator">1080p Без регистрации</span>
+          </div>
+
+          <!-- Trailer Panel -->
+          <div class="atv-subpanel hidden" id="trailer-panel">
+            <div class="atv-trailer-bar">
+              <span class="atv-trailer-label">Трейлер к фильму / сериалу:</span>
+              <div class="atv-trailer-btns">
+                <button class="atv-ep-nav-btn active" id="btn-trailer-ru">Русский трейлер</button>
+                <button class="atv-ep-nav-btn" id="btn-trailer-en">В оригинале</button>
+                <button class="atv-ep-nav-btn" id="btn-trailer-yt" title="Открыть трейлер в новой вкладке YouTube">
+                  <span>Открыть на YouTube</span>
+                  <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M7 7h10v10"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Current Episode Header Bar (Above Video Stage for Series) -->
+          <div class="atv-current-ep-bar atv-current-ep-above hidden" id="current-episode-bar">
+            <div class="atv-current-ep-left">
+              <span class="atv-current-ep-code" id="current-ep-code">Сезон 1 · Серия 1</span>
+              <span class="atv-current-ep-title" id="current-ep-title"></span>
+            </div>
+            <div class="atv-current-ep-right">
+              <span class="atv-current-ep-sub hidden" id="current-ep-sub"></span>
+              <button type="button" class="atv-ep-rate-btn" id="btn-toggle-current-ep" title="Отметить или снять отметку просмотра серии в Kinorium">
+                <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                <span id="current-ep-watch-label">Отметить серию</span>
+              </button>
+              <div class="atv-rate-dropdown-wrap" id="ep-rate-dropdown-wrap">
+                <button type="button" class="atv-ep-rate-btn" id="btn-rate-current-ep" title="Оценить эту серию">
+                  <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2.5 14.9 8.4 21.4 9.3 16.7 13.9 17.8 20.4 12 17.3 6.2 20.4 7.3 13.9 2.6 9.3 9.1 8.4 12 2.5"/></svg>
+                  <span id="current-ep-rate-label">Оценить серию</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Video Stage + Ambilight Halo -->
+          <div class="atv-video-stage-wrap" id="video-stage-wrap">
+            <div class="atv-ambilight-glow hidden" id="video-ambilight-glow"></div>
+            <div class="atv-video-stage" id="video-stage">
+              <video id="native-video" playsinline preload="auto" referrerpolicy="no-referrer"></video>
+              <div class="atv-trailer-stage hidden" id="trailer-stage-box"></div>
+
+              <!-- Apple TV+ Fullscreen Top Context Bar (Synced with cursor idle state) -->
+              <div class="atv-vc-fs-topbar" id="vc-fs-top-bar" aria-hidden="true">
+                <div class="atv-vc-fs-title" id="vc-fs-title"></div>
+                <div class="atv-vc-fs-meta" id="vc-fs-meta"></div>
+              </div>
+
+              <!-- Custom Apple TV On-Screen Display (OSD) Pill (works in normal, mini & Fullscreen) -->
+              <div class="atv-video-osd hidden" id="video-osd-pill">
+                <span class="atv-video-osd-icon" id="video-osd-icon"></span>
+                <div class="atv-video-osd-body">
+                  <span class="atv-video-osd-text" id="video-osd-text">100%</span>
+                  <div class="atv-video-osd-bar hidden" id="video-osd-bar">
+                    <div class="atv-video-osd-fill" id="video-osd-fill" style="width: 100%"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="atv-video-loader hidden" id="video-loader">
+                <div class="atv-spinner"></div>
+                <span id="video-loader-text">Подключение к потоку...</span>
+              </div>
+
+              <!-- Stream Error Empty-State inside #video-stage -->
+              <div class="atv-video-error hidden" id="video-error-state">
+                <div class="atv-video-error-icon">
+                  <svg class="atv-ico" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                </div>
+                <div class="atv-video-error-title" id="video-error-title">Поток временно недоступен</div>
+                <div class="atv-video-error-sub" id="video-error-sub">Попробуйте повторить подключение, выбрать другую студию озвучки или переключиться на 4K</div>
+                <div class="atv-video-error-actions">
+                  <button type="button" class="atv-btn-primary atv-btn-sm" id="btn-video-err-retry">
+                    <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+                    <span>Повторить</span>
+                  </button>
+                  <button type="button" class="atv-btn-secondary atv-btn-sm" id="btn-video-err-studio">
+                    Другая озвучка
+                  </button>
+                  <button type="button" class="atv-btn-secondary atv-btn-sm" id="btn-video-err-4k">
+                    Открыть 4K
+                  </button>
+                </div>
+              </div>
+
+              <div class="atv-pip-stage-notice hidden" id="video-pip-placeholder">
+                <div class="atv-pip-stage-title">
+                  <svg class="atv-ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="11" width="8" height="7" rx="1.2" fill="currentColor" fill-opacity="0.25"/></svg>
+                  <span>Видео открыто в режиме «Картинка в картинке»</span>
+                </div>
+                <div class="atv-pip-stage-sub">Переходите на главную страницу и выбирайте фильмы — воспроизведение не прервётся</div>
+                <div class="atv-pip-stage-actions">
+                  <button type="button" class="atv-btn-primary atv-btn-sm" id="btn-pip-go-home">
+                    <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                    <span>На главную страницу</span>
+                  </button>
+                  <button type="button" class="atv-btn-secondary atv-btn-sm" id="btn-pip-return-inline">
+                    Вернуть в плеер
+                  </button>
+                </div>
+              </div>
+
+              <button class="atv-skip-btn hidden" id="skip-intro-btn">
+                Пропустить заставку
+              </button>
+
+              <button class="atv-skip-btn hidden" id="skip-ad-btn">
+                Пропустить рекламу
+              </button>
+
+              <!-- Center Apple TV Action Pulse Indicator (Play / Pause / ±10s / Mute) -->
+              <div class="atv-video-center-ind hidden" id="video-center-indicator" aria-hidden="true">
+                <div class="atv-video-center-circle" id="video-center-icon"></div>
+                <div class="atv-video-center-caption hidden" id="video-center-caption"></div>
+              </div>
+
+              <!-- Compact Gear Popover Menu (Inside #video-stage: fast speed buttons, clean settings, collapsible hotkeys, zero debug clutter) -->
+              <div class="atv-gear-popover hidden" id="player-gear-popover">
+                <div class="atv-gear-header">
+                  <span>Настройки плеера</span>
+                  <div class="atv-gear-header-actions">
+                    <button type="button" class="atv-notif-read-btn" id="btn-toggle-gear-hotkeys" title="Показать горячие клавиши плеера">
+                      <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                      <span>Клавиши</span>
+                    </button>
+                    <button type="button" class="atv-notif-read-btn" id="btn-close-player-gear">Готово</button>
+                  </div>
+                </div>
+
+                <!-- Fast Segmented Speed Selector -->
+                <div class="atv-gear-speed-row" id="speed-group">
+                  <span class="atv-gear-speed-title">Скорость</span>
+                  <div class="atv-gear-speed-pills" id="gear-speed-pills">
+                    <button type="button" class="gear-speed-pill" data-speed="0.75">0.75x</button>
+                    <button type="button" class="gear-speed-pill active" data-speed="1">1x</button>
+                    <button type="button" class="gear-speed-pill" data-speed="1.25">1.25x</button>
+                    <button type="button" class="gear-speed-pill" data-speed="1.5">1.5x</button>
+                    <button type="button" class="gear-speed-pill" data-speed="2">2x</button>
+                  </div>
+                  <select id="select-speed" class="hidden" aria-hidden="true">
+                    <option value="0.75">0.75x</option>
+                    <option value="1" selected>1x</option>
+                    <option value="1.25">1.25x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="1.75">1.75x</option>
+                    <option value="2">2x</option>
+                  </select>
+                </div>
+
+                <div class="atv-gear-grid">
+                  <div class="atv-select-group" id="audio-boost-group">
+                    <span>Усиление</span>
+                    <select id="select-audio-boost" title="Усиление громкости и чёткости речи (клавиша B)">
+                      <option value="1" selected>100%</option>
+                      <option value="1.5">150%</option>
+                      <option value="2">200%</option>
+                      <option value="3">300%</option>
+                      <option value="4">400%</option>
+                    </select>
+                  </div>
+                  <div class="atv-select-group" id="audio-eq-group">
+                    <span>Звук</span>
+                    <select id="select-audio-eq" title="Эквалайзер и ночной режим (Чёткая речь / Ночной просмотр · клавиша E)">
+                      <option value="flat" selected>Стандарт</option>
+                      <option value="voice">Чёткая речь</option>
+                      <option value="night">Ночной режим</option>
+                      <option value="cinema">Кинотеатр</option>
+                    </select>
+                  </div>
+                  <div class="atv-select-group" id="video-crop-group">
+                    <span>Кадр</span>
+                    <select id="select-video-crop" title="Масштабирование и обрезка чёрных полос (клавиша C)">
+                      <option value="contain" selected>16:9 Стандарт</option>
+                      <option value="cover">21:9 Без полос</option>
+                      <option value="zoom115">Масштаб 115%</option>
+                      <option value="fill">Растянуть</option>
+                    </select>
+                  </div>
+                  <div class="atv-select-group" id="sub-size-group">
+                    <span>Размер субтитров</span>
+                    <select id="select-sub-size" title="Размер шрифта субтитров">
+                      <option value="small">Мелкие</option>
+                      <option value="medium" selected>Средние</option>
+                      <option value="large">Крупные</option>
+                      <option value="xlarge">Огромные</option>
+                    </select>
+                  </div>
+                  <div class="atv-select-group" id="sub-bg-group">
+                    <span>Фон субтитров</span>
+                    <select id="select-sub-bg" title="Оформление подложки субтитров">
+                      <option value="semi" selected>Полупрозрачный</option>
+                      <option value="solid">Тёмный фон</option>
+                      <option value="none">Без фона (Тень)</option>
+                    </select>
+                  </div>
+                  <div class="atv-select-group" id="sleep-timer-group">
+                    <span>Таймер сна</span>
+                    <select id="select-sleep-timer" title="Таймер сна (автопауза через выбранное время или в конце серии)">
+                      <option value="off" selected>Выключен</option>
+                      <option value="15">15 минут</option>
+                      <option value="30">30 минут</option>
+                      <option value="45">45 минут</option>
+                      <option value="60">60 минут</option>
+                      <option value="episode_end">Конец серии</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="atv-gear-section" id="ambilight-gear-section">
+                  <div class="atv-gear-toggle-list">
+                    <label class="atv-gear-toggle-row" title="Динамическая фоновая подсветка кадра вокруг плеера (клавиша A)">
+                      <span class="atv-gear-toggle-label">Подсветка Ambilight</span>
+                      <span class="srv-toggle">
+                        <input type="checkbox" id="ambilight-toggle" checked />
+                        <span class="srv-toggle-slider"></span>
+                      </span>
+                    </label>
+                    <label class="atv-gear-toggle-row" title="Автоматически распознавать и пропускать вшитые рекламные врезки ставок и казино внутри видео">
+                      <span class="atv-gear-toggle-label">Автопропуск рекламы</span>
+                      <span class="srv-toggle">
+                        <input type="checkbox" id="auto-skip-ads-toggle" checked />
+                        <span class="srv-toggle-slider"></span>
+                      </span>
+                    </label>
+                    <div id="skip-intro-footer-controls" class="atv-gear-toggle-sublist">
+                      <label class="atv-gear-toggle-row">
+                        <span class="atv-gear-toggle-label">Автопропуск заставки <span class="atv-muted-text" id="intro-window-info"></span></span>
+                        <span class="srv-toggle">
+                          <input type="checkbox" id="auto-skip-intro-toggle" checked />
+                          <span class="srv-toggle-slider"></span>
+                        </span>
+                      </label>
+                      <label class="atv-gear-toggle-row">
+                        <span class="atv-gear-toggle-label">Автопереход на следующую серию</span>
+                        <span class="srv-toggle">
+                          <input type="checkbox" id="auto-next-ep-toggle" checked />
+                          <span class="srv-toggle-slider"></span>
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="atv-gear-section atv-gear-tools-row">
+                  <button type="button" class="atv-ep-nav-btn" id="btn-screenshot" title="Сохранить снимок текущего кадра в полном разрешении (.png · клавиша S)">
+                    <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                    <span>Снимок кадра (.png)</span>
+                  </button>
+                  <button type="button" class="atv-ep-nav-btn atv-download-btn" id="btn-download-stream" title="Скачать текущий поток (.mp4) в 1080p на устройство">
+                    <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    <span>Скачать (.mp4)</span>
+                  </button>
+                </div>
+
+                <div class="atv-gear-section atv-gear-hotkeys hidden" id="gear-hotkeys-box">
+                  <div class="atv-gear-hotkeys-title">Горячие клавиши плеера:</div>
+                  <div class="atv-hotkeys-hint">
+                    <code>Пробел / K</code> пауза · <code>F</code> полный экран · <code>← / →</code> ±10 секунд · <code>↑ / ↓</code> громкость · <code>B</code> усиление звука · <code>E</code> эквалайзер · <code>C</code> формат кадра · <code>A</code> подсветка · <code>S</code> снимок кадра · <code>N / P</code> следующая или предыдущая серия · <code>I</code> картинка в картинке
+                  </div>
+                </div>
+              </div>
+
+              <!-- Cross-browser Apple TV+ Subtitle Overlay (Zen/Firefox, Safari, Chrome) -->
+              <div class="atv-subtitle-overlay hidden" id="atv-subtitle-overlay" aria-live="off"></div>
+
+              <!-- Custom Apple TV+ Video Control Bar (works in windowed, mini & Fullscreen) -->
+              <div class="atv-custom-controls" id="atv-custom-controls">
+                <div class="atv-vc-timeline" id="vc-timeline">
+                  <div class="atv-vc-hover-time hidden" id="vc-hover-time">0:00</div>
+                  <div class="atv-vc-track">
+                    <div class="atv-vc-buffered" id="vc-buffered" style="width: 0%"></div>
+                    <div class="atv-vc-ad-markers" id="vc-ad-markers"></div>
+                    <div class="atv-vc-played" id="vc-played" style="width: 0%"></div>
+                  </div>
+                  <div class="atv-vc-thumb" id="vc-thumb" style="left: 0%"></div>
+                </div>
+
+                <div class="atv-vc-bar">
+                  <div class="atv-vc-left">
+                    <button type="button" class="atv-vc-btn atv-vc-play" id="vc-btn-play" title="Воспроизведение / Пауза (Space)">
+                      <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6.2 4.85v14.3a1 1 0 0 0 1.53.85l11.2-7.15a1 1 0 0 0 0-1.7L7.73 4a1 1 0 0 0-1.53.85z"/></svg>
+                    </button>
+                    <button type="button" class="atv-vc-btn" id="vc-btn-back10" title="Назад на 10 секунд (←)">
+                      <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+                      <span>10</span>
+                    </button>
+                    <button type="button" class="atv-vc-btn" id="vc-btn-fwd10" title="Вперёд на 10 секунд (→)">
+                      <span>10</span>
+                      <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+                    </button>
+
+                    <div class="atv-vc-vol-wrap">
+                      <button type="button" class="atv-vc-btn" id="vc-btn-mute" title="Включить или выключить звук (M)">
+                        <svg class="atv-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+                      </button>
+                      <input type="range" class="atv-vc-vol-slider" id="vc-vol-slider" min="0" max="1" step="0.02" value="1" title="Громкость" />
+                    </div>
+
+                    <button type="button" class="atv-vc-time-btn" id="vc-time-label" title="Нажмите, чтобы переключить оставшееся / общее время">
+                      0:00 / 0:00
+                    </button>
+                  </div>
+
+                  <div class="atv-vc-right">
+                    <div class="atv-vc-pop-wrap" id="vc-studio-wrap">
+                      <button type="button" class="atv-vc-btn atv-vc-pill" id="vc-btn-studio" title="Выбрать студию озвучки">
+                        <span id="vc-studio-label">Озвучка</span>
+                      </button>
+                      <div class="atv-vc-popover hidden" id="vc-studio-popover"></div>
+                    </div>
+
+                    <div class="atv-vc-pop-wrap hidden" id="vc-subs-wrap">
+                      <button type="button" class="atv-vc-btn atv-vc-pill" id="vc-btn-subs" title="Субтитры">
+                        <span id="vc-subs-label">Субтитры</span>
+                      </button>
+                      <div class="atv-vc-popover hidden" id="vc-subs-popover"></div>
+                    </div>
+
+                    <div class="atv-vc-pop-wrap" id="vc-quality-wrap">
+                      <button type="button" class="atv-vc-btn atv-vc-pill" id="vc-btn-quality" title="Качество потока">
+                        <span id="vc-quality-label">1080p</span>
+                      </button>
+                      <div class="atv-vc-popover hidden" id="vc-quality-popover"></div>
+                    </div>
+
+                    <div class="atv-vc-pop-wrap" id="player-gear-wrap">
+                      <button type="button" class="atv-vc-btn atv-vc-gear-btn" id="btn-player-gear" title="Настройки плеера: скорость, звук, формат кадра, таймер сна, снимок и скачать">
+                        <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+                          <circle cx="12" cy="12" r="3"></circle>
+                          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                        </svg>
+                        <span class="atv-vc-gear-speed hidden" id="vc-gear-speed-label">1.25x</span>
+                        <span class="atv-gear-dot hidden" id="player-gear-active-dot"></span>
+                      </button>
+                    </div>
+
+                    <button type="button" class="atv-vc-btn" id="vc-btn-pip" title="Картинка в картинке (I)">
+                      <svg class="atv-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="11" width="8" height="7" rx="1.2" fill="currentColor" fill-opacity="0.28"/></svg>
+                    </button>
+                    <button type="button" class="atv-vc-btn" id="vc-btn-fs" title="Во весь экран (F)">
+                      <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Unified Top-Right End-of-Episode Stack (Skip Outro + Next Episode Countdown; Rating card docks here in Fullscreen) -->
+              <div class="atv-endgame-stack" id="video-endgame-stack">
+                <button class="atv-skip-btn hidden" id="skip-outro-btn">
+                  Следующая серия
+                </button>
+
+                <div class="atv-autoplay-card hidden" id="autoplay-next-card">
+                  <div class="atv-autoplay-text" id="autoplay-next-text">Следующая серия через 5 секунд</div>
+                  <div class="atv-autoplay-actions">
+                    <button class="atv-btn-primary atv-btn-xs" id="btn-autoplay-now">
+                      <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M6.2 4.85v14.3a1 1 0 0 0 1.53.85l11.2-7.15a1 1 0 0 0 0-1.7L7.73 4a1 1 0 0 0-1.53.85z"/></svg>
+                      <span>Включить сейчас</span>
+                    </button>
+                    <button class="atv-btn-secondary atv-btn-xs" id="btn-autoplay-cancel">
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stremio Addons Streams & Subtitles Panel (Immediately Below Video Player) -->
+          <div class="atv-subpanel hidden" id="stremio-streams-panel">
+            <div class="atv-stremio-head-bar">
+              <div class="atv-stremio-head-left">
+                <span class="atv-stremio-title-label">Потоки Stremio</span>
+                <span class="atv-stremio-imdb-chip hidden" id="stremio-imdb-badge"></span>
+                <span class="atv-stremio-subs-chip hidden" id="stremio-subs-badge"></span>
+              </div>
+              <div class="atv-stremio-head-right">
+                <div class="atv-stremio-filters" id="stremio-filter-pills">
+                  <button type="button" class="atv-stremio-filter-pill active" data-sfilter="all">Все</button>
+                  <button type="button" class="atv-stremio-filter-pill" data-sfilter="ru">Русский</button>
+                  <button type="button" class="atv-stremio-filter-pill" data-sfilter="orig">Оригинал</button>
+                  <button type="button" class="atv-stremio-filter-pill" data-sfilter="4k">4K UHD</button>
+                  <button type="button" class="atv-stremio-filter-pill" data-sfilter="1080p">1080p</button>
+                </div>
+                <button type="button" class="atv-ep-nav-btn" id="btn-open-stremio-addons" title="Управление аддонами Stremio и добавление manifest.json">
+                  <span>Аддоны</span>
+                </button>
+              </div>
+            </div>
+            <div class="atv-releases-list" id="stremio-streams-list"></div>
+          </div>
+
+          <!-- 4K Remux / Available Torrents Panel (Immediately Below Video Player) -->
+          <div class="atv-subpanel hidden" id="backup-releases-panel">
+            <div class="atv-subpanel-head">
+              <span>Выберите поток 4K UHD / 1080p High-Bitrate для этого тайтла:</span>
+            </div>
+            <div class="atv-releases-list" id="backup-releases-list"></div>
+          </div>
+
+          <!-- Unified Single-Row Dark-Glass Season & Episodes Panel -->
+          <div class="atv-episodes-bottom-panel hidden" id="episodes-bottom-panel">
+            <div class="atv-episodes-panel-head">
+              <div class="atv-select-group" id="season-group">
+                <span>Сезон</span>
+                <select id="select-season"></select>
+              </div>
+              <div class="atv-ep-nav-group" id="ep-nav-group">
+                <button type="button" class="atv-ep-nav-btn atv-ep-step-btn" id="btn-prev-ep" title="Предыдущая серия (P)">
+                  <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                <button type="button" class="atv-ep-nav-btn atv-ep-step-btn" id="btn-next-ep" title="Следующая серия (N)">
+                  <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </button>
+              </div>
+              <div class="atv-inline-season-prog hidden" id="player-season-progress">
+                <span class="atv-inline-season-text" id="player-season-prog-text">0 из 0</span>
+                <div class="atv-inline-season-bar">
+                  <div class="atv-inline-season-fill" id="player-season-prog-fill" style="width: 0%"></div>
+                </div>
+              </div>
+              <div class="atv-ep-head-tools" id="episodes-strip-subbar">
+                <div class="atv-ep-view-switch" id="ep-view-mode-switch" role="group" aria-label="Вид списка серий">
+                  <button type="button" class="atv-ep-view-btn active" id="btn-ep-view-strip" title="Компактные номера серий с подсказкой при наведении">Номера</button>
+                  <button type="button" class="atv-ep-view-btn" id="btn-ep-view-grid" title="Карточки серий с названиями и датами выхода">Карточки</button>
+                </div>
+                <div class="atv-ep-batch-group">
+                  <button type="button" class="atv-ep-nav-btn" id="btn-mark-ep-upto" title="Отметить просмотренными серии с первой по текущую в этом сезоне">
+                    <svg class="atv-ico" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                    <span>По текущую</span>
+                  </button>
+                  <button type="button" class="atv-ep-nav-btn" id="btn-mark-season-watched" title="Отметить весь выбранный сезон просмотренным">
+                    <svg class="atv-ico" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                    <span>Весь сезон</span>
+                  </button>
+                </div>
+              </div>
+              <button type="button" class="atv-ep-nav-btn atv-ep-drawer-toggle expanded" id="btn-toggle-episodes-strip" aria-expanded="true" title="Показать или скрыть список эпизодов">
+                <span id="episodes-toggle-label">Эпизоды</span>
+                <svg class="atv-ico atv-ep-toggle-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+            </div>
+            <div class="atv-episodes-strip-row hidden" id="episodes-strip-row">
+              <div class="atv-ep-hover-tooltip hidden" id="ep-pill-hover-tooltip" aria-hidden="true"></div>
+              <div class="atv-episodes-strip hidden" id="episodes-strip-bar"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Info Sidebar -->
+        <aside class="atv-info-sidebar">
+          <div class="atv-ratings-row">
+            <div class="atv-score-item" id="score-box-kinorium">
+              <span class="atv-score-label">Kinorium</span>
+              <span class="atv-score-val" id="meta-r-kinorium">—</span>
+            </div>
+            <div class="atv-score-item">
+              <span class="atv-score-label">IMDb</span>
+              <span class="atv-score-val" id="meta-r-imdb">—</span>
+            </div>
+            <div class="atv-score-item" id="score-box-critics">
+              <span class="atv-score-label" id="meta-label-critics">Критики</span>
+              <span class="atv-score-val" id="meta-r-critics">—</span>
+            </div>
+          </div>
+
+          <p class="atv-synopsis" id="meta-description"></p>
+
+          <!-- Directors & Cast with Photos (Inside Info Sidebar under Synopsis) -->
+          <div class="atv-sidebar-section atv-cast-sidebar-block hidden" id="meta-cast-section">
+            <div class="atv-cast-below-head">
+              <h4>
+                <span>Режиссёр и актёры</span>
+              </h4>
+              <span class="atv-cast-duration hidden" id="meta-duration-badge"></span>
+            </div>
+            <div id="meta-cast-list" class="atv-cast-photo-row compact"></div>
+          </div>
+
+          <div class="atv-sidebar-section" id="sidebar-providers-section">
+            <h4>Где смотреть</h4>
+            <div class="atv-providers-list" id="meta-providers-list"></div>
+          </div>
+
+          <div class="atv-sidebar-section" id="sidebar-friends-section">
+            <h4>Оценки друзей</h4>
+            <div id="meta-friends-list" class="atv-friends-list"></div>
+          </div>
+
+          <div class="atv-sidebar-section" id="modal-similar-section">
+            <h4>Похожие фильмы и сериалы</h4>
+            <div id="modal-similar-list" class="atv-similar-list"></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Peek & Quick Rate Modal (Without Auto-Starting Video Stream) -->
+  <div class="atv-modal-overlay hidden" id="quick-peek-modal">
+    <div class="atv-quickpeek-sheet">
+      <div class="atv-quickpeek-backdrop" id="qp-backdrop"></div>
+      <div class="atv-qp-topbar">
+        <button type="button" class="atv-modal-back-btn hidden" id="qp-back-nav-btn" title="Вернуться к предыдущей карточке">
+          <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          <span id="qp-back-nav-label">Назад</span>
+        </button>
+        <button type="button" class="atv-close-btn atv-qp-close" id="close-quick-peek-modal" title="Закрыть (Esc)">
+          <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="atv-quickpeek-body">
+        <div class="atv-quickpeek-poster-col">
+          <img id="qp-poster" src="" alt="" referrerpolicy="no-referrer" />
+        </div>
+        <div class="atv-quickpeek-info-col">
+          <div class="atv-qp-kicker" id="qp-kicker"></div>
+          <h2 class="atv-qp-title" id="qp-title">Название</h2>
+          <div class="atv-qp-orig" id="qp-orig"></div>
+
+          <div class="atv-qp-ratings">
+            <span class="atv-qp-score" id="qp-score-kinorium">Kinorium <strong id="qp-r-kinorium">—</strong></span>
+            <span class="atv-qp-score">IMDb <strong id="qp-r-imdb">—</strong></span>
+            <span class="atv-qp-score" id="qp-score-critics"><span id="qp-label-critics">Критики</span> <strong id="qp-r-critics">—</strong></span>
+            <span class="atv-qp-score hidden" id="qp-duration-chip"></span>
+          </div>
+
+          <div class="atv-qp-season-prog hidden" id="qp-season-progress-box">
+            <div class="atv-qp-season-row">
+              <span id="qp-season-prog-label">Просмотрено 0 из 0 серий</span>
+              <strong id="qp-season-prog-pct">0%</strong>
+            </div>
+            <div class="atv-qp-season-bar">
+              <div class="atv-qp-season-fill" id="qp-season-prog-fill" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <p class="atv-qp-desc" id="qp-description"></p>
+
+          <div class="atv-qp-friends-wrap hidden" id="qp-friends-wrap">
+            <div class="atv-qp-sublabel">Оценки друзей</div>
+            <div class="atv-friends-list compact" id="qp-friends-list"></div>
+          </div>
+
+          <div class="atv-qp-cast-wrap hidden" id="qp-cast-wrap">
+            <div class="atv-qp-sublabel">Режиссёр и в ролях</div>
+            <div class="atv-cast-photo-row compact" id="qp-cast-row"></div>
+          </div>
+
+          <div class="atv-qp-rate-box">
+            <div class="atv-rate-head-row">
+              <div class="atv-qp-sublabel" id="qp-rate-label">Быстрая оценка в Kinorium (1–10):</div>
+              <button type="button" class="atv-rate-clear-btn hidden" id="qp-clear-rate-btn" title="Удалить поставленную оценку">Сбросить оценку</button>
+            </div>
+            <div class="atv-stars-row" id="qp-stars">
+              <button type="button" data-score="1">1</button>
+              <button type="button" data-score="2">2</button>
+              <button type="button" data-score="3">3</button>
+              <button type="button" data-score="4">4</button>
+              <button type="button" data-score="5">5</button>
+              <button type="button" data-score="6">6</button>
+              <button type="button" data-score="7">7</button>
+              <button type="button" data-score="8">8</button>
+              <button type="button" data-score="9">9</button>
+              <button type="button" data-score="10">10</button>
+            </div>
+          </div>
+
+          <div class="atv-qp-statuses" id="qp-status-pills">
+            <button type="button" class="atv-action-pill" id="qp-btn-watching">
+              <svg class="atv-ico" width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M6.2 4.85v14.3a1 1 0 0 0 1.53.85l11.2-7.15a1 1 0 0 0 0-1.7L7.73 4a1 1 0 0 0-1.53.85z"/></svg>
+              <span>Смотрю</span>
+            </button>
+            <button type="button" class="atv-action-pill" id="qp-btn-watchlist">
+              <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              <span>Буду смотреть</span>
+            </button>
+            <button type="button" class="atv-action-pill" id="qp-btn-watched">
+              <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              <span>Просмотрено</span>
+            </button>
+            <button type="button" class="atv-action-pill" id="qp-btn-never">
+              <svg class="atv-ico" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              <span>Не буду смотреть</span>
+            </button>
+          </div>
+
+          <div class="atv-qp-actions">
+            <button type="button" class="atv-btn-primary" id="qp-btn-play">
+              <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6.2 4.85v14.3a1 1 0 0 0 1.53.85l11.2-7.15a1 1 0 0 0 0-1.7L7.73 4a1 1 0 0 0-1.53.85z"/></svg>
+              <span>Смотреть (HDRezka)</span>
+            </button>
+            <button type="button" class="atv-btn-secondary" id="qp-btn-trailer">
+              <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="18" rx="2.5"/><line x1="7" y1="3" x2="7" y2="21"/><line x1="17" y1="3" x2="17" y2="21"/></svg>
+              <span>Трейлер</span>
+            </button>
+            <button type="button" class="atv-btn-secondary" id="qp-btn-stremio">Stremio</button>
+            <button type="button" class="atv-btn-secondary" id="qp-btn-4k">4K</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Personal Kinorium Statistics & Watch History Modal -->
+  <div class="atv-modal-overlay hidden" id="stats-modal">
+    <div class="atv-settings-sheet atv-stats-sheet">
+      <div class="atv-settings-header atv-stats-header">
+        <div class="atv-stats-header-tabs">
+          <div class="atv-segmented-tabs" id="stats-modal-tabs">
+            <button type="button" class="settings-tab active" data-statstab="analytics" id="stats-tab-analytics">
+              <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+              <span>Аналитика и вкусы</span>
+            </button>
+            <button type="button" class="settings-tab" data-statstab="history" id="stats-tab-history">
+              <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
+              <span>История просмотров</span>
+            </button>
+          </div>
+          <span class="status-badge-ok" id="stats-profile-badge">Kinorium</span>
+        </div>
+        <button class="atv-close-btn" id="close-stats-modal" title="Закрыть (Esc)">
+          <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="atv-settings-body atv-stats-scroll-body" id="stats-modal-body">
+        <div class="atv-stats-loading-placeholder">Загрузка статистики профиля...</div>
+      </div>
+      <div class="atv-settings-body atv-stats-scroll-body hidden" id="stats-history-body"></div>
+    </div>
+  </div>
+
+  <!-- Settings & Integrations Modal (3 Non-Overlapping Tabs) -->
+  <div class="atv-modal-overlay hidden" id="settings-modal">
+    <div class="atv-settings-sheet">
+      <div class="atv-settings-header">
+        <div class="atv-segmented-tabs" id="settings-tabs">
+          <button class="settings-tab active" data-stab="integrations">Kinorium и сервисы</button>
+          <button class="settings-tab" data-stab="network">Сеть и потоки</button>
+          <button class="settings-tab" data-stab="backup">Резервная копия</button>
+        </div>
+        <button class="atv-close-btn" id="close-settings-modal" title="Закрыть (Esc)">
+          <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Tab 1: App Language, Kinorium Profile & Video Services -->
+      <div class="atv-settings-body" id="stab-integrations">
+        <div class="atv-settings-lang-card" id="settings-lang-card">
+          <div class="atv-settings-lang-row">
+            <div class="atv-settings-lang-title-wrap">
+              <svg class="atv-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              <span id="settings-lang-title">Язык интерфейса и озвучки по умолчанию</span>
+            </div>
+            <div class="atv-lang-segmented" id="settings-lang-segmented" role="group" aria-label="Language">
+              <button type="button" class="atv-lang-seg-btn active" data-app-lang="ru" aria-pressed="true">Русский</button>
+              <button type="button" class="atv-lang-seg-btn" data-app-lang="en" aria-pressed="false">English</button>
+            </div>
+          </div>
+          <p class="atv-settings-lang-hint" id="settings-lang-audio-hint">
+            Активен русский интерфейс — по умолчанию выбирается русская озвучка (переключение на English включает оригинальную озвучку по умолчанию).
+          </p>
+        </div>
+        <p id="stab-integrations-desc" class="atv-settings-lead">
+          Сверху настраивается язык приложения, профиль и синхронизация Kinorium, а ниже — сервисы для просмотра видео. Отключённый переключателем сервис полностью скрывается во всём приложении.
+        </p>
+        <div class="integrations-list" id="integrations-list"></div>
+      </div>
+
+      <!-- Tab 2: Network, HDRezka & 4K Streams -->
+      <div class="atv-settings-body hidden" id="stab-network">
+        <div class="atv-settings-group" id="net-group-hdrezka">
+          <h4>HDRezka (Работа без регистрации и обход региона)</h4>
+          <label>Регион маршрутизации запросов</label>
+          <select id="cfg-spoof-region">
+            <option value="KZ">Казахстан (Рекомендуется для Польши/ЕС)</option>
+            <option value="AM">Армения</option>
+            <option value="MD">Молдова</option>
+            <option value="DIRECT">Напрямую (Польша)</option>
+          </select>
+          <details class="atv-advanced-details" id="details-net-hdrezka">
+            <summary id="summary-net-hdrezka">Дополнительные параметры маршрутизации (зеркало и прокси)</summary>
+            <div class="atv-advanced-fields">
+              <label>Персональное зеркало HDRezka (необязательно)</label>
+              <input type="text" id="cfg-custom-mirror" placeholder="https://hdrezka-home.tv" />
+              <label>Прокси или Cloudflare Worker (необязательно)</label>
+              <input type="text" id="cfg-proxy-url" placeholder="http://127.0.0.1:1080" />
+            </div>
+          </details>
+        </div>
+
+        <div class="atv-settings-group" id="net-group-stremio">
+          <h4>Аддоны Stremio (Torrentio, OpenSubtitles и свои manifest.json)</h4>
+          <p class="atv-settings-subnote">
+            Потоки и субтитры из включённых аддонов Stremio воспроизводятся прямо во встроенном плеере CineFlow с выбором звуковых дорожек и синхронизацией прогресса с Kinorium.
+          </p>
+          <label>Установить аддон по ссылке (manifest.json или stremio://)</label>
+          <div class="atv-stremio-add-row">
+            <input
+              type="text"
+              id="cfg-stremio-manifest-input"
+              placeholder="https://torrentio.strem.fun/manifest.json или stremio://..."
+              autocomplete="off"
+            />
+            <button type="button" class="atv-btn-primary atv-btn-sm" id="btn-add-stremio-addon">Добавить аддон</button>
+          </div>
+          <div class="atv-stremio-addons-list" id="stremio-addons-list"></div>
+        </div>
+
+        <div class="atv-settings-group" id="net-group-backup4k">
+          <h4>4K Remux Стриминг (TorrServer, FFmpeg ремукс звука и Debrid)</h4>
+          <label>Режим воспроизведения 4K</label>
+          <select id="cfg-backup-mode">
+            <option value="torrserver">Встроенный TorrServer + ремукс звука AAC (Рекомендуется)</option>
+            <option value="realdebrid">Real-Debrid HTTPS (Облачный кэш без P2P)</option>
+            <option value="torbox">TorBox HTTPS (Облачный кэш без P2P)</option>
+          </select>
+          <div class="atv-settings-hint-row" id="cfg-torrserver-status-row">
+            <span id="cfg-torrserver-status">Проверка встроенного TorrServer и FFmpeg...</span>
+          </div>
+          <details class="atv-advanced-details" id="details-net-4k">
+            <summary id="summary-net-4k">Адрес TorrServer и ключи облачного Debrid</summary>
+            <div class="atv-advanced-fields">
+              <label>Адрес TorrServer</label>
+              <input type="text" id="cfg-torrserver-url" value="http://127.0.0.1:8090" />
+              <label>API-ключ Real-Debrid или TorBox (только для облачного режима)</label>
+              <input type="password" id="cfg-debrid-key" placeholder="Оставьте пустым при работе через встроенный TorrServer" autocomplete="off" />
+            </div>
+          </details>
+        </div>
+
+        <div class="atv-settings-group" id="net-group-system">
+          <h4 id="net-system-heading">Домашняя сеть Wi-Fi (iPhone / iPad / Smart TV) и macOS</h4>
+          <div class="atv-sys-card">
+            <div class="atv-sys-row">
+              <div class="atv-sys-info">
+                <div class="atv-sys-title" id="lan-toggle-title">Доступ к кинотеатру в домашней сети Wi-Fi</div>
+                <div class="atv-sys-sub" id="lan-toggle-sub">Открывайте CineFlow на телефоне, планшете или телевизоре в одной сети Wi-Fi</div>
+              </div>
+              <label class="srv-toggle-wrap">
+                <span class="srv-toggle">
+                  <input type="checkbox" id="cfg-lan-toggle" />
+                  <span class="srv-toggle-slider"></span>
+                </span>
+              </label>
+            </div>
+            <div class="atv-lan-qr-card hidden" id="lan-qr-card">
+              <div class="atv-lan-qr-box" id="lan-qr-box" aria-hidden="true"></div>
+              <div class="atv-lan-qr-meta">
+                <div class="atv-lan-url-row">
+                  <code id="lan-url-code">http://192.168.1.2:8765</code>
+                  <button type="button" class="atv-btn-secondary atv-btn-xs" id="btn-copy-lan-url">Скопировать адрес</button>
+                </div>
+                <p class="atv-lan-qr-hint" id="lan-qr-hint">Наведите камеру iPhone или iPad на QR-код либо введите адрес в браузере телевизора. Потоки TorrServer и аудиоремукс транслируются напрямую с вашего Mac.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="atv-sys-card hidden" id="macos-autostart-card">
+            <div class="atv-sys-row">
+              <div class="atv-sys-info">
+                <div class="atv-sys-title" id="autostart-toggle-title">Автозапуск сервера при входе в macOS (LaunchAgent)</div>
+                <div class="atv-sys-sub" id="autostart-toggle-sub">Фоновый старт без терминала · для иконки в Dock выберите «Файл -> Добавить в Dock» в Safari</div>
+              </div>
+              <label class="srv-toggle-wrap">
+                <span class="srv-toggle">
+                  <input type="checkbox" id="cfg-autostart-toggle" />
+                  <span class="srv-toggle-slider"></span>
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Backup & Restore -->
+      <div class="atv-settings-body hidden" id="stab-backup">
+        <div class="atv-backup-quick-card" id="quick-backup-card">
+          <div class="atv-backup-quick-head">
+            <div>
+              <h4 class="atv-inline-icon-label">
+                <svg class="atv-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                <span>Резервная копия истории и настроек</span>
+              </h4>
+              <p id="backup-summary-stat">
+                Сохранение и перенос всей истории просмотра, таймкодов, оценок, списков Kinorium, выбранных озвучек и настроек плеера в один файл <code>.json</code> или через буфер обмена.
+              </p>
+            </div>
+          </div>
+          <div class="atv-backup-quick-actions">
+            <button type="button" class="atv-btn-primary atv-btn-sm" id="btn-quick-export-backup">
+              <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Скачать копию (.json)</span>
+            </button>
+            <button type="button" class="atv-btn-secondary atv-btn-sm" id="btn-quick-import-backup">
+              <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span>Восстановить из файла (.json)</span>
+            </button>
+            <button type="button" class="atv-btn-secondary atv-btn-sm" id="btn-copy-backup-clipboard" title="Скопировать JSON резервной копии в буфер обмена">
+              <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span>Скопировать</span>
+            </button>
+            <button type="button" class="atv-btn-secondary atv-btn-sm" id="btn-paste-backup-clipboard" title="Восстановить резервную копию из буфера обмена">
+              <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
+              <span>Вставить</span>
+            </button>
+            <input type="file" id="input-import-backup" accept=".json,application/json" class="hidden" />
+          </div>
+        </div>
+      </div>
+
+      <div class="atv-settings-footer">
+        <button class="atv-btn-primary" id="save-settings-btn">Готово</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full Person Profile & Filmography Modal (Director / Actor Sheet) -->
+  <div class="atv-modal-overlay hidden" id="person-modal">
+    <div class="atv-person-sheet">
+      <button type="button" class="atv-modal-back-btn hidden" id="person-back-nav-btn" title="Вернуться к карточке фильма">
+        <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        <span id="person-back-nav-label">Назад к фильму</span>
+      </button>
+      <button type="button" class="atv-close-btn atv-person-close" id="close-person-modal" title="Закрыть (Esc)">
+        <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+      <div class="atv-person-sheet-scroll">
+        <div class="atv-person-hero">
+          <div class="atv-person-photo-col">
+            <img id="person-modal-photo" src="" alt="" referrerpolicy="no-referrer" />
+          </div>
+          <div class="atv-person-info-col">
+            <div class="atv-person-kicker" id="person-modal-career">Персона</div>
+            <h2 class="atv-person-title" id="person-modal-name">Имя</h2>
+            <div class="atv-person-orig" id="person-modal-orig"></div>
+            <div class="atv-person-meta-chips" id="person-modal-meta"></div>
+            <p class="atv-person-bio hidden" id="person-modal-bio"></p>
+
+            <div class="atv-person-stats-strip hidden" id="person-kinorium-stats">
+              <div class="atv-person-stats-row">
+                <span id="person-stats-watched">Просмотрено 0 из 0</span>
+                <span id="person-stats-rating"></span>
+              </div>
+              <div class="atv-person-stats-bar">
+                <div class="atv-person-stats-fill" id="person-stats-fill" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <div class="atv-person-actions">
+              <button type="button" class="atv-btn-secondary" id="btn-person-search-catalog">
+                <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <span>Найти в основном каталоге</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="atv-person-filmography-sec">
+          <div class="atv-person-filmography-head">
+            <h3>Фильмография</h3>
+            <div class="atv-person-role-tabs" id="person-role-tabs"></div>
+          </div>
+          <div class="atv-person-loading hidden" id="person-modal-loading">
+            <div class="atv-spinner"></div>
+            <span>Загрузка фильмографии и оценок Kinorium...</span>
+          </div>
+          <div class="atv-person-grid atv-posters-grid" id="person-filmography-grid"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating PiP Background Status Dock (Shown on main page while video plays in Picture-in-Picture) -->
+  <div class="atv-pip-dock hidden" id="pip-status-dock">
+    <span class="atv-pip-dock-badge">
+      <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="11" width="8" height="7" rx="1.2" fill="currentColor" fill-opacity="0.28"/></svg>
+      <span>Мини-окно</span>
+    </span>
+    <span class="atv-pip-dock-title" id="pip-dock-title">Воспроизведение</span>
+    <div class="atv-pip-dock-actions">
+      <button type="button" class="atv-ep-nav-btn" id="btn-pip-dock-play" title="Пауза / Воспроизведение">
+        <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+      </button>
+      <button type="button" class="atv-ep-nav-btn hidden" id="btn-pip-dock-next-ep" title="Следующая серия">
+        <span>Далее</span>
+        <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
+      <button type="button" class="atv-ep-nav-btn" id="btn-pip-dock-restore" title="Развернуть окно плеера">
+        <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+        <span>Плеер</span>
+      </button>
+      <button type="button" class="atv-close-btn atv-close-btn-sm" id="btn-pip-dock-close" title="Остановить видео и закрыть мини-окно">
+        <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Floating Scroll-to-Top Pill Button -->
+  <button type="button" class="atv-scroll-top-btn hidden" id="scroll-top-btn" title="Прокрутить страницу наверх">
+    <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+    <span>Наверх</span>
+  </button>
+
+  <!-- Apple TV Confirmation Dialog Modal -->
+  <div class="atv-modal-overlay hidden" id="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc">
+    <div class="atv-confirm-sheet">
+      <h3 class="atv-confirm-title" id="confirm-modal-title">Подтвердите действие</h3>
+      <p class="atv-confirm-desc" id="confirm-modal-desc"></p>
+      <div class="atv-confirm-actions">
+        <button type="button" class="atv-btn-secondary atv-btn-sm" id="confirm-modal-cancel">Отмена</button>
+        <button type="button" class="atv-btn-primary atv-btn-sm" id="confirm-modal-accept">Подтвердить</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="atv-toast-container"></div>
+  <script type="module" src="/app.js?v=20261024v4"></script>
+</body>
+</html>

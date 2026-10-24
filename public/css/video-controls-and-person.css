@@ -1,0 +1,2083 @@
+/* ==========================================================================
+   2. Custom Apple TV+ Frosted-Glass Video Player Control Bar
+   ========================================================================== */
+.atv-video-stage {
+  user-select: none;
+}
+
+.atv-video-stage video {
+  cursor: pointer;
+}
+
+.atv-video-stage.vc-idle,
+.atv-video-stage.vc-idle *,
+html.vc-fs-cursor-none,
+html.vc-fs-cursor-none * {
+  cursor: none !important;
+}
+
+.atv-video-stage:fullscreen,
+.atv-video-stage:-webkit-full-screen {
+  border-radius: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+.atv-custom-controls {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 24;
+  padding: 9px 13px 10px;
+  border-radius: 13px;
+  background: rgba(18, 19, 24, 0.78);
+  backdrop-filter: blur(22px) saturate(165%);
+  -webkit-backdrop-filter: blur(22px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.62);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition: opacity 0.22s ease, transform 0.22s ease, visibility 0s linear 0s;
+}
+
+.atv-video-stage.vc-idle .atv-custom-controls {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px);
+  pointer-events: none;
+  transition: opacity 0.22s ease, transform 0.22s ease, visibility 0s linear 0.22s;
+}
+
+.atv-video-stage.vc-popover-open .atv-custom-controls {
+  z-index: 36;
+}
+
+.atv-skip-btn {
+  bottom: 86px;
+  right: 16px;
+  transform: none;
+  transition: opacity 0.16s ease;
+}
+
+.atv-video-stage:has(#skip-intro-btn:not(.hidden)) #skip-ad-btn {
+  bottom: 134px;
+}
+
+/* «Следующая серия» button sits cleanly inside #video-endgame-stack so it never collides with the 96% rating card */
+#skip-outro-btn {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  align-self: flex-end;
+  z-index: auto;
+  transform: none !important;
+}
+
+.atv-autoplay-card {
+  position: relative;
+  inset: auto;
+  transform: none !important;
+  transition: opacity 0.16s ease;
+}
+
+/* Apple TV+ Fullscreen Top Context Bar (synced with .vc-idle) */
+.atv-vc-fs-topbar {
+  display: none;
+}
+
+html.is-stage-fullscreen .atv-vc-fs-topbar,
+.atv-video-stage:fullscreen .atv-vc-fs-topbar,
+.atv-video-stage:-webkit-full-screen .atv-vc-fs-topbar {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 23;
+  padding: 20px 280px 34px 26px;
+  background: linear-gradient(
+    180deg,
+    rgba(6, 7, 10, 0.84) 0%,
+    rgba(6, 7, 10, 0.38) 58%,
+    rgba(6, 7, 10, 0) 100%
+  );
+  pointer-events: none;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.24s ease, transform 0.24s ease;
+}
+
+html.is-stage-fullscreen .atv-video-stage.vc-idle .atv-vc-fs-topbar,
+.atv-video-stage:fullscreen.vc-idle .atv-vc-fs-topbar,
+.atv-video-stage:-webkit-full-screen.vc-idle .atv-vc-fs-topbar {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.hidden))) .atv-vc-fs-topbar,
+.atv-video-stage:fullscreen:not(:has(#video-endgame-stack > :not(.hidden))) .atv-vc-fs-topbar,
+.atv-video-stage:-webkit-full-screen:not(:has(#video-endgame-stack > :not(.hidden))) .atv-vc-fs-topbar {
+  padding-right: 26px;
+}
+
+.atv-vc-fs-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f5f5f7;
+  letter-spacing: -0.01em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-vc-fs-meta {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(235, 235, 245, 0.78);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-sort-inline-select {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  border-radius: 9px;
+}
+
+.atv-sheet-header {
+  position: relative;
+  z-index: 35;
+}
+
+.atv-vc-timeline {
+  position: relative;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.atv-vc-track {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  overflow: hidden;
+  transition: height 0.14s ease;
+}
+
+.atv-vc-timeline:hover .atv-vc-track,
+.atv-vc-timeline.scrubbing .atv-vc-track {
+  height: 6px;
+}
+
+.atv-vc-buffered {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.34);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.atv-vc-played {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: #f5f5f7;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.atv-vc-thumb {
+  position: absolute;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.65);
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 0.14s ease;
+  pointer-events: none;
+}
+
+.atv-vc-timeline:hover .atv-vc-thumb,
+.atv-vc-timeline.scrubbing .atv-vc-thumb {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.atv-vc-hover-time {
+  position: absolute;
+  bottom: 20px;
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(24, 24, 28, 0.95);
+  border: none;
+  color: #f5f5f7;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+}
+
+.atv-vc-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.atv-vc-left,
+.atv-vc-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.atv-vc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0 7px;
+  border-radius: 8px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: rgba(245, 245, 247, 0.9);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, transform 0.12s ease, color 0.15s ease;
+}
+
+.atv-vc-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.atv-vc-btn:active {
+  transform: scale(0.95);
+}
+
+.atv-vc-btn.atv-vc-play {
+  min-width: 34px;
+  height: 30px;
+  border-radius: 9px;
+  background: rgba(245, 245, 247, 0.95);
+  color: #0b0c0f;
+  font-size: 13px;
+}
+
+.atv-vc-btn.atv-vc-play:hover {
+  background: #ffffff;
+  color: #000000;
+}
+
+.atv-vc-btn.atv-vc-pill {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 11.5px;
+}
+
+.atv-vc-btn.atv-vc-pill:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+#vc-studio-label {
+  max-width: 146px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atv-vc-vol-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.atv-vc-vol-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 64px;
+  height: 16px;
+  background: transparent;
+  outline: none;
+  cursor: pointer;
+  margin: 0;
+}
+
+.atv-vc-vol-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.atv-vc-vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -3.5px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: none;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.55);
+  transition: transform 0.12s ease;
+}
+
+.atv-vc-vol-slider:hover::-webkit-slider-thumb {
+  transform: scale(1.15);
+}
+
+.atv-vc-vol-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.24);
+  border: none;
+}
+
+.atv-vc-vol-slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: #f5f5f7;
+}
+
+.atv-vc-vol-slider::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: none;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.55);
+  transition: transform 0.12s ease;
+}
+
+.atv-vc-vol-slider:hover::-moz-range-thumb {
+  transform: scale(1.15);
+}
+
+.atv-vc-time-btn {
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: rgba(245, 245, 247, 0.86);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.14s ease, background 0.14s ease;
+}
+
+.atv-vc-time-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.atv-vc-pop-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.atv-vc-popover {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  right: 0;
+  min-width: 190px;
+  max-width: min(310px, 82vw);
+  max-height: min(300px, calc(100dvh - 180px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(20, 21, 27, 0.97);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.82);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  z-index: 45;
+}
+
+.atv-vc-pop-item-main {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atv-vc-pop-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(235, 235, 245, 0.48);
+  padding: 4px 9px 3px;
+}
+
+.atv-vc-pop-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(245, 245, 247, 0.88);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.atv-vc-pop-item:hover {
+  background: rgba(255, 255, 255, 0.11);
+  color: #ffffff;
+}
+
+.atv-vc-pop-item.active {
+  background: rgba(56, 189, 248, 0.2);
+  color: #7dd3fc;
+  font-weight: 600;
+}
+
+.atv-vc-pop-item-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Compact custom controls inside Mini-Player & narrow screens */
+.atv-modal-overlay.mini-player-mode .atv-custom-controls {
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  padding: 6px 9px 7px;
+  border-radius: 10px;
+  gap: 4px;
+}
+
+.atv-modal-overlay.mini-player-mode #vc-studio-wrap,
+.atv-modal-overlay.mini-player-mode #vc-subs-wrap,
+.atv-modal-overlay.mini-player-mode #vc-quality-wrap,
+.atv-modal-overlay.mini-player-mode #player-gear-wrap,
+.atv-modal-overlay.mini-player-mode #player-gear-popover,
+.atv-modal-overlay.mini-player-mode .atv-vc-vol-slider {
+  display: none !important;
+}
+
+@media (max-width: 780px) {
+  .atv-vc-vol-slider {
+    display: none;
+  }
+  #vc-studio-label {
+    max-width: 82px;
+  }
+  .atv-custom-controls {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    padding: 8px 10px 9px;
+  }
+}
+
+/* ==========================================================================
+   3. Floating Scroll-to-Top Button (↑ Наверх — minimal macOS dark)
+   ========================================================================== */
+.atv-scroll-top-btn {
+  position: fixed;
+  right: 26px;
+  bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+  z-index: var(--z-scroll-top);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 15px;
+  border-radius: 10px;
+  border: none;
+  outline: none;
+  background: #26262a;
+  color: #f5f5f7;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.58);
+  transition: transform 0.2s ease, background 0.18s ease, opacity 0.2s ease;
+}
+
+.atv-scroll-top-btn:hover {
+  background: #f5f5f7;
+  color: #0b0c0f;
+  transform: translateY(-2px);
+}
+
+.atv-scroll-top-btn.shift-for-mini {
+  right: auto;
+  left: 26px;
+}
+
+/* ==========================================================================
+   4. Full Person Profile & Filmography Modal (#person-modal)
+   ========================================================================== */
+#person-modal {
+  z-index: var(--z-person-modal);
+}
+
+.atv-person-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 1040px;
+  max-height: 90vh;
+  max-height: 90dvh;
+  border-radius: var(--radius-sheet);
+  background: var(--bg-elevated);
+  border: none;
+  box-shadow: 0 36px 90px rgba(0, 0, 0, 0.88);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.atv-person-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 8;
+}
+
+.atv-person-sheet-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 28px 28px 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.atv-person-hero {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.atv-person-photo-col img {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  object-position: center 16%;
+  border-radius: 12px;
+  background: #1c1c1f;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.58);
+  border: none;
+  display: block;
+}
+
+.atv-person-info-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding-right: 36px;
+}
+
+.atv-person-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #fcd34d;
+}
+
+.atv-person-title {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #f5f5f7;
+  margin: 0;
+}
+
+.atv-person-orig {
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  margin-top: -4px;
+}
+
+.atv-person-meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.atv-person-chip {
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.8);
+}
+
+.atv-person-bio {
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(245, 245, 247, 0.8);
+  margin: 2px 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.atv-person-stats-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: var(--bg-surface);
+  border: none;
+  margin-top: 2px;
+}
+
+.atv-person-stats-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+
+#person-stats-rating {
+  color: #fde68a;
+}
+
+.atv-person-stats-bar {
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.atv-person-stats-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #34d399 0%, #38bdf8 100%);
+  transition: width 0.28s ease;
+}
+
+.atv-person-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.atv-person-filmography-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px;
+  border: none;
+}
+
+.atv-person-filmography-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.atv-person-filmography-head h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f5f5f7;
+  margin: 0;
+}
+
+.atv-person-role-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 11px;
+  background: var(--bg-surface);
+  overflow-x: auto;
+  max-width: 100%;
+  scrollbar-width: none;
+}
+
+.atv-person-role-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.atv-person-role-tab {
+  padding: 6px 13px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.atv-person-role-tab:hover {
+  color: #ffffff;
+}
+
+.atv-person-role-tab.active {
+  background: var(--bg-control-hover);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.atv-person-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 36px 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.atv-person-grid {
+  grid-template-columns: repeat(auto-fill, minmax(154px, 1fr));
+  gap: 20px 16px;
+}
+
+@media (max-width: 680px) {
+  .atv-person-sheet-scroll {
+    padding: 20px 16px 26px;
+  }
+  .atv-person-hero {
+    grid-template-columns: 1fr;
+  }
+  .atv-person-photo-col {
+    max-width: 150px;
+  }
+  .atv-person-info-col {
+    padding-right: 0;
+  }
+  .atv-person-title {
+    font-size: 23px;
+  }
+}
+
+/* ==========================================================================
+   5. Persistent Picture-in-Picture Background Mode & Minimal macOS Dock
+   ========================================================================== */
+.atv-modal-overlay.pip-background-mode {
+  pointer-events: none !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  opacity: 0.01 !important;
+  position: fixed !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: auto !important;
+  top: auto !important;
+  width: 320px !important;
+  height: 180px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  z-index: 0 !important;
+}
+
+.atv-pip-stage-notice {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: rgba(14, 14, 17, 0.94);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  border: none;
+}
+
+.atv-pip-stage-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f5f5f7;
+}
+
+.atv-pip-stage-sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 440px;
+  line-height: 1.45;
+  margin-bottom: 4px;
+}
+
+.atv-pip-stage-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.atv-vc-btn.active-pip {
+  background: rgba(56, 189, 248, 0.24);
+  color: #7dd3fc;
+}
+
+.atv-pip-dock {
+  position: fixed;
+  right: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  z-index: var(--z-floating-player);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: #1c1c1f;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.78);
+}
+
+.atv-pip-dock-badge {
+  padding: 4px 8px;
+  border-radius: 7px;
+  background: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.atv-pip-dock-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.atv-pip-dock-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   6. Minimalist Vector Icons, Clean Poster Hover, Episode Grid & Compact Gear
+   ========================================================================== */
+.atv-ico {
+  display: inline-block;
+  vertical-align: -0.12em;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.atv-inline-icon-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.2;
+}
+
+.atv-inline-icon-label > .atv-ico,
+button > .atv-ico,
+.atv-status-badge > .atv-ico,
+.atv-user-score-badge > .atv-ico,
+.atv-qp-score > .atv-ico,
+.atv-cast-duration > .atv-ico,
+.atv-fav-item-title > .atv-ico {
+  display: block;
+  vertical-align: middle;
+}
+
+.atv-action-pill,
+.atv-ep-nav-btn,
+.settings-tab,
+.friend-pill,
+.atv-pip-dock-badge,
+.atv-upnext-badge,
+.atv-cast-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.atv-poster-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.atv-meta-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #fcd34d;
+  font-weight: 600;
+}
+
+.atv-meta-friend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #93c5fd;
+  font-weight: 500;
+}
+
+/* Clean Poster Hover: Clickable Centered Vector Play (Immediate Stream) + Card Click -> Quick Peek */
+.atv-poster-play-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.88);
+  width: 50px;
+  height: 50px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(245, 245, 247, 0.95);
+  color: #0b0c0f;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.62);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  z-index: 7;
+  border: none;
+  outline: none;
+  transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.2, 0.85, 0.3, 1), background 0.15s ease;
+}
+
+.atv-poster-play-center svg {
+  margin-left: 2px;
+}
+
+.atv-poster-item:hover .atv-poster-play-center,
+.atv-poster-item:focus-visible .atv-poster-play-center {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.atv-poster-play-center:hover {
+  background: #ffffff;
+  transform: translate(-50%, -50%) scale(1.1) !important;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.75);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .atv-poster-play-center {
+    top: auto;
+    left: auto;
+    right: 8px;
+    bottom: 8px;
+    width: 32px;
+    height: 32px;
+    transform: none;
+    opacity: 0.94;
+    pointer-events: auto;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55);
+  }
+  .atv-poster-play-center svg {
+    width: 13px;
+    height: 13px;
+    margin-left: 1px;
+  }
+}
+
+/* Stream Error Empty-State inside #video-stage */
+.atv-video-error {
+  position: absolute;
+  inset: 0;
+  z-index: 26;
+  background: #101114;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px;
+  text-align: center;
+  border: none;
+}
+
+.atv-video-error-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+  border: none;
+}
+
+.atv-video-error-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #f5f5f7;
+}
+
+.atv-video-error-sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 460px;
+  line-height: 1.45;
+  margin-bottom: 6px;
+}
+
+.atv-video-error-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Compact Gear Popover: Speed Pills & Collapsible Hotkeys */
+.atv-gear-popover {
+  width: min(488px, calc(100% - 32px));
+  gap: 10px;
+  padding: 13px 15px;
+}
+
+.atv-gear-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#btn-toggle-gear-hotkeys.active {
+  background: rgba(56, 189, 248, 0.22);
+  color: #7dd3fc;
+}
+
+.atv-gear-speed-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.atv-gear-speed-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.atv-gear-speed-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+  flex: 1;
+  justify-content: space-between;
+  min-width: 210px;
+  border: none;
+}
+
+.gear-speed-pill {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 7px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: rgba(235, 235, 245, 0.78);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.gear-speed-pill:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.gear-speed-pill.active {
+  background: #f5f5f7;
+  color: #0b0c0f;
+  font-weight: 700;
+}
+
+/* Scalable Episodes View: Grid Cards vs Strip Pills */
+.atv-ep-view-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--bg-control);
+  border: none;
+}
+
+.ep-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ep-view-btn:hover {
+  color: #ffffff;
+}
+
+.ep-view-btn.active {
+  background: var(--bg-control-hover);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.atv-episodes-strip-row.ep-grid-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.atv-episodes-strip.ep-grid-mode {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 4px 6px 2px;
+  align-items: stretch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.atv-ep-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 5px;
+  text-align: left;
+  padding: 10px 12px 12px;
+  border-radius: 10px;
+  border: none;
+  outline: none;
+  background: var(--bg-control);
+  color: #f5f5f7;
+  cursor: pointer;
+  overflow: hidden;
+  transition: background 0.15s ease;
+}
+
+.atv-ep-card:hover {
+  background: var(--bg-control-hover);
+}
+
+.atv-ep-card.watched {
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.atv-ep-card.watched .atv-ep-card-num {
+  color: #6ee7b7;
+}
+
+.atv-ep-card.active {
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.22), rgba(56, 189, 248, 0.1));
+  color: #f5f5f7;
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.48), 0 8px 20px rgba(0, 0, 0, 0.28);
+}
+
+.atv-ep-card.active .atv-ep-card-num {
+  color: #7dd3fc;
+}
+
+.atv-ep-card.active .atv-ep-card-title {
+  color: #ffffff;
+}
+
+.atv-ep-card.active .atv-ep-card-meta {
+  color: rgba(224, 242, 254, 0.78);
+}
+
+.atv-ep-card.active .atv-ep-pill-progress {
+  background: #38bdf8;
+}
+
+.atv-ep-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.atv-ep-card-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: rgba(235, 235, 245, 0.9);
+}
+
+.atv-ep-card-meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.atv-ep-card-title {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #f5f5f7;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Clickable «Где смотреть» Rows in Sidebar */
+.meta-prov-item.is-clickable {
+  width: 100%;
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+  gap: 10px;
+  transition: background 0.15s ease;
+}
+
+.meta-prov-item.is-clickable:hover {
+  background: var(--bg-control-hover);
+}
+
+.meta-prov-item.active-prov {
+  background: rgba(56, 189, 248, 0.16);
+  color: #f5f5f7;
+}
+
+.meta-prov-item.active-prov .meta-prov-action {
+  color: #7dd3fc;
+  font-weight: 600;
+}
+
+.meta-prov-name {
+  font-weight: 600;
+  color: #f5f5f7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta-prov-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.meta-prov-action.muted {
+  color: var(--text-tertiary);
+  opacity: 0.62;
+  font-weight: 500;
+}
+
+/* Above-Video Current Episode Header + Number-Only Episode Pills + Per-Episode Postwatch Scope */
+.atv-current-ep-bar.atv-current-ep-above {
+  position: relative;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 8px 14px;
+  border-radius: 0;
+  background: transparent;
+  border: none;
+  min-height: 28px;
+}
+
+.atv-current-ep-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.atv-current-ep-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.atv-current-ep-right {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.atv-current-ep-right .atv-current-ep-sub {
+  margin-left: 0;
+}
+
+.atv-ep-rate-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  outline: none;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.atv-ep-rate-btn:hover {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f5f5f7;
+}
+
+.atv-ep-rate-btn.is-rated {
+  background: rgba(251, 191, 36, 0.16);
+  color: #fcd34d;
+}
+
+.atv-ep-rate-btn.is-rated svg {
+  fill: currentColor;
+}
+
+.atv-ep-rate-btn.is-watched {
+  background: rgba(52, 211, 153, 0.14);
+  border-color: rgba(52, 211, 153, 0.32);
+  color: #6ee7b7;
+}
+
+.atv-ep-rate-btn.is-watched:hover {
+  background: rgba(52, 211, 153, 0.22);
+  border-color: rgba(52, 211, 153, 0.45);
+  color: #a7f3d0;
+}
+
+.atv-episodes-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-height: none;
+  padding: 2px 12px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+}
+
+.atv-episodes-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.atv-episodes-strip.ep-grid-mode::-webkit-scrollbar {
+  display: block;
+  width: 6px;
+}
+
+.atv-episodes-strip.ep-grid-mode::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+}
+
+/* Sticky Video Stage on Wide & Tall Desktop Viewports + Sidebar Cast & Quick Peek Friends */
+@media (min-width: 1041px) and (min-height: 760px) {
+  .atv-modal-overlay:not(.mini-player-mode):not(.pip-background-mode) .atv-video-stage-wrap {
+    position: sticky;
+    top: 0;
+    z-index: 12;
+  }
+}
+
+#current-episode-bar:has(.atv-postwatch-overlay:not(.hidden)) {
+  z-index: 40;
+}
+
+#episodes-bottom-panel {
+  position: relative;
+  z-index: 16;
+}
+
+.atv-cast-sidebar-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.atv-cast-sidebar-block .atv-cast-photo-row {
+  padding-bottom: 4px;
+  padding-right: 18px;
+  scroll-padding-right: 18px;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent 100%);
+}
+
+.atv-qp-friends-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.atv-vc-popover,
+#player-gear-popover {
+  z-index: 50;
+}
+
+.atv-ep-drawer-toggle {
+  gap: 5px;
+}
+
+.atv-ep-drawer-toggle.expanded {
+  background: var(--bg-control-hover);
+  color: #ffffff;
+}
+
+.atv-ep-toggle-caret {
+  transition: transform 0.18s ease;
+}
+
+.atv-ep-drawer-toggle.expanded .atv-ep-toggle-caret {
+  transform: rotate(180deg);
+}
+
+.atv-ep-pill {
+  min-width: 36px;
+  height: 32px;
+  padding: 0 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.atv-postwatch-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  margin-bottom: 10px;
+  border: none;
+}
+
+.postwatch-scope-btn {
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: rgba(235, 235, 245, 0.72);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.postwatch-scope-btn:hover {
+  color: #ffffff;
+}
+
+.postwatch-scope-btn.active {
+  background: #f5f5f7;
+  color: #0b0c0f;
+  font-weight: 700;
+}
+
+#pip-dock-title,
+#pip-status-dock .atv-pip-dock-badge {
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   GPU-Accelerated Smooth Fullscreen Enter/Exit Transition (macOS 60/120fps)
+   ========================================================================== */
+.atv-video-stage {
+  contain: style;
+}
+
+.atv-video-stage video {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+html.fs-transitioning .atv-modal-overlay,
+html.is-stage-fullscreen .atv-modal-overlay {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: rgba(6, 7, 10, 0.96);
+}
+
+html.fs-transitioning .atv-header,
+html.is-stage-fullscreen .atv-header {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.fs-transitioning .ambient-glow,
+html.is-stage-fullscreen .ambient-glow,
+html.fs-transitioning .atv-ambilight-glow,
+html.is-stage-fullscreen .atv-ambilight-glow {
+  opacity: 0 !important;
+  filter: none !important;
+  visibility: hidden !important;
+  transition: none !important;
+}
+
+html.fs-transitioning .atv-cinema-sheet,
+html.is-stage-fullscreen .atv-cinema-sheet {
+  box-shadow: none !important;
+}
+
+html.fs-transitioning main,
+html.is-stage-fullscreen main {
+  contain: layout style paint;
+}
+
+html.is-stage-fullscreen main {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+html.fs-transitioning .atv-custom-controls,
+html.fs-transitioning .atv-vc-fs-topbar,
+html.fs-transitioning .atv-skip-btn,
+html.fs-transitioning .atv-autoplay-card,
+html.fs-transitioning .atv-postwatch-overlay {
+  transition: none !important;
+}
+
+.atv-vc-ad-markers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.atv-vc-ad-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 3px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.88);
+}
+
+/* Episode View Switcher (Номера / Карточки) + Local Hover Tooltip above Episode Pills */
+.atv-ep-view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.atv-ep-view-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: rgba(235, 235, 245, 0.68);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.atv-ep-view-btn:hover {
+  color: #ffffff;
+}
+
+.atv-ep-view-btn.active {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+#episodes-strip-row {
+  position: relative;
+}
+
+.atv-ep-hover-tooltip {
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 0;
+  transform: translateX(-50%);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(16, 17, 22, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.65);
+  color: #f5f5f7;
+  font-size: 11.5px;
+  line-height: 1.35;
+  white-space: nowrap;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.atv-ep-hover-tooltip-sub {
+  display: block;
+  font-size: 10.5px;
+  color: rgba(235, 235, 245, 0.62);
+}
+
+/* Modal Back-Stack Navigation Pill (Quick Peek <-> Person Filmography) */
+.atv-modal-back-btn {
+  position: absolute;
+  top: 16px;
+  left: 18px;
+  z-index: 14;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(20, 21, 26, 0.82);
+  color: #f5f5f7;
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 260px;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.atv-modal-back-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atv-modal-back-btn:hover {
+  background: rgba(38, 40, 48, 0.95);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+/* 4K Remux Honest TorrServer Banner & Release Actions */
+.atv-b4k-status-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 13px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.atv-b4k-status-banner.is-online {
+  background: rgba(16, 185, 129, 0.12);
+  color: #a7f3d0;
+  border: 1px solid rgba(16, 185, 129, 0.24);
+}
+
+.atv-b4k-status-banner.is-offline {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fde68a;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+}
+
+.atv-b4k-banner-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.release-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+
+
+
+
+
+
+/* ==========================================================================
+   4K Remux Audio Track Switcher, Debrid Status & Next-Episode Preload Badge
+   ========================================================================== */
+.atv-b4k-audio-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.atv-b4k-audio-bar-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #bae6fd;
+  white-space: nowrap;
+}
+
+.atv-b4k-audio-select {
+  flex: 1 1 220px;
+  min-width: 180px;
+  max-width: 420px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5f5f7;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  outline: none;
+}
+
+.atv-b4k-remux-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(52, 211, 153, 0.14);
+  color: #6ee7b7;
+}
+
+.atv-preload-ready-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #34d399;
+  margin-left: 5px;
+  vertical-align: middle;
+}
+
+.atv-settings-hint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.62);
+}
+
+/* ==========================================================================
+   HDRezka Header Quick 'Оригинал' + Voiceover Bar & Dark-Glass Cinema Chrome
+   ========================================================================== */
+.atv-hdr-center-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.atv-hdr-audio-bar {
+  display: none !important;
+}
+
+.atv-hdr-orig-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 11px 0 8px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.055);
+  color: rgba(245, 245, 247, 0.88);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.atv-hdr-orig-btn:hover {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.atv-hdr-orig-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  background: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
+}
+
+.atv-hdr-orig-btn.is-active {
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.24), rgba(56, 189, 248, 0.13));
+  border-color: rgba(125, 211, 252, 0.55);
+  color: #ffffff;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.16);
+}
+
+.atv-hdr-orig-btn.is-active .atv-hdr-orig-tag {
+  background: #38bdf8;
+  color: #08111a;
+}
+
+.atv-hdr-studio-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.atv-hdr-studio-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.045);
+  color: #f5f5f7;
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 240px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.atv-hdr-studio-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.atv-hdr-studio-prefix {
+  color: rgba(235, 235, 245, 0.52);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+#hdr-studio-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atv-hdr-studio-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 220px;
+  max-width: min(320px, 86vw);
+  max-height: 290px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(18, 19, 24, 0.96);
+  backdrop-filter: blur(22px) saturate(165%);
+  -webkit-backdrop-filter: blur(22px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.82);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 96;
+}
+
+.atv-vc-orig-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  margin-left: 6px;
+  border-radius: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: rgba(56, 189, 248, 0.18);
+  color: #7dd3fc;
+}
+
+.atv-vc-pop-divider {
+  height: 1px;
+  margin: 3px 6px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Unified Matte Dark Player Surfaces (Zero Stacked Blur Over Solid Sheet) */
+.atv-current-ep-bar.atv-current-ep-above,
+.atv-episodes-bottom-panel {
+  background: #1a1b20 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid rgba(255, 255, 255, 0.065) !important;
+  border-radius: 13px !important;
+}
+
+@media (pointer: coarse) {
+  .atv-vc-btn {
+    min-height: 36px;
+    min-width: 36px;
+  }
+  .atv-vc-btn.atv-vc-pill {
+    min-height: 34px;
+    padding: 0 11px;
+  }
+  .atv-vc-timeline {
+    height: 26px;
+  }
+  .atv-vc-track {
+    height: 6px;
+  }
+}
+
+.atv-ep-step-btn {
+  padding: 5px 8px !important;
+  min-width: 30px;
+  justify-content: center;
+}
+
+.atv-ep-head-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.atv-episodes-panel-head .atv-ep-drawer-toggle {
+  margin-left: 4px;
+}
+
+.atv-info-sidebar {
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 14px), transparent 100%);
+}
+
+.atv-sort-inline-select.active-sort {
+  background: rgba(56, 189, 248, 0.16);
+  color: #bae6fd;
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.34);
+}
+
+.srv-toggle input:focus-visible + .srv-toggle-slider {
+  outline: 2px solid rgba(56, 189, 248, 0.85);
+  outline-offset: 2px;
+}
+
+.atv-person-sheet:has(#person-back-nav-btn:not(.hidden)) .atv-person-hero {
+  padding-top: 32px;
+}
+
+@media (max-width: 640px) {
+  .atv-friend-stat-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  #stats-modal .atv-settings-body {
+    padding: 14px 16px;
+  }
+}
