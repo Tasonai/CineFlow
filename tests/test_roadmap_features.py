@@ -1513,6 +1513,32 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertIn("burn_sub=1", cast_info.get("stream_url", ""))
         self.assertEqual(cast_info.get("subtitle_url"), "")
 
+    def test_smart_subtitle_vocabulary_notebook_and_anki_export(self):
+        # 1. Check HTML markup for vocabulary modal and dictionary popover footer
+        with open(os.path.join(BASE_DIR, "public", "index.html"), "r", encoding="utf-8") as fh:
+            index_html = fh.read()
+        self.assertIn('id="vocab-modal"', index_html)
+        self.assertIn('id="btn-vocab-export-anki"', index_html)
+        self.assertIn('id="btn-sub-dict-save"', index_html)
+        self.assertIn('id="btn-sub-dict-open-vocab"', index_html)
+        self.assertIn('id="vocab-items-list"', index_html)
+
+        # 2. Check JavaScript vocabulary methods and Anki export TSV structure
+        with open(os.path.join(BASE_DIR, "public", "js", "subtitles.js"), "r", encoding="utf-8") as fh:
+            sub_js = fh.read()
+        self.assertIn("VOCAB_STORAGE_KEY", sub_js)
+        self.assertIn("cineflow_vocab_v1", sub_js)
+        self.assertIn("exportVocabularyToAnkiTsv", sub_js)
+        self.assertIn("#tags:CineFlow vocabulary", sub_js)
+        self.assertIn("toggleWordInVocabulary", sub_js)
+        self.assertIn("openVocabularyModal", sub_js)
+
+        # 3. Check state declarations for subtitle dictionary
+        with open(os.path.join(BASE_DIR, "public", "js", "state.js"), "r", encoding="utf-8") as fh:
+            state_js = fh.read()
+        self.assertIn("activeSubDictWord", state_js)
+        self.assertIn("activeSubDictEntry", state_js)
+
 
 if __name__ == "__main__":
     unittest.main()

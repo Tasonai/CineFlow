@@ -246,6 +246,8 @@ export const state = {
   tvDevices: [],
   tvActiveCast: null,
   tvBurnSubtitles: true,
+  activeSubDictWord: "",
+  activeSubDictEntry: null,
   tvQrSvg: "",
   tvUrl: "",
   tvLanEnabled: false,

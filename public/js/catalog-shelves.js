@@ -2,7 +2,7 @@
 // Manages "Continue Watching", "Curated Collections" (Friends' picks, In your taste,
 // Short movies tonight, Top Kinorium/IMDb), and separated/unified catalog shelves.
 
-import { state } from "./state.js?v=20261104v21";
+import { state } from "./state.js?v=20261104v22";
 import {
   displayBackdrop,
   displayPoster,
@@ -10,7 +10,7 @@ import {
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261104v21";
+} from "./i18n.js?v=20261104v22";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -21,35 +21,35 @@ import {
   matchCatalogItemSafe,
   showToast,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261104v21";
+} from "./utils.js?v=20261104v22";
 import {
   buildPersonPhotoCard,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261104v21";
+} from "./modals.js?v=20261104v22";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
   renderPosterCardsInto,
-} from "./catalog-cards.js?v=20261104v21";
+} from "./catalog-cards.js?v=20261104v22";
 import {
   filterCatalogItemsByGenreAndYear,
   sortCatalogItems,
-} from "./catalog-filters.js?v=20261104v21";
+} from "./catalog-filters.js?v=20261104v22";
 import {
   formatRemainingTime,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261104v21";
-import { renderHero } from "./catalog-hero.js?v=20261104v21";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261104v21";
+} from "./catalog-media-resolver.js?v=20261104v22";
+import { renderHero } from "./catalog-hero.js?v=20261104v22";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261104v22";
 import {
   clearCatalogFrontendCache,
   loadCatalog,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261104v21";
+} from "./catalog.js?v=20261104v22";
 
 export function renderContinueWatching() {
   renderNotificationsBell();

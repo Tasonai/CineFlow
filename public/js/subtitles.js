@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261104v21";
-import { isEn, t } from "./i18n.js?v=20261104v21";
+import { state } from "./state.js?v=20261104v22";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261104v22";
 import {
   clampStagePopover,
   escapeAttr,
@@ -7,13 +7,13 @@ import {
   iconSvg,
   showToast,
   showVideoOsd,
-} from "./utils.js?v=20261104v21";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261104v21";
+} from "./utils.js?v=20261104v22";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261104v22";
 import {
   closeAllVcPopovers,
   getEffectivePlaybackTiming,
   syncCustomControlPopovers,
-} from "./player.js?v=20261104v21";
+} from "./player.js?v=20261104v22";
 
 export function formatSubtitleOffsetLabel(sec = state.subtitleOffsetSec) {
   const num = Math.round((Number(sec) || 0) * 100) / 100;
@@ -345,6 +345,8 @@ export function closeSubtitleDictPopover(resumePlayback = true) {
     el.classList.remove("is-active-word");
   });
   state.subDictOpen = false;
+  state.activeSubDictWord = "";
+  state.activeSubDictEntry = null;
   if (resumePlayback && state.pausedBySubWord) {
     state.pausedBySubWord = false;
     const video = document.getElementById("native-video");
@@ -446,6 +448,244 @@ export async function openSubtitleDictPopover(rawWord, contextText = "", wordEl 
     ctxNode.textContent = ctxTrans;
     ctxNode.classList.remove("hidden");
   }
+
+  state.activeSubDictWord = cleanWord;
+  state.activeSubDictEntry = {
+    word: cleanWord,
+    translation: primaryText,
+    alternatives: alts,
+    context: String(contextText || "").trim(),
+    context_translation: ctxTrans,
+    title: displayTitle(state.activeItem),
+  };
+  syncSubDictBadge();
+}
+
+export const VOCAB_STORAGE_KEY = "cineflow_vocab_v1";
+
+export function getSavedVocabulary() {
+  try {
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(VOCAB_STORAGE_KEY) : null;
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+export function saveVocabularyList(list) {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem(VOCAB_STORAGE_KEY, JSON.stringify(list || []));
+    }
+  } catch (_) {}
+}
+
+export function isWordSavedInVocabulary(word) {
+  if (!word) return false;
+  const list = getSavedVocabulary();
+  const low = String(word).trim().toLowerCase();
+  return list.some((item) => String(item.word || "").trim().toLowerCase() === low);
+}
+
+export function toggleWordInVocabulary(wordObj) {
+  if (!wordObj || !wordObj.word) return false;
+  const list = getSavedVocabulary();
+  const low = String(wordObj.word).trim().toLowerCase();
+  const existingIdx = list.findIndex((item) => String(item.word || "").trim().toLowerCase() === low);
+  if (existingIdx >= 0) {
+    list.splice(existingIdx, 1);
+    saveVocabularyList(list);
+    syncSubDictBadge();
+    return false;
+  }
+  const entry = {
+    id: `v_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    word: String(wordObj.word).trim(),
+    translation: String(wordObj.translation || "").trim(),
+    alternatives: Array.isArray(wordObj.alternatives) ? wordObj.alternatives : [],
+    context: String(wordObj.context || "").trim(),
+    context_translation: String(wordObj.context_translation || "").trim(),
+    title: String(wordObj.title || displayTitle(state.activeItem) || "").trim(),
+    created_at: Date.now(),
+  };
+  list.unshift(entry);
+  saveVocabularyList(list.slice(0, 1000));
+  syncSubDictBadge();
+  return true;
+}
+
+export function removeWordFromVocabulary(id) {
+  const list = getSavedVocabulary();
+  const updated = list.filter((item) => item.id !== id);
+  saveVocabularyList(updated);
+  syncSubDictBadge();
+  renderVocabularyModal();
+}
+
+export function clearVocabulary() {
+  saveVocabularyList([]);
+  syncSubDictBadge();
+  renderVocabularyModal();
+}
+
+export function syncSubDictBadge() {
+  if (typeof document === "undefined") return;
+  const badge = document.getElementById("sub-dict-badge");
+  const count = getSavedVocabulary().length;
+  if (badge) {
+    badge.textContent = String(count);
+  }
+  const saveBtn = document.getElementById("btn-sub-dict-save");
+  const saveLbl = document.getElementById("sub-dict-save-label");
+  if (saveBtn && saveLbl && state.activeSubDictWord) {
+    const isSaved = isWordSavedInVocabulary(state.activeSubDictWord);
+    saveBtn.classList.toggle("is-saved", isSaved);
+    saveLbl.textContent = isSaved ? t("Сохранено", "Saved") : t("В словарь", "Save");
+  }
+}
+
+export function exportVocabularyToAnkiTsv() {
+  const list = getSavedVocabulary();
+  if (list.length === 0) {
+    showToast(
+      t(
+        "Словарь пуст — сохраните слова при просмотре с субтитрами",
+        "Vocabulary is empty — save words while watching with subtitles"
+      )
+    );
+    return;
+  }
+  const rows = [
+    ["#separator:tab"],
+    ["#html:true"],
+    ["#tags:CineFlow vocabulary"],
+  ];
+  list.forEach((item) => {
+    const w = String(item.word || "").replace(/\t/g, " ");
+    const tr = String(item.translation || "").replace(/\t/g, " ");
+    const ctx = String(item.context || "").replace(/\t/g, " ");
+    const tit = String(item.title || "").replace(/\t/g, " ");
+    const alts = Array.isArray(item.alternatives) && item.alternatives.length > 0
+      ? ` (${item.alternatives.join(", ")})`
+      : "";
+    const backHtml = ctx
+      ? `<b>${tr}${alts}</b><br><small><i>${ctx}</i></small>`
+      : `<b>${tr}${alts}</b>`;
+    rows.push([w, backHtml, ctx, tit]);
+  });
+  const tsvContent = rows.map((r) => r.join("\t")).join("\n");
+  const blob = new Blob(["\ufeff" + tsvContent], { type: "text/tab-separated-values;charset=utf-8" });
+  const d = new Date();
+  const dateStr = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  const filename = `CineFlow-Vocabulary-${dateStr}.tsv`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast(
+    t(
+      `Экспортировано ${list.length} карточек для Anki`,
+      `Exported ${list.length} cards for Anki`
+    )
+  );
+}
+
+export function openVocabularyModal() {
+  if (typeof document === "undefined") return;
+  const modal = document.getElementById("vocab-modal");
+  if (!modal) return;
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+  renderVocabularyModal();
+  const input = document.getElementById("vocab-search-input");
+  if (input) {
+    input.value = "";
+    input.focus();
+  }
+}
+
+export function closeVocabularyModal() {
+  if (typeof document === "undefined") return;
+  const modal = document.getElementById("vocab-modal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+export function renderVocabularyModal(query = "") {
+  if (typeof document === "undefined") return;
+  const listEl = document.getElementById("vocab-items-list");
+  const countEl = document.getElementById("vocab-modal-count");
+  if (!listEl) return;
+  const list = getSavedVocabulary();
+  const q = String(query || "").trim().toLowerCase();
+  const filtered = q
+    ? list.filter(
+        (item) =>
+          String(item.word || "").toLowerCase().includes(q) ||
+          String(item.translation || "").toLowerCase().includes(q) ||
+          String(item.context || "").toLowerCase().includes(q) ||
+          String(item.title || "").toLowerCase().includes(q)
+      )
+    : list;
+
+  if (countEl) {
+    countEl.textContent = `${list.length} ${t("слов для изучения", "words saved")}`;
+  }
+
+  if (filtered.length === 0) {
+    listEl.innerHTML = `<div class="atv-vocab-empty">${
+      q
+        ? t("Ничего не найдено по запросу", "No words found matching your search")
+        : t(
+            "Словарь пуст. Нажимайте на незнакомые слова в субтитрах во время просмотра, чтобы сохранять их для изучения!",
+            "Vocabulary is empty. Click unfamiliar words in subtitles during playback to save them for learning!"
+          )
+    }</div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered
+    .map((item) => {
+      const w = escapeHtml(item.word || "");
+      const tr = escapeHtml(item.translation || "");
+      const ctx = escapeHtml(item.context || "");
+      const tit = escapeHtml(item.title || "");
+      const alts = Array.isArray(item.alternatives) && item.alternatives.length > 0
+        ? `<span class="atv-vocab-item-alts">${escapeHtml(item.alternatives.join(", "))}</span>`
+        : "";
+      return `
+        <div class="atv-vocab-item" data-vocab-id="${item.id}">
+          <div class="atv-vocab-item-main">
+            <div class="atv-vocab-item-head">
+              <span class="atv-vocab-item-word">${w}</span>
+              <span class="atv-vocab-item-trans">${tr}</span>
+              ${alts}
+            </div>
+            ${ctx ? `<div class="atv-vocab-item-ctx">«${ctx}»</div>` : ""}
+            ${tit ? `<div class="atv-vocab-item-meta">${tit}</div>` : ""}
+          </div>
+          <button type="button" class="atv-vocab-del-btn" title="${escapeAttr(
+            t("Удалить из словаря", "Remove from vocabulary")
+          )}" data-del-id="${item.id}">
+            <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </div>
+      `;
+    })
+    .join("");
+
+  listEl.querySelectorAll("[data-del-id]").forEach((btn) => {
+    btn.onclick = () => {
+      const id = btn.getAttribute("data-del-id");
+      if (id) removeWordFromVocabulary(id);
+    };
+  });
 }
 
 export function updateCustomSubtitleOverlay(
@@ -1127,6 +1367,55 @@ export function bindSubtitleFileAndDropListeners() {
       closeSubtitleDictPopover(true);
     });
   }
+
+  const btnSaveDict = document.getElementById("btn-sub-dict-save");
+  if (btnSaveDict) {
+    btnSaveDict.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (state.activeSubDictEntry) {
+        const added = toggleWordInVocabulary(state.activeSubDictEntry);
+        showToast(
+          added
+            ? t(`«${state.activeSubDictEntry.word}» сохранено в словарь`, `"${state.activeSubDictEntry.word}" saved to vocabulary`)
+            : t(`«${state.activeSubDictEntry.word}» удалено из словаря`, `"${state.activeSubDictEntry.word}" removed from vocabulary`)
+        );
+      }
+    });
+  }
+
+  const btnOpenVocab = document.getElementById("btn-sub-dict-open-vocab");
+  if (btnOpenVocab) {
+    btnOpenVocab.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openVocabularyModal();
+    });
+  }
+
+  const vocabModal = document.getElementById("vocab-modal");
+  if (vocabModal) {
+    vocabModal.addEventListener("click", (e) => {
+      if (e.target === vocabModal) closeVocabularyModal();
+    });
+  }
+  document.getElementById("close-vocab-modal")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    closeVocabularyModal();
+  });
+  document.getElementById("btn-vocab-export-anki")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    exportVocabularyToAnkiTsv();
+  });
+  document.getElementById("btn-vocab-clear")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (getSavedVocabulary().length === 0) return;
+    clearVocabulary();
+    showToast(t("Словарь очищен", "Vocabulary cleared"));
+  });
+  document.getElementById("vocab-search-input")?.addEventListener("input", (e) => {
+    renderVocabularyModal(e.target.value);
+  });
 
   const stage = document.getElementById("video-stage");
   const dropzone = document.getElementById("video-dropzone");

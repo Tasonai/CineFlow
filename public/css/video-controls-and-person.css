@@ -3496,6 +3496,141 @@ html.is-tv-mode .type-pill {
   color: rgba(245, 245, 247, 0.92);
 }
 
+.atv-sub-dict-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.atv-sub-dict-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.atv-vocab-card {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+}
+
+.atv-vocab-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.atv-vocab-search-row {
+  padding: 12px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.atv-vocab-search-input {
+  width: 100%;
+}
+
+.atv-vocab-body {
+  padding: 12px 20px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 200px;
+  max-height: 55vh;
+}
+
+.atv-vocab-empty {
+  text-align: center;
+  color: rgba(245, 245, 247, 0.6);
+  padding: 40px 20px;
+  font-size: 14px;
+}
+
+.atv-vocab-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+
+.atv-vocab-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.atv-vocab-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.atv-vocab-item-word {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.atv-vocab-item-trans {
+  font-size: 14px;
+  font-weight: 600;
+  color: #86efac;
+}
+
+.atv-vocab-item-ctx {
+  font-size: 12.5px;
+  color: rgba(245, 245, 247, 0.75);
+  line-height: 1.4;
+}
+
+.atv-vocab-item-meta {
+  font-size: 11.5px;
+  color: rgba(245, 245, 247, 0.45);
+}
+
+.atv-vocab-del-btn {
+  background: transparent;
+  border: none;
+  color: rgba(245, 245, 247, 0.4);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vocab-item:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
+  .atv-vocab-del-btn:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.12);
+  }
+}
+
 /* ==========================================================================
    v106 Tactile Press Feedback, Tabular Numerals & Range Focus Ring
    ========================================================================== */

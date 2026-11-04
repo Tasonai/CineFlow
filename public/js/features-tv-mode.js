@@ -1,21 +1,21 @@
-import { state } from "./state.js?v=20261104v21";
-import { t } from "./i18n.js?v=20261104v21";
+import { state } from "./state.js?v=20261104v22";
+import { t } from "./i18n.js?v=20261104v22";
 import {
   closeCustomSelectMenu,
   isCustomSelectMenuOpen,
   showToast,
   showVideoOsd,
-} from "./utils.js?v=20261104v21";
-import { savePlayerPrefs } from "./audio-dsp.js?v=20261104v21";
+} from "./utils.js?v=20261104v22";
+import { savePlayerPrefs } from "./audio-dsp.js?v=20261104v22";
 import {
   closeCommandPalette,
   closeMovieRouletteModal,
-} from "./catalog.js?v=20261104v21";
+} from "./catalog.js?v=20261104v22";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261104v21";
+} from "./modals.js?v=20261104v22";
 import {
   closeAllVcPopovers,
   closePlayerModal,
@@ -28,15 +28,15 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261104v21";
-import { closeOnboardingModal } from "./settings.js?v=20261104v21";
-import { closeDownloadsModal } from "./features-downloads.js?v=20261104v21";
-import { closeTvCastModal } from "./features-cast.js?v=20261104v21";
+} from "./player.js?v=20261104v22";
+import { closeOnboardingModal } from "./settings.js?v=20261104v22";
+import { closeDownloadsModal } from "./features-downloads.js?v=20261104v22";
+import { closeTvCastModal } from "./features-cast.js?v=20261104v22";
 import {
   closeKidsPinModal,
   closeProfilePopover,
   closeProfilesModal,
-} from "./features.js?v=20261104v21";
+} from "./features.js?v=20261104v22";
 
 // ============================================================================
 // 5. TV MODE (D-Pad / Gamepad Spatial Navigation + AirPlay / DLNA / QR)
@@ -656,6 +656,8 @@ export function startGamepadPollingLoop() {
         closeTvCastModal();
       } else if (!document.getElementById("downloads-modal")?.classList.contains("hidden")) {
         closeDownloadsModal();
+      } else if (!document.getElementById("vocab-modal")?.classList.contains("hidden")) {
+        document.getElementById("close-vocab-modal")?.click();
       } else if (!document.getElementById("stats-modal")?.classList.contains("hidden")) {
         document.getElementById("close-stats-modal")?.click();
       } else if (!document.getElementById("settings-modal")?.classList.contains("hidden")) {
