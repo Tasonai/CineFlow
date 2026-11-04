@@ -11,6 +11,7 @@ Dispatches:
 - /api/downloads/poster/* (Offline poster image delivery)
 """
 
+import hashlib
 import http.client
 import ipaddress
 import os
@@ -20,9 +21,11 @@ import socket
 import ssl
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
+import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
 from backend.downloads import parse_http_byte_range
@@ -860,6 +863,8 @@ def handle_download_mp4(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                 env=ff_env_dl,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
+            with _ACTIVE_REMUX_PROCS_LOCK:
+                _ACTIVE_REMUX_PROCS.append((proc, dl_stop))
             dl_q: queue.Queue = queue.Queue(maxsize=48)
             dl_stdout = proc.stdout
 
@@ -929,6 +934,11 @@ def handle_download_mp4(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                     pass
         finally:
             dl_stop.set()
+            if proc:
+                with _ACTIVE_REMUX_PROCS_LOCK:
+                    _ACTIVE_REMUX_PROCS[:] = [
+                        (p, s) for p, s in _ACTIVE_REMUX_PROCS if p is not proc
+                    ]
             if proc and proc.poll() is None:
                 try:
                     proc.terminate()

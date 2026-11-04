@@ -258,6 +258,7 @@ export const state = {
   activeOfflineDownloadId: "",
   lastNativeNowPlayingTs: 0,
   pendingTvDeepLink: null,
+  pendingStudioId: null,
   verifiedKidsAdminPin: "",
   backupQualities: {},
   hlsQualities: {},

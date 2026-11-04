@@ -1437,9 +1437,12 @@ html.is-stage-fullscreen .atv-video-stage.vc-idle .atv-subtitle-overlay {
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 
-.atv-sub-word.is-selected {
+.atv-sub-word.is-selected,
+.atv-sub-word:focus-visible {
+  outline: none;
   background-color: rgba(255, 255, 255, 0.22);
   color: #86efac;
+  box-shadow: 0 0 0 2px rgba(134, 239, 172, 0.6);
 }
 
 @media (hover: hover) and (pointer: fine) {

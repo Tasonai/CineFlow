@@ -13,12 +13,12 @@ def build_offline_catalog_payload(ctx, media_type: str = "all", lang: str = "ru"
         return {"ok": True, "items": [], "providers_meta": {}, "continue_watching": [], "is_offline": True}
 
     kids_mode = (
-        bool(ctx.profile_manager.is_kids_mode_active())
+        bool(getattr(ctx.profile_manager, "is_kids_mode_active", lambda: False)())
         if hasattr(ctx, "profile_manager") and ctx.profile_manager
         else False
     )
     active_prof_id = (
-        ctx.profile_manager.get_active_profile_id()
+        getattr(ctx.profile_manager, "get_active_profile_id", lambda: "main")()
         if hasattr(ctx, "profile_manager") and ctx.profile_manager
         else "main"
     )
@@ -140,12 +140,21 @@ def handle_catalog(handler, qs, parsed, ctx):
                 lang=req_lang,
             )
 
-    if ctx.profile_manager.is_kids_mode_active():
-        cat_payload = ctx.profile_manager.filter_catalog_payload_for_kids(cat_payload)
-    cat_payload["active_profile"] = ctx.profile_manager.get_active_profile(
-        lang=req_lang,
-        live_kinorium_service=ctx.kinorium_service,
-    )
+    if not isinstance(cat_payload, dict):
+        cat_payload = build_offline_catalog_payload(
+            ctx,
+            media_type=media_type if media_type != "offline" else "all",
+            lang=req_lang,
+        )
+
+    prof_mgr = getattr(ctx, "profile_manager", None)
+    if prof_mgr and hasattr(prof_mgr, "is_kids_mode_active") and prof_mgr.is_kids_mode_active():
+        cat_payload = prof_mgr.filter_catalog_payload_for_kids(cat_payload)
+    if prof_mgr and hasattr(prof_mgr, "get_active_profile"):
+        cat_payload["active_profile"] = prof_mgr.get_active_profile(
+            lang=req_lang,
+            live_kinorium_service=getattr(ctx, "kinorium_service", None),
+        )
     handler._send_json(cat_payload)
     return True
 
@@ -191,7 +200,15 @@ def handle_search(handler, qs, parsed, ctx):
                 lang=req_lang,
             )
 
-    if ctx.profile_manager.is_kids_mode_active():
-        srch_payload = ctx.profile_manager.filter_catalog_payload_for_kids(srch_payload)
+    if not isinstance(srch_payload, dict):
+        srch_payload = build_offline_catalog_payload(
+            ctx,
+            media_type=media_type,
+            lang=req_lang,
+        )
+
+    prof_mgr = getattr(ctx, "profile_manager", None)
+    if prof_mgr and hasattr(prof_mgr, "is_kids_mode_active") and prof_mgr.is_kids_mode_active():
+        srch_payload = prof_mgr.filter_catalog_payload_for_kids(srch_payload)
     handler._send_json(srch_payload)
     return True

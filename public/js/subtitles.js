@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261104v24";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261104v24";
+import { profileStorageKey, state } from "./state.js?v=20261104v25";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261104v25";
 import {
   clampStagePopover,
   escapeAttr,
@@ -7,13 +7,13 @@ import {
   iconSvg,
   showToast,
   showVideoOsd,
-} from "./utils.js?v=20261104v24";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261104v24";
+} from "./utils.js?v=20261104v25";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261104v25";
 import {
   closeAllVcPopovers,
   getEffectivePlaybackTiming,
   syncCustomControlPopovers,
-} from "./player.js?v=20261104v24";
+} from "./player.js?v=20261104v25";
 
 export function formatSubtitleOffsetLabel(sec = state.subtitleOffsetSec) {
   const num = Math.round((Number(sec) || 0) * 100) / 100;
@@ -328,7 +328,7 @@ function renderInteractiveSubtitleLineHtml(line) {
   return parts
     .map((part) => {
       if (/^[A-Za-zА-Яа-яЁёІіЇїЄєҐґ0-9''’-]{2,}$/.test(part) && /[A-Za-zА-Яа-яЁёІіЇїЄєҐґ]/.test(part)) {
-        return `<span class="atv-sub-word" data-word="${escapeAttr(part)}">${escapeHtml(part)}</span>`;
+        return `<span class="atv-sub-word" role="button" tabindex="0" data-word="${escapeAttr(part)}">${escapeHtml(part)}</span>`;
       }
       return escapeHtml(part);
     })
@@ -465,7 +465,17 @@ export const VOCAB_STORAGE_KEY = "cineflow_vocab_v1";
 
 export function getSavedVocabulary() {
   try {
-    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(VOCAB_STORAGE_KEY) : null;
+    const key = profileStorageKey(VOCAB_STORAGE_KEY);
+    let raw = typeof localStorage !== "undefined" ? localStorage.getItem(key) : null;
+    if (raw === null && (!state.activeProfileId || state.activeProfileId === "main")) {
+      const legacyRaw = typeof localStorage !== "undefined" ? localStorage.getItem(VOCAB_STORAGE_KEY) : null;
+      if (legacyRaw !== null) {
+        raw = legacyRaw;
+        try {
+          localStorage.setItem(key, legacyRaw);
+        } catch (_) {}
+      }
+    }
     const parsed = raw ? JSON.parse(raw) : [];
     return Array.isArray(parsed) ? parsed : [];
   } catch (_) {
@@ -476,7 +486,8 @@ export function getSavedVocabulary() {
 export function saveVocabularyList(list) {
   try {
     if (typeof localStorage !== "undefined") {
-      localStorage.setItem(VOCAB_STORAGE_KEY, JSON.stringify(list || []));
+      const key = profileStorageKey(VOCAB_STORAGE_KEY);
+      localStorage.setItem(key, JSON.stringify(list || []));
     }
   } catch (_) {}
 }
@@ -1341,15 +1352,32 @@ export function bindSubtitleFileAndDropListeners() {
 
   const subOverlay = document.getElementById("atv-subtitle-overlay");
   if (subOverlay) {
+    const handleWordSelect = (targetEl) => {
+      const wordEl = targetEl.closest(".atv-sub-word");
+      if (!wordEl) return;
+      const rawWord = wordEl.getAttribute("data-word") || wordEl.textContent || "";
+      const lineEl = wordEl.closest(".atv-subtitle-cue-line");
+      const ctxText = lineEl?.getAttribute("data-cue-context") || lineEl?.textContent || "";
+      openSubtitleDictPopover(rawWord, ctxText, wordEl);
+    };
+
     subOverlay.addEventListener("click", (e) => {
       const wordEl = e.target.closest(".atv-sub-word");
       if (!wordEl) return;
       e.preventDefault();
       e.stopPropagation();
-      const rawWord = wordEl.getAttribute("data-word") || wordEl.textContent || "";
-      const lineEl = wordEl.closest(".atv-subtitle-cue-line");
-      const ctxText = lineEl?.getAttribute("data-cue-context") || lineEl?.textContent || "";
-      openSubtitleDictPopover(rawWord, ctxText, wordEl);
+      handleWordSelect(wordEl);
+    });
+
+    subOverlay.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        const wordEl = e.target.closest(".atv-sub-word");
+        if (wordEl) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleWordSelect(wordEl);
+        }
+      }
     });
   }
 

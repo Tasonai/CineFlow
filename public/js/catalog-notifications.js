@@ -2,14 +2,14 @@ import {
   NOTIF_DESKTOP_ALERTED_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261104v24";
+} from "./state.js?v=20261104v25";
 import {
   displayPoster,
   displayTitle,
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261104v24";
+} from "./i18n.js?v=20261104v25";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -19,16 +19,16 @@ import {
   iconSvg,
   matchCatalogItemSafe,
   saveSeenNotificationsSet,
-} from "./utils.js?v=20261104v24";
-import { openQuickPeekModal } from "./modals.js?v=20261104v24";
-import { openPlayerModal } from "./player.js?v=20261104v24";
-import { openSettingsModal } from "./settings.js?v=20261104v24";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261104v24";
+} from "./utils.js?v=20261104v25";
+import { openQuickPeekModal } from "./modals.js?v=20261104v25";
+import { openPlayerModal } from "./player.js?v=20261104v25";
+import { openSettingsModal } from "./settings.js?v=20261104v25";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261104v25";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261104v24";
+} from "./catalog-media-resolver.js?v=20261104v25";
 
 export function collectNewEpisodeNotifications() {
   if (!isServiceEnabled("kinorium") || (!isServiceEnabled("hdrezka") && !isServiceEnabled("stremio"))) {

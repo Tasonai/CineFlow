@@ -1,5 +1,5 @@
-import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261104v24";
-import { displayTitle, isEn, t, translateStudioName } from "./i18n.js?v=20261104v24";
+import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261104v25";
+import { displayTitle, isEn, t, translateStudioName } from "./i18n.js?v=20261104v25";
 import {
   clampFloatingPopover,
   closeCustomSelectMenu,
@@ -23,7 +23,7 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261104v24";
+} from "./utils.js?v=20261104v25";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -31,7 +31,7 @@ import {
   getPlayerPrefs,
   savePlayerPrefs,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261104v24";
+} from "./audio-dsp.js?v=20261104v25";
 import {
   applyEnabledServicesVisibility,
   clearCatalogFrontendCache,
@@ -46,13 +46,13 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261104v24";
+} from "./catalog.js?v=20261104v25";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261104v24";
+} from "./modals.js?v=20261104v25";
 import {
   closeAllVcPopovers,
   closePlayerModal,
@@ -70,19 +70,19 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261104v24";
+} from "./player.js?v=20261104v25";
 import {
   closeOnboardingModal,
   openSettingsModal,
   renderIntegrationsList,
   toggleLanAccess,
   updateBackupSummaryStat,
-} from "./settings.js?v=20261104v24";
+} from "./settings.js?v=20261104v25";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   switchCastModalTab,
-} from "./remote.js?v=20261104v24";
+} from "./remote.js?v=20261104v25";
 
 export function exitBrowserFullscreenIfNeeded() {
   if (typeof document === "undefined") return;
@@ -264,7 +264,7 @@ import {
   _editingProfileId,
   _editingProfileColor,
   _clearKidsPinRequested,
-} from "./features-profiles.js?v=20261104v24";
+} from "./features-profiles.js?v=20261104v25";
 
 export {
   PROFILE_COLOR_SWATCHES,
@@ -536,7 +536,7 @@ import {
   retryOfflineDownload,
   deleteOfflineDownload,
   openDownloadsFolder,
-} from "./features-downloads.js?v=20261104v24";
+} from "./features-downloads.js?v=20261104v25";
 
 export {
   syncDownloadsHeaderBadge,
@@ -576,7 +576,7 @@ import {
   executeRemoteDpadCommand as _executeRemoteDpadCommand,
   handleTvSpatialKeydown,
   startGamepadPollingLoop,
-} from "./features-tv-mode.js?v=20261104v24";
+} from "./features-tv-mode.js?v=20261104v25";
 
 export {
   clearTvFocusClass,
@@ -616,7 +616,7 @@ import {
   applyPendingTvDeepLinkIfReady,
   openPlayerHandoffModal,
   closePlayerHandoffModal,
-} from "./features-cast.js?v=20261104v24";
+} from "./features-cast.js?v=20261104v25";
 
 export {
   supportsWebkitAirPlay,

@@ -2,8 +2,8 @@
 // 6. TV CAST & AIRPLAY / DLNA / REMOTE LINK
 // ============================================================================
 
-import { state } from "./state.js?v=20261104v24";
-import { displayTitle, t } from "./i18n.js?v=20261104v24";
+import { state } from "./state.js?v=20261104v25";
+import { displayTitle, t } from "./i18n.js?v=20261104v25";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -13,17 +13,17 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261104v24";
-import { resolvePreferredPlayTab } from "./catalog.js?v=20261104v24";
-import { openQuickPeekModal } from "./modals.js?v=20261104v24";
+} from "./utils.js?v=20261104v25";
+import { resolvePreferredPlayTab } from "./catalog.js?v=20261104v25";
+import { openQuickPeekModal } from "./modals.js?v=20261104v25";
 import {
   getEffectivePlaybackTiming,
   openPlayerModal,
-} from "./player.js?v=20261104v24";
-import { switchCastModalTab } from "./remote.js?v=20261104v24";
-import { toggleLanAccess } from "./settings.js?v=20261104v24";
-import { toggleTvMode } from "./features-tv-mode.js?v=20261104v24";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v24";
+} from "./player.js?v=20261104v25";
+import { switchCastModalTab } from "./remote.js?v=20261104v25";
+import { toggleLanAccess } from "./settings.js?v=20261104v25";
+import { toggleTvMode } from "./features-tv-mode.js?v=20261104v25";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v25";
 
 
 export function supportsWebkitAirPlay() {
@@ -403,7 +403,7 @@ export function parseInitialTvUrlParams() {
 
 export async function applyPendingTvDeepLinkIfReady() {
   const req = state.pendingTvDeepLink;
-  if (!req || (!req.id && !req.title) || !Array.isArray(state.catalogItems) || state.catalogItems.length === 0) {
+  if (!req || (!req.id && !req.title)) {
     return;
   }
   state.pendingTvDeepLink = null;
@@ -423,8 +423,9 @@ export async function applyPendingTvDeepLinkIfReady() {
     }
     return false;
   };
+  const catalogList = Array.isArray(state.catalogItems) ? state.catalogItems : [];
   let target =
-    state.catalogItems.find(matchesId) ||
+    catalogList.find(matchesId) ||
     (state.continueWatching || []).find(matchesId) ||
     null;
 
@@ -441,6 +442,9 @@ export async function applyPendingTvDeepLinkIfReady() {
   }
 
   if (target) {
+    if (req.tr) {
+      state.pendingStudioId = String(req.tr);
+    }
     if (req.mode === "peek" && !state.tvMode) {
       await openQuickPeekModal(target);
     } else {
@@ -463,9 +467,18 @@ export async function openPlayerHandoffModal() {
   const modal = document.getElementById("handoff-modal");
   if (!modal) return;
 
+  exitBrowserFullscreenIfNeeded();
+  rememberModalTriggerFocus("handoff-modal");
+
   const item = state.activeItem;
   const video = document.getElementById("native-video");
-  const curTime = video ? Math.floor(video.currentTime || 0) : 0;
+  if (video && !video.paused) {
+    try {
+      video.pause();
+    } catch (_) {}
+  }
+  const { cur } = getEffectivePlaybackTiming(video);
+  const curTime = Math.max(0, Math.floor(cur || (video ? video.currentTime : 0) || 0));
   const sNum = item.media_type === "series" ? Number(state.activeSeason) || 1 : 1;
   const eNum = item.media_type === "series" ? Number(state.activeEpisode) || 1 : 1;
   const title = displayTitle(item);
@@ -544,5 +557,6 @@ export function closePlayerHandoffModal() {
   if (!modal) return;
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
+  restoreModalTriggerFocus("handoff-modal");
 }
 

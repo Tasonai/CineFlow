@@ -1798,6 +1798,163 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertIn("btn-handoff-copy-url", features_js)
         self.assertIn("openPlayerHandoffModal", features_js)
 
+    def test_audit_bugfixes_burn_sub_handoff_and_catalog(self):
+        """Verifies bugfixes from adversarial audit:
+        - streaming.py has hashlib, tempfile, urllib.request imported for burned subs
+        - streaming.py registers active MP4 remux procs
+        - remote.py handle_handoff enforces kids mode and loopback auto-LAN
+        - catalog.py gracefully falls back to offline catalog if aggregator returns non-dict
+        - features-cast.js handles deep links even when catalogItems is empty
+        - catalog-shelves.js filters CW strictly by id
+        - subtitles.js isolates vocabulary per profile
+        """
+        import backend.routes.streaming as st_mod
+        self.assertTrue(hasattr(st_mod, "hashlib"))
+        self.assertTrue(hasattr(st_mod, "tempfile"))
+        self.assertTrue(hasattr(st_mod, "urllib"))
+        self.assertTrue(hasattr(st_mod.urllib, "request"))
+
+        with open(os.path.join(BASE_DIR, "backend", "routes", "streaming.py"), "r", encoding="utf-8") as fh:
+            st_src = fh.read()
+        self.assertIn("_ACTIVE_REMUX_PROCS.append((proc, dl_stop))", st_src)
+
+        # 2. remote.py handle_handoff kids mode enforcement
+        from backend.routes.remote import handle_handoff
+
+        class _MockKidsHandoffCtx:
+            app_prefs = {"lan_access": False}
+            server_runtime = {"running": True}
+            lan_synced = False
+
+            class dlna_manager:
+                lan_ip = "192.168.1.50"
+                registered_items = {}
+
+                @classmethod
+                def register_deep_link_item(cls, item_id, payload):
+                    cls.registered_items[item_id] = payload
+
+            class profile_manager:
+                @staticmethod
+                def is_kids_mode_active():
+                    return True
+
+                @staticmethod
+                def is_active_kids_pin_locked():
+                    return True
+
+                @staticmethod
+                def is_item_kids_safe(item):
+                    return item.get("id") == "safe_cartoon"
+
+            @staticmethod
+            def qs_int(qs, key, default):
+                try:
+                    return int(qs.get(key, [default])[0])
+                except Exception:
+                    return default
+
+            @staticmethod
+            def build_trusted_item_for_kids_check(**kwargs):
+                d = dict(kwargs)
+                d["id"] = d.get("item_id", "")
+                return d
+
+        class _MockHandoffHandler:
+            resp_status = 200
+            resp_data = None
+
+            def _is_loopback_client(self):
+                return True
+
+            def _send_json(self, data, status=200):
+                self.resp_status = status
+                self.resp_data = data
+
+        # Blocked in kids mode
+        h_blocked = _MockHandoffHandler()
+        res_blocked = handle_handoff(
+            h_blocked,
+            {"id": ["adult_film"], "title": ["Adult Film"]},
+            None,
+            _MockKidsHandoffCtx,
+        )
+        self.assertTrue(res_blocked)
+        self.assertEqual(h_blocked.resp_status, 403)
+        self.assertFalse(h_blocked.resp_data.get("ok"))
+
+        # Allowed in kids mode
+        h_allowed = _MockHandoffHandler()
+        res_allowed = handle_handoff(
+            h_allowed,
+            {"id": ["safe_cartoon"], "title": ["Safe Cartoon"]},
+            None,
+            _MockKidsHandoffCtx,
+        )
+        self.assertTrue(res_allowed)
+        self.assertEqual(h_allowed.resp_status, 200)
+        self.assertTrue(h_allowed.resp_data.get("ok"))
+
+        # 3. catalog.py non-dict fallback
+        from backend.routes.catalog import handle_catalog, handle_search
+
+        class _MockNonDictCtx:
+            app_prefs = {"app_lang": "ru"}
+
+            @staticmethod
+            def norm_app_lang(val, default):
+                return val or default
+
+            class aggregator:
+                @staticmethod
+                def get_catalog(**kwargs):
+                    return None  # Bad aggregator return
+
+                @staticmethod
+                def unified_search(**kwargs):
+                    return None  # Bad aggregator return
+
+            class download_manager:
+                @staticmethod
+                def get_downloads_payload(**kwargs):
+                    return {"ok": True, "items": []}
+
+            class profile_manager:
+                @staticmethod
+                def is_kids_mode_active():
+                    return False
+
+                @staticmethod
+                def get_active_profile(**kwargs):
+                    return {"id": "main", "name": "Main"}
+
+        h_cat = _MockHandoffHandler()
+        self.assertTrue(handle_catalog(h_cat, {}, None, _MockNonDictCtx))
+        self.assertIsInstance(h_cat.resp_data, dict)
+        self.assertIn("items", h_cat.resp_data)
+
+        h_srch = _MockHandoffHandler()
+        self.assertTrue(handle_search(h_srch, {"q": ["test"]}, None, _MockNonDictCtx))
+        self.assertIsInstance(h_srch.resp_data, dict)
+        self.assertIn("items", h_srch.resp_data)
+
+        # 4. Frontend integrity checks
+        with open(os.path.join(BASE_DIR, "public", "js", "features-cast.js"), "r", encoding="utf-8") as fh:
+            fc_src = fh.read()
+        self.assertIn("!req || (!req.id && !req.title)", fc_src)
+        self.assertIn("getEffectivePlaybackTiming(video)", fc_src)
+        self.assertIn("state.pendingStudioId = String(req.tr)", fc_src)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "subtitles.js"), "r", encoding="utf-8") as fh:
+            sub_src = fh.read()
+        self.assertIn("profileStorageKey(VOCAB_STORAGE_KEY)", sub_src)
+        self.assertIn('class="atv-sub-word" role="button" tabindex="0"', sub_src)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "catalog-shelves.js"), "r", encoding="utf-8") as fh:
+            shelves_src = fh.read()
+        self.assertIn("(x) => x.id !== cw.id", shelves_src)
+        self.assertNotIn("x.id !== cw.id && x.title !== cw.title", shelves_src)
+
 
 if __name__ == "__main__":
     unittest.main()

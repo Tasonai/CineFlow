@@ -1,4 +1,4 @@
-import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261104v24";
+import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261104v25";
 import {
   displayBackdrop,
   displayCountries,
@@ -15,7 +15,7 @@ import {
   translateCareer,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261104v24";
+} from "./i18n.js?v=20261104v25";
 import {
   attachHorizontalWheelScroll,
   closeCustomSelectMenu,
@@ -38,11 +38,11 @@ import {
   showToast,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261104v24";
+} from "./utils.js?v=20261104v25";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
-} from "./catalog-cards.js?v=20261104v24";
+} from "./catalog-cards.js?v=20261104v25";
 import {
   applyEnabledServicesVisibility,
   getDefaultPlayableSourceTab,
@@ -51,20 +51,20 @@ import {
   patchCatalogItemKinoriumInPlace,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261104v24";
+} from "./catalog-media-resolver.js?v=20261104v25";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261104v24";
-import { renderHero } from "./catalog-hero.js?v=20261104v24";
-import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261104v24";
-import { loadCatalog } from "./catalog.js?v=20261104v24";
-import { escapeEpisodeHtml } from "./player-seasons.js?v=20261104v24";
+} from "./catalog-shelves.js?v=20261104v25";
+import { renderHero } from "./catalog-hero.js?v=20261104v25";
+import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261104v25";
+import { loadCatalog } from "./catalog.js?v=20261104v25";
+import { escapeEpisodeHtml } from "./player-seasons.js?v=20261104v25";
 import {
   closePlayerModal,
   openPlayerModal,
-} from "./player.js?v=20261104v24";
-import { updateBackupSummaryStat } from "./settings.js?v=20261104v24";
+} from "./player.js?v=20261104v25";
+import { updateBackupSummaryStat } from "./settings.js?v=20261104v25";
 
 export function formatRelativeWatchDate(ts) {
   if (!ts) return t("Недавно", "Recently");

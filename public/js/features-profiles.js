@@ -1,5 +1,5 @@
-import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261104v24";
-import { isEn, t } from "./i18n.js?v=20261104v24";
+import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261104v25";
+import { isEn, t } from "./i18n.js?v=20261104v25";
 import {
   clampFloatingPopover,
   closeCustomSelectMenu,
@@ -16,14 +16,14 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261104v24";
+} from "./utils.js?v=20261104v25";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
   applyVideoCropToVideo,
   getPlayerPrefs,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261104v24";
+} from "./audio-dsp.js?v=20261104v25";
 import {
   applyEnabledServicesVisibility,
   clearCatalogFrontendCache,
@@ -32,23 +32,23 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261104v24";
+} from "./catalog.js?v=20261104v25";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261104v24";
-import { closePlayerModal } from "./player.js?v=20261104v24";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v24";
+} from "./modals.js?v=20261104v25";
+import { closePlayerModal } from "./player.js?v=20261104v25";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v25";
 import {
   renderIntegrationsList,
   updateBackupSummaryStat,
-} from "./settings.js?v=20261104v24";
+} from "./settings.js?v=20261104v25";
 import {
   refreshDownloadsState,
   syncDownloadsHeaderBadge,
-} from "./features-downloads.js?v=20261104v24";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v24";
+} from "./features-downloads.js?v=20261104v25";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v25";
 
 export const PROFILE_COLOR_SWATCHES = [
   "#0A84FF",

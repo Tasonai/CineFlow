@@ -24,7 +24,7 @@ from typing import Any, Dict
 from backend.qrcode_svg import detect_lan_ipv4, generate_qr_svg
 
 
-def handle_tv_devices(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> None:
+def handle_tv_devices(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
     is_local_tv = handler._is_loopback_client()
     has_tv_auth = is_local_tv or ctx.remote_broker.verify_key(qs.get("k", [""])[0].strip())
     force_scan = (
@@ -136,7 +136,11 @@ def handle_tv_deep_link(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any)
 
 
 def handle_remote_pairing_get(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
-    is_local = handler._is_loopback_client()
+    is_local = (
+        handler._is_loopback_client()
+        if hasattr(handler, "_is_loopback_client")
+        else True
+    )
     k_param = qs.get("k", [""])[0].strip()
     has_auth = is_local or ctx.remote_broker.verify_key(k_param)
     auto_lan = qs.get("auto_lan", ["0"])[0].strip().lower() in ("1", "true", "yes")
@@ -158,7 +162,11 @@ def handle_remote_pairing_get(handler: Any, qs: Dict[str, Any], parsed: Any, ctx
 
 
 def handle_remote_state_get(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
-    is_local = handler._is_loopback_client()
+    is_local = (
+        handler._is_loopback_client()
+        if hasattr(handler, "_is_loopback_client")
+        else True
+    )
     k_param = qs.get("k", [""])[0].strip()
     if not is_local and not ctx.remote_broker.verify_key(k_param):
         handler._send_json({"ok": False, "error": "Unauthorized remote key"}, status=403)
@@ -195,7 +203,11 @@ def handle_remote_commands_get(handler: Any, qs: Dict[str, Any], parsed: Any, ct
 
 
 def handle_remote_catalog_get(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
-    is_local = handler._is_loopback_client()
+    is_local = (
+        handler._is_loopback_client()
+        if hasattr(handler, "_is_loopback_client")
+        else True
+    )
     k_param = qs.get("k", [""])[0].strip()
     if not is_local and not ctx.remote_broker.verify_key(k_param):
         handler._send_json({"ok": False, "error": "Unauthorized remote key"}, status=403)
@@ -419,7 +431,11 @@ def handle_remote_native_pip(handler: Any, qs: Dict[str, Any], parsed: Any, body
 
 
 def handle_remote_command(handler: Any, qs: Dict[str, Any], parsed: Any, body: Dict[str, Any], ctx: Any) -> bool:
-    is_local = handler._is_loopback_client()
+    is_local = (
+        handler._is_loopback_client()
+        if hasattr(handler, "_is_loopback_client")
+        else True
+    )
     k_val = str(body.get("k") or (qs.get("k", [""])[0] if qs else "")).strip()
     if not is_local and not ctx.remote_broker.verify_key(k_val):
         handler._send_json({"ok": False, "error": "Unauthorized remote key"}, status=403)
@@ -513,18 +529,56 @@ def handle_handoff(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> b
     media_type = qs.get("media_type", ["movie"])[0].strip()
     poster = qs.get("poster", [""])[0].strip()
 
-    lan_ip = getattr(ctx.dlna_manager, "lan_ip", "") or ""
+    if hasattr(ctx, "profile_manager") and ctx.profile_manager and ctx.profile_manager.is_kids_mode_active():
+        cand = ctx.build_trusted_item_for_kids_check(
+            item_id=item_id,
+            title=title,
+            orig_title=orig_title,
+            media_type=media_type,
+        )
+        if not ctx.profile_manager.is_item_kids_safe(cand):
+            handler._send_json({"ok": False, "error": "Restricted in Kids Mode"}, status=403)
+            return True
+
+    is_local = (
+        handler._is_loopback_client()
+        if hasattr(handler, "_is_loopback_client")
+        else True
+    )
+    if (
+        is_local
+        and hasattr(ctx, "app_prefs")
+        and not ctx.app_prefs.get("lan_access")
+        and hasattr(ctx, "profile_manager")
+        and not ctx.profile_manager.is_kids_mode_active()
+        and not ctx.profile_manager.is_active_kids_pin_locked()
+    ):
+        ctx.app_prefs["lan_access"] = True
+        if hasattr(ctx, "save_persisted_server_settings"):
+            ctx.save_persisted_server_settings()
+        if hasattr(ctx, "server_runtime") and ctx.server_runtime.get("running"):
+            if hasattr(ctx, "sync_lan_listener"):
+                ctx.sync_lan_listener(True)
+
+    dlna_mgr = getattr(ctx, "dlna_manager", None)
+    lan_ip = getattr(dlna_mgr, "lan_ip", "") or ""
     if not lan_ip:
-        lan_ip = detect_lan_ipv4()
-        ctx.dlna_manager.lan_ip = lan_ip
+        lan_ip = ctx.detect_lan_ipv4() if hasattr(ctx, "detect_lan_ipv4") else detect_lan_ipv4()
+        if dlna_mgr is not None:
+            try:
+                dlna_mgr.lan_ip = lan_ip
+            except Exception:
+                pass
+    if not lan_ip:
+        lan_ip = "127.0.0.1"
 
     port = 8765
-    server_addr = getattr(handler.server, "server_address", None)
+    server_addr = getattr(getattr(handler, "server", None), "server_address", None)
     if isinstance(server_addr, tuple) and len(server_addr) >= 2:
         port = int(server_addr[1])
 
-    if item_id:
-        ctx.dlna_manager.register_deep_link_item(
+    if item_id and dlna_mgr and hasattr(dlna_mgr, "register_deep_link_item"):
+        dlna_mgr.register_deep_link_item(
             item_id,
             {
                 "id": item_id,

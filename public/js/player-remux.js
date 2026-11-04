@@ -1,11 +1,11 @@
 // CineFlow Player Remux & Stream Pipeline Subsystem
 // Handles FFmpeg live remux stream endpoints, audio offset shifts, probe timing, and dynamic audio track switching.
 
-import { state } from "./state.js?v=20261104v24";
-import { isEn } from "./i18n.js?v=20261104v24";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261104v24";
-import { syncCustomSelect } from "./utils.js?v=20261104v24";
-import { refreshRemuxSubtitleTracks } from "./subtitles.js?v=20261104v24";
+import { state } from "./state.js?v=20261104v25";
+import { isEn } from "./i18n.js?v=20261104v25";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261104v25";
+import { syncCustomSelect } from "./utils.js?v=20261104v25";
+import { refreshRemuxSubtitleTracks } from "./subtitles.js?v=20261104v25";
 
 export function estimateItemDurationSec(item) {
   if (!item) return 3000;
