@@ -5,7 +5,7 @@ import {
   UI_PREFS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./js/state.js?v=20261104v25";
+} from "./js/state.js?v=20261104v26";
 import {
   applyStaticDomTranslations,
   displayPoster,
@@ -14,7 +14,7 @@ import {
   secondaryTitle,
   syncLanguageSegmentedControlUI,
   t,
-} from "./js/i18n.js?v=20261104v25";
+} from "./js/i18n.js?v=20261104v26";
 import {
   attachHorizontalWheelScroll,
   clampFloatingPopover,
@@ -45,7 +45,7 @@ import {
   trapModalTabKey,
   triggerVideoCenterIndicator,
   withKinoriumActionLock,
-} from "./js/utils.js?v=20261104v25";
+} from "./js/utils.js?v=20261104v26";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -60,7 +60,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./js/audio-dsp.js?v=20261104v25";
+} from "./js/audio-dsp.js?v=20261104v26";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -94,7 +94,7 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./js/catalog.js?v=20261104v25";
+} from "./js/catalog.js?v=20261104v26";
 import {
   buildFallbackAvatarSvg,
   closePersonModal,
@@ -107,7 +107,7 @@ import {
   refreshOpenPersonModalUI,
   switchStatsModalTab,
   syncQuickPeekStatusesUI,
-} from "./js/modals.js?v=20261104v25";
+} from "./js/modals.js?v=20261104v26";
 import {
   activateSelectedSubtitleTrack,
   adjustAudioOffset,
@@ -169,20 +169,20 @@ import {
   updateMiniPlayerTitle,
   updateModalKinoriumHeader,
   wakeVideoControls,
-} from "./js/player.js?v=20261104v25";
+} from "./js/player.js?v=20261104v26";
 import {
   adjustSubtitleOffset,
   bindSubtitleFileAndDropListeners,
   closeSubtitleDictPopover,
   resetSubtitleOffset,
   syncSubtitleOffsetUI,
-} from "./js/subtitles.js?v=20261104v25";
+} from "./js/subtitles.js?v=20261104v26";
 import {
   initDesktopRemoteAgent,
   initMobileRemoteController,
   isMobileRemoteUrl,
   pushDesktopRemoteStateNow,
-} from "./js/remote.js?v=20261104v25";
+} from "./js/remote.js?v=20261104v26";
 import {
   addStremioAddonFromInput,
   applyAppLanguage,
@@ -209,7 +209,12 @@ import {
   syncSettingsFooterUI,
   toggleLanAccess,
   toggleMacosAutostart,
-} from "./js/settings.js?v=20261104v25";
+  triggerLanSync,
+} from "./js/settings.js?v=20261104v26";
+import {
+  initBookmarksListeners,
+  openBookmarksModal,
+} from "./js/player-bookmarks.js?v=20261104v26";
 import {
   applyPendingTvDeepLinkIfReady,
   applyProfilesPayload,
@@ -223,8 +228,8 @@ import {
   initRoadmapFeatures,
   reloadProfileLocalPlayerPrefs,
   renderHeaderProfileSwitcher,
-} from "./js/features.js?v=20261104v25";
-import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261104v25";
+} from "./js/features.js?v=20261104v26";
+import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261104v26";
 
 function initCineFlowApp() {
   document.documentElement.classList.toggle("is-ios-device", isIosOrIpadOs());
@@ -413,6 +418,7 @@ function initCineFlowApp() {
   updatePlayerGearActiveDot();
   loadCatalog().then(() => applyPendingTvDeepLinkIfReady());
   setupVideoListeners();
+  initBookmarksListeners();
   startBackgroundDigestPolling();
   document.getElementById("vc-btn-pip")?.classList.toggle("hidden", !supportsNativePiP());
   [
@@ -1503,6 +1509,8 @@ function initCineFlowApp() {
       "settings-modal",
       "movie-roulette-modal",
       "kinorium-postwatch-overlay",
+      "atv-bookmark-dialog",
+      "bookmarks-modal",
     ];
     if (
       blockingOverlays.some((id) => {
@@ -1741,6 +1749,13 @@ function initCineFlowApp() {
   const openStatsBtn = document.getElementById("btn-open-stats-modal");
   if (openStatsBtn) {
     openStatsBtn.onclick = () => openStatsModal("analytics");
+  }
+  const openBookmarksBtn = document.getElementById("btn-open-bookmarks-modal");
+  if (openBookmarksBtn) {
+    openBookmarksBtn.onclick = () => {
+      closeProfilePopover();
+      openBookmarksModal();
+    };
   }
   const openRouletteBtn = document.getElementById("btn-open-roulette-modal");
   if (openRouletteBtn) {
@@ -3842,7 +3857,8 @@ function initCineFlowApp() {
   document.getElementById("close-postwatch-btn").onclick = () => {
     state.postwatchManual = false;
     state.postwatchHovered = false;
-    document.getElementById("kinorium-postwatch-overlay").classList.add("hidden");
+    document.getElementById("kinorium-postwatch-overlay")?.classList.add("hidden");
+    document.getElementById("video-stage")?.classList.remove("has-postwatch-open");
   };
 
   document.getElementById("close-player-modal").onclick = () => closePlayerModal(false);
@@ -3952,6 +3968,10 @@ function initCineFlowApp() {
     if (copied) {
       showToast(t(`Адрес скопирован: ${urlText}`, `Copied URL: ${urlText}`));
     }
+  });
+
+  document.getElementById("btn-sync-lan-now")?.addEventListener("click", async () => {
+    await triggerLanSync();
   });
 
   async function requestCloseSettingsModal() {

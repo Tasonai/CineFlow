@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261104v25";
+import { state } from "./state.js?v=20261104v26";
 import {
   displayBackdrop,
   displayDescription,
@@ -11,7 +11,7 @@ import {
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261104v25";
+} from "./i18n.js?v=20261104v26";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -27,7 +27,7 @@ import {
   showVideoOsd,
   supportsNativePiP,
   syncCustomSelect,
-} from "./utils.js?v=20261104v25";
+} from "./utils.js?v=20261104v26";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
@@ -37,7 +37,7 @@ import {
   savePlayerPrefs,
   startAmbilightLoop,
   stopAmbilightLoop,
-} from "./audio-dsp.js?v=20261104v25";
+} from "./audio-dsp.js?v=20261104v26";
 import {
   getDefaultPlayableSourceTab,
   getPreferredStudioForItem,
@@ -45,8 +45,8 @@ import {
   isServiceEnabled,
   loadCatalog,
   savePreferredStudioForItem,
-} from "./catalog.js?v=20261104v25";
-import { renderModalCastSection } from "./modals.js?v=20261104v25";
+} from "./catalog.js?v=20261104v26";
+import { renderModalCastSection } from "./modals.js?v=20261104v26";
 import {
   activateSelectedSubtitleTrack,
   buildRemuxSubtitlesList,
@@ -54,31 +54,31 @@ import {
   mergeCustomExternalSubtitles,
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
-} from "./subtitles.js?v=20261104v25";
+} from "./subtitles.js?v=20261104v26";
 import {
   clearVideoStallWatchdog,
   getVideoForwardBufferSec,
-} from "./player-watchdog.js?v=20261104v25";
+} from "./player-watchdog.js?v=20261104v26";
 import {
   buildRemuxStreamEndpoint,
   formatAudioOffsetLabel,
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261104v25";
+} from "./player-remux.js?v=20261104v26";
 import {
   closeAllVcPopovers,
   isStageFullscreen,
   syncCustomVideoControlsUI,
   syncVcPopoverOpenClass,
   toggleStageFullscreen,
-} from "./player-ui-controls.js?v=20261104v25";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261104v25";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261104v25";
+} from "./player-ui-controls.js?v=20261104v26";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261104v26";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261104v26";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261104v25";
+} from "./player-seasons.js?v=20261104v26";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -86,13 +86,13 @@ import {
   renderModalGenresAndSubheader,
   renderModalProvidersSidebar,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261104v25";
-import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261104v25";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261104v25";
+} from "./player-meta.js?v=20261104v26";
+import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261104v26";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261104v26";
 import {
   playVideoUrl,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261104v25";
+} from "./player.js?v=20261104v26";
 
 export function isHdRezkaStreamDeadOrExpired(video) {
   if (!video || state.activeSourceTab !== "hdrezka" || state.remuxMeta?.active) {

@@ -18,6 +18,8 @@ Modular route handlers for DLNA / Smart TV and Mobile Remote Control endpoints:
 from __future__ import annotations
 
 import re
+import socket
+import time
 import urllib.parse
 from typing import Any, Dict
 
@@ -615,6 +617,140 @@ def handle_handoff(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> b
     return True
 
 
+def handle_sync_state(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
+    prof_id = getattr(getattr(ctx, "profile_manager", None), "get_active_profile_id", lambda: "main")()
+    is_kids = bool(getattr(getattr(ctx, "profile_manager", None), "is_kids_mode_active", lambda: False)())
+    lan_ip = ctx.detect_lan_ipv4() if hasattr(ctx, "detect_lan_ipv4") else detect_lan_ipv4()
+    port = 8765
+    server_addr = getattr(getattr(handler, "server", None), "server_address", None)
+    if isinstance(server_addr, tuple) and len(server_addr) >= 2:
+        port = int(server_addr[1])
+
+    store = getattr(ctx, "store", None)
+    state_payload = {
+        "ok": True,
+        "device_name": socket.gethostname(),
+        "device_ip": lan_ip or "127.0.0.1",
+        "port": port,
+        "profile_id": prof_id,
+        "is_kids": is_kids,
+        "sync_ts": time.time(),
+        "watch_history": store.get(f"sync_history_{prof_id}", []) if store and hasattr(store, "get") else [],
+        "bookmarks": store.get(f"sync_bookmarks_{prof_id}", []) if store and hasattr(store, "get") else [],
+    }
+    handler._send_json(state_payload)
+    return True
+
+
+def handle_sync_merge(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
+    try:
+        body = handler._read_json_body()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    prof_mgr = getattr(ctx, "profile_manager", None)
+    is_kids = bool(getattr(prof_mgr, "is_kids_mode_active", lambda: False)())
+    prof_id = getattr(prof_mgr, "get_active_profile_id", lambda: "main")()
+
+    in_history = body.get("watch_history") or []
+    in_bookmarks = body.get("bookmarks") or []
+
+    # If local device is in Kids mode, filter out non-kids-safe content
+    if is_kids and prof_mgr and hasattr(prof_mgr, "is_item_kids_safe"):
+        in_history = [it for it in in_history if isinstance(it, dict) and prof_mgr.is_item_kids_safe(it)]
+        in_bookmarks = [it for it in in_bookmarks if isinstance(it, dict) and prof_mgr.is_item_kids_safe(it)]
+
+    store = getattr(ctx, "store", None)
+    merged_history_count = 0
+    merged_bookmarks_count = 0
+
+    if store and hasattr(store, "get") and hasattr(store, "set"):
+        hist_key = f"sync_history_{prof_id}"
+        bm_key = f"sync_bookmarks_{prof_id}"
+        cur_hist = list(store.get(hist_key, []) or [])
+        cur_bm = list(store.get(bm_key, []) or [])
+
+        # Merge history by item id with last-write-wins
+        hist_map = {str(it.get("id") or it.get("title") or ""): it for it in cur_hist if isinstance(it, dict)}
+        for it in in_history:
+            if not isinstance(it, dict):
+                continue
+            iid = str(it.get("id") or it.get("title") or "")
+            if not iid:
+                continue
+            existing = hist_map.get(iid)
+            if not existing or (it.get("updatedAt", 0) or it.get("ts", 0)) >= (existing.get("updatedAt", 0) or existing.get("ts", 0)):
+                hist_map[iid] = it
+                merged_history_count += 1
+        store.set(hist_key, list(hist_map.values())[:300])
+
+        # Merge bookmarks by id or (itemId, time)
+        bm_map = {str(m.get("id") or f"{m.get('itemId')}_{m.get('time')}"): m for m in cur_bm if isinstance(m, dict)}
+        for m in in_bookmarks:
+            if not isinstance(m, dict):
+                continue
+            mid = str(m.get("id") or f"{m.get('itemId')}_{m.get('time')}")
+            if not mid:
+                continue
+            existing = bm_map.get(mid)
+            if not existing or (m.get("updatedAt", 0) or m.get("time", 0)) >= (existing.get("updatedAt", 0) or existing.get("time", 0)):
+                bm_map[mid] = m
+                merged_bookmarks_count += 1
+        store.set(bm_key, list(bm_map.values())[:500])
+
+    handler._send_json({
+        "ok": True,
+        "device_name": socket.gethostname(),
+        "merged_history": merged_history_count,
+        "merged_bookmarks": merged_bookmarks_count,
+        "profile_id": prof_id,
+        "sync_ts": time.time(),
+    })
+    return True
+
+
+def handle_sync_peers(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
+    lan_ip = ctx.detect_lan_ipv4() if hasattr(ctx, "detect_lan_ipv4") else detect_lan_ipv4()
+    port = 8765
+    server_addr = getattr(getattr(handler, "server", None), "server_address", None)
+    if isinstance(server_addr, tuple) and len(server_addr) >= 2:
+        port = int(server_addr[1])
+
+    peers = []
+    # Local self-peer
+    peers.append({
+        "name": f"{socket.gethostname()} (это устройство)",
+        "ip": lan_ip or "127.0.0.1",
+        "port": port,
+        "is_self": True,
+        "online": True,
+    })
+
+    # Discovered DLNA/Smart TV devices
+    dlna_mgr = getattr(ctx, "dlna_manager", None)
+    if dlna_mgr and hasattr(dlna_mgr, "discovered_renderers"):
+        for dev in list(getattr(dlna_mgr, "discovered_renderers", {}).values()):
+            if isinstance(dev, dict):
+                peers.append({
+                    "name": dev.get("name") or "Smart TV",
+                    "ip": dev.get("location") or dev.get("ip") or "",
+                    "port": 0,
+                    "is_self": False,
+                    "kind": "tv",
+                    "online": True,
+                })
+
+    handler._send_json({
+        "ok": True,
+        "local_ip": lan_ip or "127.0.0.1",
+        "port": port,
+        "peers": peers,
+    })
+    return True
+
+
 REMOTE_GET_ROUTES = {
     "/api/tv/devices": handle_tv_devices,
     "/api/tv/deep-link": handle_tv_deep_link,
@@ -623,6 +759,8 @@ REMOTE_GET_ROUTES = {
     "/api/remote/commands": handle_remote_commands_get,
     "/api/remote/catalog": handle_remote_catalog_get,
     "/api/handoff": handle_handoff,
+    "/api/sync/state": handle_sync_state,
+    "/api/sync/peers": handle_sync_peers,
 }
 
 REMOTE_POST_ROUTES = {
@@ -633,4 +771,5 @@ REMOTE_POST_ROUTES = {
     "/api/remote/native-fullscreen": handle_remote_native_fullscreen,
     "/api/remote/native-pip": handle_remote_native_pip,
     "/api/remote/command": handle_remote_command,
+    "/api/sync/merge": handle_sync_merge,
 }

@@ -1955,6 +1955,152 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertIn("(x) => x.id !== cw.id", shelves_src)
         self.assertNotIn("x.id !== cw.id && x.title !== cw.title", shelves_src)
 
+    def test_wave3_features_lan_sync_bookmarks_and_credits(self):
+        """Test Wave 3: LAN sync endpoints, Kids Mode sync safety, bookmarks subsystem, and player credits layout."""
+        from backend.routes.remote import handle_sync_state, handle_sync_merge, handle_sync_peers
+
+        # 1. Test LAN sync state export
+        class _MockSyncStore:
+            def __init__(self):
+                self._data = {}
+            def get(self, key, default=None):
+                return self._data.get(key, default)
+            def set(self, key, val):
+                self._data[key] = val
+
+        class _MockSyncCtx:
+            store = _MockSyncStore()
+            class profile_manager:
+                @staticmethod
+                def get_active_profile_id():
+                    return "adult_profile"
+                @staticmethod
+                def is_kids_mode_active():
+                    return False
+                @staticmethod
+                def is_item_kids_safe(item):
+                    return item.get("age_rating") != "18+"
+
+            @staticmethod
+            def detect_lan_ipv4():
+                return "192.168.1.10"
+
+        class _MockHttpHandler:
+            def __init__(self, body=None):
+                self.resp_data = None
+                self._body = body or {}
+            def _send_json(self, data):
+                self.resp_data = data
+            def _read_json_body(self):
+                return self._body
+
+        # Initial state export
+        h_state = _MockHttpHandler()
+        self.assertTrue(handle_sync_state(h_state, {}, None, _MockSyncCtx))
+        self.assertTrue(h_state.resp_data.get("ok"))
+        self.assertEqual(h_state.resp_data.get("profile_id"), "adult_profile")
+        self.assertEqual(h_state.resp_data.get("device_ip"), "192.168.1.10")
+
+        # LAN merge in adult profile
+        merge_body = {
+            "profile_id": "adult_profile",
+            "watch_history": [
+                {"id": "mov_1", "title": "Inception", "time": 1200, "updatedAt": 1000},
+                {"id": "mov_2", "title": "Deadpool", "age_rating": "18+", "time": 300, "updatedAt": 2000},
+            ],
+            "bookmarks": [
+                {"id": "bm_1", "itemId": "mov_1", "time": 1200, "note": "Dream level 2", "updatedAt": 1000}
+            ]
+        }
+        h_merge = _MockHttpHandler(merge_body)
+        self.assertTrue(handle_sync_merge(h_merge, {}, None, _MockSyncCtx))
+        self.assertEqual(h_merge.resp_data.get("merged_history"), 2)
+        self.assertEqual(h_merge.resp_data.get("merged_bookmarks"), 1)
+
+        # Verify state in store
+        saved_hist = _MockSyncCtx.store.get("sync_history_adult_profile", [])
+        self.assertEqual(len(saved_hist), 2)
+
+        # Last-write-wins update
+        update_body = {
+            "watch_history": [
+                {"id": "mov_1", "title": "Inception", "time": 3500, "updatedAt": 1500}
+            ]
+        }
+        h_update = _MockHttpHandler(update_body)
+        self.assertTrue(handle_sync_merge(h_update, {}, None, _MockSyncCtx))
+        updated_hist = _MockSyncCtx.store.get("sync_history_adult_profile", [])
+        inc_item = next(it for it in updated_hist if it["id"] == "mov_1")
+        self.assertEqual(inc_item["time"], 3500)
+
+        # 2. Kids Mode sync isolation: adult content MUST NOT merge into kids profile
+        class _MockKidsSyncCtx:
+            store = _MockSyncStore()
+            class profile_manager:
+                @staticmethod
+                def get_active_profile_id():
+                    return "child_profile"
+                @staticmethod
+                def is_kids_mode_active():
+                    return True
+                @staticmethod
+                def is_item_kids_safe(item):
+                    return item.get("age_rating") != "18+"
+            @staticmethod
+            def detect_lan_ipv4():
+                return "192.168.1.10"
+
+        kids_merge_payload = {
+            "watch_history": [
+                {"id": "cartoon_1", "title": "Inside Out", "age_rating": "6+", "updatedAt": 100},
+                {"id": "adult_horror", "title": "Saw X", "age_rating": "18+", "updatedAt": 200}
+            ]
+        }
+        h_kids = _MockHttpHandler(kids_merge_payload)
+        self.assertTrue(handle_sync_merge(h_kids, {}, None, _MockKidsSyncCtx))
+        kids_saved = _MockKidsSyncCtx.store.get("sync_history_child_profile", [])
+        self.assertEqual(len(kids_saved), 1)
+        self.assertEqual(kids_saved[0]["title"], "Inside Out")
+        self.assertNotIn("Saw X", [it["title"] for it in kids_saved])
+
+        # 3. Peers endpoint
+        h_peers = _MockHttpHandler()
+        self.assertTrue(handle_sync_peers(h_peers, {}, None, _MockSyncCtx))
+        self.assertTrue(h_peers.resp_data.get("ok"))
+        self.assertIn("peers", h_peers.resp_data)
+
+        # 4. Frontend verification for layout deconfliction and bookmarks
+        with open(os.path.join(BASE_DIR, "public", "index.html"), "r", encoding="utf-8") as fh:
+            html_src = fh.read()
+        self.assertIn('id="skip-outro-btn"', html_src)
+        self.assertIn('id="atv-bookmark-dialog"', html_src)
+        self.assertIn('id="bookmarks-modal"', html_src)
+        self.assertIn('id="lan-sync-card"', html_src)
+        self.assertIn('id="btn-open-bookmarks-modal"', html_src)
+
+        # Ensure skip-outro-btn is decoupled from #video-endgame-stack
+        endgame_idx = html_src.find('id="video-endgame-stack"')
+        endgame_close = html_src.find('</div>', endgame_idx)
+        outro_idx = html_src.find('id="skip-outro-btn"')
+        self.assertTrue(outro_idx > endgame_close or outro_idx < endgame_idx, "skip-outro-btn must not be nested inside video-endgame-stack")
+
+        with open(os.path.join(BASE_DIR, "public", "css", "video-controls-and-person.css"), "r", encoding="utf-8") as fh:
+            css_src = fh.read()
+        self.assertIn(".atv-video-stage.has-postwatch-open #skip-outro-btn", css_src)
+        self.assertIn(".atv-bookmark-dialog", css_src)
+        self.assertIn("#vc-bookmarks-popover", css_src)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "player-bookmarks.js"), "r", encoding="utf-8") as fh:
+            bm_js = fh.read()
+        self.assertIn("export function openBookmarkNoteDialog", bm_js)
+        self.assertIn("export function exportBookmarksMarkdown", bm_js)
+        self.assertIn("export function initBookmarksListeners", bm_js)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "catalog-cards.js"), "r", encoding="utf-8") as fh:
+            cards_js = fh.read()
+        self.assertIn("export function appendPosterCardsProgressive", cards_js)
+        self.assertIn("export function cancelPendingCardBatch", cards_js)
+
 
 if __name__ == "__main__":
     unittest.main()

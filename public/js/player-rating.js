@@ -1,19 +1,19 @@
-import { state } from "./state.js?v=20261104v25";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261104v25";
+import { state } from "./state.js?v=20261104v26";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261104v26";
 import {
   clampFloatingPopover,
   closeFloatingPopovers,
   showToast,
-} from "./utils.js?v=20261104v25";
+} from "./utils.js?v=20261104v26";
 import {
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261104v25";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261104v25";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v25";
-import { isStageFullscreen } from "./player-ui-controls.js?v=20261104v25";
-import { updateModalKinoriumHeader } from "./player-meta.js?v=20261104v25";
+} from "./catalog.js?v=20261104v26";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261104v26";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v26";
+import { isStageFullscreen } from "./player-ui-controls.js?v=20261104v26";
+import { updateModalKinoriumHeader } from "./player-meta.js?v=20261104v26";
 import {
   getEpisodeDisplayMeta,
   getEpisodeRatingEntry,
@@ -22,7 +22,7 @@ import {
   resolveSeriesCompletedFlag,
   toggleCurrentEpisodeWatched,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261104v25";
+} from "./player-seasons.js?v=20261104v26";
 
 export function syncPostwatchOverlayMount() {
   const overlay = document.getElementById("kinorium-postwatch-overlay");
@@ -195,7 +195,18 @@ export function openPostWatchRatingOverlay(
   }
   renderPostWatchRatingState();
   overlay.classList.remove("hidden");
+  document.getElementById("video-stage")?.classList.add("has-postwatch-open");
   clampFloatingPopover(overlay);
+}
+
+export function closePostWatchRatingOverlay() {
+  const overlay = document.getElementById("kinorium-postwatch-overlay");
+  if (overlay) {
+    overlay.classList.add("hidden");
+  }
+  document.getElementById("video-stage")?.classList.remove("has-postwatch-open");
+  state.postwatchManual = false;
+  state.postwatchHovered = false;
 }
 
 export async function toggleActivePlayerWatched() {

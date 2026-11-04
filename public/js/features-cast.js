@@ -2,8 +2,8 @@
 // 6. TV CAST & AIRPLAY / DLNA / REMOTE LINK
 // ============================================================================
 
-import { state } from "./state.js?v=20261104v25";
-import { displayTitle, t } from "./i18n.js?v=20261104v25";
+import { state } from "./state.js?v=20261104v26";
+import { displayTitle, t } from "./i18n.js?v=20261104v26";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -13,17 +13,17 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261104v25";
-import { resolvePreferredPlayTab } from "./catalog.js?v=20261104v25";
-import { openQuickPeekModal } from "./modals.js?v=20261104v25";
+} from "./utils.js?v=20261104v26";
+import { resolvePreferredPlayTab } from "./catalog.js?v=20261104v26";
+import { openQuickPeekModal } from "./modals.js?v=20261104v26";
 import {
   getEffectivePlaybackTiming,
   openPlayerModal,
-} from "./player.js?v=20261104v25";
-import { switchCastModalTab } from "./remote.js?v=20261104v25";
-import { toggleLanAccess } from "./settings.js?v=20261104v25";
-import { toggleTvMode } from "./features-tv-mode.js?v=20261104v25";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v25";
+} from "./player.js?v=20261104v26";
+import { switchCastModalTab } from "./remote.js?v=20261104v26";
+import { toggleLanAccess } from "./settings.js?v=20261104v26";
+import { toggleTvMode } from "./features-tv-mode.js?v=20261104v26";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v26";
 
 
 export function supportsWebkitAirPlay() {

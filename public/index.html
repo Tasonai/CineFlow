@@ -11,15 +11,15 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="CineFlow" />
-  <link rel="manifest" href="/manifest.webmanifest?v=20261104v25" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261104v25" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png?v=20261104v25" />
-  <link rel="shortcut icon" href="/favicon.svg?v=20261104v25" />
-  <link rel="stylesheet" href="/css/base-and-hero.css?v=20261104v25" />
-  <link rel="stylesheet" href="/css/catalog-and-player-layout.css?v=20261104v25" />
-  <link rel="stylesheet" href="/css/modals-and-search.css?v=20261104v25" />
-  <link rel="stylesheet" href="/css/settings-and-episodes.css?v=20261104v25" />
-  <link rel="stylesheet" href="/css/video-controls-and-person.css?v=20261104v25" />
+  <link rel="manifest" href="/manifest.webmanifest?v=20261104v26" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261104v26" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png?v=20261104v26" />
+  <link rel="shortcut icon" href="/favicon.svg?v=20261104v26" />
+  <link rel="stylesheet" href="/css/base-and-hero.css?v=20261104v26" />
+  <link rel="stylesheet" href="/css/catalog-and-player-layout.css?v=20261104v26" />
+  <link rel="stylesheet" href="/css/modals-and-search.css?v=20261104v26" />
+  <link rel="stylesheet" href="/css/settings-and-episodes.css?v=20261104v26" />
+  <link rel="stylesheet" href="/css/video-controls-and-person.css?v=20261104v26" />
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
 </head>
 <body>
@@ -29,7 +29,7 @@
   <header class="atv-header">
     <div class="atv-header-left">
       <div class="atv-brand" id="brand-home" tabindex="0" role="button" aria-label="CineFlow — На главную">
-        <img class="atv-logo-icon" src="/favicon.svg?v=20261104v25" alt="" width="24" height="24" />
+        <img class="atv-logo-icon" src="/favicon.svg?v=20261104v26" alt="" width="24" height="24" />
         <span class="atv-brand-name">CineFlow</span>
       </div>
 
@@ -157,6 +157,12 @@
                 <path d="M18 20V10M12 20V4M6 20v-6"></path>
               </svg>
               <span class="atv-prof-util-label" id="prof-menu-stats-lbl">Статистика и история</span>
+            </button>
+            <button type="button" class="atv-prof-util-item" id="btn-open-bookmarks-modal" aria-label="Мои заметки и закладки" title="Мои заметки и закладки к моментам">
+              <svg class="atv-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>
+              </svg>
+              <span class="atv-prof-util-label" id="prof-menu-bookmarks-lbl">Заметки и закладки</span>
             </button>
             <button type="button" class="atv-prof-util-item" id="btn-prof-menu-downloads">
               <svg class="atv-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
@@ -693,6 +699,31 @@
                 <div class="atv-xray-cast-list" id="xray-cast-list"></div>
               </div>
 
+              <!-- Smart Bookmark Note Editor Popover -->
+              <div class="atv-bookmark-dialog hidden" id="atv-bookmark-dialog" role="dialog" aria-label="Закладка с заметкой">
+                <div class="atv-bookmark-card">
+                  <div class="atv-bookmark-head">
+                    <div class="atv-bookmark-head-title">
+                      <span class="atv-bookmark-badge">Закладка</span>
+                      <span class="atv-bookmark-time-badge" id="bookmark-dialog-time">00:00</span>
+                    </div>
+                    <button type="button" class="atv-close-btn atv-close-btn-sm" id="btn-close-bookmark-dialog" aria-label="Закрыть" title="Закрыть">
+                      <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                  <div class="atv-bookmark-body">
+                    <textarea class="atv-bookmark-textarea" id="bookmark-note-input" rows="2" placeholder="Заметка к этому моменту (необязательно)..." maxlength="300"></textarea>
+                  </div>
+                  <div class="atv-bookmark-actions">
+                    <button type="button" class="atv-btn-secondary atv-btn-xs hidden" id="btn-delete-bookmark">Удалить</button>
+                    <div class="atv-bookmark-actions-right">
+                      <button type="button" class="atv-btn-secondary atv-btn-xs" id="btn-cancel-bookmark">Отмена</button>
+                      <button type="button" class="atv-btn-primary atv-btn-xs" id="btn-save-bookmark">Сохранить</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- Next Episode Floating Shelf at Detected Credits -->
               <div class="atv-next-ep-toast hidden" id="player-next-ep-toast">
                 <div class="atv-next-ep-thumb-wrap">
@@ -723,6 +754,9 @@
 
               <button type="button" class="atv-skip-btn hidden" id="skip-intro-btn">
                 Пропустить заставку
+              </button>
+              <button type="button" class="atv-skip-btn hidden" id="skip-outro-btn">
+                Следующая серия
               </button>
 
               <!-- Center Apple TV Action Pulse Indicator (Play / Pause / ±10s / Mute) -->
@@ -1010,9 +1044,12 @@
                       </svg>
                     </button>
 
-                    <button type="button" class="atv-vc-btn" id="vc-btn-bookmark" aria-label="Сохранить момент" title="Сохранить момент в закладки (Shift+M)">
-                      <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
-                    </button>
+                    <div class="atv-vc-pop-wrap" id="vc-bookmark-wrap">
+                      <button type="button" class="atv-vc-btn" id="vc-btn-bookmark" aria-haspopup="true" aria-expanded="false" aria-label="Закладки" title="Закладки и заметки (M)">
+                        <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+                      </button>
+                      <div class="atv-vc-popover hidden" id="vc-bookmarks-popover"></div>
+                    </div>
 
                     <button type="button" class="atv-vc-btn" id="vc-btn-offline-dl" aria-label="Скачать в дорогу" title="Скачать в дорогу (просмотр без интернета)">
                       <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -1033,12 +1070,8 @@
                 </div>
               </div>
 
-              <!-- Unified End-of-Episode Stack (Skip Outro + Next Episode Countdown; Rating card docks here in Fullscreen) -->
+              <!-- Unified End-of-Episode Stack (Next Episode Countdown; Rating card docks here in Fullscreen) -->
               <div class="atv-endgame-stack" id="video-endgame-stack">
-                <button type="button" class="atv-skip-btn hidden" id="skip-outro-btn">
-                  Следующая серия
-                </button>
-
                 <div class="atv-autoplay-card hidden" id="autoplay-next-card">
                   <div class="atv-autoplay-kicker">СЛЕДУЮЩИЙ ЭПИЗОД</div>
                   <div class="atv-autoplay-title" id="autoplay-next-title">Следующая серия</div>
@@ -1511,6 +1544,26 @@
                 </label>
               </div>
             </div>
+
+            <div class="atv-sys-card" id="lan-sync-card">
+              <div class="atv-sys-row">
+                <div class="atv-sys-info">
+                  <div class="atv-sys-title" id="lan-sync-title">Синхронизация домашних устройств</div>
+                  <div class="atv-sys-sub" id="lan-sync-sub">Синхронизация истории и закладок с другими устройствами CineFlow в сети Wi-Fi</div>
+                </div>
+                <button type="button" class="atv-btn-primary atv-btn-xs" id="btn-sync-lan-now">
+                  <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                  <span id="btn-sync-lan-label">Синхронизировать</span>
+                </button>
+              </div>
+              <div class="atv-settings-hint-row" id="lan-sync-status-row">
+                <span id="lan-sync-status">Готово к синхронизации</span>
+              </div>
+              <div class="atv-lan-sync-peers hidden" id="lan-sync-peers-container">
+                <div class="atv-lan-sync-peers-title" id="lan-sync-peers-title">Найденные устройства:</div>
+                <div class="atv-lan-sync-peers-list" id="lan-sync-peers-list"></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1556,7 +1609,7 @@
       <div class="atv-settings-body hidden" id="stab-about" role="tabpanel" aria-labelledby="settings-tab-about">
         <div class="atv-about-minimal">
           <div class="atv-about-head">
-            <img class="atv-about-logo" src="/favicon.svg?v=20261104v25" alt="CineFlow" width="44" height="44" />
+            <img class="atv-about-logo" src="/favicon.svg?v=20261104v26" alt="CineFlow" width="44" height="44" />
             <div class="atv-about-head-text">
               <h3 class="atv-about-app-name">CineFlow</h3>
               <p class="atv-about-tagline" id="about-app-tagline">Персональный домашний кинотеатр</p>
@@ -1656,7 +1709,7 @@
     <div class="atv-settings-sheet atv-onboarding-sheet">
       <div class="atv-settings-header atv-onboarding-header">
         <div class="atv-onboarding-title-wrap">
-          <img class="atv-onboarding-logo" src="/favicon.svg?v=20261104v25" alt="" width="28" height="28" />
+          <img class="atv-onboarding-logo" src="/favicon.svg?v=20261104v26" alt="" width="28" height="28" />
           <div>
             <h2 class="atv-onboarding-title" id="ob-title">Первичная настройка CineFlow</h2>
             <p class="atv-onboarding-sub" id="ob-subtitle">Выберите страну Европы для обхода блокировок, подключаемые сервисы и синхронизацию Kinorium</p>
@@ -1882,6 +1935,34 @@
     <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
     <span>Наверх</span>
   </button>
+
+  <!-- All Bookmarks & Notes Modal (Мои заметки и закладки) -->
+  <div class="atv-modal-overlay hidden" id="bookmarks-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="bookmarks-modal-title">
+    <div class="atv-settings-sheet atv-bookmarks-sheet">
+      <div class="atv-settings-header">
+        <div class="atv-modal-head-col">
+          <div class="atv-modal-title-row">
+            <h2 id="bookmarks-modal-title">Мои заметки и закладки</h2>
+            <span class="atv-section-count" id="bookmarks-total-count">0</span>
+          </div>
+          <p class="atv-modal-subline" id="bookmarks-modal-summary">Сохранённые моменты фильмов и сериалов с персональными комментариями</p>
+        </div>
+        <div class="atv-modal-head-actions">
+          <button type="button" class="atv-btn-secondary atv-btn-xs" id="btn-export-bookmarks-md" title="Экспортировать все закладки в Markdown-файл">
+            <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span>Экспорт в Markdown</span>
+          </button>
+          <button type="button" class="atv-close-btn" id="close-bookmarks-modal" aria-label="Закрыть" title="Закрыть (Esc)">
+            <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="atv-bookmarks-toolbar">
+        <input type="search" class="atv-search-input atv-bookmarks-search" id="bookmarks-search-input" placeholder="Поиск по заметкам и фильмам..." />
+      </div>
+      <div class="atv-bookmarks-list" id="bookmarks-modal-list"></div>
+    </div>
+  </div>
 
   <!-- Offline Downloads Manager Modal ("Скачать в дорогу") -->
   <div class="atv-modal-overlay hidden" id="downloads-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="downloads-modal-title">
@@ -2297,6 +2378,6 @@
 
   <input type="file" id="input-local-subtitle-file" accept=".srt,.vtt,.ass,.ssa" class="hidden" aria-hidden="true" />
   <div id="toast-container" class="atv-toast-container" role="region" aria-live="polite" aria-label="Уведомления"></div>
-  <script type="module" src="/app.js?v=20261104v25"></script>
+  <script type="module" src="/app.js?v=20261104v26"></script>
 </body>
 </html>

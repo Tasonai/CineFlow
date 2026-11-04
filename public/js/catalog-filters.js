@@ -1,29 +1,29 @@
-import { state } from "./state.js?v=20261104v25";
+import { state } from "./state.js?v=20261104v26";
 import {
   getItemGenreEntries,
   t,
   translateGenre,
-} from "./i18n.js?v=20261104v25";
+} from "./i18n.js?v=20261104v26";
 import {
   escapeHtml,
   iconSvg,
   pluralRu,
   syncCustomSelect,
-} from "./utils.js?v=20261104v25";
+} from "./utils.js?v=20261104v26";
 import {
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261104v25";
+} from "./catalog-hero.js?v=20261104v26";
 import {
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261104v25";
+} from "./catalog-media-resolver.js?v=20261104v26";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261104v25";
-import { loadCatalog } from "./catalog.js?v=20261104v25";
+} from "./catalog-shelves.js?v=20261104v26";
+import { loadCatalog } from "./catalog.js?v=20261104v26";
 
 export function updateActiveFiltersBadge() {
   let drawerCount = 0;

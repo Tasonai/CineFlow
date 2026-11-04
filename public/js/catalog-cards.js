@@ -2,14 +2,14 @@
 // Handles poster card rendering, poster image fallbacks, smart badges,
 // live trailer hover previews, and the card action context menu.
 
-import { state } from "./state.js?v=20261104v25";
+import { state } from "./state.js?v=20261104v26";
 import {
   displayPoster,
   displayTitle,
   formatCriticsRating,
   isEn,
   t,
-} from "./i18n.js?v=20261104v25";
+} from "./i18n.js?v=20261104v26";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -19,24 +19,24 @@ import {
   iconSvg,
   pluralRu,
   showToast,
-} from "./utils.js?v=20261104v25";
+} from "./utils.js?v=20261104v26";
 import {
   openPlayerModal,
-} from "./player.js?v=20261104v25";
+} from "./player.js?v=20261104v26";
 import {
   openTvCastModal,
-} from "./features.js?v=20261104v25";
+} from "./features.js?v=20261104v26";
 import {
   openQuickPeekModal,
-} from "./modals.js?v=20261104v25";
+} from "./modals.js?v=20261104v26";
 import {
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
   resolvePreferredPlayTab,
   getFriendsAverageScore,
   patchCatalogItemKinoriumInPlace,
-} from "./catalog-media-resolver.js?v=20261104v25";
-import { stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261104v25";
+} from "./catalog-media-resolver.js?v=20261104v26";
+import { stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261104v26";
 
 export function buildPosterBadgesHtml(item, precomputedEpInfo = null) {
   const offlineSaved = findOfflineDownloadForTitle(item);
@@ -801,3 +801,41 @@ export function renderPosterCardsInto(gridEl, items) {
 
   renderPage(currentPage, false);
 }
+
+let _pendingCardBatchRaf = 0;
+
+export function cancelPendingCardBatch() {
+  if (_pendingCardBatchRaf) {
+    cancelAnimationFrame(_pendingCardBatchRaf);
+    _pendingCardBatchRaf = 0;
+  }
+}
+
+export function appendPosterCardsProgressive(containerEl, items, { chunkSize = 24, onDone } = {}) {
+  cancelPendingCardBatch();
+  if (!containerEl || !Array.isArray(items) || !items.length) {
+    if (typeof onDone === "function") onDone();
+    return;
+  }
+
+  let index = 0;
+  function processChunk() {
+    const end = Math.min(index + chunkSize, items.length);
+    const frag = document.createDocumentFragment();
+    for (let i = index; i < end; i++) {
+      frag.appendChild(createPosterCardElement(items[i]));
+    }
+    containerEl.appendChild(frag);
+    index = end;
+
+    if (index < items.length) {
+      _pendingCardBatchRaf = requestAnimationFrame(processChunk);
+    } else {
+      _pendingCardBatchRaf = 0;
+      if (typeof onDone === "function") onDone();
+    }
+  }
+
+  processChunk();
+}
+

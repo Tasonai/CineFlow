@@ -9,14 +9,14 @@ import {
   profileStorageKey,
   profileStorageKeyFor,
   state,
-} from "./state.js?v=20261104v25";
+} from "./state.js?v=20261104v26";
 import {
   applyStaticDomTranslations,
   displayAddonDescription,
   isEn,
   syncLanguageSegmentedControlUI,
   t,
-} from "./i18n.js?v=20261104v25";
+} from "./i18n.js?v=20261104v26";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -31,31 +31,31 @@ import {
   syncAllCustomSelects,
   syncCustomSelect,
   syncScrollTopButton,
-} from "./utils.js?v=20261104v25";
-import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261104v25";
+} from "./utils.js?v=20261104v26";
+import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261104v26";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261104v25";
-import { renderHero } from "./catalog-hero.js?v=20261104v25";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261104v25";
+} from "./catalog-shelves.js?v=20261104v26";
+import { renderHero } from "./catalog-hero.js?v=20261104v26";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261104v26";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
-} from "./catalog-filters.js?v=20261104v25";
+} from "./catalog-filters.js?v=20261104v26";
 import {
   loadCatalog,
   renderLoginBannerIfNeeded,
   updateFriendsFilterDropdown,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261104v25";
-import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261104v25";
-import { loadStremioStreams } from "./player-streams.js?v=20261104v25";
-import { renderModalProvidersSidebar } from "./player-meta.js?v=20261104v25";
+} from "./catalog.js?v=20261104v26";
+import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261104v26";
+import { loadStremioStreams } from "./player-streams.js?v=20261104v26";
+import { renderModalProvidersSidebar } from "./player-meta.js?v=20261104v26";
 import {
   refreshOpenPlayerLanguageUI,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261104v25";
+} from "./player.js?v=20261104v26";
 import {
   applyProfilesPayload,
   ensureKidsPinVerifiedForAdminAction,
@@ -68,12 +68,12 @@ import {
   renderProfilesModalUI,
   renderTvCastModalUI,
   startOneClickKinoriumLogin,
-} from "./features.js?v=20261104v25";
+} from "./features.js?v=20261104v26";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   syncDesktopConnectedRemotesUI,
-} from "./remote.js?v=20261104v25";
+} from "./remote.js?v=20261104v26";
 
 function _adminPinPayload() {
   return state.verifiedKidsAdminPin
@@ -1199,6 +1199,82 @@ export function renderSystemStatusUI() {
     state.updaterStatus = sys.updater;
   }
   renderAppUpdaterUI();
+}
+
+export async function triggerLanSync() {
+  const statusEl = document.getElementById("lan-sync-status");
+  const btn = document.getElementById("btn-sync-lan-now");
+  const peersCont = document.getElementById("lan-sync-peers-container");
+  const peersList = document.getElementById("lan-sync-peers-list");
+
+  if (statusEl) statusEl.textContent = t("Синхронизация...", "Syncing...");
+  if (btn) btn.disabled = true;
+
+  try {
+    const activeProf = state.activeProfileId || "main";
+    let localHistory = [];
+    try {
+      const stored = localStorage.getItem("cineflow_watch_progress") || localStorage.getItem("watch_history");
+      if (stored) localHistory = JSON.parse(stored);
+    } catch (_) {}
+
+    let localBookmarks = [];
+    try {
+      const bms = localStorage.getItem("cineflow_moments") || localStorage.getItem("saved_moments");
+      if (bms) localBookmarks = JSON.parse(bms);
+    } catch (_) {}
+
+    let peers = [];
+    try {
+      const pRes = await fetch("/api/sync/peers");
+      if (pRes.ok) {
+        const pJson = await pRes.json();
+        peers = pJson.peers || [];
+      }
+    } catch (_) {}
+
+    const mergeRes = await fetch("/api/sync/merge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profile_id: activeProf,
+        watch_history: Array.isArray(localHistory) ? localHistory : [],
+        bookmarks: Array.isArray(localBookmarks) ? localBookmarks : [],
+      }),
+    });
+
+    const mergeData = mergeRes.ok ? await mergeRes.json() : {};
+
+    if (statusEl) {
+      const countHist = mergeData.merged_history || 0;
+      const countBm = mergeData.merged_bookmarks || 0;
+      statusEl.textContent = t(
+        `Синхронизировано: ${countHist} просмотров, ${countBm} закладок`,
+        `Synchronized: ${countHist} history, ${countBm} bookmarks`
+      );
+    }
+
+    if (peersCont && peersList) {
+      if (peers.length > 0) {
+        peersCont.classList.remove("hidden");
+        peersList.innerHTML = peers.map(p => `
+          <div class="atv-lan-sync-peer-item">
+            <span class="atv-lan-sync-peer-name">${escapeHtml(p.name || p.device || "CineFlow Device")}</span>
+            <span class="atv-lan-sync-peer-ip">${escapeHtml(p.ip || "")}</span>
+          </div>
+        `).join("");
+      } else {
+        peersCont.classList.add("hidden");
+      }
+    }
+
+    showToast(t("Синхронизация с домашними устройствами завершена", "LAN device sync completed"));
+  } catch (err) {
+    if (statusEl) statusEl.textContent = t("Ошибка синхронизации", "Sync error");
+    showToast(t("Не удалось завершить синхронизацию", "Could not complete sync"));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function _formatUpdaterBytes(bytes) {

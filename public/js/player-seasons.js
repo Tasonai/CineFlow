@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261104v25";
-import { t, isEn, displayTitle, hasCyrillicText } from "./i18n.js?v=20261104v25";
+import { state } from "./state.js?v=20261104v26";
+import { t, isEn, displayTitle, hasCyrillicText } from "./i18n.js?v=20261104v26";
 import {
   escapeHtml,
   iconSvg,
@@ -12,26 +12,26 @@ import {
   getEpisodeProgress,
   saveEpisodeProgress,
   syncCustomSelect,
-} from "./utils.js?v=20261104v25";
+} from "./utils.js?v=20261104v26";
 import {
   isEpisodeWatched,
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261104v25";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261104v25";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v25";
-import { sweepPendingDownloadCleanups } from "./features.js?v=20261104v25";
-import { syncCustomVideoControlsUI } from "./player-ui-controls.js?v=20261104v25";
-import { closeSubtitleDictPopover, syncSubtitleOffsetUI } from "./subtitles.js?v=20261104v25";
+} from "./catalog.js?v=20261104v26";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261104v26";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v26";
+import { sweepPendingDownloadCleanups } from "./features.js?v=20261104v26";
+import { syncCustomVideoControlsUI } from "./player-ui-controls.js?v=20261104v26";
+import { closeSubtitleDictPopover, syncSubtitleOffsetUI } from "./subtitles.js?v=20261104v26";
 import {
   getNextEpisodeCoords,
   clearAutoplayNextTimer,
   dismissPlayerNextEpisodeToast,
-} from "./player-autoplay.js?v=20261104v25";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261104v25";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v25";
-import { reportScrobbleProgress } from "./player-scrobble.js?v=20261104v25";
+} from "./player-autoplay.js?v=20261104v26";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261104v26";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v26";
+import { reportScrobbleProgress } from "./player-scrobble.js?v=20261104v26";
 import {
   loadBackup4KReleases,
   loadHDRezkaStream,
@@ -39,13 +39,13 @@ import {
   loadStremioStreams,
   resetVideoElementForStreamChange,
   switchSourceTab,
-} from "./player-streams.js?v=20261104v25";
-import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261104v25";
+} from "./player-streams.js?v=20261104v26";
+import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261104v26";
 import {
   syncMediaSessionMetadata,
   updateModalKinoriumHeader,
-} from "./player-meta.js?v=20261104v25";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261104v25";
+} from "./player-meta.js?v=20261104v26";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261104v26";
 
 export function hasStartedWatchingCurrentEpisode(item, seasonNum, epNum) {
   if (state.creditsOverlayShownThisEpisode) return true;

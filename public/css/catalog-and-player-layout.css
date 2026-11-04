@@ -20,6 +20,8 @@
   border: none;
   cursor: pointer;
   contain: layout style;
+  content-visibility: auto;
+  contain-intrinsic-size: 320px 180px;
   transform: translateZ(0);
   transition: transform 0.22s var(--ease-apple, cubic-bezier(0.22, 1, 0.36, 1));
 }
@@ -301,6 +303,8 @@
   gap: 10px;
   min-width: 0;
   contain: layout style;
+  content-visibility: auto;
+  contain-intrinsic-size: 320px 180px;
   content-visibility: auto;
   contain-intrinsic-size: 180px 270px;
   outline: none;
@@ -704,6 +708,7 @@ body.modal-scroll-locked .atv-header {
 #downloads-modal:not(.hidden) .atv-settings-sheet,
 #tv-cast-modal:not(.hidden) .atv-settings-sheet,
 #profiles-modal:not(.hidden) .atv-settings-sheet,
+#bookmarks-modal:not(.hidden) .atv-bookmarks-sheet,
 #onboarding-modal:not(.hidden) .atv-onboarding-sheet,
 #movie-roulette-modal:not(.hidden) .atv-roulette-sheet,
 #player-modal:not(.hidden):not(.mini-player-mode):not(.pip-background-mode) .atv-cinema-sheet {
