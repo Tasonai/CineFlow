@@ -2,24 +2,24 @@ import {
   PREFERRED_STUDIOS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261104v22";
-import { isEn, t } from "./i18n.js?v=20261104v22";
+} from "./state.js?v=20261104v23";
+import { isEn, t } from "./i18n.js?v=20261104v23";
 import {
   findOfflineDownloadForTitle,
   formatTime,
   getEpisodeProgress,
   pluralRu,
-} from "./utils.js?v=20261104v22";
-import { switchSourceTab } from "./player.js?v=20261104v22";
-import { renderHero } from "./catalog-hero.js?v=20261104v22";
+} from "./utils.js?v=20261104v23";
+import { switchSourceTab } from "./player.js?v=20261104v23";
+import { renderHero } from "./catalog-hero.js?v=20261104v23";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261104v22";
+} from "./catalog-shelves.js?v=20261104v23";
 import {
   clearCatalogFrontendCache,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261104v22";
+} from "./catalog.js?v=20261104v23";
 
 export function isEpisodeWatched(item, seasonNum, epNum) {
   if (!item || item.media_type !== "series") return false;
@@ -147,7 +147,12 @@ export function getDefaultPlayableSourceTab() {
   return "trailer";
 }
 export function resolvePreferredPlayTab(item, season = null, episode = null) {
-  if (item && typeof navigator !== "undefined" && navigator.onLine === false) {
+  if (
+    item &&
+    (item.is_offline ||
+      state.isOfflineMode ||
+      (typeof navigator !== "undefined" && navigator.onLine === false))
+  ) {
     const offlineHit =
       findOfflineDownloadForTitle(
         item,
@@ -155,7 +160,7 @@ export function resolvePreferredPlayTab(item, season = null, episode = null) {
         item.media_type === "series" ? episode : null,
         ["completed"]
       ) || findOfflineDownloadForTitle(item, null, null, ["completed"]);
-    if (offlineHit) return "offline";
+    if (offlineHit || item.is_offline) return "offline";
   }
   return getDefaultPlayableSourceTab();
 }

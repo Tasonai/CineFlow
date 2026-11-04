@@ -5,7 +5,7 @@ import {
   UI_PREFS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./js/state.js?v=20261104v22";
+} from "./js/state.js?v=20261104v23";
 import {
   applyStaticDomTranslations,
   displayPoster,
@@ -14,7 +14,7 @@ import {
   secondaryTitle,
   syncLanguageSegmentedControlUI,
   t,
-} from "./js/i18n.js?v=20261104v22";
+} from "./js/i18n.js?v=20261104v23";
 import {
   attachHorizontalWheelScroll,
   clampFloatingPopover,
@@ -45,7 +45,7 @@ import {
   trapModalTabKey,
   triggerVideoCenterIndicator,
   withKinoriumActionLock,
-} from "./js/utils.js?v=20261104v22";
+} from "./js/utils.js?v=20261104v23";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -60,7 +60,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./js/audio-dsp.js?v=20261104v22";
+} from "./js/audio-dsp.js?v=20261104v23";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -94,7 +94,7 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./js/catalog.js?v=20261104v22";
+} from "./js/catalog.js?v=20261104v23";
 import {
   buildFallbackAvatarSvg,
   closePersonModal,
@@ -107,7 +107,7 @@ import {
   refreshOpenPersonModalUI,
   switchStatsModalTab,
   syncQuickPeekStatusesUI,
-} from "./js/modals.js?v=20261104v22";
+} from "./js/modals.js?v=20261104v23";
 import {
   activateSelectedSubtitleTrack,
   adjustAudioOffset,
@@ -169,20 +169,20 @@ import {
   updateMiniPlayerTitle,
   updateModalKinoriumHeader,
   wakeVideoControls,
-} from "./js/player.js?v=20261104v22";
+} from "./js/player.js?v=20261104v23";
 import {
   adjustSubtitleOffset,
   bindSubtitleFileAndDropListeners,
   closeSubtitleDictPopover,
   resetSubtitleOffset,
   syncSubtitleOffsetUI,
-} from "./js/subtitles.js?v=20261104v22";
+} from "./js/subtitles.js?v=20261104v23";
 import {
   initDesktopRemoteAgent,
   initMobileRemoteController,
   isMobileRemoteUrl,
   pushDesktopRemoteStateNow,
-} from "./js/remote.js?v=20261104v22";
+} from "./js/remote.js?v=20261104v23";
 import {
   addStremioAddonFromInput,
   applyAppLanguage,
@@ -209,7 +209,7 @@ import {
   syncSettingsFooterUI,
   toggleLanAccess,
   toggleMacosAutostart,
-} from "./js/settings.js?v=20261104v22";
+} from "./js/settings.js?v=20261104v23";
 import {
   applyPendingTvDeepLinkIfReady,
   applyProfilesPayload,
@@ -222,7 +222,8 @@ import {
   initRoadmapFeatures,
   reloadProfileLocalPlayerPrefs,
   renderHeaderProfileSwitcher,
-} from "./js/features.js?v=20261104v22";
+} from "./js/features.js?v=20261104v23";
+import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261104v23";
 
 function initCineFlowApp() {
   document.documentElement.classList.toggle("is-ios-device", isIosOrIpadOs());
@@ -2758,7 +2759,7 @@ function initCineFlowApp() {
     };
   });
 
-  // Single unified Content Type switcher (#media-type-bar): Все | Фильмы | Сериалы
+  // Single unified Content Type switcher (#media-type-bar): Все | Фильмы | Сериалы | Скачано
   document.querySelectorAll(".type-pill").forEach((btn) => {
     btn.onclick = () => {
       const nextType = btn.dataset.type || "all";
@@ -2771,13 +2772,61 @@ function initCineFlowApp() {
       btn.classList.add("active");
       btn.setAttribute("aria-selected", "true");
       renderContinueWatching();
-      if (state.kinoriumSection !== "all") {
+      if (state.kinoriumSection !== "all" || nextType === "offline") {
         renderCatalogShelves();
       } else {
         loadCatalog();
       }
     };
   });
+
+  // Offline status banner actions
+  const btnOfflineView = document.getElementById("btn-offline-banner-view");
+  if (btnOfflineView) {
+    btnOfflineView.onclick = () => {
+      const offlinePill = document.getElementById("type-pill-offline");
+      if (offlinePill && !offlinePill.classList.contains("hidden")) {
+        offlinePill.click();
+      } else {
+        openDownloadsModal();
+      }
+    };
+  }
+
+  const btnOfflineRetry = document.getElementById("btn-offline-banner-retry");
+  if (btnOfflineRetry) {
+    btnOfflineRetry.onclick = async () => {
+      showToast(t("Проверяем подключение к сети...", "Checking network connection..."));
+      try {
+        const res = await fetch("/api/system/status", { cache: "no-store" });
+        if (res.ok) {
+          setOfflineMode(false);
+          showToast(t("Подключение успешно восстановлено", "Connection restored successfully"));
+          loadCatalog({ showLoading: true });
+        } else {
+          showToast(t("Сеть пока недоступна", "Network is still unavailable"));
+        }
+      } catch (_) {
+        showToast(t("Сеть пока недоступна", "Network is still unavailable"));
+      }
+    };
+  }
+
+  window.addEventListener("online", () => {
+    setOfflineMode(false);
+    showToast(t("Подключение к сети восстановлено", "Network connection restored"));
+    loadCatalog();
+  });
+
+  window.addEventListener("offline", () => {
+    setOfflineMode(true);
+    showToast(t("Офлайн-режим: доступны скачанные фильмы и серии", "Offline mode: downloaded movies and series available"));
+    renderCatalogShelves();
+  });
+
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    setOfflineMode(true);
+  }
 
   // Service filter bar (#provider-filter-bar)
   document.querySelectorAll(".atv-pill").forEach((btn) => {

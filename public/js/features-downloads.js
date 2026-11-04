@@ -1,10 +1,10 @@
-import { state } from "./state.js?v=20261104v22";
+import { state } from "./state.js?v=20261104v23";
 import {
   displayTitle,
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261104v22";
+} from "./i18n.js?v=20261104v23";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -19,12 +19,12 @@ import {
   showToast,
   showVideoOsd,
   syncScrollTopButton,
-} from "./utils.js?v=20261104v22";
+} from "./utils.js?v=20261104v23";
 import {
   getDefaultPlayableSourceTab,
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog.js?v=20261104v22";
+} from "./catalog.js?v=20261104v23";
 import {
   closePlayerModal,
   getEffectivePlaybackTiming,
@@ -32,12 +32,12 @@ import {
   openPlayerModal,
   switchSourceTab,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261104v22";
+} from "./player.js?v=20261104v23";
 import {
   ensureKidsPinVerifiedForAdminAction,
   exitBrowserFullscreenIfNeeded,
   formatBytesHuman,
-} from "./features.js?v=20261104v22";
+} from "./features.js?v=20261104v23";
 
 // ============================================================================
 // 4. OFFLINE DOWNLOADS MANAGER ("Скачать в дорогу" — MP4 + Audio + RU/EN VTT)
@@ -51,7 +51,7 @@ export function syncDownloadsHeaderBadge() {
   const activeCount = Number(state.downloadsActiveCount) || 0;
   const completedCount = (state.downloadsItems || []).filter((x) => x.status === "completed").length;
   const totalVisible = activeCount + completedCount;
-  const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+  const isOffline = state.isOfflineMode || (typeof navigator !== "undefined" && navigator.onLine === false);
   const showHeaderBtn = activeCount > 0 || (isOffline && completedCount > 0);
 
   if (wrap) {
@@ -66,6 +66,12 @@ export function syncDownloadsHeaderBadge() {
       menuCountEl.classList.add("hidden");
       menuCountEl.classList.remove("is-active");
     }
+  }
+
+  const offlinePill = document.getElementById("type-pill-offline");
+  if (offlinePill) {
+    const showPill = completedCount > 0 || isOffline;
+    offlinePill.classList.toggle("hidden", !showPill);
   }
 
   if (!badge) return;
@@ -92,6 +98,95 @@ export function _completedDownloadsSignature(list) {
     .map((x) => String(x.download_id || ""))
     .sort()
     .join("|");
+}
+
+export function getOfflineCatalogItems() {
+  const list = Array.isArray(state.downloadsItems) ? state.downloadsItems : [];
+  const completed = list.filter((it) => it && it.status === "completed");
+  const grouped = [];
+  const seriesMap = new Map();
+
+  for (const it of completed) {
+    if (it.media_type === "series") {
+      const groupKey =
+        String(it.item_id || "").trim() ||
+        (it.kinorium_id ? `kin_${it.kinorium_id}` : "") ||
+        (it.rezka_id ? `rezka_${it.rezka_id}` : "") ||
+        String(it.title || "").trim().toLowerCase();
+
+      let seriesItem = seriesMap.get(groupKey);
+      if (!seriesItem) {
+        seriesItem = {
+          id: it.item_id || groupKey,
+          kinorium_id: it.kinorium_id || "",
+          rezka_id: it.rezka_id || "",
+          title: it.title || "CineFlow",
+          orig_title: it.orig_title || "",
+          year: it.year || "",
+          media_type: "series",
+          poster: it.poster || "",
+          backdrop: it.backdrop || it.poster || "",
+          genres: Array.isArray(it.genres) ? it.genres : [],
+          age_rating: it.age_rating || "",
+          ratings: it.ratings || {},
+          kinorium: it.kinorium || {},
+          seasons_map: {},
+          is_offline: true,
+          download_id: it.download_id,
+          offline_count: 0,
+        };
+        seriesMap.set(groupKey, seriesItem);
+        grouped.push(seriesItem);
+      }
+      const sNum = Math.max(1, Number(it.season) || 1);
+      const eNum = Math.max(1, Number(it.episode) || 1);
+      const sKey = String(sNum);
+      if (!seriesItem.seasons_map[sKey]) {
+        seriesItem.seasons_map[sKey] = [];
+      }
+      if (!seriesItem.seasons_map[sKey].includes(eNum)) {
+        seriesItem.seasons_map[sKey].push(eNum);
+        seriesItem.seasons_map[sKey].sort((a, b) => a - b);
+      }
+      seriesItem.offline_count += 1;
+    } else {
+      grouped.push({
+        id: it.item_id || `dl_${it.download_id}`,
+        kinorium_id: it.kinorium_id || "",
+        rezka_id: it.rezka_id || "",
+        title: it.title || "CineFlow",
+        orig_title: it.orig_title || "",
+        year: it.year || "",
+        media_type: "movie",
+        poster: it.poster || "",
+        backdrop: it.backdrop || it.poster || "",
+        genres: Array.isArray(it.genres) ? it.genres : [],
+        age_rating: it.age_rating || "",
+        ratings: it.ratings || {},
+        kinorium: it.kinorium || {},
+        is_offline: true,
+        download_id: it.download_id,
+        offline_play_url: it.play_url || "",
+      });
+    }
+  }
+
+  return grouped;
+}
+
+export function setOfflineMode(isOffline) {
+  state.isOfflineMode = Boolean(isOffline);
+  const banner = document.getElementById("offline-status-banner");
+  if (banner) {
+    banner.classList.toggle("hidden", !state.isOfflineMode);
+  }
+  syncDownloadsHeaderBadge();
+  if (state.isOfflineMode) {
+    if (!Array.isArray(state.catalogItems) || state.catalogItems.length === 0) {
+      state.catalogItems = getOfflineCatalogItems();
+      renderCatalogShelves();
+    }
+  }
 }
 
 export function _syncOfflineSurfacesAfterDownloadsChange(prevCompletedSig) {

@@ -2,14 +2,14 @@
 // Handles poster card rendering, poster image fallbacks, smart badges,
 // live trailer hover previews, and the card action context menu.
 
-import { state } from "./state.js?v=20261104v22";
+import { state } from "./state.js?v=20261104v23";
 import {
   displayPoster,
   displayTitle,
   formatCriticsRating,
   isEn,
   t,
-} from "./i18n.js?v=20261104v22";
+} from "./i18n.js?v=20261104v23";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -19,24 +19,24 @@ import {
   iconSvg,
   pluralRu,
   showToast,
-} from "./utils.js?v=20261104v22";
+} from "./utils.js?v=20261104v23";
 import {
   openPlayerModal,
-} from "./player.js?v=20261104v22";
+} from "./player.js?v=20261104v23";
 import {
   openTvCastModal,
-} from "./features.js?v=20261104v22";
+} from "./features.js?v=20261104v23";
 import {
   openQuickPeekModal,
-} from "./modals.js?v=20261104v22";
+} from "./modals.js?v=20261104v23";
 import {
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
   resolvePreferredPlayTab,
   getFriendsAverageScore,
   patchCatalogItemKinoriumInPlace,
-} from "./catalog-media-resolver.js?v=20261104v22";
-import { stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261104v22";
+} from "./catalog-media-resolver.js?v=20261104v23";
+import { stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261104v23";
 
 export function buildPosterBadgesHtml(item, precomputedEpInfo = null) {
   const offlineSaved = findOfflineDownloadForTitle(item);

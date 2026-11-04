@@ -2,7 +2,7 @@
 // Manages "Continue Watching", "Curated Collections" (Friends' picks, In your taste,
 // Short movies tonight, Top Kinorium/IMDb), and separated/unified catalog shelves.
 
-import { state } from "./state.js?v=20261104v22";
+import { state } from "./state.js?v=20261104v23";
 import {
   displayBackdrop,
   displayPoster,
@@ -10,7 +10,7 @@ import {
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261104v22";
+} from "./i18n.js?v=20261104v23";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -21,35 +21,36 @@ import {
   matchCatalogItemSafe,
   showToast,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261104v22";
+} from "./utils.js?v=20261104v23";
 import {
   buildPersonPhotoCard,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261104v22";
+} from "./modals.js?v=20261104v23";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
   renderPosterCardsInto,
-} from "./catalog-cards.js?v=20261104v22";
+} from "./catalog-cards.js?v=20261104v23";
 import {
   filterCatalogItemsByGenreAndYear,
   sortCatalogItems,
-} from "./catalog-filters.js?v=20261104v22";
+} from "./catalog-filters.js?v=20261104v23";
 import {
   formatRemainingTime,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261104v22";
-import { renderHero } from "./catalog-hero.js?v=20261104v22";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261104v22";
+} from "./catalog-media-resolver.js?v=20261104v23";
+import { renderHero } from "./catalog-hero.js?v=20261104v23";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261104v23";
 import {
   clearCatalogFrontendCache,
   loadCatalog,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261104v22";
+} from "./catalog.js?v=20261104v23";
+import { getOfflineCatalogItems } from "./features-downloads.js?v=20261104v23";
 
 export function renderContinueWatching() {
   renderNotificationsBell();
@@ -553,7 +554,11 @@ export function renderCatalogShelves() {
   const moviesCount = document.getElementById("movies-count");
 
   const isSearching = Boolean(state.searchQuery.trim());
-  const baseItems = filterCatalogItemsByGenreAndYear(state.catalogItems);
+  let sourceItems = state.catalogItems;
+  if (state.mediaTypeFilter === "offline") {
+    sourceItems = getOfflineCatalogItems();
+  }
+  const baseItems = filterCatalogItemsByGenreAndYear(sourceItems);
   const allItemsSorted = sortCatalogItems(baseItems);
   const seriesItems = allItemsSorted.filter((i) => i.media_type === "series");
   const movieItems = allItemsSorted.filter((i) => i.media_type === "movie");
@@ -579,9 +584,11 @@ export function renderCatalogShelves() {
   const topTypeAllBtn = document.querySelector('#media-type-bar .type-pill[data-type="all"]');
   const topTypeMovieBtn = document.querySelector('#media-type-bar .type-pill[data-type="movie"]');
   const topTypeSeriesBtn = document.querySelector('#media-type-bar .type-pill[data-type="series"]');
+  const topTypeOfflineBtn = document.getElementById("type-pill-offline");
   if (topTypeAllBtn) topTypeAllBtn.textContent = t("Все", "All");
   if (topTypeMovieBtn) topTypeMovieBtn.textContent = t("Фильмы", "Movies");
   if (topTypeSeriesBtn) topTypeSeriesBtn.textContent = t("Сериалы", "Series");
+  if (topTypeOfflineBtn) topTypeOfflineBtn.textContent = t("Скачано", "Downloaded");
 
   const unifiedBreakdown = document.getElementById("unified-kinorium-breakdown");
 
@@ -620,7 +627,7 @@ export function renderCatalogShelves() {
     }
   }
 
-  if (state.kinoriumSection !== "all" && unifiedSection && unifiedGrid) {
+  if ((state.kinoriumSection !== "all" || state.mediaTypeFilter === "offline") && unifiedSection && unifiedGrid) {
     // Hide separated shelves so strictly 30 cards are displayed per page
     seriesSection.classList.add("hidden");
     moviesSection.classList.add("hidden");
@@ -638,7 +645,10 @@ export function renderCatalogShelves() {
         ? seriesItems
         : allItemsSorted;
 
-    const secTitle = ksecTitles[state.kinoriumSection] || t("Список Kinorium", "Kinorium List");
+    const secTitle =
+      state.mediaTypeFilter === "offline"
+        ? t("Скачано на устройство", "Downloaded on this device")
+        : (ksecTitles[state.kinoriumSection] || t("Список Kinorium", "Kinorium List"));
     if (unifiedHeading) unifiedHeading.textContent = `${secTitle}${provName}${searchSuffix}`;
     if (unifiedCount) unifiedCount.textContent = `${filteredUnified.length}`;
     if (unifiedBreakdown) {
@@ -773,20 +783,32 @@ export function renderCatalogShelves() {
       moviesSection.parentNode.appendChild(emptyEl);
     }
     emptyEl.classList.remove("hidden");
+    const isOffline = state.isOfflineMode || (typeof navigator !== "undefined" && !navigator.onLine);
     const acc = state.kinoriumAccount || {};
-    const disconnectedHint =
-      state.kinoriumSection !== "all" && state.kinoriumSection !== "premieres" && !acc.connected
-        ? `<div class="atv-catalog-empty-sub">${t(
-            "Профиль Kinorium сейчас не подключен. Откройте Настройки в правом верхнем углу, чтобы ввести ваш ID или ссылку на профиль Kinorium.",
-            "Kinorium profile is not connected. Open Settings in the top-right corner to enter your Kinorium ID or profile URL."
-          )}</div>`
-        : `<div class="atv-catalog-empty-sub">${t(
-            "Попробуйте изменить поисковый запрос или переключить раздел каталога",
-            "Try adjusting your search query or switching catalog filters"
-          )}</div>`;
+    let disconnectedHint = "";
+    if (isOffline || state.mediaTypeFilter === "offline") {
+      disconnectedHint = `<div class="atv-catalog-empty-sub">${t(
+        "Нет подключения к сети и пока нет скачанных фильмов или серий. Подключитесь к интернету для загрузки контента.",
+        "No network connection and no downloaded media found. Connect to the internet to download movies and series."
+      )}</div>`;
+    } else if (state.kinoriumSection !== "all" && state.kinoriumSection !== "premieres" && !acc.connected) {
+      disconnectedHint = `<div class="atv-catalog-empty-sub">${t(
+        "Профиль Kinorium сейчас не подключен. Откройте Настройки в правом верхнем углу, чтобы ввести ваш ID или ссылку на профиль Kinorium.",
+        "Kinorium profile is not connected. Open Settings in the top-right corner to enter your Kinorium ID or profile URL."
+      )}</div>`;
+    } else {
+      disconnectedHint = `<div class="atv-catalog-empty-sub">${t(
+        "Попробуйте изменить поисковый запрос или переключить раздел каталога",
+        "Try adjusting your search query or switching catalog filters"
+      )}</div>`;
+    }
+    const emptyTitle =
+      isOffline || state.mediaTypeFilter === "offline"
+        ? t("Офлайн-режим: нет скачанных файлов", "Offline Mode: No downloaded files")
+        : t("По выбранным фильтрам ничего не найдено", "No titles match the active filters");
     emptyEl.innerHTML = `
       <div class="atv-catalog-empty-title">
-        ${t("По выбранным фильтрам ничего не найдено", "No titles match the active filters")}
+        ${emptyTitle}
       </div>
       ${disconnectedHint}
       <button type="button" class="atv-btn-secondary atv-btn-sm" id="reset-catalog-filters-btn">

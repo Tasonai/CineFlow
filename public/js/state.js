@@ -238,6 +238,7 @@ export const state = {
     }
   })(),
   activeProfile: null,
+  isOfflineMode: typeof navigator !== "undefined" ? !navigator.onLine : false,
   downloadsItems: [],
   downloadsActiveCount: 0,
   downloadsTotalBytes: 0,

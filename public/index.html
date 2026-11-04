@@ -11,15 +11,15 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="CineFlow" />
-  <link rel="manifest" href="/manifest.webmanifest?v=20261104v22" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261104v22" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png?v=20261104v22" />
-  <link rel="shortcut icon" href="/favicon.svg?v=20261104v22" />
-  <link rel="stylesheet" href="/css/base-and-hero.css?v=20261104v22" />
-  <link rel="stylesheet" href="/css/catalog-and-player-layout.css?v=20261104v22" />
-  <link rel="stylesheet" href="/css/modals-and-search.css?v=20261104v22" />
-  <link rel="stylesheet" href="/css/settings-and-episodes.css?v=20261104v22" />
-  <link rel="stylesheet" href="/css/video-controls-and-person.css?v=20261104v22" />
+  <link rel="manifest" href="/manifest.webmanifest?v=20261104v23" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261104v23" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png?v=20261104v23" />
+  <link rel="shortcut icon" href="/favicon.svg?v=20261104v23" />
+  <link rel="stylesheet" href="/css/base-and-hero.css?v=20261104v23" />
+  <link rel="stylesheet" href="/css/catalog-and-player-layout.css?v=20261104v23" />
+  <link rel="stylesheet" href="/css/modals-and-search.css?v=20261104v23" />
+  <link rel="stylesheet" href="/css/settings-and-episodes.css?v=20261104v23" />
+  <link rel="stylesheet" href="/css/video-controls-and-person.css?v=20261104v23" />
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
 </head>
 <body>
@@ -29,15 +29,16 @@
   <header class="atv-header">
     <div class="atv-header-left">
       <div class="atv-brand" id="brand-home" tabindex="0" role="button" aria-label="CineFlow — На главную">
-        <img class="atv-logo-icon" src="/favicon.svg?v=20261104v22" alt="" width="24" height="24" />
+        <img class="atv-logo-icon" src="/favicon.svg?v=20261104v23" alt="" width="24" height="24" />
         <span class="atv-brand-name">CineFlow</span>
       </div>
 
-      <!-- Content Type Switcher: Все | Фильмы | Сериалы -->
+      <!-- Content Type Switcher: Все | Фильмы | Сериалы | Скачано -->
       <div class="atv-type-switcher" id="media-type-bar" role="tablist" aria-label="Тип контента">
         <button type="button" class="type-pill active" data-type="all" role="tab" aria-selected="true">Все</button>
         <button type="button" class="type-pill" data-type="movie" role="tab" aria-selected="false">Фильмы</button>
         <button type="button" class="type-pill" data-type="series" role="tab" aria-selected="false">Сериалы</button>
+        <button type="button" class="type-pill hidden" id="type-pill-offline" data-type="offline" role="tab" aria-selected="false">Скачано</button>
       </div>
     </div>
 
@@ -197,6 +198,31 @@
   </header>
 
   <main class="atv-main">
+    <!-- Offline Mode Banner (Shown when offline or network fails) -->
+    <aside class="atv-offline-banner hidden" id="offline-status-banner" role="status" aria-live="polite">
+      <div class="atv-offline-banner-left">
+        <div class="atv-offline-banner-icon" aria-hidden="true">
+          <svg class="atv-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="1" y1="1" x2="23" y2="23"/>
+            <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+            <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
+            <path d="M10.71 5.05A16 16 0 0 1 22.58 9"/>
+            <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+            <line x1="12" y1="20" x2="12.01" y2="20"/>
+          </svg>
+        </div>
+        <div class="atv-offline-banner-text">
+          <strong id="offline-banner-title">Офлайн-режим</strong>
+          <span id="offline-banner-sub">Нет подключения к сети. Доступны скачанные фильмы и серии для просмотра без интернета.</span>
+        </div>
+      </div>
+      <div class="atv-offline-banner-actions">
+        <button type="button" class="atv-btn-primary atv-btn-sm" id="btn-offline-banner-view">Скачанные файлы</button>
+        <button type="button" class="atv-btn-secondary atv-btn-sm" id="btn-offline-banner-retry">Повторить подключение</button>
+      </div>
+    </aside>
+
     <!-- Unauthenticated Service Prompt Banner (Shown when selecting a paid service where user is not logged in) -->
     <div class="atv-login-banner hidden" id="service-login-banner">
       <div class="atv-login-banner-text">
@@ -1508,7 +1534,7 @@
       <div class="atv-settings-body hidden" id="stab-about" role="tabpanel" aria-labelledby="settings-tab-about">
         <div class="atv-about-minimal">
           <div class="atv-about-head">
-            <img class="atv-about-logo" src="/favicon.svg?v=20261104v22" alt="CineFlow" width="44" height="44" />
+            <img class="atv-about-logo" src="/favicon.svg?v=20261104v23" alt="CineFlow" width="44" height="44" />
             <div class="atv-about-head-text">
               <h3 class="atv-about-app-name">CineFlow</h3>
               <p class="atv-about-tagline" id="about-app-tagline">Персональный домашний кинотеатр</p>
@@ -1608,7 +1634,7 @@
     <div class="atv-settings-sheet atv-onboarding-sheet">
       <div class="atv-settings-header atv-onboarding-header">
         <div class="atv-onboarding-title-wrap">
-          <img class="atv-onboarding-logo" src="/favicon.svg?v=20261104v22" alt="" width="28" height="28" />
+          <img class="atv-onboarding-logo" src="/favicon.svg?v=20261104v23" alt="" width="28" height="28" />
           <div>
             <h2 class="atv-onboarding-title" id="ob-title">Первичная настройка CineFlow</h2>
             <p class="atv-onboarding-sub" id="ob-subtitle">Выберите страну Европы для обхода блокировок, подключаемые сервисы и синхронизацию Kinorium</p>
@@ -2217,6 +2243,6 @@
 
   <input type="file" id="input-local-subtitle-file" accept=".srt,.vtt,.ass,.ssa" class="hidden" aria-hidden="true" />
   <div id="toast-container" class="atv-toast-container" role="region" aria-live="polite" aria-label="Уведомления"></div>
-  <script type="module" src="/app.js?v=20261104v22"></script>
+  <script type="module" src="/app.js?v=20261104v23"></script>
 </body>
 </html>

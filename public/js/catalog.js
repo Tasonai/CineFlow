@@ -3,7 +3,7 @@ import {
   PREFERRED_STUDIOS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261104v22";
+} from "./state.js?v=20261104v23";
 import {
   displayBackdrop,
   displayCountries,
@@ -18,7 +18,7 @@ import {
   translateGenre,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261104v22";
+} from "./i18n.js?v=20261104v23";
 import {
   attachHorizontalWheelScroll,
   copyTextToClipboard,
@@ -43,24 +43,25 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261104v22";
-import { getPlayerPrefs } from "./audio-dsp.js?v=20261104v22";
+} from "./utils.js?v=20261104v23";
+import { getPlayerPrefs } from "./audio-dsp.js?v=20261104v23";
 import {
   buildPersonPhotoCard,
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261104v22";
-import { openPlayerModal, renderModalProvidersSidebar, switchSourceTab } from "./player.js?v=20261104v22";
-import { confirmServiceLogin, openSettingsModal, triggerServiceLoginFlow } from "./settings.js?v=20261104v22";
-import { openTvCastModal, renderHeaderProfileSwitcher } from "./features.js?v=20261104v22";
+} from "./modals.js?v=20261104v23";
+import { openPlayerModal, renderModalProvidersSidebar, switchSourceTab } from "./player.js?v=20261104v23";
+import { confirmServiceLogin, openSettingsModal, triggerServiceLoginFlow } from "./settings.js?v=20261104v23";
+import { openTvCastModal, renderHeaderProfileSwitcher } from "./features.js?v=20261104v23";
+import { getOfflineCatalogItems, setOfflineMode } from "./features-downloads.js?v=20261104v23";
 import {
   renderContinueWatching,
   parseItemDurationMinutes,
   renderCuratedShelves,
   renderCatalogShelves,
-} from "./catalog-shelves.js?v=20261104v22";
+} from "./catalog-shelves.js?v=20261104v23";
 import {
   buildPosterBadgesHtml,
   buildFallbackPosterSvg,
@@ -70,7 +71,7 @@ import {
   createPosterCardElement,
   buildPageNumbers,
   renderPosterCardsInto,
-} from "./catalog-cards.js?v=20261104v22";
+} from "./catalog-cards.js?v=20261104v23";
 import {
   stopHeroAmbientTeaser,
   scheduleHeroAmbientTeaser,
@@ -80,13 +81,13 @@ import {
   renderHeroSlide,
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261104v22";
+} from "./catalog-hero.js?v=20261104v23";
 import {
   collectNewEpisodeNotifications,
   switchNotificationsTab,
   loadAndRenderReleaseCalendar,
   renderNotificationsBell,
-} from "./catalog-notifications.js?v=20261104v22";
+} from "./catalog-notifications.js?v=20261104v23";
 import {
   openMovieRouletteModal,
   closeMovieRouletteModal,
@@ -95,7 +96,7 @@ import {
   openCommandPalette,
   closeCommandPalette,
   initCommandPalette,
-} from "./catalog-discovery.js?v=20261104v22";
+} from "./catalog-discovery.js?v=20261104v23";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
@@ -106,7 +107,7 @@ import {
   rerollCatalogLaunchSeed,
   getCurrentlyFilteredItems,
   sortCatalogItems,
-} from "./catalog-filters.js?v=20261104v22";
+} from "./catalog-filters.js?v=20261104v23";
 import {
   isEpisodeWatched,
   getPreferredStudioForItem,
@@ -124,7 +125,7 @@ import {
   getFriendsAverageScore,
   patchCatalogItemKinoriumInPlace,
   getPrimaryRating,
-} from "./catalog-media-resolver.js?v=20261104v22";
+} from "./catalog-media-resolver.js?v=20261104v23";
 
 export {
   renderContinueWatching,
@@ -317,6 +318,43 @@ export async function loadCatalog(options = {}) {
   });
   if (q) params.set("q", q);
 
+  if (state.mediaTypeFilter === "offline") {
+    const offlineItems = getOfflineCatalogItems();
+    const qNorm = q.toLowerCase();
+    const filtered = qNorm
+      ? offlineItems.filter(
+          (it) =>
+            (it.title && it.title.toLowerCase().includes(qNorm)) ||
+            (it.orig_title && it.orig_title.toLowerCase().includes(qNorm))
+        )
+      : offlineItems;
+    state.catalogItems = filtered;
+    renderHero();
+    renderContinueWatching();
+    renderCatalogShelves();
+    return;
+  }
+
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    setOfflineMode(true);
+    const offlineItems = getOfflineCatalogItems();
+    if (offlineItems.length > 0) {
+      const qNorm = q.toLowerCase();
+      const filtered = qNorm
+        ? offlineItems.filter(
+            (it) =>
+              (it.title && it.title.toLowerCase().includes(qNorm)) ||
+              (it.orig_title && it.orig_title.toLowerCase().includes(qNorm))
+          )
+        : offlineItems;
+      state.catalogItems = filtered;
+      renderHero();
+      renderContinueWatching();
+      renderCatalogShelves();
+      return;
+    }
+  }
+
   const endpoint = q ? `/api/search?${params.toString()}` : `/api/catalog?${params.toString()}`;
   const activeProfId = state.activeProfile?.id || "main";
   const cacheKey = `${activeProfId}::${endpoint}`;
@@ -364,6 +402,9 @@ export async function loadCatalog(options = {}) {
       } catch (_) {}
     }
     _applyCatalogResponsePayload(data, q);
+    if (typeof navigator !== "undefined" && navigator.onLine) {
+      setOfflineMode(false);
+    }
     if (!state.liveUpdatesCheckedOnce && isServiceEnabled("hdrezka") && isServiceEnabled("kinorium")) {
       state.liveUpdatesCheckedOnce = true;
       setTimeout(() => checkLiveRezkaSeriesUpdates(false), 3200);
@@ -372,6 +413,16 @@ export async function loadCatalog(options = {}) {
     clearTimeout(skeletonTimer);
     if (err && err.name === "AbortError") return;
     console.error("Failed to load catalog:", err);
+    setOfflineMode(true);
+    if (!state.catalogItems || state.catalogItems.length === 0) {
+      const offlineItems = getOfflineCatalogItems();
+      if (offlineItems.length > 0) {
+        state.catalogItems = offlineItems;
+      }
+      renderHero();
+      renderContinueWatching();
+      renderCatalogShelves();
+    }
   }
 }
 export async function checkLiveRezkaSeriesUpdates(showFeedback = false, forceRefresh = false) {

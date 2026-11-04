@@ -1,4 +1,5 @@
 import base64
+import glob
 import hashlib
 import json
 import os
@@ -1538,6 +1539,149 @@ class TestRoadmapFeatures(unittest.TestCase):
             state_js = fh.read()
         self.assertIn("activeSubDictWord", state_js)
         self.assertIn("activeSubDictEntry", state_js)
+
+    def test_offline_ui_mode_and_downloaded_media_resilience(self):
+        # 1. HTML markup invariants for offline banner and offline filter pill
+        with open(os.path.join(BASE_DIR, "public", "index.html"), "r", encoding="utf-8") as fh:
+            index_html = fh.read()
+        self.assertIn('id="offline-status-banner"', index_html)
+        self.assertIn('id="type-pill-offline"', index_html)
+        self.assertIn('data-type="offline"', index_html)
+        self.assertIn('id="btn-offline-banner-view"', index_html)
+        self.assertIn('id="btn-offline-banner-retry"', index_html)
+
+        # 2. CSS invariants for offline banner
+        css_combined = ""
+        for css_file in sorted(glob.glob(os.path.join(BASE_DIR, "public", "css", "*.css"))):
+            with open(css_file, "r", encoding="utf-8") as f:
+                css_combined += "\n" + f.read()
+        self.assertIn(".atv-offline-banner", css_combined)
+        self.assertIn(".atv-offline-banner-icon", css_combined)
+        self.assertIn(".atv-offline-banner-text", css_combined)
+
+        # 3. JavaScript state, downloads helper and media resolver offline routing
+        with open(os.path.join(BASE_DIR, "public", "js", "state.js"), "r", encoding="utf-8") as fh:
+            state_src = fh.read()
+        self.assertIn("isOfflineMode", state_src)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "features-downloads.js"), "r", encoding="utf-8") as fh:
+            dl_src = fh.read()
+        self.assertIn("export function getOfflineCatalogItems", dl_src)
+        self.assertIn("export function setOfflineMode", dl_src)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "catalog-media-resolver.js"), "r", encoding="utf-8") as fh:
+            res_src = fh.read()
+        self.assertIn("state.isOfflineMode", res_src)
+        self.assertIn("item.is_offline", res_src)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "catalog.js"), "r", encoding="utf-8") as fh:
+            cat_src = fh.read()
+        self.assertIn('state.mediaTypeFilter === "offline"', cat_src)
+        self.assertIn("getOfflineCatalogItems", cat_src)
+        self.assertIn("setOfflineMode", cat_src)
+
+        # 4. Backend offline catalog payload generation
+        from backend.routes.catalog import build_offline_catalog_payload, handle_catalog
+
+        class FakeDownloadManager:
+            def get_downloads_payload(self, profile_id="main", kids_mode=False, active_profile_id="main", lang="ru"):
+                return {
+                    "ok": True,
+                    "items": [
+                        {
+                            "download_id": "dl_movie_1",
+                            "status": "completed",
+                            "title": "Интерстеллар",
+                            "orig_title": "Interstellar",
+                            "media_type": "movie",
+                            "year": "2014",
+                            "play_url": "/api/downloads/stream/dl_movie_1",
+                        },
+                        {
+                            "download_id": "dl_ser_1_1",
+                            "status": "completed",
+                            "title": "Пингвин",
+                            "orig_title": "The Penguin",
+                            "media_type": "series",
+                            "year": "2024",
+                            "season": 1,
+                            "episode": 1,
+                            "kinorium_id": 999901,
+                            "play_url": "/api/downloads/stream/dl_ser_1_1",
+                        },
+                        {
+                            "download_id": "dl_ser_1_2",
+                            "status": "completed",
+                            "title": "Пингвин",
+                            "orig_title": "The Penguin",
+                            "media_type": "series",
+                            "year": "2024",
+                            "season": 1,
+                            "episode": 2,
+                            "kinorium_id": 999901,
+                            "play_url": "/api/downloads/stream/dl_ser_1_2",
+                        },
+                        {
+                            "download_id": "dl_queued_1",
+                            "status": "queued",
+                            "title": "Не скачан",
+                            "media_type": "movie",
+                        },
+                    ],
+                }
+
+        class FakeProfileManager:
+            def is_kids_mode_active(self):
+                return False
+
+            def get_active_profile_id(self):
+                return "main"
+
+            def get_active_profile(self, lang="ru", live_kinorium_service=None):
+                return {"id": "main", "name": "Основной"}
+
+            def filter_catalog_payload_for_kids(self, payload):
+                return payload
+
+        class FakeCtx:
+            def __init__(self):
+                self.download_manager = FakeDownloadManager()
+                self.profile_manager = FakeProfileManager()
+                self.app_prefs = {"app_lang": "ru"}
+                self.kinorium_service = None
+
+            def norm_app_lang(self, val, default="ru"):
+                return val or default
+
+        ctx = FakeCtx()
+        payload = build_offline_catalog_payload(ctx)
+        self.assertTrue(payload.get("ok"))
+        self.assertTrue(payload.get("is_offline"))
+        items = payload.get("items", [])
+        self.assertEqual(len(items), 2)  # 1 movie + 1 grouped series (2 episodes grouped)
+
+        movie = next(it for it in items if it.get("media_type") == "movie")
+        self.assertEqual(movie.get("title"), "Интерстеллар")
+        self.assertTrue(movie.get("is_offline"))
+
+        series = next(it for it in items if it.get("media_type") == "series")
+        self.assertEqual(series.get("title"), "Пингвин")
+        self.assertTrue(series.get("is_offline"))
+        self.assertEqual(series.get("seasons_map"), {"1": [1, 2]})
+
+        # Test handle_catalog dispatching offline provider
+        class FakeHandler:
+            def __init__(self):
+                self.resp_data = None
+
+            def _send_json(self, data):
+                self.resp_data = data
+
+        h = FakeHandler()
+        handle_catalog(h, {"provider": ["offline"]}, None, ctx)
+        self.assertIsNotNone(h.resp_data)
+        self.assertTrue(h.resp_data.get("is_offline"))
+        self.assertEqual(len(h.resp_data.get("items", [])), 2)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261104v22";
+import { state } from "./state.js?v=20261104v23";
 
 export function isEn() {
   return state.appLang === "en";
@@ -858,6 +858,11 @@ export function applyStaticDomTranslations() {
   setElText('#media-type-bar .type-pill[data-type="all"]', "Все", "All");
   setElText('#media-type-bar .type-pill[data-type="movie"]', "Фильмы", "Movies");
   setElText('#media-type-bar .type-pill[data-type="series"]', "Сериалы", "Series");
+  setElText('#type-pill-offline', "Скачано", "Downloaded");
+  setElText('#offline-banner-title', "Офлайн-режим", "Offline Mode");
+  setElText('#offline-banner-sub', "Нет подключения к сети. Доступны скачанные фильмы и серии для просмотра без интернета.", "No network connection. Downloaded movies and series are available for offline playback.");
+  setElText('#btn-offline-banner-view', "Скачанные файлы", "Downloaded Files");
+  setElText('#btn-offline-banner-retry', "Повторить подключение", "Retry Connection");
   setElText('#provider-filter-bar .atv-pill[data-provider="all"]', "Главная", "Home");
 
   setElAttr("#global-search", "placeholder", "Поиск фильмов, сериалов и актёров...", "Search movies, series & actors...");
