@@ -503,7 +503,8 @@ class TestFrontendIntegrity(unittest.TestCase):
         for css_file in sorted(os.listdir(os.path.join(PUBLIC_DIR, "css"))):
             if not css_file.endswith(".css"):
                 continue
-            css_text = open(os.path.join(PUBLIC_DIR, "css", css_file), "r", encoding="utf-8").read()
+            with open(os.path.join(PUBLIC_DIR, "css", css_file), "r", encoding="utf-8") as f:
+                css_text = f.read()
             media_stack = []
             brace_depth = 0
             unguarded_hover = []

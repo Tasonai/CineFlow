@@ -955,7 +955,8 @@ class TestAuditFixes(unittest.TestCase):
                 server.DEAD_MEDIA_EDGE_IPS.pop("93.184.216.34", None)
 
         # 5. Frontend player.js must not flood v.currentTime on pointermove or download full MP4 via no-cors preload
-        player_js = open(os.path.join(root, "public", "js", "player.js"), encoding="utf-8").read()
+        with open(os.path.join(root, "public", "js", "player.js"), encoding="utf-8") as f:
+            player_js = f.read()
         self.assertNotIn('mode: "no-cors"', player_js)
         self.assertNotIn("v.currentTime = ratio * dur", player_js)
         self.assertIn("_evict_edge=1", player_js)
