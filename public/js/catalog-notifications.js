@@ -2,15 +2,16 @@ import {
   NOTIF_DESKTOP_ALERTED_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261104v23";
+} from "./state.js?v=20261104v24";
 import {
   displayPoster,
   displayTitle,
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261104v23";
+} from "./i18n.js?v=20261104v24";
 import {
+  attachHorizontalWheelScroll,
   escapeAttr,
   escapeHtml,
   formatTime,
@@ -18,16 +19,16 @@ import {
   iconSvg,
   matchCatalogItemSafe,
   saveSeenNotificationsSet,
-} from "./utils.js?v=20261104v23";
-import { openQuickPeekModal } from "./modals.js?v=20261104v23";
-import { openPlayerModal } from "./player.js?v=20261104v23";
-import { openSettingsModal } from "./settings.js?v=20261104v23";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261104v23";
+} from "./utils.js?v=20261104v24";
+import { openQuickPeekModal } from "./modals.js?v=20261104v24";
+import { openPlayerModal } from "./player.js?v=20261104v24";
+import { openSettingsModal } from "./settings.js?v=20261104v24";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261104v24";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261104v23";
+} from "./catalog-media-resolver.js?v=20261104v24";
 
 export function collectNewEpisodeNotifications() {
   if (!isServiceEnabled("kinorium") || (!isServiceEnabled("hdrezka") && !isServiceEnabled("stremio"))) {
@@ -367,6 +368,118 @@ function renderReleaseCalendarDOM(calData) {
 
   appendSection(t("Скоро выходят", "Upcoming Episodes"), upcoming, true);
   appendSection(t("Недавно вышедшие", "Recently Aired"), recent, false);
+}
+
+export async function renderReleaseCalendarShelf(forceRefresh = false) {
+  const shelf = document.getElementById("release-calendar-shelf");
+  const row = document.getElementById("release-calendar-row");
+  const countEl = document.getElementById("release-calendar-count");
+  if (!shelf || !row) return;
+
+  if (
+    state.searchQuery.trim() ||
+    state.kinoriumSection !== "all" ||
+    state.mediaTypeFilter === "offline" ||
+    state.isOfflineMode
+  ) {
+    shelf.classList.add("hidden");
+    return;
+  }
+
+  attachHorizontalWheelScroll(row);
+
+  if (!state.calendarData || forceRefresh) {
+    try {
+      const qs = new URLSearchParams({
+        lang: state.appLang || "ru",
+        days_past: "7",
+        days_ahead: "45",
+        ...(forceRefresh ? { force: "1" } : {}),
+      });
+      const res = await fetch(`/api/calendar?${qs.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.ok) {
+          state.calendarData = data;
+        }
+      }
+    } catch (_) {}
+  }
+
+  const calData = state.calendarData;
+  const upcoming = Array.isArray(calData?.upcoming) ? calData.upcoming : [];
+  const todayIso = String(calData?.today || new Date().toISOString().slice(0, 10));
+
+  const visibleEvents = upcoming.filter((ev) => ev && !ev.watched);
+
+  if (visibleEvents.length === 0) {
+    shelf.classList.add("hidden");
+    return;
+  }
+
+  shelf.classList.remove("hidden");
+  if (countEl) {
+    countEl.textContent = String(visibleEvents.length);
+  }
+
+  row.innerHTML = "";
+  visibleEvents.slice(0, 24).forEach((ev) => {
+    const card = document.createElement("div");
+    card.className = "atv-cal-shelf-card";
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+
+    const evTitle = isEn()
+      ? ev.orig_title || ev.title || "Series"
+      : ev.ru_title || ev.title || ev.orig_title || "Сериал";
+    const sNum = Number(ev.season) || 1;
+    const eNum = Number(ev.episode) || 1;
+    const epCode = `S${String(sNum).padStart(2, "0")} · E${String(eNum).padStart(2, "0")}`;
+    const dateLabel = _formatCalendarAirDate(ev.air_date, todayIso);
+
+    const isToday = Boolean(ev.is_today || ev.air_date === todayIso);
+    const badgeCls = isToday ? "atv-cal-badge is-today" : "atv-cal-badge";
+
+    card.innerHTML = `
+      <div class="atv-cal-poster-wrap">
+        <img class="atv-cal-poster" src="${escapeAttr(ev.poster || "")}" alt="${escapeAttr(evTitle)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
+        <div class="${badgeCls}">${escapeHtml(dateLabel)}</div>
+      </div>
+      <div class="atv-cal-meta">
+        <div class="atv-cal-title" title="${escapeAttr(evTitle)}">${escapeHtml(evTitle)}</div>
+        <div class="atv-cal-ep-code">${escapeHtml(epCode)}</div>
+        ${ev.episode_title ? `<div class="atv-cal-ep-name" title="${escapeAttr(ev.episode_title)}">${escapeHtml(ev.episode_title)}</div>` : ""}
+      </div>
+    `;
+
+    const imgEl = card.querySelector("img");
+    attachSmartPosterFallback(imgEl, evTitle, "", ev.poster);
+
+    card.onclick = () => {
+      const synthCandidate = {
+        id: ev.id || ev.imdb_id || "",
+        kinorium_id: ev.kinorium_id || "",
+        rezka_id: ev.rezka_id || "",
+        rezka_url: ev.rezka_url || "",
+        title: ev.ru_title || ev.title || "",
+        orig_title: ev.orig_title || "",
+        year: ev.year || "",
+        media_type: "series",
+        poster: ev.poster || "",
+      };
+      const target = matchCatalogItemSafe(state.catalogItems, synthCandidate) || synthCandidate;
+      openQuickPeekModal(target);
+    };
+
+    card.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        card.click();
+      }
+    };
+
+    row.appendChild(card);
+  });
 }
 
 export function renderNotificationsBell() {

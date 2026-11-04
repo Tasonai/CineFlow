@@ -21,6 +21,8 @@ import re
 import urllib.parse
 from typing import Any, Dict
 
+from backend.qrcode_svg import detect_lan_ipv4, generate_qr_svg
+
 
 def handle_tv_devices(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> None:
     is_local_tv = handler._is_loopback_client()
@@ -498,6 +500,67 @@ def handle_remote_command(handler: Any, qs: Dict[str, Any], parsed: Any, body: D
     return True
 
 
+def handle_handoff(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
+    item_id = qs.get("id", [""])[0].strip()
+    season = ctx.qs_int(qs, "season", 1)
+    episode = ctx.qs_int(qs, "episode", 1)
+    start_sec = max(0, ctx.qs_int(qs, "t", 0))
+    tab = qs.get("tab", [""])[0].strip()
+    studio_id = qs.get("tr", [""])[0].strip()
+    title = qs.get("title", [""])[0].strip()
+    orig_title = qs.get("orig_title", [""])[0].strip()
+    year = qs.get("year", [""])[0].strip()
+    media_type = qs.get("media_type", ["movie"])[0].strip()
+    poster = qs.get("poster", [""])[0].strip()
+
+    lan_ip = getattr(ctx.dlna_manager, "lan_ip", "") or ""
+    if not lan_ip:
+        lan_ip = detect_lan_ipv4()
+        ctx.dlna_manager.lan_ip = lan_ip
+
+    port = 8765
+    server_addr = getattr(handler.server, "server_address", None)
+    if isinstance(server_addr, tuple) and len(server_addr) >= 2:
+        port = int(server_addr[1])
+
+    if item_id:
+        ctx.dlna_manager.register_deep_link_item(
+            item_id,
+            {
+                "id": item_id,
+                "title": title or "CineFlow",
+                "orig_title": orig_title,
+                "year": year,
+                "media_type": media_type,
+                "poster": poster,
+            },
+        )
+
+    clean_id = urllib.parse.quote(item_id)
+    handoff_url = f"http://{lan_ip}:{port}/?p={clean_id}&t={start_sec}"
+    if media_type == "series" or season > 1 or episode > 1:
+        handoff_url += f"&s={season}&e={episode}"
+    if tab:
+        handoff_url += f"&tab={urllib.parse.quote(tab)}"
+    if studio_id:
+        handoff_url += f"&tr={urllib.parse.quote(studio_id)}"
+
+    try:
+        qr_svg = generate_qr_svg(handoff_url, quiet_zone=2)
+    except Exception:
+        qr_svg = ""
+
+    handler._send_json({
+        "ok": True,
+        "handoff_url": handoff_url,
+        "qr_svg": qr_svg,
+        "lan_ip": lan_ip,
+        "port": port,
+        "start_sec": start_sec,
+    })
+    return True
+
+
 REMOTE_GET_ROUTES = {
     "/api/tv/devices": handle_tv_devices,
     "/api/tv/deep-link": handle_tv_deep_link,
@@ -505,6 +568,7 @@ REMOTE_GET_ROUTES = {
     "/api/remote/state": handle_remote_state_get,
     "/api/remote/commands": handle_remote_commands_get,
     "/api/remote/catalog": handle_remote_catalog_get,
+    "/api/handoff": handle_handoff,
 }
 
 REMOTE_POST_ROUTES = {

@@ -5,7 +5,7 @@ import {
   UI_PREFS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./js/state.js?v=20261104v23";
+} from "./js/state.js?v=20261104v24";
 import {
   applyStaticDomTranslations,
   displayPoster,
@@ -14,7 +14,7 @@ import {
   secondaryTitle,
   syncLanguageSegmentedControlUI,
   t,
-} from "./js/i18n.js?v=20261104v23";
+} from "./js/i18n.js?v=20261104v24";
 import {
   attachHorizontalWheelScroll,
   clampFloatingPopover,
@@ -45,7 +45,7 @@ import {
   trapModalTabKey,
   triggerVideoCenterIndicator,
   withKinoriumActionLock,
-} from "./js/utils.js?v=20261104v23";
+} from "./js/utils.js?v=20261104v24";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -60,7 +60,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./js/audio-dsp.js?v=20261104v23";
+} from "./js/audio-dsp.js?v=20261104v24";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -94,7 +94,7 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./js/catalog.js?v=20261104v23";
+} from "./js/catalog.js?v=20261104v24";
 import {
   buildFallbackAvatarSvg,
   closePersonModal,
@@ -107,7 +107,7 @@ import {
   refreshOpenPersonModalUI,
   switchStatsModalTab,
   syncQuickPeekStatusesUI,
-} from "./js/modals.js?v=20261104v23";
+} from "./js/modals.js?v=20261104v24";
 import {
   activateSelectedSubtitleTrack,
   adjustAudioOffset,
@@ -169,20 +169,20 @@ import {
   updateMiniPlayerTitle,
   updateModalKinoriumHeader,
   wakeVideoControls,
-} from "./js/player.js?v=20261104v23";
+} from "./js/player.js?v=20261104v24";
 import {
   adjustSubtitleOffset,
   bindSubtitleFileAndDropListeners,
   closeSubtitleDictPopover,
   resetSubtitleOffset,
   syncSubtitleOffsetUI,
-} from "./js/subtitles.js?v=20261104v23";
+} from "./js/subtitles.js?v=20261104v24";
 import {
   initDesktopRemoteAgent,
   initMobileRemoteController,
   isMobileRemoteUrl,
   pushDesktopRemoteStateNow,
-} from "./js/remote.js?v=20261104v23";
+} from "./js/remote.js?v=20261104v24";
 import {
   addStremioAddonFromInput,
   applyAppLanguage,
@@ -209,12 +209,13 @@ import {
   syncSettingsFooterUI,
   toggleLanAccess,
   toggleMacosAutostart,
-} from "./js/settings.js?v=20261104v23";
+} from "./js/settings.js?v=20261104v24";
 import {
   applyPendingTvDeepLinkIfReady,
   applyProfilesPayload,
   closeDownloadsModal,
   closeKidsPinModal,
+  closePlayerHandoffModal,
   closeProfilePopover,
   closeProfilesModal,
   closeTvCastModal,
@@ -222,8 +223,8 @@ import {
   initRoadmapFeatures,
   reloadProfileLocalPlayerPrefs,
   renderHeaderProfileSwitcher,
-} from "./js/features.js?v=20261104v23";
-import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261104v23";
+} from "./js/features.js?v=20261104v24";
+import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261104v24";
 
 function initCineFlowApp() {
   document.documentElement.classList.toggle("is-ios-device", isIosOrIpadOs());
@@ -1290,6 +1291,12 @@ function initCineFlowApp() {
         closeTvCastModal();
         return;
       }
+      const handoffMod = document.getElementById("handoff-modal");
+      if (handoffMod && !handoffMod.classList.contains("hidden")) {
+        e.preventDefault();
+        closePlayerHandoffModal();
+        return;
+      }
       const downloadsMod = document.getElementById("downloads-modal");
       if (downloadsMod && !downloadsMod.classList.contains("hidden")) {
         e.preventDefault();
@@ -2103,6 +2110,30 @@ function initCineFlowApp() {
           ? t("Персональные подборки на главной включены", "Curated shelves enabled")
           : t("Персональные подборки скрыты", "Curated shelves hidden")
       );
+    };
+  }
+
+  const btnOpenRelCal = document.getElementById("btn-open-release-calendar");
+  if (btnOpenRelCal) {
+    btnOpenRelCal.onclick = (e) => {
+      e?.stopPropagation();
+      const shelf = document.getElementById("release-calendar-shelf");
+      if (shelf && !shelf.classList.contains("hidden")) {
+        shelf.scrollIntoView({ behavior: "smooth", block: "start" });
+        const firstCard = shelf.querySelector(".atv-cal-shelf-card");
+        if (firstCard) firstCard.focus();
+      } else {
+        closeFloatingPopovers();
+        switchNotificationsTab("calendar");
+        const notifPopover = document.getElementById("notifications-popover");
+        const notifBellBtn = document.getElementById("notifications-bell-btn");
+        if (notifPopover) {
+          notifPopover.classList.remove("hidden");
+          notifBellBtn?.classList.add("active");
+          notifBellBtn?.setAttribute("aria-expanded", "true");
+          clampFloatingPopover(notifPopover, { isHeader: true });
+        }
+      }
     };
   }
 

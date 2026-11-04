@@ -1,7 +1,7 @@
 // CineFlow Player Watchdog & Anti-Freeze Subsystem
 // Monitors frame progression, detects hardware video decoder stalls (A/V desync), and performs automated recovery.
 
-import { state } from "./state.js?v=20261104v23";
+import { state } from "./state.js?v=20261104v24";
 
 export function clearVideoStallWatchdog() {
   if (state.stallWatchdogTimerId) {

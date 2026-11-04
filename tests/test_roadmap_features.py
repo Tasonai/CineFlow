@@ -1683,6 +1683,121 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertTrue(h.resp_data.get("is_offline"))
         self.assertEqual(len(h.resp_data.get("items", [])), 2)
 
+    def test_release_calendar_shelf_frontend_contract(self):
+        with open(os.path.join(BASE_DIR, "public", "index.html"), "r", encoding="utf-8") as fh:
+            index_html = fh.read()
+        self.assertIn('id="release-calendar-shelf"', index_html)
+        self.assertIn('id="release-calendar-row"', index_html)
+        self.assertIn('id="release-calendar-count"', index_html)
+        self.assertIn('id="btn-open-release-calendar"', index_html)
+
+        with open(os.path.join(BASE_DIR, "public", "css", "catalog-and-player-layout.css"), "r", encoding="utf-8") as fh:
+            css_content = fh.read()
+        self.assertIn(".atv-cal-shelf-card", css_content)
+        self.assertIn(".atv-cal-poster-wrap", css_content)
+        self.assertIn(".atv-cal-badge", css_content)
+        self.assertIn(".atv-cal-meta", css_content)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "catalog-notifications.js"), "r", encoding="utf-8") as fh:
+            notif_js = fh.read()
+        self.assertIn("export async function renderReleaseCalendarShelf", notif_js)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "catalog-shelves.js"), "r", encoding="utf-8") as fh:
+            shelves_js = fh.read()
+        self.assertIn("renderReleaseCalendarShelf", shelves_js)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "i18n.js"), "r", encoding="utf-8") as fh:
+            i18n_js = fh.read()
+        self.assertIn("#btn-open-release-calendar", i18n_js)
+        self.assertIn("#release-calendar-shelf-heading", i18n_js)
+
+    def test_multi_device_handoff_backend_and_frontend(self):
+        # 1. Backend API /api/handoff
+        from backend.routes.remote import handle_handoff
+
+        class _MockHandoffDlnaManager:
+            def __init__(self):
+                self.lan_ip = "192.168.1.120"
+                self.registered_items = {}
+
+            def register_deep_link_item(self, item_id, item_meta):
+                self.registered_items[item_id] = item_meta
+
+        class _MockHandoffCtx:
+            dlna_manager = _MockHandoffDlnaManager()
+
+            @staticmethod
+            def qs_int(qs, key, default=0):
+                try:
+                    vals = qs.get(key, [])
+                    if vals:
+                        return int(vals[0])
+                except (ValueError, TypeError):
+                    pass
+                return default
+
+        class _MockServer:
+            server_address = ("0.0.0.0", 8765)
+
+        class _MockHandoffHandler:
+            server = _MockServer()
+
+            def __init__(self):
+                self.resp_data = None
+
+            def _send_json(self, data):
+                self.resp_data = data
+
+        h = _MockHandoffHandler()
+        qs = {
+            "id": ["series-777"],
+            "season": ["2"],
+            "episode": ["4"],
+            "t": ["320"],
+            "tab": ["hdrezka"],
+            "tr": ["56"],
+            "title": ["Очень странные дела"],
+            "media_type": ["series"],
+        }
+        res = handle_handoff(h, qs, None, _MockHandoffCtx)
+        self.assertTrue(res)
+        self.assertIsNotNone(h.resp_data)
+        self.assertTrue(h.resp_data.get("ok"))
+        self.assertIn("192.168.1.120:8765", h.resp_data.get("handoff_url", ""))
+        self.assertIn("p=series-777", h.resp_data.get("handoff_url", ""))
+        self.assertIn("s=2&e=4", h.resp_data.get("handoff_url", ""))
+        self.assertIn("t=320", h.resp_data.get("handoff_url", ""))
+        self.assertIn("tab=hdrezka", h.resp_data.get("handoff_url", ""))
+        self.assertIn("tr=56", h.resp_data.get("handoff_url", ""))
+        self.assertTrue(h.resp_data.get("qr_svg", "").startswith("<svg"))
+        self.assertIn("</svg>", h.resp_data.get("qr_svg", ""))
+        self.assertIn("series-777", _MockHandoffCtx.dlna_manager.registered_items)
+
+        # 2. Frontend markup and scripts
+        with open(os.path.join(BASE_DIR, "public", "index.html"), "r", encoding="utf-8") as fh:
+            index_html = fh.read()
+        self.assertIn('id="btn-player-handoff"', index_html)
+        self.assertIn('id="handoff-modal"', index_html)
+        self.assertIn('id="handoff-qr-box"', index_html)
+        self.assertIn('id="handoff-item-title"', index_html)
+        self.assertIn('id="handoff-item-time"', index_html)
+        self.assertIn('class="atv-handoff-time-badge"', index_html)
+        self.assertIn('id="handoff-url-input"', index_html)
+        self.assertIn('id="btn-handoff-copy-url"', index_html)
+        self.assertIn('id="close-handoff-modal"', index_html)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "features-cast.js"), "r", encoding="utf-8") as fh:
+            cast_js = fh.read()
+        self.assertIn("export async function openPlayerHandoffModal", cast_js)
+        self.assertIn("export function closePlayerHandoffModal", cast_js)
+        self.assertIn("startSec", cast_js)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "features.js"), "r", encoding="utf-8") as fh:
+            features_js = fh.read()
+        self.assertIn("btn-player-handoff", features_js)
+        self.assertIn("btn-handoff-copy-url", features_js)
+        self.assertIn("openPlayerHandoffModal", features_js)
+
 
 if __name__ == "__main__":
     unittest.main()

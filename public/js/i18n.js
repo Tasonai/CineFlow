@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261104v23";
+import { state } from "./state.js?v=20261104v24";
 
 export function isEn() {
   return state.appLang === "en";
@@ -936,6 +936,8 @@ export function applyStaticDomTranslations() {
   setElText("#btn-random-pick > span", "Случайный", "Random");
   setElAttr("#btn-toggle-curated-shelves", "title", "Переключить между тематическими подборками и обычной сеткой", "Switch between curated shelves and standard grid");
   setElText("#lbl-toggle-curated-shelves", "Подборки", "Collections");
+  setElAttr("#btn-open-release-calendar", "title", "Календарь премьер и график выхода новых серий", "Premiere calendar and new episodes schedule");
+  setElText("#lbl-open-release-calendar", "График серий", "Schedule");
 
   setElAttr("#select-catalog-genre", "title", "Фильтр по жанру", "Filter by genre");
   setElAttr("#select-catalog-year", "title", "Фильтр по году выпуска", "Filter by release year");
@@ -949,6 +951,7 @@ export function applyStaticDomTranslations() {
 
   // Shelves Headings
   setElText("#continue-watching-section .atv-section-header h2", "Новые серии и продолжить просмотр", "New Episodes & Continue Watching");
+  setElText("#release-calendar-shelf-heading", "Календарь новых серий", "New Episodes Schedule");
   setElText("#series-heading", "Сериалы", "Series");
   setElText("#movies-heading", "Фильмы", "Movies");
   setElText("#search-similar-heading", "Похожие тайтлы", "Similar Titles");
@@ -1589,6 +1592,29 @@ export function applyStaticDomTranslations() {
     "Передать на телевизор",
     "Cast to TV"
   );
+  setElAttr(
+    "#btn-player-handoff",
+    "title",
+    "Продолжить на смартфоне или планшете (QR-код)",
+    "Continue on smartphone or tablet (QR code)"
+  );
+  setElAttr(
+    "#btn-player-handoff",
+    "aria-label",
+    "Продолжить на смартфоне или планшете",
+    "Continue on smartphone or tablet"
+  );
+
+  // Multi-Device Handoff Modal
+  setElText("#handoff-modal-title", "Продолжить на смартфоне", "Continue on Smartphone");
+  setElText(
+    "#handoff-modal-subtitle",
+    "Отсканируйте QR-код камерой смартфона в локальной сети Wi-Fi, чтобы продолжить просмотр с этой же секунды",
+    "Scan the QR code with your smartphone camera on your local Wi-Fi to continue watching from the exact same second"
+  );
+  setElText("#handoff-copy-btn-text", "Скопировать", "Copy");
+  setElAttr("#close-handoff-modal", "title", "Закрыть (Esc)", "Close (Esc)");
+  setElAttr("#close-handoff-modal", "aria-label", "Закрыть", "Close");
   setElText(
     "#btn-ob-kinorium-one-click > span",
     "Войти в Kinorium в 1 клик (автоматически)",

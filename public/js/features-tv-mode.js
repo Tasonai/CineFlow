@@ -1,21 +1,21 @@
-import { state } from "./state.js?v=20261104v23";
-import { t } from "./i18n.js?v=20261104v23";
+import { state } from "./state.js?v=20261104v24";
+import { t } from "./i18n.js?v=20261104v24";
 import {
   closeCustomSelectMenu,
   isCustomSelectMenuOpen,
   showToast,
   showVideoOsd,
-} from "./utils.js?v=20261104v23";
-import { savePlayerPrefs } from "./audio-dsp.js?v=20261104v23";
+} from "./utils.js?v=20261104v24";
+import { savePlayerPrefs } from "./audio-dsp.js?v=20261104v24";
 import {
   closeCommandPalette,
   closeMovieRouletteModal,
-} from "./catalog.js?v=20261104v23";
+} from "./catalog.js?v=20261104v24";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261104v23";
+} from "./modals.js?v=20261104v24";
 import {
   closeAllVcPopovers,
   closePlayerModal,
@@ -28,15 +28,15 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261104v23";
-import { closeOnboardingModal } from "./settings.js?v=20261104v23";
-import { closeDownloadsModal } from "./features-downloads.js?v=20261104v23";
-import { closeTvCastModal } from "./features-cast.js?v=20261104v23";
+} from "./player.js?v=20261104v24";
+import { closeOnboardingModal } from "./settings.js?v=20261104v24";
+import { closeDownloadsModal } from "./features-downloads.js?v=20261104v24";
+import { closeTvCastModal } from "./features-cast.js?v=20261104v24";
 import {
   closeKidsPinModal,
   closeProfilePopover,
   closeProfilesModal,
-} from "./features.js?v=20261104v23";
+} from "./features.js?v=20261104v24";
 
 // ============================================================================
 // 5. TV MODE (D-Pad / Gamepad Spatial Navigation + AirPlay / DLNA / QR)
@@ -98,6 +98,7 @@ export function collectTvNavigableElements() {
         "movie-roulette-modal",
         "onboarding-modal",
         "profiles-modal",
+        "handoff-modal",
         "tv-cast-modal",
         "downloads-modal",
         "stats-modal",
@@ -652,6 +653,8 @@ export function startGamepadPollingLoop() {
         }
       } else if (!document.getElementById("profiles-modal")?.classList.contains("hidden")) {
         closeProfilesModal();
+      } else if (!document.getElementById("handoff-modal")?.classList.contains("hidden")) {
+        document.getElementById("close-handoff-modal")?.click();
       } else if (!document.getElementById("tv-cast-modal")?.classList.contains("hidden")) {
         closeTvCastModal();
       } else if (!document.getElementById("downloads-modal")?.classList.contains("hidden")) {

@@ -11,15 +11,15 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="CineFlow" />
-  <link rel="manifest" href="/manifest.webmanifest?v=20261104v23" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261104v23" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png?v=20261104v23" />
-  <link rel="shortcut icon" href="/favicon.svg?v=20261104v23" />
-  <link rel="stylesheet" href="/css/base-and-hero.css?v=20261104v23" />
-  <link rel="stylesheet" href="/css/catalog-and-player-layout.css?v=20261104v23" />
-  <link rel="stylesheet" href="/css/modals-and-search.css?v=20261104v23" />
-  <link rel="stylesheet" href="/css/settings-and-episodes.css?v=20261104v23" />
-  <link rel="stylesheet" href="/css/video-controls-and-person.css?v=20261104v23" />
+  <link rel="manifest" href="/manifest.webmanifest?v=20261104v24" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261104v24" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png?v=20261104v24" />
+  <link rel="shortcut icon" href="/favicon.svg?v=20261104v24" />
+  <link rel="stylesheet" href="/css/base-and-hero.css?v=20261104v24" />
+  <link rel="stylesheet" href="/css/catalog-and-player-layout.css?v=20261104v24" />
+  <link rel="stylesheet" href="/css/modals-and-search.css?v=20261104v24" />
+  <link rel="stylesheet" href="/css/settings-and-episodes.css?v=20261104v24" />
+  <link rel="stylesheet" href="/css/video-controls-and-person.css?v=20261104v24" />
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
 </head>
 <body>
@@ -29,7 +29,7 @@
   <header class="atv-header">
     <div class="atv-header-left">
       <div class="atv-brand" id="brand-home" tabindex="0" role="button" aria-label="CineFlow — На главную">
-        <img class="atv-logo-icon" src="/favicon.svg?v=20261104v23" alt="" width="24" height="24" />
+        <img class="atv-logo-icon" src="/favicon.svg?v=20261104v24" alt="" width="24" height="24" />
         <span class="atv-brand-name">CineFlow</span>
       </div>
 
@@ -290,6 +290,10 @@
             <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/></svg>
             <span id="lbl-toggle-curated-shelves">Подборки</span>
           </button>
+          <button type="button" class="atv-friends-filter-btn" id="btn-open-release-calendar" title="Календарь премьер и график выхода новых серий">
+            <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span id="lbl-open-release-calendar">График серий</span>
+          </button>
           <button type="button" class="atv-friends-filter-btn" id="btn-toggle-catalog-filters" aria-expanded="false" aria-pressed="false" title="Показать или скрыть панель фильтров">
             <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="var(--bg-surface)"/><circle cx="15" cy="12" r="2" fill="var(--bg-surface)"/><circle cx="10" cy="18" r="2" fill="var(--bg-surface)"/></svg>
             <span>Фильтры</span>
@@ -335,6 +339,17 @@
         <h2>Новые серии и продолжить просмотр</h2>
       </div>
       <div class="atv-upnext-row" id="continue-watching-grid"></div>
+    </section>
+
+    <!-- Release Calendar Shelf (Schedule of Upcoming Episodes) -->
+    <section class="atv-section hidden" id="release-calendar-shelf">
+      <div class="atv-section-header">
+        <div class="atv-section-title-group">
+          <h2 id="release-calendar-shelf-heading">Календарь новых серий</h2>
+          <span class="atv-section-count" id="release-calendar-count">0</span>
+        </div>
+      </div>
+      <div class="atv-upnext-row" id="release-calendar-row"></div>
     </section>
 
     <!-- Matched Persons Shelf on Search -->
@@ -988,6 +1003,13 @@
                       </button>
                     </div>
 
+                    <button type="button" class="atv-vc-btn" id="btn-player-handoff" aria-label="Продолжить на смартфоне или планшете" title="Продолжить на смартфоне или планшете (QR-код)">
+                      <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="5" y="2" width="14" height="20" rx="2.5" ry="2.5"></rect>
+                        <line x1="12" y1="18" x2="12.01" y2="18"></line>
+                      </svg>
+                    </button>
+
                     <button type="button" class="atv-vc-btn" id="vc-btn-bookmark" aria-label="Сохранить момент" title="Сохранить момент в закладки (Shift+M)">
                       <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
                     </button>
@@ -1534,7 +1556,7 @@
       <div class="atv-settings-body hidden" id="stab-about" role="tabpanel" aria-labelledby="settings-tab-about">
         <div class="atv-about-minimal">
           <div class="atv-about-head">
-            <img class="atv-about-logo" src="/favicon.svg?v=20261104v23" alt="CineFlow" width="44" height="44" />
+            <img class="atv-about-logo" src="/favicon.svg?v=20261104v24" alt="CineFlow" width="44" height="44" />
             <div class="atv-about-head-text">
               <h3 class="atv-about-app-name">CineFlow</h3>
               <p class="atv-about-tagline" id="about-app-tagline">Персональный домашний кинотеатр</p>
@@ -1634,7 +1656,7 @@
     <div class="atv-settings-sheet atv-onboarding-sheet">
       <div class="atv-settings-header atv-onboarding-header">
         <div class="atv-onboarding-title-wrap">
-          <img class="atv-onboarding-logo" src="/favicon.svg?v=20261104v23" alt="" width="28" height="28" />
+          <img class="atv-onboarding-logo" src="/favicon.svg?v=20261104v24" alt="" width="28" height="28" />
           <div>
             <h2 class="atv-onboarding-title" id="ob-title">Первичная настройка CineFlow</h2>
             <p class="atv-onboarding-sub" id="ob-subtitle">Выберите страну Европы для обхода блокировок, подключаемые сервисы и синхронизацию Kinorium</p>
@@ -2241,8 +2263,40 @@
     </div>
   </div>
 
+  <!-- Multi-Device Handoff Modal (Continue playback on mobile / tablet via LAN QR) -->
+  <div class="atv-modal-overlay hidden" id="handoff-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="handoff-modal-title">
+    <div class="atv-modal-card atv-handoff-card">
+      <div class="atv-modal-header">
+        <div class="atv-modal-title-wrap">
+          <h2 class="atv-modal-title" id="handoff-modal-title">Продолжить на смартфоне</h2>
+          <span class="atv-modal-subtitle" id="handoff-modal-subtitle">Отсканируйте камерой смартфона для мгновенного продолжения просмотра</span>
+        </div>
+        <button type="button" class="atv-close-btn" id="close-handoff-modal" aria-label="Закрыть" title="Закрыть (Esc)">
+          <svg class="atv-ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="atv-handoff-body">
+        <div class="atv-handoff-qr-box" id="handoff-qr-box">
+          <div class="atv-handoff-qr-frame" id="handoff-qr-frame"></div>
+        </div>
+        <div class="atv-handoff-info">
+          <div class="atv-handoff-title" id="handoff-item-title">CineFlow</div>
+          <div class="atv-handoff-time-badge" id="handoff-item-time">00:00:00</div>
+          <div class="atv-handoff-meta" id="handoff-item-meta"></div>
+          <div class="atv-handoff-copy-row">
+            <input type="text" class="atv-input atv-handoff-url-input" id="handoff-url-input" readonly spellcheck="false" aria-label="Ссылка для открытия на устройстве">
+            <button type="button" class="atv-btn-secondary atv-btn-sm" id="btn-handoff-copy-url" title="Скопировать ссылку">
+              <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+              <span>Скопировать</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <input type="file" id="input-local-subtitle-file" accept=".srt,.vtt,.ass,.ssa" class="hidden" aria-hidden="true" />
   <div id="toast-container" class="atv-toast-container" role="region" aria-live="polite" aria-label="Уведомления"></div>
-  <script type="module" src="/app.js?v=20261104v23"></script>
+  <script type="module" src="/app.js?v=20261104v24"></script>
 </body>
 </html>

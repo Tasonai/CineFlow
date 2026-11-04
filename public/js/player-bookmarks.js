@@ -1,8 +1,8 @@
-import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261104v23";
-import { displayTitle, t } from "./i18n.js?v=20261104v23";
-import { formatTime, showToast } from "./utils.js?v=20261104v23";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v23";
-import { seekEffectivePlayback } from "./player-streams.js?v=20261104v23";
+import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261104v24";
+import { displayTitle, t } from "./i18n.js?v=20261104v24";
+import { formatTime, showToast } from "./utils.js?v=20261104v24";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v24";
+import { seekEffectivePlayback } from "./player-streams.js?v=20261104v24";
 
 export function hideXRayPauseShelf() {
   const shelf = document.getElementById("xray-pause-shelf");

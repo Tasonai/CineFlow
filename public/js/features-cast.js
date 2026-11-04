@@ -2,8 +2,8 @@
 // 6. TV CAST & AIRPLAY / DLNA / REMOTE LINK
 // ============================================================================
 
-import { state } from "./state.js?v=20261104v23";
-import { displayTitle, t } from "./i18n.js?v=20261104v23";
+import { state } from "./state.js?v=20261104v24";
+import { displayTitle, t } from "./i18n.js?v=20261104v24";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -13,17 +13,17 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261104v23";
-import { resolvePreferredPlayTab } from "./catalog.js?v=20261104v23";
-import { openQuickPeekModal } from "./modals.js?v=20261104v23";
+} from "./utils.js?v=20261104v24";
+import { resolvePreferredPlayTab } from "./catalog.js?v=20261104v24";
+import { openQuickPeekModal } from "./modals.js?v=20261104v24";
 import {
   getEffectivePlaybackTiming,
   openPlayerModal,
-} from "./player.js?v=20261104v23";
-import { switchCastModalTab } from "./remote.js?v=20261104v23";
-import { toggleLanAccess } from "./settings.js?v=20261104v23";
-import { toggleTvMode } from "./features-tv-mode.js?v=20261104v23";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v23";
+} from "./player.js?v=20261104v24";
+import { switchCastModalTab } from "./remote.js?v=20261104v24";
+import { toggleLanAccess } from "./settings.js?v=20261104v24";
+import { toggleTvMode } from "./features-tv-mode.js?v=20261104v24";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v24";
 
 
 export function supportsWebkitAirPlay() {
@@ -390,6 +390,9 @@ export function parseInitialTvUrlParams() {
           mode: playId ? "play" : "peek",
           season: Math.max(1, parseInt(qs.get("s") || "1", 10) || 1),
           episode: Math.max(1, parseInt(qs.get("e") || "1", 10) || 1),
+          startSec: Math.max(0, parseFloat(qs.get("t") || "0") || 0),
+          tab: (qs.get("tab") || "").trim(),
+          studioId: (qs.get("tr") || "").trim(),
         };
       }
       const cleanUrl = window.location.pathname + (qs.get("tv") === "1" ? "?tv=1" : "");
@@ -443,12 +446,103 @@ export async function applyPendingTvDeepLinkIfReady() {
     } else {
       await openPlayerModal(
         target,
-        resolvePreferredPlayTab(target, req.season, req.episode),
+        req.tab || resolvePreferredPlayTab(target, req.season, req.episode),
         req.season,
         req.episode,
-        0
+        req.startSec || 0
       );
     }
   }
+}
+
+export async function openPlayerHandoffModal() {
+  if (!state.isPlayerOpen || !state.activeItem) {
+    showToast(t("Сначала откройте видео в плеере", "Open a video in the player first"));
+    return;
+  }
+  const modal = document.getElementById("handoff-modal");
+  if (!modal) return;
+
+  const item = state.activeItem;
+  const video = document.getElementById("native-video");
+  const curTime = video ? Math.floor(video.currentTime || 0) : 0;
+  const sNum = item.media_type === "series" ? Number(state.activeSeason) || 1 : 1;
+  const eNum = item.media_type === "series" ? Number(state.activeEpisode) || 1 : 1;
+  const title = displayTitle(item);
+  const timeFormatted = formatTime(curTime);
+
+  const titleEl = document.getElementById("handoff-item-title");
+  const timeEl = document.getElementById("handoff-item-time");
+  const metaEl = document.getElementById("handoff-item-meta");
+  const qrFrame = document.getElementById("handoff-qr-frame");
+  const urlInput = document.getElementById("handoff-url-input");
+
+  if (titleEl) titleEl.textContent = title;
+  if (timeEl) timeEl.textContent = `${t("Момент:", "Time:")} ${timeFormatted}`;
+  if (metaEl) {
+    const metaParts = [];
+    if (item.media_type === "series") {
+      metaParts.push(`${t("Сезон", "Season")} ${sNum} · ${t("Серия", "Episode")} ${eNum}`);
+    }
+    if (state.activeStudioName) {
+      metaParts.push(translateStudioName(state.activeStudioName));
+    }
+    metaEl.textContent = metaParts.join(" · ");
+  }
+
+  if (qrFrame) {
+    qrFrame.innerHTML = `<div class="atv-handoff-loading">${escapeHtml(
+      t("Создаём QR-код...", "Generating QR code...")
+    )}</div>`;
+  }
+  if (urlInput) urlInput.value = "";
+
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+
+  try {
+    const params = new URLSearchParams({
+      id: item.id || "",
+      title: item.title || "",
+      orig_title: item.orig_title || "",
+      year: item.year || "",
+      media_type: item.media_type || "movie",
+      poster: item.poster || "",
+      season: String(sNum),
+      episode: String(eNum),
+      t: String(curTime),
+      tab: state.activeSourceTab || "hdrezka",
+      tr: state.activeStudioId || "",
+    });
+    const res = await fetch(`/api/handoff?${params.toString()}`);
+    const data = await res.json();
+    if (res.ok && data?.ok) {
+      if (qrFrame && data.qr_svg) {
+        qrFrame.innerHTML = data.qr_svg;
+      }
+      if (urlInput && data.handoff_url) {
+        urlInput.value = data.handoff_url;
+      }
+    } else {
+      if (qrFrame) {
+        qrFrame.innerHTML = `<div class="atv-handoff-err">${escapeHtml(
+          t("Не удалось сгенерировать QR-код", "Could not generate QR code")
+        )}</div>`;
+      }
+    }
+  } catch (err) {
+    if (qrFrame) {
+      qrFrame.innerHTML = `<div class="atv-handoff-err">${escapeHtml(
+        t("Ошибка подключения к серверу", "Server connection error")
+      )}</div>`;
+    }
+  }
+}
+
+export function closePlayerHandoffModal() {
+  const modal = document.getElementById("handoff-modal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden", "true");
 }
 

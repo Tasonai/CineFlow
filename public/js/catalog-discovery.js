@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261104v23";
+import { state } from "./state.js?v=20261104v24";
 import {
   displayDescription,
   displayPoster,
@@ -8,7 +8,7 @@ import {
   t,
   translateGenre,
   transliterateRuToEn,
-} from "./i18n.js?v=20261104v23";
+} from "./i18n.js?v=20261104v24";
 import {
   escapeAttr,
   escapeHtml,
@@ -16,23 +16,23 @@ import {
   rememberModalTriggerFocus,
   restoreModalTriggerFocus,
   syncScrollTopButton,
-} from "./utils.js?v=20261104v23";
+} from "./utils.js?v=20261104v24";
 import {
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261104v23";
-import { openPlayerModal } from "./player.js?v=20261104v23";
+} from "./modals.js?v=20261104v24";
+import { openPlayerModal } from "./player.js?v=20261104v24";
 import {
   getPrimaryRating,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261104v23";
+} from "./catalog-media-resolver.js?v=20261104v24";
 import {
   scheduleHeroAmbientTeaser,
   stopHeroAmbientTeaser,
-} from "./catalog-hero.js?v=20261104v23";
+} from "./catalog-hero.js?v=20261104v24";
 
 export function openMovieRouletteModal() {
   const modal = document.getElementById("movie-roulette-modal");
