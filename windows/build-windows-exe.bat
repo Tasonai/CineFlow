@@ -1,15 +1,17 @@
 @echo off
 chcp 65001 >nul
-title Сборка CineFlow.exe для Windows
+title Сборка установщика CineFlow 2.7.0 для Windows (Atoma)
 
 cd /d "%~dp0\.."
-echo Установка PyInstaller и pywebview (WebView2)...
-pip install pyinstaller pywebview
-
-echo Сборка автономного исполняемого файла CineFlow.exe...
-pyinstaller --noconfirm --onefile --windowed --name "CineFlow" --add-data "public;public" --add-data "backend;backend" windows/desktop_webview2.py
+echo Запуск сборки установщика CineFlow 2.7.0 (Windows x64)...
+python windows\build_windows_installer.py
+if errorlevel 1 (
+    echo Ошибка при сборке установщика CineFlow.
+    pause
+    exit /b 1
+)
 
 echo ============================================================
-echo ✅ Готово! Файл создан в папке: dist\CineFlow.exe
+echo Готово! Установщик создан: dist\CineFlow-Setup-2.7.0-x64.exe
 echo ============================================================
 pause

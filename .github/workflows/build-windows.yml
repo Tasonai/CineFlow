@@ -1,4 +1,4 @@
-name: Build Windows Desktop App (.exe)
+name: Build Windows Installer (.exe)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-windows:
+  build-windows-installer:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -17,17 +17,19 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Windows WebView2 & PyInstaller dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller pywebview
+      - name: Set up Zig (Win32 x64 launcher compiler)
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
 
-      - name: Build standalone CineFlow.exe
+      - name: Build CineFlow-Setup-2.6.6-x64.exe Installer
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name "CineFlow-Windows-x64" --add-data "public;public" --add-data "backend;backend" windows/desktop_webview2.py
+          python windows/build_windows_installer.py
 
-      - name: Upload CineFlow.exe Artifact
+      - name: Upload Windows Setup Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CineFlow-Windows-x64
-          path: dist/CineFlow-Windows-x64.exe
+          name: CineFlow-Setup-2.6.6-x64
+          path: |
+            dist/CineFlow-Setup-2.6.6-x64.exe
+            dist/CineFlow.exe

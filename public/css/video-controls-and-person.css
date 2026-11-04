@@ -1,5 +1,5 @@
 /* ==========================================================================
-   2. Custom Apple TV+ Frosted-Glass Video Player Control Bar
+   2. Classic Minimal macOS Dark Matte Video Player Control Bar
    ========================================================================== */
 .atv-video-stage {
   user-select: none;
@@ -17,10 +17,110 @@ html.vc-fs-cursor-none * {
 }
 
 .atv-video-stage:fullscreen,
+html.is-stage-fullscreen .atv-video-stage {
+  border-radius: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
 .atv-video-stage:-webkit-full-screen {
   border-radius: 0;
   width: 100vw;
   height: 100vh;
+}
+
+html.is-stage-pseudo-fullscreen,
+html.is-stage-pseudo-fullscreen body {
+  overflow: hidden !important;
+  background: #000000 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+}
+
+html.is-stage-pseudo-fullscreen #player-modal,
+html.is-stage-pseudo-fullscreen #player-modal .atv-cinema-sheet,
+html.is-stage-pseudo-fullscreen #player-modal .atv-sheet-body,
+html.is-stage-pseudo-fullscreen #player-modal .atv-player-col,
+html.is-stage-pseudo-fullscreen #player-modal .atv-video-stage-wrap {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: #000000 !important;
+  overflow: visible !important;
+  transform: none !important;
+  animation: none !important;
+  filter: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  contain: none !important;
+  z-index: 9990 !important;
+}
+
+html.is-stage-pseudo-fullscreen #quick-peek-modal,
+html.is-stage-pseudo-fullscreen #person-modal,
+html.is-stage-pseudo-fullscreen #settings-modal,
+html.is-stage-pseudo-fullscreen #stats-modal,
+html.is-stage-pseudo-fullscreen #downloads-modal,
+html.is-stage-pseudo-fullscreen #tv-cast-modal,
+html.is-stage-pseudo-fullscreen #profiles-modal,
+html.is-stage-pseudo-fullscreen #movie-roulette-modal {
+  z-index: 9994 !important;
+}
+
+html.is-stage-pseudo-fullscreen #kids-pin-modal,
+html.is-stage-pseudo-fullscreen #confirm-modal,
+html.is-stage-pseudo-fullscreen #command-palette-modal,
+html.is-stage-pseudo-fullscreen #atv-cselect-portal,
+html.is-stage-pseudo-fullscreen #atv-card-context-menu {
+  z-index: 9996 !important;
+}
+
+html.is-stage-pseudo-fullscreen #toast-container {
+  z-index: 9998 !important;
+}
+
+html.is-stage-pseudo-fullscreen #player-modal .atv-sheet-header,
+html.is-stage-pseudo-fullscreen #player-modal .atv-info-sidebar,
+html.is-stage-pseudo-fullscreen #player-modal #current-episode-bar,
+html.is-stage-pseudo-fullscreen #player-modal #episodes-bottom-panel,
+html.is-stage-pseudo-fullscreen .atv-header {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+html.is-stage-pseudo-fullscreen #video-stage,
+.atv-video-stage.is-pseudo-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  max-height: 100dvh !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  z-index: 9990 !important;
+  background: #000000 !important;
+}
+
+html.is-stage-pseudo-fullscreen #video-stage video,
+.atv-video-stage.is-pseudo-fullscreen video {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain !important;
 }
 
 .atv-custom-controls {
@@ -30,18 +130,18 @@ html.vc-fs-cursor-none * {
   bottom: 12px;
   z-index: 24;
   padding: 9px 13px 10px;
-  border-radius: 13px;
-  background: rgba(18, 19, 24, 0.78);
-  backdrop-filter: blur(22px) saturate(165%);
-  -webkit-backdrop-filter: blur(22px) saturate(165%);
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.62);
+  border-radius: var(--radius-card);
+  background: rgba(20, 20, 22, 0.92);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.72);
   display: flex;
   flex-direction: column;
   gap: 6px;
   opacity: 1;
   visibility: visible;
-  transform: translateY(0);
+  transform: none;
   transition: opacity 0.22s ease, transform 0.22s ease, visibility 0s linear 0s;
 }
 
@@ -55,17 +155,8 @@ html.vc-fs-cursor-none * {
 
 .atv-video-stage.vc-popover-open .atv-custom-controls {
   z-index: 36;
-}
-
-.atv-skip-btn {
-  bottom: 86px;
-  right: 16px;
-  transform: none;
-  transition: opacity 0.16s ease;
-}
-
-.atv-video-stage:has(#skip-intro-btn:not(.hidden)) #skip-ad-btn {
-  bottom: 134px;
+  transform: none !important;
+  transition: opacity 0.22s ease;
 }
 
 /* «Следующая серия» button sits cleanly inside #video-endgame-stack so it never collides with the 96% rating card */
@@ -92,8 +183,7 @@ html.vc-fs-cursor-none * {
 }
 
 html.is-stage-fullscreen .atv-vc-fs-topbar,
-.atv-video-stage:fullscreen .atv-vc-fs-topbar,
-.atv-video-stage:-webkit-full-screen .atv-vc-fs-topbar {
+.atv-video-stage:fullscreen .atv-vc-fs-topbar {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -102,29 +192,35 @@ html.is-stage-fullscreen .atv-vc-fs-topbar,
   left: 0;
   right: 0;
   z-index: 23;
-  padding: 20px 280px 34px 26px;
+  padding: max(20px, calc(12px + env(safe-area-inset-top, 0px))) max(280px, env(safe-area-inset-right, 0px)) 34px max(26px, env(safe-area-inset-left, 0px));
   background: linear-gradient(
     180deg,
-    rgba(6, 7, 10, 0.84) 0%,
-    rgba(6, 7, 10, 0.38) 58%,
-    rgba(6, 7, 10, 0) 100%
+    rgba(10, 10, 12, 0.84) 0%,
+    rgba(10, 10, 12, 0.38) 58%,
+    rgba(10, 10, 12, 0) 100%
   );
   pointer-events: none;
   opacity: 1;
-  transform: translateY(0);
+  transform: none;
   transition: opacity 0.24s ease, transform 0.24s ease;
 }
 
+html.is-stage-fullscreen .atv-custom-controls,
+.atv-video-stage:fullscreen .atv-custom-controls {
+  left: max(14px, env(safe-area-inset-left, 0px));
+  right: max(14px, env(safe-area-inset-right, 0px));
+  bottom: max(14px, env(safe-area-inset-bottom, 0px));
+}
+
 html.is-stage-fullscreen .atv-video-stage.vc-idle .atv-vc-fs-topbar,
-.atv-video-stage:fullscreen.vc-idle .atv-vc-fs-topbar,
-.atv-video-stage:-webkit-full-screen.vc-idle .atv-vc-fs-topbar {
+.atv-video-stage:fullscreen.vc-idle .atv-vc-fs-topbar {
   opacity: 0;
   transform: translateY(-8px);
+  pointer-events: none;
 }
 
 html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.hidden))) .atv-vc-fs-topbar,
-.atv-video-stage:fullscreen:not(:has(#video-endgame-stack > :not(.hidden))) .atv-vc-fs-topbar,
-.atv-video-stage:-webkit-full-screen:not(:has(#video-endgame-stack > :not(.hidden))) .atv-vc-fs-topbar {
+.atv-video-stage:fullscreen:not(:has(#video-endgame-stack > :not(.hidden))) .atv-vc-fs-topbar {
   padding-right: 26px;
 }
 
@@ -132,7 +228,7 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   font-size: 16px;
   font-weight: 700;
   color: #f5f5f7;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
   white-space: nowrap;
   overflow: hidden;
@@ -177,12 +273,81 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.22);
   overflow: hidden;
-  transition: height 0.14s ease;
+  transform: scaleY(1);
+  transform-origin: center;
+  transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.atv-vc-timeline:hover .atv-vc-track,
-.atv-vc-timeline.scrubbing .atv-vc-track {
-  height: 6px;
+.atv-vc-timeline.scrubbing .atv-vc-track,
+.atv-vc-timeline:focus-visible .atv-vc-track {
+  transform: scaleY(1.5);
+}
+
+.atv-vc-timeline:focus-visible .atv-vc-track {
+  box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.85), 0 0 12px rgba(10, 132, 255, 0.45);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-timeline:hover .atv-vc-track {
+    transform: scaleY(1.5);
+  }
+}
+
+.atv-vc-chapters {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.atv-vc-chapter-segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.24);
+  border-left: 1.5px solid rgba(255, 255, 255, 0.7);
+  border-right: 1.5px solid rgba(255, 255, 255, 0.7);
+  border-radius: 1px;
+}
+
+.atv-vc-chapter-segment.is-credits {
+  border-right: none;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.atv-vc-bookmarks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.atv-vc-bookmark-pin {
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  background: #f5f5f7;
+  border: 1px solid #141416;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 0.16s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)), background 0.16s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+.atv-vc-bookmark-pin::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-bookmark-pin:hover {
+    transform: translate(-50%, -50%) scale(1.6);
+    background: #ffffff;
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
+  }
 }
 
 .atv-vc-buffered {
@@ -208,19 +373,33 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
 .atv-vc-thumb {
   position: absolute;
   top: 50%;
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: #ffffff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.65);
-  transform: translate(-50%, -50%) scale(0);
-  transition: transform 0.14s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.65), 0 0 10px rgba(255, 255, 255, 0.35);
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.92);
+  transition: opacity 0.16s ease, transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none;
 }
 
-.atv-vc-timeline:hover .atv-vc-thumb,
-.atv-vc-timeline.scrubbing .atv-vc-thumb {
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-timeline:hover .atv-vc-thumb {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.atv-vc-timeline:focus-visible .atv-vc-thumb {
+  opacity: 1;
   transform: translate(-50%, -50%) scale(1);
+}
+
+.atv-vc-timeline.scrubbing .atv-vc-thumb {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.22);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.8), 0 0 14px rgba(255, 255, 255, 0.55);
 }
 
 .atv-vc-hover-time {
@@ -272,16 +451,19 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s ease, transform 0.12s ease, color 0.15s ease;
+  transition: background 0.16s ease, transform 0.14s var(--ease-apple, cubic-bezier(0.22, 1, 0.36, 1)), color 0.16s ease;
 }
 
-.atv-vc-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    transform: translateY(-1px);
+  }
 }
 
 .atv-vc-btn:active {
-  transform: scale(0.95);
+  transform: scale(0.94) translateY(0);
 }
 
 .atv-vc-btn.atv-vc-play {
@@ -291,29 +473,38 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   background: rgba(245, 245, 247, 0.95);
   color: #0b0c0f;
   font-size: 13px;
+  transition: background 0.16s ease, transform 0.14s var(--ease-apple, cubic-bezier(0.22, 1, 0.36, 1)), color 0.16s ease;
 }
 
-.atv-vc-btn.atv-vc-play:hover {
-  background: #ffffff;
-  color: #000000;
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-btn.atv-vc-play:hover {
+    background: #ffffff;
+    color: #000000;
+    transform: scale(1.05);
+  }
+}
+
+.atv-vc-btn.atv-vc-play:active {
+  transform: scale(0.94);
 }
 
 .atv-vc-btn.atv-vc-pill {
   height: 28px;
   padding: 0 10px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.09);
+  border: none;
   font-size: 11.5px;
 }
 
-.atv-vc-btn.atv-vc-pill:hover {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.16);
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-btn.atv-vc-pill:hover {
+    background: rgba(255, 255, 255, 0.16);
+  }
 }
 
 #vc-studio-label {
-  max-width: 146px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -329,7 +520,7 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   -webkit-appearance: none;
   appearance: none;
   width: 64px;
-  height: 16px;
+  height: 24px;
   background: transparent;
   outline: none;
   cursor: pointer;
@@ -355,8 +546,10 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   transition: transform 0.12s ease;
 }
 
-.atv-vc-vol-slider:hover::-webkit-slider-thumb {
-  transform: scale(1.15);
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-vol-slider:hover::-webkit-slider-thumb {
+    transform: scale(1.15);
+  }
 }
 
 .atv-vc-vol-slider::-moz-range-track {
@@ -382,11 +575,17 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   transition: transform 0.12s ease;
 }
 
-.atv-vc-vol-slider:hover::-moz-range-thumb {
-  transform: scale(1.15);
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-vol-slider:hover::-moz-range-thumb {
+    transform: scale(1.15);
+  }
 }
 
 .atv-vc-time-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 25px;
   background: transparent;
   border: none;
   padding: 4px 6px;
@@ -400,9 +599,11 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   transition: color 0.14s ease, background 0.14s ease;
 }
 
-.atv-vc-time-btn:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-time-btn:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08);
+  }
 }
 
 .atv-vc-pop-wrap {
@@ -411,26 +612,130 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   align-items: center;
 }
 
+@keyframes atvVcPopoverIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 .atv-vc-popover {
   position: absolute;
   bottom: calc(100% + 12px);
   right: 0;
   min-width: 190px;
   max-width: min(310px, 82vw);
-  max-height: min(300px, calc(100dvh - 180px));
+  max-height: min(300px, 46vh);
+  max-height: min(300px, 46dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 6px;
   border-radius: 12px;
-  background: rgba(20, 21, 27, 0.97);
+  background: #1c1c1e;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.86);
   display: flex;
   flex-direction: column;
   gap: 3px;
   z-index: 45;
+  transform-origin: bottom right;
+}
+
+.atv-vc-popover:not(.hidden) {
+  animation: atvVcPopoverIn 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.atv-video-stage:fullscreen .atv-vc-popover,
+html.is-stage-fullscreen .atv-video-stage .atv-vc-popover {
+  max-height: min(380px, calc(100vh - 110px));
+  max-height: min(380px, calc(100dvh - 110px));
+}
+
+.atv-video-stage #player-gear-popover,
+.atv-video-stage:fullscreen #player-gear-popover,
+html.is-stage-fullscreen .atv-video-stage #player-gear-popover {
+  max-height: min(520px, calc(100vh - 96px));
+  max-height: min(520px, calc(100dvh - 96px));
+}
+
+@media (max-width: 540px) {
+  #vc-btn-bookmark,
+  #vc-btn-offline-dl,
+  #vc-btn-remote,
+  #vc-btn-cast,
+  #vc-btn-pip {
+    display: none !important;
+  }
+}
+
+@media (max-width: 680px) {
+  .atv-video-stage:not(:fullscreen):not(.is-pseudo-fullscreen) .atv-vc-popover {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    width: auto;
+    max-width: none;
+    max-height: 68vh;
+    max-height: 68dvh;
+    z-index: var(--z-mobile-gear);
+  }
+  .atv-video-stage:not(:fullscreen):not(.is-pseudo-fullscreen) #player-gear-popover {
+    max-height: min(520px, 72vh);
+    max-height: min(520px, 72dvh);
+    z-index: var(--z-mobile-gear);
+  }
+}
+
+.atv-vc-pop-search-wrap {
+  position: sticky;
+  top: -6px;
+  z-index: 2;
+  padding: 4px 2px 5px;
+  margin-bottom: 2px;
+  background: #1c1c1e;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.atv-vc-pop-search {
+  width: 100%;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: #242427;
+  border: none;
+  outline: none;
+  color: #f5f5f7;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.atv-vc-pop-search::placeholder {
+  color: rgba(235, 235, 245, 0.68);
+}
+
+.atv-vc-pop-empty {
+  padding: 8px 10px;
+  font-size: 11.5px;
+  color: rgba(235, 235, 245, 0.62);
+  text-align: center;
+}
+
+.atv-vc-btn.is-readonly-badge {
+  cursor: default;
+  opacity: 0.92;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-btn.is-readonly-badge:hover {
+    background: rgba(255, 255, 255, 0.09);
+  }
 }
 
 .atv-vc-pop-item-main {
@@ -445,7 +750,7 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: rgba(235, 235, 245, 0.48);
+  color: rgba(235, 235, 245, 0.62);
   padding: 4px 9px 3px;
 }
 
@@ -467,14 +772,21 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   transition: background 0.14s ease, color 0.14s ease;
 }
 
-.atv-vc-pop-item:hover {
-  background: rgba(255, 255, 255, 0.11);
-  color: #ffffff;
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-pop-item:hover {
+    background: rgba(255, 255, 255, 0.11);
+    color: #ffffff;
+  }
+}
+
+.atv-vc-pop-item:active {
+  transform: scale(0.98);
+  transition: transform 0.08s ease-out;
 }
 
 .atv-vc-pop-item.active {
-  background: rgba(56, 189, 248, 0.2);
-  color: #7dd3fc;
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
   font-weight: 600;
 }
 
@@ -502,7 +814,13 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
 .atv-modal-overlay.mini-player-mode #vc-quality-wrap,
 .atv-modal-overlay.mini-player-mode #player-gear-wrap,
 .atv-modal-overlay.mini-player-mode #player-gear-popover,
+.atv-modal-overlay.mini-player-mode #vc-btn-offline-dl,
+.atv-modal-overlay.mini-player-mode #vc-btn-cast,
 .atv-modal-overlay.mini-player-mode .atv-vc-vol-slider {
+  display: none !important;
+}
+
+html.is-ios-device .atv-vc-vol-slider {
   display: none !important;
 }
 
@@ -521,6 +839,31 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   }
 }
 
+@media (max-width: 560px) {
+  #vc-btn-back10,
+  #vc-btn-fwd10,
+  #vc-btn-cast {
+    display: none;
+  }
+  #vc-studio-label {
+    max-width: 66px;
+  }
+  #vc-subs-label {
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .atv-vc-left,
+  .atv-vc-right {
+    gap: 4px;
+  }
+  .atv-vc-time-btn {
+    font-size: 11px;
+    padding: 0 4px;
+  }
+}
+
 /* ==========================================================================
    3. Floating Scroll-to-Top Button (↑ Наверх — minimal macOS dark)
    ========================================================================== */
@@ -533,22 +876,24 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   align-items: center;
   gap: 6px;
   padding: 10px 15px;
-  border-radius: 10px;
-  border: none;
+  border-radius: var(--radius-control);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   outline: none;
-  background: #26262a;
+  background: var(--bg-surface);
   color: #f5f5f7;
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.58);
-  transition: transform 0.2s ease, background 0.18s ease, opacity 0.2s ease;
+  transition: transform 0.2s ease, background 0.18s ease, color 0.18s ease, opacity 0.2s ease;
 }
 
-.atv-scroll-top-btn:hover {
-  background: #f5f5f7;
-  color: #0b0c0f;
-  transform: translateY(-2px);
+@media (hover: hover) and (pointer: fine) {
+  .atv-scroll-top-btn:hover {
+    background: #f5f5f7;
+    color: #0b0c0f;
+    transform: translateY(-2px);
+  }
 }
 
 .atv-scroll-top-btn.shift-for-mini {
@@ -571,32 +916,66 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   max-height: 90dvh;
   border-radius: var(--radius-sheet);
   background: var(--bg-elevated);
-  border: none;
+  border: 1px solid var(--divider-subtle);
   box-shadow: 0 36px 90px rgba(0, 0, 0, 0.88);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
+.atv-person-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin: -12px -10px -8px;
+  padding: 8px 10px;
+  pointer-events: none;
+}
+
+.atv-person-topbar > * {
+  pointer-events: auto;
+}
+
+#person-back-nav-btn {
+  position: static;
+  margin-right: auto;
+}
+
 .atv-person-close {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  z-index: 8;
+  position: static;
+  flex-shrink: 0;
 }
 
 .atv-person-sheet-scroll {
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 28px 28px 34px;
+  padding: 22px 28px 34px;
   display: flex;
   flex-direction: column;
-  gap: 26px;
+  gap: 24px;
+}
+
+.atv-grid-empty-note {
+  grid-column: 1 / -1;
+  padding: 24px 4px;
+  font-size: 13px;
+  color: rgba(235, 235, 245, 0.68);
+}
+
+.atv-grid-error-note {
+  grid-column: 1 / -1;
+  padding: 20px 4px;
+  font-size: 13px;
+  color: #fca5a5;
 }
 
 .atv-person-hero {
   display: grid;
-  grid-template-columns: 180px 1fr;
+  grid-template-columns: 180px minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }
@@ -607,7 +986,7 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   object-fit: cover;
   object-position: center 16%;
   border-radius: 12px;
-  background: #1c1c1f;
+  background: var(--bg-surface);
   box-shadow: 0 16px 38px rgba(0, 0, 0, 0.58);
   border: none;
   display: block;
@@ -623,15 +1002,16 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
 
 .atv-person-kicker {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #fcd34d;
+  color: var(--text-tertiary);
 }
 
 .atv-person-title {
   font-size: 28px;
   font-weight: 700;
+  letter-spacing: -0.02em;
   line-height: 1.15;
   color: #f5f5f7;
   margin: 0;
@@ -646,21 +1026,23 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
 .atv-person-meta-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  align-items: center;
+  gap: 12px;
   margin-top: 2px;
 }
 
 .atv-person-chip {
-  padding: 4px 10px;
-  border-radius: 8px;
-  background: var(--bg-surface);
-  font-size: 12px;
-  color: rgba(235, 235, 245, 0.8);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12.5px;
+  color: var(--text-secondary);
 }
 
 .atv-person-bio {
   font-size: 13px;
   line-height: 1.55;
+  max-width: 65ch;
   color: rgba(245, 245, 247, 0.8);
   margin: 2px 0 0;
   display: -webkit-box;
@@ -673,11 +1055,11 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 11px 14px;
-  border-radius: 10px;
-  background: var(--bg-surface);
-  border: none;
-  margin-top: 2px;
+  padding: 10px 0 2px;
+  border-radius: 0;
+  background: transparent;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 4px;
 }
 
 .atv-person-stats-row {
@@ -692,12 +1074,12 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
 }
 
 #person-stats-rating {
-  color: #fde68a;
+  color: #f5f5f7;
 }
 
 .atv-person-stats-bar {
   width: 100%;
-  height: 5px;
+  height: 4px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
@@ -706,8 +1088,8 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
 .atv-person-stats-fill {
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #34d399 0%, #38bdf8 100%);
-  transition: width 0.28s ease;
+  background: #f5f5f7;
+  transition: width 0.28s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
 .atv-person-actions {
@@ -721,8 +1103,8 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding-top: 8px;
-  border: none;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .atv-person-filmography-head {
@@ -743,9 +1125,9 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
 .atv-person-role-tabs {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px;
-  border-radius: 11px;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--radius-control);
   background: var(--bg-surface);
   overflow-x: auto;
   max-width: 100%;
@@ -770,14 +1152,25 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   transition: background 0.16s ease, color 0.16s ease;
 }
 
-.atv-person-role-tab:hover {
-  color: #ffffff;
+@media (hover: hover) and (pointer: fine) {
+  .atv-person-role-tab:hover {
+    color: #ffffff;
+  }
 }
 
 .atv-person-role-tab.active {
   background: var(--bg-control-hover);
   color: #ffffff;
   font-weight: 600;
+}
+
+.atv-person-role-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-blue);
+}
+
+.atv-person-role-tab:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 .atv-person-loading {
@@ -795,12 +1188,23 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   gap: 20px 16px;
 }
 
+.atv-person-load-more-row {
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+}
+
+.atv-person-load-more-btn {
+  min-width: 210px;
+  justify-content: center;
+}
+
 @media (max-width: 680px) {
   .atv-person-sheet-scroll {
     padding: 20px 16px 26px;
   }
   .atv-person-hero {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .atv-person-photo-col {
     max-width: 150px;
@@ -872,8 +1276,8 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
 }
 
 .atv-vc-btn.active-pip {
-  background: rgba(56, 189, 248, 0.24);
-  color: #7dd3fc;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
 }
 
 .atv-pip-dock {
@@ -886,17 +1290,17 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   gap: 10px;
   max-width: min(520px, calc(100vw - 32px));
   padding: 9px 12px;
-  border-radius: 12px;
-  background: #1c1c1f;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.78);
+  border-radius: var(--radius-card);
+  background: var(--bg-surface);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.82);
 }
 
 .atv-pip-dock-badge {
   padding: 4px 8px;
   border-radius: 7px;
-  background: rgba(56, 189, 248, 0.18);
-  color: #7dd3fc;
+  background: var(--bg-control);
+  color: #f5f5f7;
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
@@ -939,7 +1343,6 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
 }
 
 .atv-inline-icon-label > .atv-ico,
-button > .atv-ico,
 .atv-status-badge > .atv-ico,
 .atv-user-score-badge > .atv-ico,
 .atv-qp-score > .atv-ico,
@@ -954,8 +1357,7 @@ button > .atv-ico,
 .settings-tab,
 .friend-pill,
 .atv-pip-dock-badge,
-.atv-upnext-badge,
-.atv-cast-chip {
+.atv-upnext-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -972,15 +1374,23 @@ button > .atv-ico,
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  color: #fcd34d;
+  color: #f5f5f7;
   font-weight: 600;
+}
+
+.atv-meta-new-ep {
+  display: inline-flex;
+  align-items: center;
+  color: #f5f5f7;
+  font-weight: 600;
+  letter-spacing: 0.1px;
 }
 
 .atv-meta-friend {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  color: #93c5fd;
+  color: rgba(235, 235, 245, 0.72);
   font-weight: 500;
 }
 
@@ -989,7 +1399,7 @@ button > .atv-ico,
   position: absolute;
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -50%) scale(0.88);
+  transform: translate(-50%, -50%) scale(0.94);
   width: 50px;
   height: 50px;
   padding: 0;
@@ -1013,36 +1423,185 @@ button > .atv-ico,
   margin-left: 2px;
 }
 
-.atv-poster-item:hover .atv-poster-play-center,
 .atv-poster-item:focus-visible .atv-poster-play-center {
   opacity: 1;
   pointer-events: auto;
   transform: translate(-50%, -50%) scale(1);
 }
 
-.atv-poster-play-center:hover {
-  background: #ffffff;
-  transform: translate(-50%, -50%) scale(1.1) !important;
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.75);
+@media (hover: hover) and (pointer: fine) {
+  .atv-poster-item:hover .atv-poster-play-center {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  .atv-poster-play-center:hover {
+    background: #ffffff;
+    transform: translate(-50%, -50%) scale(1.1) !important;
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.75);
+  }
+}
+
+.atv-poster-play-center:active {
+  transform: translate(-50%, -50%) scale(1.02) !important;
+}
+
+/* Card Quick Peek Button (Top Right, alongside More) */
+.atv-poster-peek-btn {
+  position: absolute;
+  top: 8px;
+  right: 42px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(18, 18, 22, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(245, 245, 247, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 8;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.92);
+  transition: opacity 0.18s cubic-bezier(0.22, 1, 0.36, 1), transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.15s ease;
+  outline: none;
+}
+
+.atv-poster-peek-btn::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+
+.atv-poster-item:focus-visible .atv-poster-peek-btn,
+.atv-poster-peek-btn:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.atv-poster-peek-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-blue);
+}
+
+.atv-poster-peek-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-poster-item:hover .atv-poster-peek-btn {
+    opacity: 1;
+    pointer-events: auto;
+    transform: scale(1);
+  }
+
+  .atv-poster-peek-btn:hover {
+    background: rgba(45, 45, 52, 0.96);
+    color: #ffffff;
+    transform: scale(1.08);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .atv-poster-peek-btn {
+    opacity: 0.9;
+    pointer-events: auto;
+    transform: scale(1);
+  }
+}
+
+.atv-poster-peek-btn:active {
+  transform: scale(0.92);
+}
+
+/* Card Context Menu Trigger Button (Top Right of Poster) */
+.atv-poster-more-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(18, 18, 22, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(245, 245, 247, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 8;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(0.92);
+  transition: opacity 0.18s cubic-bezier(0.22, 1, 0.36, 1), transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.15s ease;
+  outline: none;
+}
+
+.atv-poster-more-btn::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+
+.atv-poster-item:focus-visible .atv-poster-more-btn,
+.atv-poster-more-btn:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.atv-poster-more-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-blue);
+}
+
+.atv-poster-more-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-poster-item:hover .atv-poster-more-btn {
+    opacity: 1;
+    pointer-events: auto;
+    transform: scale(1);
+  }
+
+  .atv-poster-more-btn:hover {
+    background: rgba(45, 45, 52, 0.96);
+    color: #ffffff;
+    transform: scale(1.08);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .atv-poster-more-btn {
+    opacity: 0.9;
+    pointer-events: auto;
+    transform: scale(1);
+  }
+}
+
+.atv-poster-more-btn:active {
+  transform: scale(0.92);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .atv-poster-more-btn {
+    opacity: 0.85;
+    pointer-events: auto;
+    transform: scale(1);
+  }
 }
 
 @media (hover: none), (pointer: coarse) {
   .atv-poster-play-center {
-    top: auto;
-    left: auto;
-    right: 8px;
-    bottom: 8px;
-    width: 32px;
-    height: 32px;
-    transform: none;
-    opacity: 0.94;
-    pointer-events: auto;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55);
-  }
-  .atv-poster-play-center svg {
-    width: 13px;
-    height: 13px;
-    margin-left: 1px;
+    display: none;
   }
 }
 
@@ -1051,7 +1610,7 @@ button > .atv-ico,
   position: absolute;
   inset: 0;
   z-index: 26;
-  background: #101114;
+  background: #101012;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1067,7 +1626,7 @@ button > .atv-ico,
   height: 52px;
   border-radius: 999px;
   background: rgba(239, 68, 68, 0.14);
-  color: #f87171;
+  color: var(--danger-text);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1097,13 +1656,110 @@ button > .atv-ico,
   gap: 10px;
 }
 
-/* Compact Gear Popover: Speed Pills & Collapsible Hotkeys */
-.atv-gear-popover {
-  width: min(488px, calc(100% - 32px));
-  gap: 10px;
-  padding: 13px 15px;
+/* Inline Error Studios Picker — Apple TV Minimalist Monochrome */
+.atv-video-error-studios {
+  width: 100%;
+  max-width: 440px;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-card);
+  background: rgba(22, 22, 25, 0.96);
+  border: none !important;
+  outline: none;
+  box-shadow: none !important;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
 }
 
+.atv-video-error-studios-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+
+.atv-video-error-studios-header .atv-close-btn {
+  border: none !important;
+  outline: none;
+  box-shadow: none;
+}
+
+.atv-video-error-studios-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.atv-video-error-studio-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  border: none !important;
+  outline: none;
+  box-shadow: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-video-error-studio-row:hover {
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+  }
+}
+
+.atv-video-error-studio-row.is-current {
+  background: rgba(255, 255, 255, 0.20);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.atv-video-error-studio-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atv-video-error-studio-cur {
+  font-size: 11px;
+  opacity: 0.65;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.atv-video-error-studios-loading,
+.atv-video-error-studios-empty {
+  padding: 18px 10px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* Compact Gear Popover: Speed Pills & Collapsible Hotkeys */
 .atv-gear-header-actions {
   display: inline-flex;
   align-items: center;
@@ -1111,8 +1767,8 @@ button > .atv-ico,
 }
 
 #btn-toggle-gear-hotkeys.active {
-  background: rgba(56, 189, 248, 0.22);
-  color: #7dd3fc;
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
 }
 
 .atv-gear-speed-row {
@@ -1157,9 +1813,11 @@ button > .atv-ico,
   transition: background 0.14s ease, color 0.14s ease;
 }
 
-.gear-speed-pill:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.06);
+@media (hover: hover) and (pointer: fine) {
+  .gear-speed-pill:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.06);
+  }
 }
 
 .gear-speed-pill.active {
@@ -1168,44 +1826,7 @@ button > .atv-ico,
   font-weight: 700;
 }
 
-/* Scalable Episodes View: Grid Cards vs Strip Pills */
-.atv-ep-view-toggle {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px;
-  border-radius: 9px;
-  background: var(--bg-control);
-  border: none;
-}
-
-.ep-view-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 7px;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11.5px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.ep-view-btn:hover {
-  color: #ffffff;
-}
-
-.ep-view-btn.active {
-  background: var(--bg-control-hover);
-  color: #ffffff;
-  font-weight: 600;
-}
-
+/* Scalable Episodes Grid Row */
 .atv-episodes-strip-row.ep-grid-row {
   flex-direction: column;
   align-items: stretch;
@@ -1242,29 +1863,38 @@ button > .atv-ico,
   color: #f5f5f7;
   cursor: pointer;
   overflow: hidden;
-  transition: background 0.15s ease;
+  transition: background 0.18s ease, transform 0.18s var(--ease-apple, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
-.atv-ep-card:hover {
-  background: var(--bg-control-hover);
+@media (hover: hover) and (pointer: fine) {
+  .atv-ep-card:hover {
+    background: var(--bg-control-hover);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  }
+}
+
+.atv-ep-card:active {
+  transform: scale(0.96) translateY(0);
+  transition: transform 0.1s var(--ease-apple, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
 .atv-ep-card.watched {
-  background: rgba(16, 185, 129, 0.12);
+  background: rgba(255, 255, 255, 0.07);
 }
 
 .atv-ep-card.watched .atv-ep-card-num {
-  color: #6ee7b7;
+  color: rgba(245, 245, 247, 0.72);
 }
 
 .atv-ep-card.active {
-  background: linear-gradient(180deg, rgba(56, 189, 248, 0.22), rgba(56, 189, 248, 0.1));
+  background: var(--bg-control-hover);
   color: #f5f5f7;
-  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.48), 0 8px 20px rgba(0, 0, 0, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(245, 245, 247, 0.24), 0 8px 20px rgba(0, 0, 0, 0.34);
 }
 
 .atv-ep-card.active .atv-ep-card-num {
-  color: #7dd3fc;
+  color: #ffffff;
 }
 
 .atv-ep-card.active .atv-ep-card-title {
@@ -1272,11 +1902,11 @@ button > .atv-ico,
 }
 
 .atv-ep-card.active .atv-ep-card-meta {
-  color: rgba(224, 242, 254, 0.78);
+  color: rgba(235, 235, 245, 0.74);
 }
 
 .atv-ep-card.active .atv-ep-pill-progress {
-  background: #38bdf8;
+  background: #f5f5f7;
 }
 
 .atv-ep-card-top {
@@ -1321,20 +1951,26 @@ button > .atv-ico,
   color: var(--text-primary);
   cursor: pointer;
   gap: 10px;
+  border-radius: 6px;
+  padding: 9px 6px;
   transition: background 0.15s ease;
 }
 
-.meta-prov-item.is-clickable:hover {
-  background: var(--bg-control-hover);
+@media (hover: hover) and (pointer: fine) {
+  .meta-prov-item.is-clickable:hover {
+    background: rgba(255, 255, 255, 0.045);
+  }
 }
 
 .meta-prov-item.active-prov {
-  background: rgba(56, 189, 248, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 9px 6px;
   color: #f5f5f7;
 }
 
 .meta-prov-item.active-prov .meta-prov-action {
-  color: #7dd3fc;
+  color: #f5f5f7;
   font-weight: 600;
 }
 
@@ -1371,10 +2007,14 @@ button > .atv-ico,
   flex-wrap: wrap;
   gap: 6px 12px;
   padding: 8px 14px;
-  border-radius: 0;
-  background: transparent;
+  border-radius: 12px;
+  background: #1c1c1e;
   border: none;
   min-height: 28px;
+}
+
+.atv-current-ep-bar.atv-current-ep-above.is-preview {
+  background: #242427;
 }
 
 .atv-current-ep-left {
@@ -1406,29 +2046,32 @@ button > .atv-ico,
 .atv-ep-rate-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-height: 25px;
   gap: 5px;
   padding: 4px 10px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: none;
   outline: none;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-control);
   color: var(--text-secondary);
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.atv-ep-rate-btn:hover {
-  background: rgba(255, 255, 255, 0.11);
-  border-color: rgba(255, 255, 255, 0.14);
-  color: #f5f5f7;
+@media (hover: hover) and (pointer: fine) {
+  .atv-ep-rate-btn:hover {
+    background: var(--bg-control-hover);
+    color: #f5f5f7;
+  }
 }
 
 .atv-ep-rate-btn.is-rated {
-  background: rgba(251, 191, 36, 0.16);
-  color: #fcd34d;
+  background: rgba(255, 255, 255, 0.14);
+  color: #f5f5f7;
 }
 
 .atv-ep-rate-btn.is-rated svg {
@@ -1436,15 +2079,15 @@ button > .atv-ico,
 }
 
 .atv-ep-rate-btn.is-watched {
-  background: rgba(52, 211, 153, 0.14);
-  border-color: rgba(52, 211, 153, 0.32);
-  color: #6ee7b7;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(245, 245, 247, 0.82);
 }
 
-.atv-ep-rate-btn.is-watched:hover {
-  background: rgba(52, 211, 153, 0.22);
-  border-color: rgba(52, 211, 153, 0.45);
-  color: #a7f3d0;
+@media (hover: hover) and (pointer: fine) {
+  .atv-ep-rate-btn.is-watched:hover {
+    background: rgba(255, 255, 255, 0.18);
+    color: #ffffff;
+  }
 }
 
 .atv-episodes-strip {
@@ -1476,28 +2119,44 @@ button > .atv-ico,
   border-radius: 999px;
 }
 
-/* Sticky Video Stage on Wide & Tall Desktop Viewports + Sidebar Cast & Quick Peek Friends */
-@media (min-width: 1041px) and (min-height: 760px) {
-  .atv-modal-overlay:not(.mini-player-mode):not(.pip-background-mode) .atv-video-stage-wrap {
-    position: sticky;
-    top: 0;
-    z-index: 12;
-  }
+/* Natural Flow Video Stage + Non-Overlapping Episode Panel Stacking on Scroll */
+.atv-modal-overlay:not(.mini-player-mode):not(.pip-background-mode) .atv-video-stage-wrap {
+  position: relative;
+  z-index: 25;
+  flex-shrink: 0;
 }
 
 #current-episode-bar:has(.atv-postwatch-overlay:not(.hidden)) {
-  z-index: 40;
+  position: relative;
+  z-index: 42;
 }
 
 #episodes-bottom-panel {
   position: relative;
-  z-index: 16;
+  z-index: 8;
+  flex-shrink: 0;
+}
+
+.atv-video-stage-wrap.vc-popover-open,
+.atv-video-stage-wrap:has(.vc-popover-open),
+.atv-video-stage-wrap .atv-video-stage.vc-popover-open,
+.atv-video-stage.vc-popover-open {
+  z-index: 60 !important;
 }
 
 .atv-cast-sidebar-block {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.atv-cast-card-skeleton {
+  width: 78px;
+  height: 114px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.085) 50%, rgba(255, 255, 255, 0.04) 100%);
+  animation: atv-shimmer 1.5s infinite var(--ease-in-out-cubic, cubic-bezier(0.645, 0.045, 0.355, 1));
+  flex-shrink: 0;
 }
 
 .atv-cast-sidebar-block .atv-cast-photo-row {
@@ -1508,11 +2167,14 @@ button > .atv-ico,
   mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent 100%);
 }
 
-.atv-qp-friends-wrap {
+.atv-qp-friends-wrap,
+.atv-qp-cast-wrap {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .atv-vc-popover,
@@ -1537,13 +2199,6 @@ button > .atv-ico,
   transform: rotate(180deg);
 }
 
-.atv-ep-pill {
-  min-width: 36px;
-  height: 32px;
-  padding: 0 11px;
-  font-variant-numeric: tabular-nums;
-}
-
 .atv-postwatch-scope {
   display: inline-flex;
   align-items: center;
@@ -1556,6 +2211,10 @@ button > .atv-ico,
 }
 
 .postwatch-scope-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
   padding: 5px 12px;
   border-radius: 7px;
   border: none;
@@ -1568,8 +2227,10 @@ button > .atv-ico,
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.postwatch-scope-btn:hover {
-  color: #ffffff;
+@media (hover: hover) and (pointer: fine) {
+  .postwatch-scope-btn:hover {
+    color: #ffffff;
+  }
 }
 
 .postwatch-scope-btn.active {
@@ -1599,7 +2260,7 @@ html.fs-transitioning .atv-modal-overlay,
 html.is-stage-fullscreen .atv-modal-overlay {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  background: rgba(6, 7, 10, 0.96);
+  background: rgba(10, 10, 12, 0.96);
 }
 
 html.fs-transitioning .atv-header,
@@ -1641,22 +2302,6 @@ html.fs-transitioning .atv-postwatch-overlay {
   transition: none !important;
 }
 
-.atv-vc-ad-markers {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 2;
-}
-
-.atv-vc-ad-seg {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  min-width: 3px;
-  border-radius: 999px;
-  background: rgba(251, 191, 36, 0.88);
-}
-
 /* Episode View Switcher (Номера / Карточки) + Local Hover Tooltip above Episode Pills */
 .atv-ep-view-switch {
   display: inline-flex;
@@ -1664,28 +2309,34 @@ html.fs-transitioning .atv-postwatch-overlay {
   gap: 2px;
   padding: 2px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-control);
 }
 
 .atv-ep-view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 25px;
   padding: 4px 10px;
   border-radius: 6px;
   border: none;
   outline: none;
   background: transparent;
-  color: rgba(235, 235, 245, 0.68);
+  color: var(--text-secondary);
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.atv-ep-view-btn:hover {
-  color: #ffffff;
+@media (hover: hover) and (pointer: fine) {
+  .atv-ep-view-btn:hover {
+    color: #ffffff;
+  }
 }
 
 .atv-ep-view-btn.active {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.14);
   color: #ffffff;
 }
 
@@ -1697,21 +2348,21 @@ html.fs-transitioning .atv-postwatch-overlay {
   position: absolute;
   bottom: calc(100% + 7px);
   left: 0;
-  transform: translateX(-50%);
+  transform: none;
   padding: 6px 10px;
   border-radius: 8px;
-  background: rgba(16, 17, 22, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.65);
+  background: #1c1c1e;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.72);
   color: #f5f5f7;
   font-size: 11.5px;
   line-height: 1.35;
   white-space: nowrap;
-  max-width: 340px;
+  max-width: min(340px, calc(100% - 8px));
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
-  z-index: 30;
+  z-index: 45;
 }
 
 .atv-ep-hover-tooltip-sub {
@@ -1730,15 +2381,16 @@ html.fs-transitioning .atv-postwatch-overlay {
   align-items: center;
   gap: 5px;
   padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(20, 21, 26, 0.82);
+  border-radius: 9px;
+  border: none;
+  outline: none;
+  background: #242427;
   color: #f5f5f7;
   font-size: 12px;
   font-weight: 600;
   max-width: 260px;
   cursor: pointer;
-  transition: background 0.16s ease, border-color 0.16s ease;
+  transition: background 0.16s ease;
 }
 
 .atv-modal-back-btn span {
@@ -1747,9 +2399,10 @@ html.fs-transitioning .atv-postwatch-overlay {
   white-space: nowrap;
 }
 
-.atv-modal-back-btn:hover {
-  background: rgba(38, 40, 48, 0.95);
-  border-color: rgba(255, 255, 255, 0.24);
+@media (hover: hover) and (pointer: fine) {
+  .atv-modal-back-btn:hover {
+    background: #2c2c30;
+  }
 }
 
 /* 4K Remux Honest TorrServer Banner & Release Actions */
@@ -1767,15 +2420,15 @@ html.fs-transitioning .atv-postwatch-overlay {
 }
 
 .atv-b4k-status-banner.is-online {
-  background: rgba(16, 185, 129, 0.12);
-  color: #a7f3d0;
-  border: 1px solid rgba(16, 185, 129, 0.24);
+  background: rgba(255, 255, 255, 0.045);
+  color: rgba(245, 245, 247, 0.86);
+  border: none;
 }
 
 .atv-b4k-status-banner.is-offline {
-  background: rgba(245, 158, 11, 0.12);
-  color: #fde68a;
-  border: 1px solid rgba(245, 158, 11, 0.24);
+  background: rgba(255, 255, 255, 0.035);
+  color: rgba(235, 235, 245, 0.65);
+  border: none;
 }
 
 .atv-b4k-banner-actions {
@@ -1799,57 +2452,14 @@ html.fs-transitioning .atv-postwatch-overlay {
 
 
 /* ==========================================================================
-   4K Remux Audio Track Switcher, Debrid Status & Next-Episode Preload Badge
+   Next-Episode Preload Badge
    ========================================================================== */
-.atv-b4k-audio-bar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 14px;
-  margin-bottom: 10px;
-  border-radius: 10px;
-  background: rgba(56, 189, 248, 0.08);
-}
-
-.atv-b4k-audio-bar-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #bae6fd;
-  white-space: nowrap;
-}
-
-.atv-b4k-audio-select {
-  flex: 1 1 220px;
-  min-width: 180px;
-  max-width: 420px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #f5f5f7;
-  border: none;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 12px;
-  outline: none;
-}
-
-.atv-b4k-remux-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  background: rgba(52, 211, 153, 0.14);
-  color: #6ee7b7;
-}
-
 .atv-preload-ready-dot {
   display: inline-block;
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #34d399;
+  background: #f5f5f7;
   margin-left: 5px;
   vertical-align: middle;
 }
@@ -1865,7 +2475,7 @@ html.fs-transitioning .atv-postwatch-overlay {
 }
 
 /* ==========================================================================
-   HDRezka Header Quick 'Оригинал' + Voiceover Bar & Dark-Glass Cinema Chrome
+   Cinema Header Center Bar & Matte Dark Player Surfaces
    ========================================================================== */
 .atv-hdr-center-bar {
   display: flex;
@@ -1874,131 +2484,17 @@ html.fs-transitioning .atv-postwatch-overlay {
   flex-wrap: wrap;
 }
 
-.atv-hdr-audio-bar {
-  display: none !important;
-}
-
-.atv-hdr-orig-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 11px 0 8px;
-  border-radius: 9px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  background: rgba(255, 255, 255, 0.055);
-  color: rgba(245, 245, 247, 0.88);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
-}
-
-.atv-hdr-orig-btn:hover {
-  background: rgba(255, 255, 255, 0.11);
-  border-color: rgba(255, 255, 255, 0.18);
-  color: #ffffff;
-}
-
-.atv-hdr-orig-tag {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1px 5px;
-  border-radius: 5px;
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  background: rgba(56, 189, 248, 0.18);
-  color: #7dd3fc;
-}
-
-.atv-hdr-orig-btn.is-active {
-  background: linear-gradient(180deg, rgba(56, 189, 248, 0.24), rgba(56, 189, 248, 0.13));
-  border-color: rgba(125, 211, 252, 0.55);
-  color: #ffffff;
-  box-shadow: 0 0 16px rgba(56, 189, 248, 0.16);
-}
-
-.atv-hdr-orig-btn.is-active .atv-hdr-orig-tag {
-  background: #38bdf8;
-  color: #08111a;
-}
-
-.atv-hdr-studio-wrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-.atv-hdr-studio-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 9px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.045);
-  color: #f5f5f7;
-  font-size: 12px;
-  font-weight: 600;
-  max-width: 240px;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-.atv-hdr-studio-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.16);
-}
-
-.atv-hdr-studio-prefix {
-  color: rgba(235, 235, 245, 0.52);
-  font-weight: 500;
-  flex-shrink: 0;
-}
-
-#hdr-studio-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.atv-hdr-studio-popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  min-width: 220px;
-  max-width: min(320px, 86vw);
-  max-height: 290px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 6px;
-  border-radius: 12px;
-  background: rgba(18, 19, 24, 0.96);
-  backdrop-filter: blur(22px) saturate(165%);
-  -webkit-backdrop-filter: blur(22px) saturate(165%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.82);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  z-index: 96;
-}
-
 .atv-vc-orig-badge {
   display: inline-flex;
   align-items: center;
   padding: 1px 5px;
   margin-left: 6px;
   border-radius: 4px;
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  background: rgba(56, 189, 248, 0.18);
-  color: #7dd3fc;
+  background: rgba(255, 255, 255, 0.14);
+  color: #f5f5f7;
 }
 
 .atv-vc-pop-divider {
@@ -2007,27 +2503,31 @@ html.fs-transitioning .atv-postwatch-overlay {
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* Unified Matte Dark Player Surfaces (Zero Stacked Blur Over Solid Sheet) */
-.atv-current-ep-bar.atv-current-ep-above,
+/* Unified Matte Dark Player Surfaces (Zero Stacked Blur, Zero Borders) */
 .atv-episodes-bottom-panel {
-  background: #1a1b20 !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  border: 1px solid rgba(255, 255, 255, 0.065) !important;
-  border-radius: 13px !important;
+  background: #1c1c1e;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: none;
+  border-radius: 12px;
 }
 
 @media (pointer: coarse) {
-  .atv-vc-btn {
-    min-height: 36px;
-    min-width: 36px;
+  .atv-vc-btn,
+  .atv-hero-dot,
+  .atv-xray-close,
+  .atv-qp-season-btn,
+  .atv-filter-chip,
+  .atv-remote-icon-btn {
+    min-height: 44px;
+    min-width: 44px;
   }
   .atv-vc-btn.atv-vc-pill {
-    min-height: 34px;
+    min-height: 44px;
     padding: 0 11px;
   }
   .atv-vc-timeline {
-    height: 26px;
+    height: 32px;
   }
   .atv-vc-track {
     height: 6px;
@@ -2035,41 +2535,37 @@ html.fs-transitioning .atv-postwatch-overlay {
 }
 
 .atv-ep-step-btn {
+  position: relative;
   padding: 5px 8px !important;
   min-width: 30px;
+  min-height: 26px;
   justify-content: center;
 }
 
-.atv-ep-head-tools {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-left: auto;
-  flex-wrap: wrap;
+.atv-ep-step-btn::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
 }
 
 .atv-episodes-panel-head .atv-ep-drawer-toggle {
-  margin-left: 4px;
+  margin-left: auto;
 }
 
 .atv-info-sidebar {
-  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 14px), transparent 100%);
-  mask-image: linear-gradient(180deg, transparent 0, #000 10px, #000 calc(100% - 14px), transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 14px), transparent 100%);
+}
+
+.atv-info-sidebar.is-scrolled {
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 12px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0, #000 12px, #000 calc(100% - 14px), transparent 100%);
 }
 
 .atv-sort-inline-select.active-sort {
-  background: rgba(56, 189, 248, 0.16);
-  color: #bae6fd;
-  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.34);
-}
-
-.srv-toggle input:focus-visible + .srv-toggle-slider {
-  outline: 2px solid rgba(56, 189, 248, 0.85);
-  outline-offset: 2px;
-}
-
-.atv-person-sheet:has(#person-back-nav-btn:not(.hidden)) .atv-person-hero {
-  padding-top: 32px;
+  background: #2c2c30;
+  color: #f5f5f7;
+  box-shadow: none;
 }
 
 @media (max-width: 640px) {
@@ -2081,3 +2577,961 @@ html.fs-transitioning .atv-postwatch-overlay {
     padding: 14px 16px;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-property: opacity, background-color, color, border-color !important;
+    transition-duration: 0.15s !important;
+    scroll-behavior: auto !important;
+  }
+  .spinner,
+  .atv-spinner {
+    animation-duration: 1.1s !important;
+    animation-iteration-count: infinite !important;
+  }
+  .atv-quickpeek-sheet,
+  .atv-person-sheet,
+  .atv-settings-sheet,
+  .atv-onboarding-sheet,
+  .atv-roulette-sheet,
+  .atv-cinema-sheet {
+    animation: none !important;
+    transform: none !important;
+  }
+  .atv-hero:hover .atv-hero-backdrop,
+  .atv-poster-item:hover .atv-poster-frame,
+  .atv-poster-item:focus-visible .atv-poster-frame,
+  .atv-upnext-card:hover,
+  .atv-person-card:hover,
+  .atv-fav-item:hover,
+  .atv-history-row:hover,
+  .atv-similar-card:hover,
+  .atv-notif-item:hover,
+  .atv-scroll-top-btn:hover {
+    transform: none !important;
+  }
+}
+
+/* ==========================================================================
+   TV Mode Spatial D-Pad / Gamepad Focus Ring (10-Foot UI)
+   ========================================================================== */
+html.is-tv-mode .tv-focused {
+  outline: none;
+  box-shadow: 0 0 0 3px #f5f5f7, 0 0 0 6px rgba(255, 255, 255, 0.28), 0 14px 32px rgba(0, 0, 0, 0.65) !important;
+  transform: scale(1.035);
+  z-index: 18;
+  transition: transform 0.15s var(--ease-apple, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+html.is-tv-mode .atv-poster-item.tv-focused {
+  box-shadow: none !important;
+  transform: none;
+}
+
+html.is-tv-mode .atv-poster-item.tv-focused .atv-poster-frame {
+  box-shadow: 0 0 0 3px #f5f5f7, 0 0 0 6px rgba(255, 255, 255, 0.32), 0 18px 36px rgba(0, 0, 0, 0.72) !important;
+  transform: scale(1.035);
+}
+
+html.is-tv-mode .atv-upnext-card.tv-focused,
+html.is-tv-mode .atv-upnext-more-card.tv-focused,
+html.is-tv-mode .atv-similar-card.tv-focused {
+  border-radius: var(--radius-card);
+}
+
+html.is-tv-mode .atv-vc-btn {
+  min-width: 38px;
+  min-height: 38px;
+}
+
+html.is-tv-mode .atv-kinorium-pills {
+  padding: 8px 22px 10px 8px;
+}
+
+html.is-tv-mode .atv-nav-pills {
+  padding: 7px 8px;
+}
+
+html.is-tv-mode .atv-episodes-strip {
+  padding: 8px 14px 10px;
+}
+
+html.is-tv-mode .atv-upnext-row {
+  padding: 10px 8px 18px;
+}
+
+html.is-tv-mode .atv-pill,
+html.is-tv-mode .kin-sec-pill,
+html.is-tv-mode .type-pill {
+  font-size: 13.5px;
+}
+
+@media (max-width: 980px) {
+  #vc-btn-offline-dl,
+  #vc-btn-remote {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   Smart Subtitles Timing Stepper, Online Search, Drag-Drop & Batch Offline (v31)
+   ========================================================================== */
+.atv-sub-offset-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+  border-radius: 8px;
+  background: #242427;
+}
+
+.atv-sub-step-btn,
+.atv-sub-step-val {
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  outline: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(245, 245, 247, 0.88);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-sub-step-btn:hover,
+  .atv-sub-step-val:hover {
+    background: #2c2c30;
+    color: #ffffff;
+  }
+}
+
+.atv-sub-step-val {
+  min-width: 54px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.atv-sub-step-val.is-modified {
+  background: #f5f5f7;
+  color: #0b0c0f;
+}
+
+.atv-vc-subs-tracks-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.atv-vc-subs-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 4px 6px 4px;
+}
+
+.atv-vc-subs-sync-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 2px;
+}
+
+.atv-vc-subs-sync-lbl {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: rgba(235, 235, 245, 0.68);
+  white-space: nowrap;
+}
+
+.atv-vc-subs-actions-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.atv-vc-subs-action-btn {
+  height: 30px;
+  padding: 0 9px;
+  border: none;
+  outline: none;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: #242427;
+  color: #f5f5f7;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-subs-action-btn:hover:not(:disabled) {
+    background: #2c2c30;
+    color: #ffffff;
+  }
+}
+
+.atv-vc-subs-action-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.atv-video-stage.is-sub-drop-target::after {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 14px;
+  border: 2px dashed rgba(245, 245, 247, 0.72);
+  background: rgba(10, 10, 12, 0.56);
+  pointer-events: none;
+  z-index: 48;
+}
+
+.atv-vc-btn.is-remote-active {
+  background: #f5f5f7;
+  color: #0b0c0f;
+}
+
+.atv-ep-batch-toolbar,
+.atv-ep-dl-batch-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.atv-b4k-files-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #141416;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.atv-b4k-files-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+  white-space: nowrap;
+}
+
+.atv-b4k-files-select-group {
+  flex: 1 1 260px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.atv-b4k-files-select-group .atv-cselect-btn {
+  width: 100%;
+  justify-content: space-between;
+}
+
+/* Video Drag and Drop Subtitle/Media Dropzone */
+.atv-video-dropzone {
+  position: absolute;
+  inset: 20px;
+  z-index: 38;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(14, 14, 16, 0.92);
+  border: 2px dashed rgba(255, 255, 255, 0.32);
+  border-radius: 16px;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.atv-video-dropzone.hidden {
+  display: none;
+}
+
+.atv-video-dropzone-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  color: #f5f5f7;
+  padding: 24px;
+}
+
+.atv-video-dropzone-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 29px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+}
+
+.atv-video-dropzone-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.atv-video-dropzone-sub {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* Apple TV-style X-Ray Cast Shelf on Video Pause (disabled — cast shown below player) */
+.atv-xray-pause-shelf {
+  display: none !important;
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 84px;
+  z-index: 25;
+  background: #141416;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 12px 16px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
+  transform: translateY(0);
+  opacity: 1;
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.atv-xray-pause-shelf.hidden {
+  display: none;
+}
+
+.atv-video-stage.vc-popover-open .atv-xray-pause-shelf {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.atv-xray-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.atv-xray-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.atv-xray-badge {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f5f5f7;
+}
+
+.atv-xray-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.atv-xray-close {
+  position: relative;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+  transition: color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+}
+
+.atv-xray-close::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+}
+
+.atv-xray-close:focus-visible {
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.9);
+}
+
+.atv-xray-close:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-xray-close:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+
+.atv-xray-cast-list {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+
+.atv-xray-actor-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 7px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  outline: none;
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-xray-actor-card:hover {
+    background: rgba(255, 255, 255, 0.13);
+    transform: translateY(-1px);
+  }
+}
+
+.atv-xray-actor-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.85);
+}
+
+.atv-xray-actor-avatar {
+  display: none;
+}
+
+.atv-xray-actor-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.atv-xray-actor-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+
+.atv-xray-actor-role {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Apple TV Floating Next Episode Toast at Detected Credits */
+.atv-next-ep-toast {
+  position: absolute;
+  bottom: 86px;
+  left: 50%;
+  transform: translateX(-50%) translateY(0);
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg-elevated, #141416);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 10px 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
+  max-width: 480px;
+  width: 90%;
+  transition: opacity 0.25s ease-out, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.atv-next-ep-toast.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(16px);
+}
+
+.atv-next-ep-thumb-wrap {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-surface, #1c1c1e);
+}
+
+.atv-next-ep-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.atv-next-ep-ring-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: inherit;
+}
+
+.atv-next-ep-ring {
+  transform: rotate(-90deg);
+  color: #fff;
+}
+
+.atv-next-ep-sec {
+  position: absolute;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+
+.atv-next-ep-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.atv-next-ep-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.atv-next-ep-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-next-ep-sub {
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.72);
+}
+
+.atv-next-ep-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Wave-2 Flagship Player Upgrades:
+   1. Two-Line Scrubber Card (.atv-vc-hover-chapter, .atv-vc-hover-delta)
+   2. In-Stage Episodes & Seasons Popover (.atv-vc-episodes-popover)
+   3. Interactive Click-to-Translate Subtitle Words (.atv-sub-word, .atv-sub-dict-popover)
+   ========================================================================== */
+.atv-vc-hover-time {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: #141416;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.72);
+  white-space: nowrap;
+}
+
+.atv-vc-hover-chapter {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #f5f5f7;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.atv-vc-hover-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.atv-vc-hover-target {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.atv-vc-hover-delta {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(245, 245, 247, 0.9);
+}
+
+.atv-vc-hover-delta.is-fwd {
+  color: #86efac;
+}
+
+.atv-vc-hover-delta.is-rew {
+  color: #93c5fd;
+}
+
+.atv-vc-hover-rem {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(235, 235, 245, 0.6);
+}
+
+/* In-Stage Episodes & Seasons Popover */
+.atv-vc-episodes-popover {
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  max-height: min(62vh, 420px);
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  gap: 8px;
+  transform-origin: bottom right;
+}
+
+.atv-vc-ep-seasons-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  scrollbar-width: none;
+}
+
+.atv-vc-ep-seasons-row::-webkit-scrollbar {
+  display: none;
+}
+
+.atv-vc-ep-season-pill {
+  flex-shrink: 0;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: none;
+  outline: none;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(235, 235, 245, 0.78);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-ep-season-pill:hover {
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+  }
+}
+
+.atv-vc-ep-season-pill:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.85);
+}
+
+.atv-vc-ep-season-pill.active {
+  background: #f5f5f7;
+  color: #0b0c0f;
+  font-weight: 700;
+}
+
+.atv-vc-ep-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow-y: auto;
+  max-height: 310px;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.atv-vc-ep-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: rgba(245, 245, 247, 0.88);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-ep-row:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: #ffffff;
+  }
+}
+
+.atv-vc-ep-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(245, 245, 247, 0.85);
+}
+
+.atv-vc-ep-row.active {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.atv-vc-ep-row.watched:not(.active) {
+  color: rgba(235, 235, 245, 0.68);
+}
+
+.atv-vc-ep-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.atv-vc-ep-num {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.atv-vc-ep-title {
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.62);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-vc-ep-row-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  color: rgba(245, 245, 247, 0.78);
+}
+
+.atv-vc-ep-prog-pct {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Interactive Click-to-Translate Subtitle Words & Dictionary Popover */
+.atv-sub-dict-popover {
+  position: absolute;
+  left: 50%;
+  bottom: 132px;
+  transform: translateX(-50%);
+  z-index: 36;
+  width: min(380px, calc(100% - 32px));
+  background: #141416;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.78);
+  color: #f5f5f7;
+  pointer-events: auto;
+  transform-origin: bottom center;
+}
+
+.atv-sub-dict-popover.hidden {
+  display: none !important;
+}
+
+.atv-sub-dict-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.atv-sub-dict-word {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.atv-sub-dict-close {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: none;
+  outline: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(245, 245, 247, 0.75);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)), color 0.15s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+.atv-sub-dict-close::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+}
+
+.atv-sub-dict-close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-blue);
+}
+
+.atv-sub-dict-close:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-sub-dict-close:hover {
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+  }
+}
+
+.atv-sub-dict-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.atv-sub-dict-loading {
+  font-size: 12.5px;
+  color: rgba(235, 235, 245, 0.65);
+}
+
+.atv-sub-dict-primary {
+  font-size: 15px;
+  font-weight: 600;
+  color: #86efac;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.atv-sub-dict-alts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.atv-sub-dict-alt-pill {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(245, 245, 247, 0.86);
+}
+
+.atv-sub-dict-ctx {
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.atv-sub-dict-ctx-orig {
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.6);
+}
+
+.atv-sub-dict-ctx-tr {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(245, 245, 247, 0.92);
+}
+
+/* ==========================================================================
+   v106 Tactile Press Feedback, Tabular Numerals & Range Focus Ring
+   ========================================================================== */
+.atv-pill:active:not(:disabled),
+.atv-icon-btn:active:not(:disabled),
+.source-tab:active:not(:disabled),
+.atv-close-btn:active:not(:disabled),
+.type-pill:active:not(:disabled),
+.settings-tab:active:not(:disabled),
+.atv-filter-chip:active:not(:disabled),
+.atv-cselect-btn:active:not(:disabled),
+.atv-remote-sec-btn:active:not(:disabled),
+.atv-remote-icon-btn:active:not(:disabled),
+.atv-remote-mode-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.atv-section-count,
+.atv-filter-count-badge,
+.atv-vc-time-btn,
+.atv-ep-card-num,
+.atv-vc-ep-num,
+.atv-history-time,
+.kin-sec-count,
+.atv-dl-badge,
+.atv-notif-badge,
+.atv-remote-vol-val {
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="range"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.9), 0 0 0 4px rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+}
+
+
+
+

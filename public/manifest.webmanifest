@@ -6,8 +6,8 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#090a0f",
-  "theme_color": "#090a0f",
+  "background_color": "#0a0a0c",
+  "theme_color": "#0a0a0c",
   "categories": ["entertainment", "video"],
   "icons": [
     {

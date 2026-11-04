@@ -1,15 +1,46 @@
 import concurrent.futures
+import copy
+from datetime import datetime, timedelta, timezone
+import gzip
+import hashlib
+import http.client
+import io
+import ipaddress
 import json
 import os
 import re
+import socket
+import ssl
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
 from .backup_stream import _PUBLIC_TRACKERS_SUFFIX, _enrich_magnet_trackers
 from .kinorium import _norm_title
+from .storage_db import get_storage_db
+
+_SHARED_SSL_CTX = ssl.create_default_context()
+
+_CTRL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+_WHITESPACE_RE = re.compile(r"\s")
+_IMDB_ID_RE = re.compile(r"^tt\d{5,10}$")
+_RUS_TOKEN_RE = re.compile(r"(?<![a-z0-9])(?:rus|russian|ru)(?![a-z0-9])", re.IGNORECASE)
+_DUB_TOKEN_RE = re.compile(r"(?<![a-z0-9])(?:dub|dubbed)(?![a-z0-9])", re.IGNORECASE)
+_DV_TOKEN_RE = re.compile(r"(?<![a-z0-9])(?:dv|dovi|dolby\s*vision)(?![a-z0-9])", re.IGNORECASE)
+
+
+def _safe_stremio_int(val: Any, default: int = 0) -> int:
+    if isinstance(val, bool) or val is None:
+        return default
+    if isinstance(val, int):
+        return val
+    try:
+        return int(str(val).strip())
+    except (TypeError, ValueError):
+        return default
 
 _EMOJI_STRIP_RE = re.compile(
     "["
@@ -59,7 +90,7 @@ _SUB_LANG_LABELS_EN = {
 }
 
 _VOICE_KEYWORDS = [
-    ("Дубляж", ("дубляж", "dub", "нефафильм", "невафильм", "пифагор", "red head sound", "rhs")),
+    ("Дубляж", ("дубляж", "нефафильм", "невафильм", "пифагор", "red head sound", "rhs")),
     ("HDRezka", ("hdrezka", "резка", "rezka")),
     ("TVShows", ("tvshows",)),
     ("LostFilm", ("lostfilm", "лостфильм")),
@@ -86,14 +117,16 @@ def convert_srt_or_vtt_to_webvtt(raw_text: str, offset_sec: float = 0.0) -> str:
     if not raw_text:
         return "WEBVTT\n\n"
     text = raw_text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"^\s*WEBVTT[^\n]*\n+", "", text, flags=re.IGNORECASE)
 
     time_re = re.compile(
-        r"(?:(\d{1,2}):)?(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(?:(\d{1,2}):)?(\d{2}):(\d{2})[,.](\d{3})(.*)"
+        r"(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[,.](\d{1,3})\s*-->\s*(?:(\d{1,2}):)?(\d{1,2}):(\d{2})[,.](\d{1,3})(.*)"
     )
 
     def _to_sec(h_s: Optional[str], m_s: str, s_s: str, ms_s: str) -> float:
         h = int(h_s) if h_s else 0
-        return h * 3600.0 + int(m_s) * 60.0 + int(s_s) + int(ms_s) / 1000.0
+        ms_padded = (ms_s + "000")[:3]
+        return h * 3600.0 + int(m_s) * 60.0 + int(s_s) + int(ms_padded) / 1000.0
 
     def _fmt_vtt_ts(sec: float) -> str:
         sec = max(0.0, sec)
@@ -103,15 +136,29 @@ def convert_srt_or_vtt_to_webvtt(raw_text: str, offset_sec: float = 0.0) -> str:
         secs, ms = divmod(rem, 1000)
         return f"{hrs:02d}:{mins:02d}:{secs:02d}.{ms:03d}"
 
-    blocks = re.split(r"\n{2,}", text.strip())
+    # Normalize single-newline SRT cue boundaries (`\n12\n00:01:02,000 --> ...`)
+    text = re.sub(
+        r"\n(?=\d+\n\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}\s*-->)",
+        "\n\n",
+        text.strip(),
+    )
+    text = re.sub(
+        r"(?<!\n)\n(?=\d{1,2}:\d{2}:\d{2}[.,]\d{1,3}\s*-->)",
+        "\n\n",
+        text,
+    )
+    blocks = re.split(r"(?:\n[ \t]*){2,}", text.strip())
     out_cues: List[str] = []
     shift = max(0.0, float(offset_sec or 0.0))
+    header_block_re = re.compile(r"^(?:WEBVTT|NOTE|STYLE|REGION)(?:\s|$)", re.IGNORECASE)
+    srt_top_tag_re = re.compile(r"\{\\(?:an[789]|a[567])\b[^}]*\}", re.IGNORECASE)
+    srt_override_re = re.compile(r"\{\\[^}]*\}")
 
     for blk in blocks:
         lines = [ln.strip() for ln in blk.split("\n") if ln.strip()]
         if not lines:
             continue
-        if lines[0].upper().startswith("WEBVTT") or lines[0].upper().startswith("NOTE"):
+        if header_block_re.match(lines[0]):
             continue
         ts_idx = -1
         m_ts = None
@@ -125,11 +172,23 @@ def convert_srt_or_vtt_to_webvtt(raw_text: str, offset_sec: float = 0.0) -> str:
             continue
         start_s = _to_sec(m_ts.group(1), m_ts.group(2), m_ts.group(3), m_ts.group(4)) - shift
         end_s = _to_sec(m_ts.group(5), m_ts.group(6), m_ts.group(7), m_ts.group(8)) - shift
-        extra_settings = m_ts.group(9) or ""
-        if end_s <= 0.05:
+        extra_settings = re.sub(r"\s*\bX1:\d+\b.*$", "", m_ts.group(9) or "", flags=re.IGNORECASE)
+        if end_s <= 0.05 or end_s <= start_s:
             continue
         start_s = max(0.0, start_s)
-        payload_lines = lines[ts_idx + 1 :]
+        if end_s <= start_s:
+            continue
+        raw_payload_lines = lines[ts_idx + 1 :]
+        if not raw_payload_lines:
+            continue
+        joined_raw_payload = "\n".join(raw_payload_lines)
+        if srt_top_tag_re.search(joined_raw_payload) and "line:" not in extra_settings.lower():
+            extra_settings = f"{extra_settings} line:8%"
+        payload_lines = []
+        for pln in raw_payload_lines:
+            cleaned_pln = srt_override_re.sub("", pln).strip().replace("-->", "--&gt;")
+            if cleaned_pln:
+                payload_lines.append(cleaned_pln)
         if not payload_lines:
             continue
         out_cues.append(f"{_fmt_vtt_ts(start_s)} --> {_fmt_vtt_ts(end_s)}{extra_settings}\n" + "\n".join(payload_lines))
@@ -157,6 +216,7 @@ class StremioAddonEngine:
             "id": "com.stremio.torrentio.ru.addon",
             "name": "Torrentio (RU + EN · 4K / 1080p)",
             "description": "Потоки 4K Dolby Vision, HDR и 1080p с русскими дорожками (HDRezka, LostFilm, TVShows, Дубляж) и оригиналом",
+            "description_en": "4K Dolby Vision, HDR, and 1080p streams with Original English and multi-language audio tracks",
             "manifest_url": "https://torrentio.strem.fun/language=russian/manifest.json",
             "base_url": "https://torrentio.strem.fun/language=russian",
             "resources": ["stream"],
@@ -168,6 +228,7 @@ class StremioAddonEngine:
             "id": "org.stremio.opensubtitlesv3",
             "name": "OpenSubtitles v3",
             "description": "Официальный аддон субтитров Stremio (русские, английские, польские и другие субтитры)",
+            "description_en": "Official Stremio subtitles addon (English, Russian, Polish, and international subtitles)",
             "manifest_url": "https://opensubtitles-v3.strem.io/manifest.json",
             "base_url": "https://opensubtitles-v3.strem.io",
             "resources": ["subtitles"],
@@ -179,6 +240,7 @@ class StremioAddonEngine:
             "id": "com.stremio.tpbplus.addon",
             "name": "ThePirateBay+",
             "description": "Дополнительный международный каталог потоков Stremio в оригинале",
+            "description_en": "Additional international Stremio stream catalog with original audio",
             "manifest_url": "https://thepiratebay-plus.strem.fun/manifest.json",
             "base_url": "https://thepiratebay-plus.strem.fun",
             "resources": ["stream"],
@@ -194,6 +256,7 @@ class StremioAddonEngine:
         self.addons_path = os.path.join(data_dir, "stremio_addons.json")
         self.imdb_cache_path = os.path.join(data_dir, "stremio_imdb_cache.json")
         self._lock = threading.Lock()
+        self._db = get_storage_db(data_dir)
         self.addons: List[Dict[str, Any]] = []
         self._imdb_cache: Dict[str, str] = {}
         self._cinemeta_meta_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
@@ -202,18 +265,38 @@ class StremioAddonEngine:
 
     def _load_state(self) -> None:
         loaded_addons: List[Dict[str, Any]] = []
-        if os.path.isfile(self.addons_path):
+        try:
+            db_addons = self._db.get_kv("stremio", "addons")
+            if isinstance(db_addons, list):
+                loaded_addons = [a for a in db_addons if isinstance(a, dict) and a.get("manifest_url")]
+        except Exception:
+            loaded_addons = []
+
+        if not loaded_addons and os.path.isfile(self.addons_path):
             try:
                 with open(self.addons_path, "r", encoding="utf-8") as f:
                     raw = json.load(f)
                 if isinstance(raw, list):
                     loaded_addons = [a for a in raw if isinstance(a, dict) and a.get("manifest_url")]
+                if loaded_addons:
+                    self._db.set_kv("stremio", "addons", loaded_addons)
             except Exception:
                 loaded_addons = []
 
         if not loaded_addons:
             loaded_addons = [dict(a) for a in self.DEFAULT_ADDONS]
         else:
+            defaults_by_id = {d["id"]: d for d in self.DEFAULT_ADDONS}
+            defaults_by_url = {d["manifest_url"].rstrip("/"): d for d in self.DEFAULT_ADDONS}
+            for item in loaded_addons:
+                matched_def = defaults_by_id.get(str(item.get("id") or "")) or defaults_by_url.get(
+                    str(item.get("manifest_url") or "").rstrip("/")
+                )
+                if matched_def:
+                    if not item.get("description_en") and matched_def.get("description_en"):
+                        item["description_en"] = matched_def["description_en"]
+                    if not item.get("description_ru") and matched_def.get("description"):
+                        item["description_ru"] = matched_def["description"]
             existing_urls = {str(a.get("manifest_url") or "").rstrip("/") for a in loaded_addons}
             for d_add in self.DEFAULT_ADDONS:
                 if d_add["manifest_url"].rstrip("/") not in existing_urls:
@@ -221,61 +304,216 @@ class StremioAddonEngine:
 
         self.addons = loaded_addons
 
+        try:
+            db_imdb = self._db.load_cache_dict("stremio_imdb", max_entries=6000)
+            if db_imdb:
+                self._imdb_cache = {str(k): str(v) for k, v in db_imdb.items() if str(v).startswith("tt")}
+                return
+        except Exception:
+            pass
+
         if os.path.isfile(self.imdb_cache_path):
             try:
                 with open(self.imdb_cache_path, "r", encoding="utf-8") as f:
                     raw_c = json.load(f)
                 if isinstance(raw_c, dict):
                     self._imdb_cache = {str(k): str(v) for k, v in raw_c.items() if str(v).startswith("tt")}
+                    if self._imdb_cache:
+                        self._db.save_cache_dict("stremio_imdb", self._imdb_cache, max_entries=6000)
             except Exception:
                 self._imdb_cache = {}
 
     def _save_addons(self) -> None:
         try:
-            os.makedirs(self.data_dir, exist_ok=True)
-            tmp = self.addons_path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self.addons, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, self.addons_path)
+            self._db.set_kv("stremio", "addons", self.addons)
         except Exception:
             pass
 
     def _save_imdb_cache(self) -> None:
         try:
-            os.makedirs(self.data_dir, exist_ok=True)
-            tmp = self.imdb_cache_path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self._imdb_cache, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, self.imdb_cache_path)
+            self._db.save_cache_dict("stremio_imdb", dict(self._imdb_cache), max_entries=6000)
         except Exception:
             pass
 
-    def _http_get_json(self, url: str, timeout: float = 7.5) -> Optional[Dict[str, Any]]:
+    @staticmethod
+    def _is_disallowed_ip(ip_obj: Any) -> bool:
+        if isinstance(ip_obj, ipaddress.IPv6Address):
+            if ip_obj.ipv4_mapped is not None:
+                return StremioAddonEngine._is_disallowed_ip(ip_obj.ipv4_mapped)
+            if getattr(ip_obj, "sixtofour", None) is not None:
+                return StremioAddonEngine._is_disallowed_ip(ip_obj.sixtofour)
+            if getattr(ip_obj, "teredo", None) is not None:
+                srv_ip, cli_ip = ip_obj.teredo
+                return StremioAddonEngine._is_disallowed_ip(srv_ip) or StremioAddonEngine._is_disallowed_ip(cli_ip)
+        return bool(
+            ip_obj.is_loopback
+            or ip_obj.is_private
+            or ip_obj.is_link_local
+            or ip_obj.is_multicast
+            or ip_obj.is_unspecified
+            or ip_obj.is_reserved
+            or not ip_obj.is_global
+        )
+
+    @staticmethod
+    def is_safe_public_http_url(url: str) -> bool:
+        u = str(url or "").strip()
+        if not u or _CTRL_CHAR_RE.search(u) or _WHITESPACE_RE.search(u):
+            return False
         try:
+            parsed = urllib.parse.urlparse(u)
+            if parsed.scheme not in ("http", "https"):
+                return False
+            if parsed.username is not None or parsed.password is not None:
+                return False
+            _ = parsed.port
+            raw_host = (parsed.hostname or "").strip().lower().strip("[]")
+            if "%" in raw_host:
+                return False
+            host = raw_host.rstrip(".")
+            if (
+                not host
+                or host in ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+                or host.endswith((".local", ".localhost", ".internal", ".lan", ".home.arpa"))
+            ):
+                return False
+            try:
+                ip_obj = ipaddress.ip_address(host)
+                if StremioAddonEngine._is_disallowed_ip(ip_obj):
+                    return False
+            except ValueError:
+                if "." not in host:
+                    return False
+                try:
+                    addr_info = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                    for _, _, _, _, sockaddr in addr_info:
+                        cand_ip_str = str(sockaddr[0]).split("%", 1)[0]
+                        cand_obj = ipaddress.ip_address(cand_ip_str)
+                        if StremioAddonEngine._is_disallowed_ip(cand_obj):
+                            return False
+                except (socket.gaierror, socket.herror, TimeoutError, OSError):
+                    pass
+                except Exception:
+                    return False
+            return True
+        except Exception:
+            return False
+
+    def _http_get_json(self, url: str, timeout: float = 7.5) -> Optional[Dict[str, Any]]:
+        if not self.is_safe_public_http_url(url):
+            return None
+
+        def _verify_peer_socket(sock_obj: Any) -> None:
+            peer_ip_raw = str(sock_obj.getpeername()[0]).split("%", 1)[0]
+            peer_ip_obj = ipaddress.ip_address(peer_ip_raw)
+            if StremioAddonEngine._is_disallowed_ip(peer_ip_obj):
+                raise urllib.error.URLError(f"Disallowed peer IP: {peer_ip_raw}")
+
+        class _SafeHTTPConnection(http.client.HTTPConnection):
+            def connect(self):
+                super().connect()
+                try:
+                    _verify_peer_socket(self.sock)
+                except Exception:
+                    try:
+                        self.close()
+                    except Exception:
+                        pass
+                    raise
+
+        class _SafeHTTPSConnection(http.client.HTTPSConnection):
+            def connect(self):
+                http.client.HTTPConnection.connect(self)
+                try:
+                    _verify_peer_socket(self.sock)
+                except Exception:
+                    try:
+                        self.close()
+                    except Exception:
+                        pass
+                    raise
+                server_hostname = self._tunnel_host if self._tunnel_host else self.host
+                if isinstance(server_hostname, str):
+                    server_hostname = server_hostname.rstrip(".")
+                self.sock = self._context.wrap_socket(self.sock, server_hostname=server_hostname)
+
+        class _SafeHTTPHandler(urllib.request.HTTPHandler):
+            def http_open(self, req):
+                return self.do_open(_SafeHTTPConnection, req)
+
+        class _SafeHTTPSHandler(urllib.request.HTTPSHandler):
+            def https_open(self, req):
+                return self.do_open(_SafeHTTPSConnection, req, context=self._context)
+
+        class _SafeRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                resolved_url = urllib.parse.urljoin(req.full_url, str(newurl or ""))
+                if not StremioAddonEngine.is_safe_public_http_url(resolved_url):
+                    if fp is not None:
+                        try:
+                            fp.close()
+                        except Exception:
+                            pass
+                    raise urllib.error.URLError("Disallowed redirect target")
+                return super().redirect_request(req, fp, code, msg, headers, resolved_url)
+
+        try:
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({}),
+                _SafeHTTPHandler(),
+                _SafeHTTPSHandler(context=_SHARED_SSL_CTX),
+                _SafeRedirect(),
+            )
             req = urllib.request.Request(
                 url,
                 headers={
                     "User-Agent": self.UA,
                     "Accept": "application/json",
+                    "Accept-Encoding": "gzip, identity",
                 },
             )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with opener.open(req, timeout=timeout) as resp:
                 if resp.status != 200:
                     return None
-                raw = resp.read().decode("utf-8", errors="replace")
+                max_compressed = 2 * 1024 * 1024
+                raw_bytes = resp.read(max_compressed + 1)
+                if len(raw_bytes) > max_compressed:
+                    return None
+                enc = str(resp.headers.get("Content-Encoding") or "").lower()
+                if "gzip" in enc or raw_bytes[:2] == b"\x1f\x8b":
+                    max_inflated = 6 * 1024 * 1024
+                    with gzip.GzipFile(fileobj=io.BytesIO(raw_bytes)) as gz:
+                        raw_bytes = gz.read(max_inflated + 1)
+                    if len(raw_bytes) > max_inflated:
+                        return None
+                raw = raw_bytes.decode("utf-8", errors="replace")
                 data = json.loads(raw)
                 return data if isinstance(data, dict) else None
         except Exception:
             return None
 
-    def get_addons(self) -> List[Dict[str, Any]]:
+    def get_addons(self, lang: str = "ru") -> List[Dict[str, Any]]:
+        is_en = str(lang or "").strip().lower().startswith("en")
         with self._lock:
-            return [dict(a) for a in self.addons]
+            out: List[Dict[str, Any]] = []
+            for a in self.addons:
+                copied = dict(a)
+                ru_desc = str(copied.get("description_ru") or copied.get("description") or "")
+                en_desc = str(copied.get("description_en") or "")
+                copied["description_ru"] = ru_desc
+                if en_desc:
+                    copied["description_en"] = en_desc
+                if is_en and en_desc:
+                    copied["description"] = en_desc
+                else:
+                    copied["description"] = ru_desc
+                out.append(copied)
+            return out
 
     @staticmethod
     def normalize_manifest_url(raw_url: str) -> str:
         u = (raw_url or "").strip()
-        if not u:
+        if not u or _CTRL_CHAR_RE.search(u):
             return ""
         if u.lower().startswith("stremio://"):
             u = "https://" + u[len("stremio://") :]
@@ -285,18 +523,38 @@ class StremioAddonEngine:
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             return ""
         path = parsed.path or ""
-        if not path.endswith("/manifest.json"):
+        if path.lower().endswith("/manifest.json"):
+            path = path[: -len("/manifest.json")] + "/manifest.json"
+        else:
             path = path.rstrip("/") + "/manifest.json"
-        return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", parsed.query, ""))
+        candidate = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", parsed.query, ""))
+        if not StremioAddonEngine.is_safe_public_http_url(candidate):
+            return ""
+        return candidate
 
-    def add_addon_by_url(self, raw_url: str) -> Dict[str, Any]:
+    def add_addon_by_url(self, raw_url: str, lang: str = "ru") -> Dict[str, Any]:
+        is_en = str(lang or "").strip().lower().startswith("en")
         manifest_url = self.normalize_manifest_url(raw_url)
         if not manifest_url:
-            return {"ok": False, "error": "Укажите корректную ссылку manifest.json или stremio://"}
+            return {
+                "ok": False,
+                "error": (
+                    "Enter a valid manifest.json or stremio:// URL"
+                    if is_en
+                    else "Укажите корректную ссылку manifest.json или stremio://"
+                ),
+            }
 
         manifest = self._http_get_json(manifest_url, timeout=9.0)
         if not manifest or not manifest.get("id") or not manifest.get("name"):
-            return {"ok": False, "error": "Не удалось загрузить manifest.json по указанному адресу"}
+            return {
+                "ok": False,
+                "error": (
+                    "Could not fetch manifest.json from the provided URL"
+                    if is_en
+                    else "Не удалось загрузить manifest.json по указанному адресу"
+                ),
+            }
 
         raw_res = manifest.get("resources") or []
         res_names: List[str] = []
@@ -306,9 +564,16 @@ class StremioAddonEngine:
             elif isinstance(r, dict) and r.get("name"):
                 res_names.append(str(r["name"]))
         if not any(rn in ("stream", "subtitles", "catalog", "meta") for rn in res_names):
-            return {"ok": False, "error": "Этот аддон не предоставляет потоки или субтитры"}
+            return {
+                "ok": False,
+                "error": (
+                    "This addon does not provide streams or subtitles"
+                    if is_en
+                    else "Этот аддон не предоставляет потоки или субтитры"
+                ),
+            }
 
-        base_url = re.sub(r"/manifest\.json(?:\?.*)?$", "", manifest_url)
+        base_url = re.sub(r"/manifest\.json(?:\?.*)?$", "", manifest_url, flags=re.I)
         clean_name = _clean_no_emoji(str(manifest.get("name") or "Stremio Addon"))
         clean_desc = _clean_no_emoji(str(manifest.get("description") or ""))
         addon_id = str(manifest.get("id"))
@@ -370,11 +635,22 @@ class StremioAddonEngine:
     def restore_addons(self, addons_list: Any) -> None:
         if not isinstance(addons_list, list):
             return
-        valid = [
-            a
-            for a in addons_list
-            if isinstance(a, dict) and a.get("manifest_url") and a.get("base_url")
-        ]
+        builtin_by_manifest = {d["manifest_url"]: d for d in self.DEFAULT_ADDONS}
+        valid: List[Dict[str, Any]] = []
+        seen_manifests = set()
+        for a in addons_list:
+            if not isinstance(a, dict) or not a.get("manifest_url"):
+                continue
+            # Re-validate every restored URL (backup files are untrusted input → SSRF to LAN hosts)
+            norm_manifest = self.normalize_manifest_url(str(a.get("manifest_url") or ""))
+            if not norm_manifest or norm_manifest in seen_manifests:
+                continue
+            seen_manifests.add(norm_manifest)
+            entry = dict(a)
+            entry["manifest_url"] = norm_manifest
+            entry["base_url"] = re.sub(r"/manifest\.json(?:\?.*)?$", "", norm_manifest, flags=re.I)
+            entry["builtin"] = norm_manifest in builtin_by_manifest
+            valid.append(entry)
         if not valid:
             return
         with self._lock:
@@ -396,7 +672,8 @@ class StremioAddonEngine:
             return m_tt.group(1)
 
         stremio_type = "series" if media_type == "series" else "movie"
-        cache_key = f"{stremio_type}:{_norm_title(orig_title or title)}:{year or 0}"
+        target_year = _safe_stremio_int(year, 0)
+        cache_key = f"{stremio_type}:{_norm_title(orig_title or title)}:{target_year}"
         with self._lock:
             cached = self._imdb_cache.get(cache_key)
             if cached:
@@ -410,7 +687,6 @@ class StremioAddonEngine:
 
         best_tt = ""
         best_score = -1
-        target_year = int(year or 0)
         norm_orig = _norm_title(orig_title) if orig_title else ""
         norm_ru = _norm_title(title) if title else ""
 
@@ -418,10 +694,13 @@ class StremioAddonEngine:
             enc_q = urllib.parse.quote(q)
             url = f"{self.CINEMETA_BASE}/catalog/{stremio_type}/top/search={enc_q}.json"
             data = self._http_get_json(url, timeout=6.0)
-            metas = (data or {}).get("metas") or []
+            raw_metas = (data or {}).get("metas")
+            metas = raw_metas if isinstance(raw_metas, list) else []
             for m in metas[:12]:
+                if not isinstance(m, dict):
+                    continue
                 cand_id = str(m.get("id") or m.get("imdb_id") or "")
-                if not re.match(r"^tt\d{5,10}$", cand_id):
+                if not _IMDB_ID_RE.match(cand_id):
                     continue
                 cand_name = _norm_title(str(m.get("name") or ""))
                 rel_info = str(m.get("releaseInfo") or m.get("year") or "")
@@ -455,67 +734,175 @@ class StremioAddonEngine:
 
         if best_tt and best_score >= 25:
             with self._lock:
+                if len(self._imdb_cache) >= 6000:
+                    try:
+                        self._imdb_cache.pop(next(iter(self._imdb_cache)))
+                    except StopIteration:
+                        pass
                 self._imdb_cache[cache_key] = best_tt
                 self._save_imdb_cache()
             return best_tt
         return ""
 
-    def fetch_cinemeta_series_meta(self, imdb_id: str) -> Dict[str, Any]:
-        if not imdb_id:
+    def fetch_cinemeta_series_meta(self, imdb_id: str, force_refresh: bool = False) -> Dict[str, Any]:
+        clean_imdb = str(imdb_id or "").strip()
+        if not _IMDB_ID_RE.match(clean_imdb):
             return {}
         now = time.time()
-        with self._lock:
-            cached = self._cinemeta_meta_cache.get(imdb_id)
-            if cached and now - cached[0] < 1800:
-                return cached[1]
+        if not force_refresh:
+            with self._lock:
+                cached = self._cinemeta_meta_cache.get(clean_imdb)
+                if cached and now - cached[0] < 1800:
+                    return copy.deepcopy(cached[1])
 
-        data = self._http_get_json(f"{self.CINEMETA_BASE}/meta/series/{imdb_id}.json", timeout=6.5)
-        meta = (data or {}).get("meta") or {}
-        videos = meta.get("videos") or []
+        data = self._http_get_json(f"{self.CINEMETA_BASE}/meta/series/{clean_imdb}.json", timeout=6.5)
+        raw_meta = (data or {}).get("meta")
+        meta = raw_meta if isinstance(raw_meta, dict) else {}
+        meta_title_en = _clean_no_emoji(str(meta.get("name") or ""))
+        raw_videos = meta.get("videos")
+        videos = raw_videos if isinstance(raw_videos, list) else []
         seasons_map: Dict[str, List[int]] = {}
-        episodes_titles: Dict[str, str] = {}
-        episodes_meta: Dict[str, Dict[str, str]] = {}
+        episodes_titles: Dict[str, Dict[str, str]] = {}
+        episodes_meta: Dict[str, Dict[str, Dict[str, Any]]] = {}
         latest_season = 1
         latest_episode = 1
 
-        now_iso = time.strftime("%Y-%m-%d")
+        now_utc = datetime.now(timezone.utc)
+        now_iso = now_utc.strftime("%Y-%m-%d")
+        stale_cutoff_iso = (now_utc - timedelta(days=180)).strftime("%Y-%m-%d")
+        any_dated = False
+        any_released = False
+        had_dated_released = False
+        max_dated_season = 0
+        max_dated_ep = 0
+        max_aired_date = ""
+        min_dated_season: Optional[int] = None
         for v in videos:
             if not isinstance(v, dict):
                 continue
-            s_num = int(v.get("season") or 0)
-            e_num = int(v.get("episode") or v.get("number") or 0)
+            try:
+                s_num = int(v.get("season") or 0)
+                e_num = int(v.get("episode") or v.get("number") or 0)
+            except (TypeError, ValueError):
+                continue
             if s_num <= 0 or e_num <= 0:
                 continue
-            released = str(v.get("released") or "")[:10]
             s_key = str(s_num)
+            e_key = str(e_num)
+            released = str(v.get("released") or "")[:10]
+            if released and not re.match(r"^\d{4}-\d{2}-\d{2}$", released):
+                released = ""
+            ep_title = _clean_no_emoji(str(v.get("name") or v.get("title") or ""))
+            clean_ep_title = ""
+            if ep_title and not re.match(r"^Episode\s+\d+$", ep_title, re.I):
+                clean_ep_title = ep_title
+            prev_ep = episodes_meta.get(s_key, {}).get(e_key)
+            if prev_ep is not None:
+                if not released and prev_ep.get("air_date"):
+                    released = str(prev_ep["air_date"])
+                if not clean_ep_title and prev_ep.get("title"):
+                    clean_ep_title = str(prev_ep["title"])
+            if released:
+                any_dated = True
+                if min_dated_season is None or s_num < min_dated_season:
+                    min_dated_season = s_num
             seasons_map.setdefault(s_key, [])
             if e_num not in seasons_map[s_key]:
                 seasons_map[s_key].append(e_num)
-            ep_title = _clean_no_emoji(str(v.get("name") or v.get("title") or ""))
-            ep_key = f"s{s_num}e{e_num}"
-            if ep_title and not re.match(r"^Episode\s+\d+$", ep_title, re.I):
-                episodes_titles[ep_key] = ep_title
-            episodes_meta[ep_key] = {
-                "title": episodes_titles.get(ep_key, ""),
+            if clean_ep_title:
+                episodes_titles.setdefault(s_key, {})[e_key] = clean_ep_title
+            # Episodes without an air date are resolved below once we know (max_dated_season, max_dated_ep)
+            is_future = bool(released > now_iso) if released else None
+            episodes_meta.setdefault(s_key, {})[e_key] = {
+                "title": clean_ep_title,
                 "air_date": released,
+                "is_future": bool(is_future),
+                "is_released": is_future is False,
+                "_undated": is_future is None,
             }
-            if not released or released <= now_iso:
+            if is_future is False:
+                any_released = True
+                had_dated_released = True
+                if released and released > max_aired_date:
+                    max_aired_date = released
+                if (s_num, e_num) > (max_dated_season, max_dated_ep):
+                    max_dated_season, max_dated_ep = s_num, e_num
                 if (s_num, e_num) > (latest_season, latest_episode):
                     latest_season, latest_episode = s_num, e_num
 
+        if any_dated:
+            # Undated entries PRIOR to the latest dated released episode (or in seasons before min_dated_season,
+            # or in a finished historical season whose latest dated episode aired >180 days ago) are back-catalog;
+            # undated entries AFTER an active/upcoming season's latest dated released episode are TBA/unreleased.
+            for s_key_u, s_eps in episodes_meta.items():
+                s_int = int(s_key_u)
+                has_future_dated_in_season = any(
+                    bool(em.get("air_date") and em.get("is_future")) for em in s_eps.values()
+                )
+                for e_key_u, ep_m in s_eps.items():
+                    if ep_m.pop("_undated", False):
+                        e_int = int(e_key_u)
+                        is_prior = bool(
+                            (had_dated_released and (s_int < max_dated_season or (s_int, e_int) < (max_dated_season, max_dated_ep)))
+                            or (min_dated_season is not None and s_int < min_dated_season)
+                            or (
+                                had_dated_released
+                                and s_int == max_dated_season
+                                and not has_future_dated_in_season
+                                and bool(max_aired_date and max_aired_date <= stale_cutoff_iso)
+                            )
+                        )
+                        if is_prior:
+                            ep_m["is_future"] = False
+                            ep_m["is_released"] = True
+                            any_released = True
+                            if (s_int, e_int) > (latest_season, latest_episode):
+                                latest_season, latest_episode = s_int, e_int
+                        else:
+                            ep_m["is_future"] = True
+                            ep_m["is_released"] = False
+        else:
+            # Show has no air dates at all: cannot tell, treat every listed episode as released
+            for s_key_u, s_eps in episodes_meta.items():
+                for e_key_u, ep_m in s_eps.items():
+                    if ep_m.pop("_undated", False):
+                        ep_m["is_future"] = False
+                        ep_m["is_released"] = True
+                        any_released = True
+                        if (int(s_key_u), int(e_key_u)) > (latest_season, latest_episode):
+                            latest_season, latest_episode = int(s_key_u), int(e_key_u)
+        if not any_released:
+            latest_season, latest_episode = 0, 0
+
+        released_seasons_map: Dict[str, List[int]] = {}
         for s_key in seasons_map:
             seasons_map[s_key].sort()
+            rel_eps = [
+                e for e in seasons_map[s_key]
+                if episodes_meta.get(s_key, {}).get(str(e), {}).get("is_released")
+            ]
+            if rel_eps:
+                released_seasons_map[s_key] = rel_eps
 
         parsed = {
-            "seasons_map": seasons_map,
+            "title_en": meta_title_en,
+            # Brand-new show with only announced episodes → nothing playable yet
+            "seasons_map": released_seasons_map,
+            "planned_seasons_map": seasons_map,
             "episodes_titles": episodes_titles,
             "episodes_meta": episodes_meta,
             "latest_season": latest_season,
             "latest_episode": latest_episode,
         }
+        if data is None:
+            # Network / parse failure: do not pin an empty map for 30 minutes
+            return parsed
         with self._lock:
-            self._cinemeta_meta_cache[imdb_id] = (now, parsed)
-        return parsed
+            if len(self._cinemeta_meta_cache) >= 256:
+                for k_old in list(self._cinemeta_meta_cache.keys())[:64]:
+                    self._cinemeta_meta_cache.pop(k_old, None)
+            self._cinemeta_meta_cache[clean_imdb] = (now, parsed)
+        return copy.deepcopy(parsed)
 
     def search_cinemeta(self, query: str, media_type_filter: str = "all") -> List[Dict[str, Any]]:
         q_clean = (query or "").strip()
@@ -529,18 +916,22 @@ class StremioAddonEngine:
             st_type = "series" if mtype == "series" else "movie"
             url = f"{self.CINEMETA_BASE}/catalog/{st_type}/top/search={urllib.parse.quote(q_clean)}.json"
             data = self._http_get_json(url, timeout=4.5)
-            for m in ((data or {}).get("metas") or [])[:8]:
+            raw_metas = (data or {}).get("metas")
+            metas_list = raw_metas if isinstance(raw_metas, list) else []
+            for m in metas_list[:8]:
+                if not isinstance(m, dict):
+                    continue
                 tt_id = str(m.get("id") or "")
-                if not tt_id.startswith("tt") or tt_id in seen_ids:
+                if not _IMDB_ID_RE.match(tt_id) or tt_id in seen_ids:
                     continue
                 name = _clean_no_emoji(str(m.get("name") or ""))
                 poster = str(m.get("poster") or "")
                 if not name or not poster:
                     continue
                 seen_ids.add(tt_id)
-                rel_info = str(m.get("releaseInfo") or m.get("year") or "2024")
+                rel_info = str(m.get("releaseInfo") or m.get("year") or "")
                 m_yr = re.search(r"((?:19|20)\d{2})", rel_info)
-                yr = int(m_yr.group(1)) if m_yr else 2024
+                yr = int(m_yr.group(1)) if m_yr else 0
                 imdb_rt = 0.0
                 try:
                     imdb_rt = round(float(m.get("imdbRating") or 0), 1)
@@ -576,12 +967,18 @@ class StremioAddonEngine:
         self,
         raw_st: Dict[str, Any],
         addon: Dict[str, Any],
+        ui_lang: str = "ru",
     ) -> Optional[Dict[str, Any]]:
         if not isinstance(raw_st, dict):
             return None
+        is_en = ui_lang == "en"
         direct_url = str(raw_st.get("url") or "").strip()
+        if direct_url and not self.is_safe_public_http_url(direct_url):
+            direct_url = ""
         info_hash = str(raw_st.get("infoHash") or "").strip().lower()
-        if not direct_url and not re.match(r"^[0-9a-f]{40}$", info_hash):
+        if not re.match(r"^[0-9a-f]{40}$", info_hash):
+            info_hash = ""
+        if not direct_url and not info_hash:
             return None
 
         raw_name = str(raw_st.get("name") or "")
@@ -603,16 +1000,14 @@ class StremioAddonEngine:
         # Extract size
         size_label = ""
         m_size = re.search(
-            "\U0001F4BE\\s*([\\d.,]+\\s*(?:GB|MB|TB|ГБ|МБ))", combined, re.I
-        ) or re.search(r"\b([\d.,]+\s*(?:GB|MB|TB|ГБ|МБ))\b", combined, re.I)
+            "\U0001F4BE\\s*([\\d.,]+\\s*(?:GB|MB|TB|ГБ|МБ|ТБ))", combined, re.I
+        ) or re.search(r"\b([\d.,]+\s*(?:GB|MB|TB|ГБ|МБ|ТБ))\b", combined, re.I)
         if m_size:
-            size_label = (
-                m_size.group(1)
-                .upper()
-                .replace("GB", "ГБ")
-                .replace("MB", "МБ")
-                .replace("TB", "ТБ")
-            )
+            raw_sz = m_size.group(1).upper()
+            if is_en:
+                size_label = raw_sz.replace("ГБ", "GB").replace("МБ", "MB").replace("ТБ", "TB")
+            else:
+                size_label = raw_sz.replace("GB", "ГБ").replace("MB", "МБ").replace("TB", "ТБ")
 
         # Extract tracker / source
         tracker = ""
@@ -629,14 +1024,15 @@ class StremioAddonEngine:
         has_ru_text = bool(
             re.search(r"[а-яё]{3,}", comb_low)
             or any(k in comb_low for _, kws in _VOICE_KEYWORDS for k in kws)
-            or "rus" in comb_low
+            or _RUS_TOKEN_RE.search(comb_low)
         )
         if has_ru_text and "RU" not in langs:
             langs.insert(0, "RU")
 
         has_orig = bool(
             "EN" in langs
-            or any(k in comb_low for k in ("original", "оригинал", "eng", "multi", "sub", "dl", "bluray", "webrip"))
+            or any(k in comb_low for k in ("original", "оригинал", "multi", "dual audio", "dual-audio"))
+            or re.search(r"(?<![a-z0-9])(?:eng|english|sub)(?![a-z0-9])", comb_low)
         )
         if has_orig and "EN" not in langs and "RU" not in langs:
             langs.append("EN")
@@ -645,15 +1041,17 @@ class StremioAddonEngine:
         for v_label, kws in _VOICE_KEYWORDS:
             if any(k in comb_low for k in kws):
                 detected_voices.append(v_label)
+        if "RU" in langs and "Дубляж" not in detected_voices and _DUB_TOKEN_RE.search(comb_low):
+            detected_voices.insert(0, "Дубляж")
 
         # Quality classification
         q_rank = 100
         quality = "1080p"
-        if "2160p" in comb_low or "4k" in comb_low or "uhd" in comb_low:
-            if "dv" in comb_low or "dolby vision" in comb_low:
+        if "2160p" in comb_low or re.search(r"(?<![a-z0-9])(?:4k|uhd)(?![a-z0-9])", comb_low):
+            if _DV_TOKEN_RE.search(comb_low):
                 quality = "4K DV HDR"
                 q_rank = 420
-            elif "hdr" in comb_low:
+            elif re.search(r"(?<![a-z0-9])hdr(?:\d*\+?)?(?![a-z0-9])", comb_low):
                 quality = "4K HDR"
                 q_rank = 400
             else:
@@ -670,7 +1068,11 @@ class StremioAddonEngine:
             q_rank = 140
 
         title_lines = [_clean_no_emoji(ln) for ln in raw_title.splitlines() if _clean_no_emoji(ln)]
-        clean_release_title = title_lines[0] if title_lines else _clean_no_emoji(raw_name) or "Поток Stremio"
+        clean_release_title = (
+            title_lines[0]
+            if title_lines
+            else _clean_no_emoji(raw_name) or ("Stremio Stream" if is_en else "Поток Stremio")
+        )
         clean_release_title = re.sub(r"\s+", " ", clean_release_title).strip()
 
         hints = raw_st.get("behaviorHints") if isinstance(raw_st.get("behaviorHints"), dict) else {}
@@ -678,17 +1080,23 @@ class StremioAddonEngine:
 
         file_idx_raw = raw_st.get("fileIdx")
         file_idx: Optional[int] = None
-        if isinstance(file_idx_raw, int) and file_idx_raw >= 0:
-            file_idx = file_idx_raw
+        if not isinstance(file_idx_raw, bool):
+            if isinstance(file_idx_raw, int) and file_idx_raw >= 0:
+                file_idx = file_idx_raw
+            elif isinstance(file_idx_raw, str) and file_idx_raw.strip().isascii() and file_idx_raw.strip().isdigit():
+                file_idx = int(file_idx_raw.strip())
 
         magnet = ""
         if info_hash:
             dn_part = f"&dn={urllib.parse.quote(filename_hint or clean_release_title[:90])}"
             extra_tr = ""
-            for src_entry in raw_st.get("sources") or []:
+            raw_sources = raw_st.get("sources")
+            for src_entry in (raw_sources if isinstance(raw_sources, list) else []):
                 if isinstance(src_entry, str) and src_entry.startswith("tracker:"):
                     tr_url = src_entry[len("tracker:") :].strip()
-                    if tr_url.startswith(("udp://", "http://", "https://")):
+                    if tr_url.startswith("udp://") or (
+                        tr_url.startswith(("http://", "https://")) and self.is_safe_public_http_url(tr_url)
+                    ):
                         extra_tr += f"&tr={urllib.parse.quote(tr_url, safe='')}"
             magnet = f"magnet:?xt=urn:btih:{info_hash}{dn_part}{extra_tr}{_PUBLIC_TRACKERS_SUFFIX}"
 
@@ -696,27 +1104,38 @@ class StremioAddonEngine:
         has_ru = "RU" in langs
 
         voice_parts: List[str] = []
-        if has_ru and "EN" in langs:
-            voice_parts.append("RU + Оригинал")
-        elif has_ru:
-            voice_parts.append("Русская дорожка")
+        if is_en:
+            if has_ru and "EN" in langs:
+                voice_parts.append("RU + Original")
+            elif has_ru:
+                voice_parts.append("Russian Audio")
+            else:
+                voice_parts.append("Original")
         else:
-            voice_parts.append("Оригинал")
+            if has_ru and "EN" in langs:
+                voice_parts.append("RU + Оригинал")
+            elif has_ru:
+                voice_parts.append("Русская дорожка")
+            else:
+                voice_parts.append("Оригинал")
         if detected_voices:
-            voice_parts.append(", ".join(detected_voices[:3]))
+            en_voice_map = {"Дубляж": "Dubbed", "Кубик в Кубе": "Kubik v Kube"}
+            v_disp = [en_voice_map.get(v, v) if is_en else v for v in detected_voices[:3]]
+            voice_parts.append(", ".join(v_disp))
 
         addon_short = _clean_no_emoji(raw_name.splitlines()[0] if raw_name else addon.get("name", "Stremio"))
         if not addon_short:
             addon_short = addon.get("name", "Stremio")
 
+        id_seed = info_hash or hashlib.sha1(direct_url.encode("utf-8", errors="ignore")).hexdigest()[:20]
         return {
-            "stream_id": f"{info_hash or urllib.parse.quote(direct_url[-36:])}_{file_idx if file_idx is not None else 'auto'}",
+            "stream_id": f"{id_seed}_{file_idx if file_idx is not None else 'auto'}",
             "title": clean_release_title,
             "addon_name": addon.get("name", "Stremio"),
             "addon_badge": addon_short[:28],
             "quality": quality,
             "quality_rank": q_rank,
-            "size": size_label or "Поток",
+            "size": size_label or ("Stream" if is_en else "Поток"),
             "seeders": seeders,
             "tracker": tracker or addon_short[:22],
             "languages": langs,
@@ -731,16 +1150,26 @@ class StremioAddonEngine:
             "magnet": magnet,
         }
 
-    def _fetch_addon_streams(self, addon: Dict[str, Any], st_type: str, video_id: str) -> List[Dict[str, Any]]:
+    def _fetch_addon_streams(
+        self,
+        addon: Dict[str, Any],
+        st_type: str,
+        video_id: str,
+        ui_lang: str = "ru",
+    ) -> List[Dict[str, Any]]:
         base = str(addon.get("base_url") or "").rstrip("/")
         if not base:
             return []
-        url = f"{base}/stream/{st_type}/{video_id}.json"
+        safe_type = urllib.parse.quote(str(st_type or "movie"), safe="")
+        safe_vid = urllib.parse.quote(str(video_id or ""), safe=":")
+        url = f"{base}/stream/{safe_type}/{safe_vid}.json"
         data = self._http_get_json(url, timeout=7.5)
-        raw_list = (data or {}).get("streams") or []
+        raw_list = (data or {}).get("streams")
+        if not isinstance(raw_list, list):
+            return []
         parsed_out: List[Dict[str, Any]] = []
         for st in raw_list:
-            p = self._parse_single_stream(st, addon)
+            p = self._parse_single_stream(st, addon, ui_lang=ui_lang)
             if p:
                 parsed_out.append(p)
         return parsed_out
@@ -755,16 +1184,20 @@ class StremioAddonEngine:
         base = str(addon.get("base_url") or "").rstrip("/")
         if not base:
             return []
-        url = f"{base}/subtitles/{st_type}/{video_id}.json"
+        safe_type = urllib.parse.quote(str(st_type or "movie"), safe="")
+        safe_vid = urllib.parse.quote(str(video_id or ""), safe=":")
+        url = f"{base}/subtitles/{safe_type}/{safe_vid}.json"
         data = self._http_get_json(url, timeout=6.5)
-        raw_subs = (data or {}).get("subtitles") or []
+        raw_subs = (data or {}).get("subtitles")
+        if not isinstance(raw_subs, list):
+            return []
         grouped: Dict[str, List[Dict[str, Any]]] = {"rus": [], "eng": [], "pol": [], "ukr": []}
         for s in raw_subs:
             if not isinstance(s, dict):
                 continue
             sub_url = str(s.get("url") or "").strip()
             lang_raw = str(s.get("lang") or "").strip().lower()
-            if not sub_url.startswith(("http://", "https://")):
+            if not self.is_safe_public_http_url(sub_url):
                 continue
             norm_lang = (
                 "rus"
@@ -816,15 +1249,18 @@ class StremioAddonEngine:
         season: int = 1,
         episode: int = 1,
         lang: str = "ru",
+        imdb_id: str = "",
     ) -> Dict[str, Any]:
         ui_lang = "en" if str(lang or "").strip().lower().startswith("en") else "ru"
         st_type = "series" if media_type == "series" else "movie"
-        imdb_id = self.resolve_imdb_id(item_id, title, orig_title, year, st_type)
+        imdb_id = self.resolve_imdb_id(imdb_id or item_id, title, orig_title, year, st_type)
         torr_online = self.backup_engine.ensure_local_torrserver()
         debrid_ready = bool(
             self.backup_engine.debrid_api_key
             and self.backup_engine.mode in ("realdebrid", "torbox", "debrid_https")
         )
+
+        p2p_strict = bool(getattr(self.backup_engine.net, "p2p_strict", False))
 
         if not imdb_id:
             return {
@@ -832,6 +1268,7 @@ class StremioAddonEngine:
                 "imdb_id": "",
                 "streams": [],
                 "subtitles": [],
+                "p2p_strict": p2p_strict,
                 "torrserver_connected": torr_online,
                 "debrid_ready": debrid_ready,
                 "mode": self.backup_engine.mode,
@@ -843,13 +1280,16 @@ class StremioAddonEngine:
                 ),
             }
 
-        video_id = f"{imdb_id}:{max(1, season)}:{max(1, episode)}" if st_type == "series" else imdb_id
+        s_num = max(1, _safe_stremio_int(season, 1))
+        e_num = max(1, _safe_stremio_int(episode, 1))
+        video_id = f"{imdb_id}:{s_num}:{e_num}" if st_type == "series" else imdb_id
         cache_key = f"{st_type}:{video_id}:{ui_lang}"
         now = time.time()
         with self._lock:
             cached = self._streams_cache.get(cache_key)
         if cached and now - cached[0] < 300:
-            payload = dict(cached[1])
+            payload = copy.deepcopy(cached[1])
+            payload["p2p_strict"] = p2p_strict
             payload["torrserver_connected"] = torr_online
             payload["debrid_ready"] = debrid_ready
             payload["mode"] = self.backup_engine.mode
@@ -857,7 +1297,7 @@ class StremioAddonEngine:
 
         active_addons = [
             a
-            for a in self.get_addons()
+            for a in self.get_addons(lang=ui_lang)
             if a.get("enabled") and st_type in (a.get("types") or ["movie", "series"])
         ]
         stream_addons = [a for a in active_addons if "stream" in (a.get("resources") or [])]
@@ -867,8 +1307,9 @@ class StremioAddonEngine:
         all_subs: List[Dict[str, Any]] = []
         series_meta: Dict[str, Any] = {}
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-            stream_futs = [pool.submit(self._fetch_addon_streams, a, st_type, video_id) for a in stream_addons]
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+        try:
+            stream_futs = [pool.submit(self._fetch_addon_streams, a, st_type, video_id, ui_lang) for a in stream_addons]
             sub_futs = [pool.submit(self._fetch_addon_subtitles, a, st_type, video_id, ui_lang) for a in sub_addons]
             meta_fut = pool.submit(self.fetch_cinemeta_series_meta, imdb_id) if st_type == "series" else None
 
@@ -887,6 +1328,8 @@ class StremioAddonEngine:
                     series_meta = meta_fut.result(timeout=7.0) or {}
                 except Exception:
                     series_meta = {}
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
         # Deduplicate streams by info_hash / direct_url while keeping richest metadata
         deduped: Dict[str, Dict[str, Any]] = {}
@@ -937,6 +1380,7 @@ class StremioAddonEngine:
             "episodes_meta": series_meta.get("episodes_meta", {}),
             "latest_season": series_meta.get("latest_season", season),
             "latest_episode": series_meta.get("latest_episode", episode),
+            "p2p_strict": p2p_strict,
             "torrserver_connected": torr_online,
             "debrid_ready": debrid_ready,
             "mode": self.backup_engine.mode,
@@ -945,9 +1389,10 @@ class StremioAddonEngine:
         }
         with self._lock:
             if len(self._streams_cache) >= 40:
-                self._streams_cache.clear()
+                for k_old in list(self._streams_cache.keys())[:10]:
+                    self._streams_cache.pop(k_old, None)
             self._streams_cache[cache_key] = (now, result)
-        return result
+        return copy.deepcopy(result)
 
     def get_subtitles_only(
         self,
@@ -964,7 +1409,7 @@ class StremioAddonEngine:
         Fetches external Stremio subtitles (OpenSubtitles v3) for a title/episode without
         waiting on torrent stream scrapers. Used by `/api/backup-streams` and `/api/hdrezka/streams`.
         """
-        ui_lang = "en" if str(lang or "").strip().lower() == "en" else "ru"
+        ui_lang = "en" if str(lang or "").strip().lower().startswith("en") else "ru"
         st_type = "series" if media_type == "series" else "movie"
         imdb_id = self.resolve_imdb_id(
             item_id=item_id,
@@ -975,7 +1420,11 @@ class StremioAddonEngine:
         )
         if not imdb_id:
             return []
-        video_id = f"{imdb_id}:{max(1, int(season))}:{max(1, int(episode))}" if st_type == "series" else imdb_id
+        video_id = (
+            f"{imdb_id}:{max(1, _safe_stremio_int(season, 1))}:{max(1, _safe_stremio_int(episode, 1))}"
+            if st_type == "series"
+            else imdb_id
+        )
         cache_key = f"subs:{st_type}:{video_id}:{ui_lang}"
         now = time.time()
         with self._lock:
@@ -985,12 +1434,12 @@ class StremioAddonEngine:
                 subs_cache = self._subs_only_cache
             cached = subs_cache.get(cache_key)
             if cached and (now - cached[0]) < 900:
-                return list(cached[1])
+                return copy.deepcopy(cached[1])
             full_cached = self._streams_cache.get(f"{st_type}:{video_id}:{ui_lang}")
             if full_cached and (now - full_cached[0]) < 600:
-                subs_list = list(full_cached[1].get("subtitles") or [])
+                subs_list = copy.deepcopy(full_cached[1].get("subtitles") or [])
                 subs_cache[cache_key] = (now, subs_list)
-                return subs_list
+                return copy.deepcopy(subs_list)
 
         sub_addons = [
             a
@@ -1012,9 +1461,10 @@ class StremioAddonEngine:
                     pass
         with self._lock:
             if len(self._subs_only_cache) >= 60:
-                self._subs_only_cache.clear()
+                for k_old in list(self._subs_only_cache.keys())[:15]:
+                    self._subs_only_cache.pop(k_old, None)
             self._subs_only_cache[cache_key] = (now, all_subs)
-        return all_subs
+        return copy.deepcopy(all_subs)
 
     def resolve_stream_to_playable_url(
         self,
@@ -1024,86 +1474,138 @@ class StremioAddonEngine:
         media_type: str = "movie",
         season: int = 1,
         episode: int = 1,
+        lang: str = "ru",
     ) -> Dict[str, Any]:
         """
         Resolves a Stremio BitTorrent stream (infoHash/magnet) into a direct playable HTTP stream
         via Cloud Debrid (if configured) or built-in TorrServer with exact episode filename matching.
         """
+        is_en = str(lang or "").strip().lower().startswith("en")
+        s_clean = max(1, _safe_stremio_int(season, 1))
+        e_clean = max(1, _safe_stremio_int(episode, 1))
         enriched_magnet = _enrich_magnet_trackers(magnet)
         if not enriched_magnet:
-            return {"ok": False, "error": "Отсутствует magnet-ссылка потока"}
+            return {
+                "ok": False,
+                "error": "Missing stream magnet link" if is_en else "Отсутствует magnet-ссылка потока",
+            }
 
+        debrid_err = ""
         if self.backup_engine.debrid_api_key and self.backup_engine.mode in (
             "realdebrid",
             "torbox",
             "debrid_https",
         ):
             d_res = self.backup_engine.resolve_debrid_magnet(
-                enriched_magnet, media_type=media_type, season=season, episode=episode
+                enriched_magnet, media_type=media_type, season=s_clean, episode=e_clean, lang=lang
             )
-            if d_res.get("ok") and d_res.get("stream_url"):
-                return {"ok": True, "stream_url": d_res["stream_url"], "via": self.backup_engine.mode}
+            d_url = str(d_res.get("stream_url") or "").strip()
+            if d_res.get("ok") and d_url and self.is_safe_public_http_url(d_url):
+                return {"ok": True, "stream_url": d_url, "via": self.backup_engine.mode}
+            debrid_err = str(d_res.get("error") or "").strip()
 
         if not self.backup_engine.ensure_local_torrserver():
+            if debrid_err:
+                return {"ok": False, "error": debrid_err}
+            if getattr(self.backup_engine.net, "p2p_strict", False) and self.backup_engine.mode != "torrserver":
+                return {
+                    "ok": False,
+                    "error": (
+                        "Direct BitTorrent P2P is disabled by your country privacy profile — connect a Real-Debrid / TorBox (HTTPS) key or switch mode in Settings"
+                        if is_en
+                        else (
+                            "Прямой BitTorrent P2P отключён профилем безопасности выбранной страны — "
+                            "подключите ключ Real-Debrid / TorBox (HTTPS) или переключите режим в настройках"
+                        )
+                    ),
+                }
             return {
                 "ok": False,
-                "error": "Встроенный TorrServer недоступен — проверьте настройки сети или укажите ключ Debrid",
+                "error": (
+                    "Built-in TorrServer is unavailable — check network settings or configure a Debrid key"
+                    if is_en
+                    else "Встроенный TorrServer недоступен — проверьте настройки сети или укажите ключ Debrid"
+                ),
             }
 
         torr_idx = 1
-        body = json.dumps({"action": "add", "link": enriched_magnet, "save_to_db": False}).encode("utf-8")
-        hint_base = os.path.basename(filename_hint).strip().lower() if filename_hint else ""
+        hint_base = os.path.basename(filename_hint.replace("\\", "/")).strip().lower() if filename_hint else ""
+        fstats = self.backup_engine._fetch_torrserver_file_stats(enriched_magnet, wait_metadata_sec=6.5)
 
-        fstats: List[Dict[str, Any]] = []
-        deadline = time.time() + 4.5
-        while time.time() < deadline:
-            try:
-                req = urllib.request.Request(
-                    f"{self.backup_engine.torrserver_url}/torrents",
-                    data=body,
-                    headers={"Content-Type": "application/json"},
-                )
-                with urllib.request.urlopen(req, timeout=3.5) as r:
-                    st_data = json.loads(r.read().decode("utf-8", errors="replace"))
-                fstats = st_data.get("file_stats") or []
-                if fstats:
-                    break
-            except Exception:
-                pass
-            time.sleep(0.35)
-
+        video_files_out: List[Dict[str, Any]] = []
         if fstats:
+            main_files = self.backup_engine._filter_main_video_files(fstats, "path", "length")
+            main_files_sorted = sorted(main_files, key=lambda x: str(x.get("path") or "").lower())
+            for idx_pos, vf in enumerate(main_files_sorted):
+                fid = int(vf.get("id") or (idx_pos + 1))
+                raw_path = str(vf.get("path") or f"file_{fid}.mkv")
+                base_name = raw_path.replace("\\", "/").split("/")[-1] or raw_path
+                f_bytes = int(vf.get("length") or 0)
+                det_ep = (
+                    self.backup_engine._detect_episode_in_path(raw_path, season=s_clean)
+                    if media_type == "series"
+                    else None
+                )
+                video_files_out.append(
+                    {
+                        "id": fid,
+                        "name": base_name,
+                        "path": raw_path,
+                        "bytes": f_bytes,
+                        "size": self.backup_engine._format_file_bytes(f_bytes, is_en=is_en),
+                        "episode": det_ep,
+                    }
+                )
+
+            video_exts = (".mkv", ".mp4", ".ts", ".m2ts", ".avi", ".mov", ".webm")
             matched_id: Optional[int] = None
             if hint_base:
                 for f in fstats:
-                    p_low = os.path.basename(str(f.get("path") or "")).strip().lower()
+                    p_low = os.path.basename(str(f.get("path") or "").replace("\\", "/")).strip().lower()
                     if p_low == hint_base:
                         matched_id = int(f.get("id") or 1)
                         break
             if matched_id is None and media_type == "series":
-                matched_id = self.backup_engine._resolve_torrserver_file_index(
-                    enriched_magnet, media_type, season, episode, wait_metadata_sec=0.2
+                matched_id = self.backup_engine._match_episode_from_files(
+                    fstats, "path", "id", "length", media_type, s_clean, e_clean
                 )
             if matched_id is None and isinstance(file_idx, int) and 0 <= file_idx < len(fstats):
-                # TorrServer file_stats is sorted and 1-indexed
-                matched_id = int(fstats[file_idx].get("id") or (file_idx + 1))
+                cand_path = str(fstats[file_idx].get("path") or "").lower()
+                if cand_path.endswith(video_exts):
+                    matched_id = int(fstats[file_idx].get("id") or (file_idx + 1))
             if matched_id is None:
-                video_exts = (".mkv", ".mp4", ".ts", ".m2ts", ".avi", ".mov", ".webm")
-                vfiles = [f for f in fstats if str(f.get("path") or "").lower().endswith(video_exts)] or fstats
+                vfiles = main_files or [
+                    f for f in fstats if str(f.get("path") or "").lower().endswith(video_exts)
+                ] or fstats
                 largest = max(vfiles, key=lambda x: int(x.get("length") or 0))
                 matched_id = int(largest.get("id") or 1)
             torr_idx = matched_id
+        elif media_type == "series" and isinstance(file_idx, int) and file_idx >= 0:
+            torr_idx = file_idx + 1
 
+        chosen_file_obj = next((f for f in video_files_out if int(f["id"]) == torr_idx), None)
+        fname_raw = (
+            (chosen_file_obj["name"] if chosen_file_obj else "")
+            or (os.path.basename(filename_hint.replace("\\", "/")).strip() if filename_hint else "")
+            or "fname"
+        )
+        fname_seg = urllib.parse.quote(fname_raw)
         stream_url = (
-            f"{self.backup_engine.torrserver_url}/stream/fname"
+            f"{self.backup_engine.torrserver_url}/stream/{fname_seg}"
             f"?link={urllib.parse.quote(enriched_magnet)}&index={torr_idx}&play"
         )
-        return {"ok": True, "stream_url": stream_url, "via": "torrserver", "torr_index": torr_idx}
+        return {
+            "ok": True,
+            "stream_url": stream_url,
+            "via": "torrserver",
+            "torr_index": torr_idx,
+            "video_files": video_files_out,
+        }
 
     def resolve_original_audio_fallback(
         self,
-        item_id: str,
-        title: str,
+        item_id: str = "",
+        title: str = "",
         orig_title: str = "",
         year: int = 2024,
         media_type: str = "movie",
@@ -1111,6 +1613,7 @@ class StremioAddonEngine:
         episode: int = 1,
         remux_engine: Any = None,
         lang: str = "ru",
+        imdb_id: str = "",
     ) -> Optional[Dict[str, Any]]:
         """
         Fallback when HDRezka marks Original (+subtitles) as b-prem_translator AND JacRed has no match
@@ -1118,9 +1621,10 @@ class StremioAddonEngine:
         """
         if not remux_engine or not remux_engine.is_available():
             return None
+        eff_item_id = str(item_id or imdb_id or "").strip()
         ui_lang = "en" if str(lang or "").strip().lower().startswith("en") else "ru"
         st_data = self.get_streams_for_title(
-            item_id=item_id,
+            item_id=eff_item_id,
             title=title,
             orig_title=orig_title,
             year=year,
@@ -1180,17 +1684,27 @@ class StremioAddonEngine:
             if not raw_stream_url:
                 continue
 
-            probe = remux_engine.probe_media(raw_stream_url, timeout_sec=11.0, fast_probe=True, lang="en")
+            probe = remux_engine.probe_media(raw_stream_url, timeout_sec=11.0, fast_probe=True, lang=ui_lang)
             if not probe.get("ok"):
                 continue
 
             audio_tracks = probe.get("audio_tracks") or []
-            audio_idx = int(probe.get("default_audio_index") or 0)
+            if hasattr(remux_engine, "_select_default_audio_index"):
+                audio_idx = int(remux_engine._select_default_audio_index(audio_tracks, ui_lang="en") or 0)
+            else:
+                audio_idx = int(probe.get("default_audio_index") or 0)
             orig_track = next(
                 (tr for tr in audio_tracks if int(tr.get("audio_index") or 0) == audio_idx),
                 audio_tracks[0] if audio_tracks else {"channels": 2},
             )
+            orig_lang = str(orig_track.get("lang") or "").strip().lower()
+            orig_lbl = str(orig_track.get("label") or orig_track.get("title") or "").strip().lower()
+            if orig_lang in ("rus", "ru", "ukr", "uk") or (
+                not orig_lang and any(w in orig_lbl for w in ("рус", "дубляж", "russian"))
+            ):
+                continue
             vcodec = str(probe.get("video_codec") or "")
+            acodec = str(orig_track.get("codec") or orig_track.get("codec_name") or "").strip().lower()
             channels = int(orig_track.get("channels") or 2)
             remux_qs = urllib.parse.urlencode(
                 {
@@ -1198,6 +1712,7 @@ class StremioAddonEngine:
                     "audio": str(audio_idx),
                     "start": "0",
                     "vcodec": vcodec,
+                    "acodec": acodec,
                     "ch": str(channels),
                 }
             )
@@ -1209,7 +1724,7 @@ class StremioAddonEngine:
                         "src": raw_stream_url,
                         "si": str(st.get("stream_index") or 0),
                         "ss": "0",
-                        "dur": "5400",
+                        "dur": "420",
                     }
                 )
                 subs_out.append(
@@ -1229,10 +1744,12 @@ class StremioAddonEngine:
                 "remux_session": {
                     "rawSourceUrl": raw_stream_url,
                     "duration": float(probe.get("duration") or 0.0),
+                    "creditsStartSec": float(probe.get("credits_start_sec") or 0.0),
                     "audioIndex": audio_idx,
                     "videoCodec": vcodec,
+                    "audioCodec": acodec,
                     "channels": channels,
-                    "audioTracks": remux_engine.probe_media(raw_stream_url, timeout_sec=4.0, fast_probe=True, lang=ui_lang).get("audio_tracks") or audio_tracks,
+                    "audioTracks": audio_tracks,
                     "subtitleTracks": probe.get("subtitle_tracks") or [],
                 },
             }

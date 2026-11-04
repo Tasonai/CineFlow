@@ -4,19 +4,23 @@ Zero third-party dependencies — generates crisp, high-contrast vector SVG QR c
 for LAN URLs (e.g. `http://192.168.1.25:8765`) scannable by iOS, iPadOS, Android, and Smart TVs.
 """
 
+import html
+import ipaddress
 import socket
 from typing import List, Optional, Tuple
 
-# Version 1..6 parameters for Error Correction Level M:
-# version -> (size, total_data_codewords, ec_codewords_per_block, num_blocks, alignment_centers)
+# Version 1..6 parameters:
+# version -> (size, total_data_codewords, ec_codewords_per_block, num_blocks, alignment_centers, ecc_format_bits)
 _QR_VERSIONS_M = {
-    1: (21, 16, 10, 1, ()),
-    2: (25, 28, 16, 1, (6, 18)),
-    3: (29, 44, 26, 1, (6, 22)),
-    4: (33, 64, 18, 2, (6, 26)),
-    5: (37, 86, 24, 2, (6, 30)),
-    6: (41, 108, 16, 4, (6, 34)),
+    1: (21, 16, 10, 1, (), 0b00),
+    2: (25, 28, 16, 1, (6, 18), 0b00),
+    3: (29, 44, 26, 1, (6, 22), 0b00),
+    4: (33, 64, 18, 2, (6, 26), 0b00),
+    5: (37, 86, 24, 2, (6, 30), 0b00),
+    6: (41, 108, 16, 4, (6, 34), 0b00),
 }
+# Extended Version 6 Level L fallback for longer URLs (up to 134 bytes)
+_QR_V6_ECC_L = (41, 136, 18, 2, (6, 34), 0b01)
 
 # GF(256) log / exp tables with primitive polynomial 0x11D
 _GF_EXP = [0] * 512
@@ -68,25 +72,38 @@ def _rs_compute_remainder(data: List[int], ec_len: int) -> List[int]:
     return rem
 
 
-def _encode_codewords(payload: bytes) -> Tuple[int, List[int]]:
+def _encode_codewords(
+    payload: bytes,
+    use_eci_utf8: bool = False,
+) -> Tuple[Tuple[int, int, int, int, Tuple[int, ...], int], List[int]]:
     length = len(payload)
-    chosen_ver = 0
-    for ver, (_, data_cw, _, _, _) in sorted(_QR_VERSIONS_M.items()):
-        # Byte mode header: 4 bits mode (0100) + 8 bits char count (for ver 1..9) = 12 bits
-        max_bytes = (data_cw * 8 - 12) // 8
+    # Pure ASCII uses 12-bit Byte header (0100 + 8-bit length);
+    # non-ASCII prepends 12-bit ISO/IEC 18004 UTF-8 ECI header (0111 + 26) = 24 header bits.
+    header_bits = 24 if use_eci_utf8 else 12
+    chosen_spec: Optional[Tuple[int, int, int, int, Tuple[int, ...], int]] = None
+    for _, spec in sorted(_QR_VERSIONS_M.items()):
+        data_cw = spec[1]
+        max_bytes = (data_cw * 8 - header_bits) // 8
         if length <= max_bytes:
-            chosen_ver = ver
+            chosen_spec = spec
             break
-    if not chosen_ver:
-        raise ValueError("QR payload too long for versions 1..6 (max ~106 bytes)")
+    if chosen_spec is None:
+        max_l_bytes = (_QR_V6_ECC_L[1] * 8 - header_bits) // 8
+        if length <= max_l_bytes:
+            chosen_spec = _QR_V6_ECC_L
+        else:
+            raise ValueError("QR payload too long for versions 1..6 (max 134 bytes)")
 
-    _, total_data_cw, ec_per_block, num_blocks, _ = _QR_VERSIONS_M[chosen_ver]
+    _, total_data_cw, ec_per_block, num_blocks, _, _ = chosen_spec
     bits: List[int] = []
 
     def _append_bits(val: int, count: int) -> None:
         for shift in range(count - 1, -1, -1):
             bits.append((val >> shift) & 1)
 
+    if use_eci_utf8:
+        _append_bits(0b0111, 4)
+        _append_bits(26, 8)
     _append_bits(0b0100, 4)
     _append_bits(length, 8)
     for b in payload:
@@ -111,7 +128,7 @@ def _encode_codewords(payload: bytes) -> Tuple[int, List[int]]:
         data_bytes.append(pad_cycle[idx % 2])
         idx += 1
 
-    # Split into equal blocks (versions 1..6 at ECC-M all use equal-size blocks)
+    # Split into equal blocks
     block_size = total_data_cw // num_blocks
     data_blocks: List[List[int]] = []
     ec_blocks: List[List[int]] = []
@@ -128,18 +145,22 @@ def _encode_codewords(payload: bytes) -> Tuple[int, List[int]]:
         for b_idx in range(num_blocks):
             interleaved.append(ec_blocks[b_idx][col])
 
-    return chosen_ver, interleaved
+    return chosen_spec, interleaved
 
 
-def _format_bits_ecc_m(mask_id: int) -> int:
-    # ECC Level M indicator = 00
-    data = ((0b00 << 3) | (mask_id & 0b111)) << 10
+def _format_bits_for_ecc(ecc_bits: int, mask_id: int) -> int:
+    hdr = ((ecc_bits & 0b11) << 3) | (mask_id & 0b111)
+    data = hdr << 10
     rem = data
     for bit in range(14, 9, -1):
         if rem & (1 << bit):
             rem ^= 0x537 << (bit - 10)
-    combined = (((0b00 << 3) | (mask_id & 0b111)) << 10) | rem
+    combined = (hdr << 10) | rem
     return combined ^ 0x5412
+
+
+def _format_bits_ecc_m(mask_id: int) -> int:
+    return _format_bits_for_ecc(0b00, mask_id)
 
 
 def _mask_bit(mask_id: int, r: int, c: int) -> bool:
@@ -198,13 +219,36 @@ def _penalty_score(modules: List[List[int]]) -> int:
             v = modules[r][c]
             if v == modules[r][c + 1] == modules[r + 1][c] == modules[r + 1][c + 1]:
                 score += 3
+
+    # Rule 3: 1:1:3:1:1 finder-like patterns preceded or followed by 4 light modules
+    pat_a = (1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0)
+    pat_b = (0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1)
+    for r in range(n):
+        row = modules[r]
+        for c in range(n - 10):
+            seg = tuple(row[c : c + 11])
+            if seg == pat_a or seg == pat_b:
+                score += 40
+    for c in range(n):
+        for r in range(n - 10):
+            seg = tuple(modules[r + k][c] for k in range(11))
+            if seg == pat_a or seg == pat_b:
+                score += 40
+
+    # Rule 4: dark/light module ratio deviation from 50%
+    total_mods = n * n
+    dark_mods = sum(sum(row) for row in modules)
+    pct_dark = (dark_mods * 100) / max(1, total_mods)
+    steps_from_50 = int(abs(pct_dark - 50.0) // 5)
+    score += steps_from_50 * 10
     return score
 
 
 def build_qr_matrix(text: str) -> List[List[int]]:
-    payload = text.encode("utf-8")
-    ver, codewords = _encode_codewords(payload)
-    size, _, _, _, align_coords = _QR_VERSIONS_M[ver]
+    raw_str = str(text or "")
+    payload = raw_str.encode("utf-8", errors="replace")
+    spec, codewords = _encode_codewords(payload, use_eci_utf8=(not raw_str.isascii()))
+    size, _, _, _, align_coords, ecc_bits = spec
 
     base: List[List[int]] = [[0] * size for _ in range(size)]
     is_func: List[List[bool]] = [[False] * size for _ in range(size)]
@@ -280,15 +324,15 @@ def build_qr_matrix(text: str) -> List[List[int]]:
         col -= 2
 
     def _write_format_bits(grid: List[List[int]], mask_id: int) -> None:
-        fmt = _format_bits_ecc_m(mask_id)
-        # Copy 1: around top-left finder
+        fmt = _format_bits_for_ecc(ecc_bits, mask_id)
+        # Copy 1: around top-left finder (ISO/IEC 18004 Fig. 25: bit 0 at (0,8) .. bit 14 at (8,0))
         for i in range(6):
-            grid[8][i] = (fmt >> i) & 1
-        grid[8][7] = (fmt >> 6) & 1
+            grid[i][8] = (fmt >> i) & 1
+        grid[7][8] = (fmt >> 6) & 1
         grid[8][8] = (fmt >> 7) & 1
-        grid[7][8] = (fmt >> 8) & 1
+        grid[8][7] = (fmt >> 8) & 1
         for i in range(9, 15):
-            grid[14 - i][8] = (fmt >> i) & 1
+            grid[8][14 - i] = (fmt >> i) & 1
 
         # Copy 2: bottom-left vertical & top-right horizontal
         for i in range(8):
@@ -320,20 +364,23 @@ def generate_qr_svg(
     fg_color: str = "#090a0f",
     bg_color: str = "#ffffff",
 ) -> str:
+    qz = max(1, min(16, int(quiet_zone)))
+    safe_bg = html.escape(str(bg_color or "#ffffff"), quote=True)
+    safe_fg = html.escape(str(fg_color or "#090a0f"), quote=True)
     matrix = build_qr_matrix(text)
     n = len(matrix)
-    total = n + quiet_zone * 2
+    total = n + qz * 2
     path_parts: List[str] = []
     for r in range(n):
         row = matrix[r]
-        y = r + quiet_zone
+        y = r + qz
         c = 0
         while c < n:
             if row[c]:
                 run = 1
                 while c + run < n and row[c + run]:
                     run += 1
-                x = c + quiet_zone
+                x = c + qz
                 path_parts.append(f"M{x},{y}h{run}v1h-{run}z")
                 c += run
             else:
@@ -342,24 +389,66 @@ def generate_qr_svg(
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {total} {total}" '
         f'shape-rendering="crispEdges" role="img" aria-label="QR Code">'
-        f'<rect width="{total}" height="{total}" rx="2.2" fill="{bg_color}"/>'
-        f'<path d="{d_attr}" fill="{fg_color}"/>'
+        f'<rect width="{total}" height="{total}" rx="2.2" fill="{safe_bg}"/>'
+        f'<path d="{d_attr}" fill="{safe_fg}"/>'
         f"</svg>"
     )
+
+
+def _classify_lan_candidate_ip(ip_str: str) -> int:
+    """
+    Scores candidate IPv4 addresses:
+      2 = RFC1918 home/office Wi-Fi & Ethernet (192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12)
+      1 = CGNAT / Tailscale mesh (100.64.0.0/10)
+      0 = Disallowed / unreachable from LAN phones (loopback, 0.0.0.0, 169.254.x.x APIPA, 198.18.0.0/15 VPN TUN, multicast, public)
+    """
+    if not ip_str:
+        return 0
+    try:
+        ip_obj = ipaddress.ip_address(ip_str.strip())
+        if ip_obj.version != 4:
+            return 0
+        if ip_obj.is_loopback or ip_obj.is_unspecified or ip_obj.is_link_local or ip_obj.is_multicast:
+            return 0
+        if ip_obj in ipaddress.ip_network("198.18.0.0/15"):
+            return 0
+        if (
+            ip_obj in ipaddress.ip_network("192.168.0.0/16")
+            or ip_obj in ipaddress.ip_network("10.0.0.0/8")
+            or ip_obj in ipaddress.ip_network("172.16.0.0/12")
+        ):
+            return 2
+        if ip_obj in ipaddress.ip_network("100.64.0.0/10"):
+            return 1
+    except ValueError:
+        return 0
+    return 0
 
 
 def detect_lan_ipv4() -> str:
     """
     Detects the primary active LAN IPv4 address of the host (e.g. `192.168.1.42`)
-    without sending any network packets (UDP connect to RFC5737 / DNS route).
+    without sending any network packets, avoiding virtual VPN TUN (`198.18.x.x`) and APIPA (`169.254.x.x`).
     """
-    for target in (("192.0.2.1", 80), ("1.1.1.1", 80)):
+    fallback_cgnat = ""
+    probe_targets = (
+        ("192.168.1.1", 80),
+        ("192.168.0.1", 80),
+        ("10.0.0.1", 80),
+        ("172.16.0.1", 80),
+        ("192.0.2.1", 80),
+        ("1.1.1.1", 80),
+    )
+    for target in probe_targets:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             sock.connect(target)
             ip = sock.getsockname()[0]
-            if ip and not ip.startswith("127.") and ip != "0.0.0.0":
+            rank = _classify_lan_candidate_ip(ip)
+            if rank == 2:
                 return ip
+            if rank == 1 and not fallback_cgnat:
+                fallback_cgnat = ip
         except OSError:
             pass
         finally:
@@ -369,8 +458,11 @@ def detect_lan_ipv4() -> str:
         hostname = socket.gethostname()
         for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
             ip = info[4][0]
-            if ip and not ip.startswith("127.") and not ip.startswith("169.254."):
+            rank = _classify_lan_candidate_ip(ip)
+            if rank == 2:
                 return ip
+            if rank == 1 and not fallback_cgnat:
+                fallback_cgnat = ip
     except OSError:
         pass
-    return ""
+    return fallback_cgnat

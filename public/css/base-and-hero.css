@@ -2,13 +2,18 @@
   --bg-canvas: #0a0a0c;
   --bg-elevated: #141416;
   --bg-surface: #1c1c1e;
-  --bg-control: #262629;
-  --bg-control-hover: #323236;
-  --divider-subtle: rgba(255, 255, 255, 0.05);
+  --bg-control: #242427;
+  --bg-control-hover: #2c2c30;
+  --divider-subtle: rgba(255, 255, 255, 0.07);
   --text-primary: #f5f5f7;
-  --text-secondary: rgba(235, 235, 245, 0.68);
-  --text-tertiary: rgba(235, 235, 245, 0.56);
-  --ambient-color: #3f6212;
+  --text-secondary: rgba(235, 235, 245, 0.78);
+  --text-tertiary: rgba(235, 235, 245, 0.72);
+  --ambient-color: #242427;
+  --gold-rating: #d4af37;
+  --danger-solid: #ef4444;
+  --danger-text: #fca5a5;
+  --accent-blue: rgba(245, 245, 247, 0.9);
+  --radius-sm: 8px;
   --radius-control: 10px;
   --radius-card: 12px;
   --radius-sheet: 18px;
@@ -20,9 +25,19 @@
   --z-quickpeek-modal: 150;
   --z-person-modal: 160;
   --z-utility-modal: 170;
+  --z-roulette-modal: 185;
   --z-confirm-modal: 220;
   --z-mobile-gear: 235;
+  --z-command-palette: 250;
   --z-toast: 260;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Mono", Consolas, monospace;
+  --ease-apple: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-smooth: cubic-bezier(0.2, 0.85, 0.3, 1);
+  --dur-fast: 140ms;
+  --dur-normal: 180ms;
+  --dur-popover: 170ms;
+  color-scheme: dark;
 }
 
 * {
@@ -31,13 +46,138 @@
   padding: 0;
 }
 
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-kerning: normal;
+  letter-spacing: normal;
+}
+
+button,
+a,
+summary,
+[role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: rgba(255, 255, 255, 0.22);
+  color: #f5f5f7;
+}
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+*:focus {
+  outline: none;
+}
+
+*:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none !important;
+}
+
+button:focus:not(:focus-visible),
+.atv-btn-primary:focus:not(:focus-visible),
+.atv-btn-secondary:focus:not(:focus-visible),
+.atv-cselect-btn:focus:not(:focus-visible),
+a:focus:not(:focus-visible),
+summary:focus:not(:focus-visible),
+[role="button"]:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1.5px rgba(245, 245, 247, 0.85), 0 0 0 3.5px rgba(255, 255, 255, 0.18) !important;
+}
+
+button:focus-visible,
+.atv-btn-primary:focus-visible,
+.atv-btn-secondary:focus-visible,
+.atv-cselect-btn:focus-visible,
+.atv-pill:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+[role="button"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.88), 0 0 0 4px rgba(255, 255, 255, 0.16) !important;
+}
+
+button:focus-visible:not(.active):not(.active-watched):not(.active-watching):not(.active-watchlist):not(.active-never):not(.active-rated):not(.atv-prof-swatch):not(.atv-btn-primary):not(.atv-poster-play-center),
+.atv-brand:focus-visible {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+::placeholder {
+  color: rgba(235, 235, 245, 0.72);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
 body {
   background-color: var(--bg-canvas);
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Inter, sans-serif;
+  font-family: var(--font-sans);
+  font-kerning: normal;
+  font-feature-settings: "kern" 1, "liga" 1;
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html.is-windows {
+  scroll-behavior: smooth;
+  text-rendering: optimizeLegibility;
+}
+
+html.is-windows body {
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, Arial, sans-serif;
+  letter-spacing: 0.005em;
+  word-spacing: 0.01em;
+  -webkit-font-smoothing: subpixel-antialiased;
+}
+
+html.is-windows * {
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
 }
 
 /* Calm Ambient Backdrop (subdued, pre-Liquid Glass style — zero GPU blur pass) */
@@ -64,15 +204,17 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 14px 44px;
-  background: rgba(10, 10, 12, 0.88);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  padding: max(14px, env(safe-area-inset-top, 0px)) max(44px, env(safe-area-inset-right, 0px)) 14px max(44px, env(safe-area-inset-left, 0px));
+  background: #0e0e10;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .atv-header:has(.atv-search-popover:not(.hidden)),
-.atv-header:has(.atv-notif-popover:not(.hidden)) {
+.atv-header:has(.atv-notif-popover:not(.hidden)),
+.atv-header:has(.atv-prof-popover:not(.hidden)) {
   z-index: var(--z-header-elevated);
 }
 
@@ -90,11 +232,12 @@ body {
   cursor: pointer;
   user-select: none;
   border-radius: 8px;
+  outline: none;
 }
 
+.atv-brand:focus,
 .atv-brand:focus-visible {
-  outline: 2px solid rgba(56, 189, 248, 0.78);
-  outline-offset: 4px;
+  outline: none;
 }
 
 .atv-logo-icon {
@@ -108,7 +251,7 @@ body {
 .atv-brand-name {
   font-size: 17px;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   color: var(--text-primary);
 }
 
@@ -147,11 +290,18 @@ body {
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 0.18s ease, color 0.18s ease;
+  transition: background 0.18s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)), color 0.18s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)), transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
-.atv-pill:hover {
-  color: var(--text-primary);
+@media (hover: hover) and (pointer: fine) {
+  .atv-pill:hover {
+    color: var(--text-primary);
+    transform: translateY(-1px);
+  }
+}
+
+.atv-pill:active {
+  transform: scale(0.97) translateY(0);
 }
 
 .atv-pill.active {
@@ -170,14 +320,11 @@ body {
 
 @media (min-width: 1121px) and (max-width: 1380px) {
   .atv-header {
-    padding: 12px 28px;
+    padding: max(12px, env(safe-area-inset-top, 0px)) max(28px, env(safe-area-inset-right, 0px)) 12px max(28px, env(safe-area-inset-left, 0px));
     gap: 14px;
   }
-  .atv-search input {
-    width: 244px;
-  }
-  .atv-search input:focus {
-    width: 288px;
+  .atv-search {
+    width: 260px;
   }
 }
 
@@ -185,6 +332,12 @@ body {
   position: relative;
   display: flex;
   align-items: center;
+  width: 280px;
+  max-width: 100%;
+}
+
+.atv-search:focus-within {
+  transform: none;
 }
 
 .atv-search-icon {
@@ -197,8 +350,10 @@ body {
 }
 
 .atv-search input {
-  width: 268px;
-  padding: 8px 64px 8px 34px;
+  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 48px 8px 34px;
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   border: none;
@@ -206,7 +361,7 @@ body {
   font-size: 13px;
   text-overflow: ellipsis;
   outline: none;
-  transition: width 0.22s ease, background 0.18s ease, padding-right 0.18s ease;
+  transition: background 0.18s ease;
 }
 
 .atv-search.has-query input {
@@ -214,7 +369,6 @@ body {
 }
 
 .atv-search input:focus {
-  width: 310px;
   padding-right: 34px;
   background: var(--bg-control);
 }
@@ -228,7 +382,7 @@ body {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-tertiary);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
   pointer-events: none;
@@ -236,30 +390,49 @@ body {
   transition: opacity 0.15s ease;
 }
 
-.atv-search input:focus ~ .atv-search-kbd {
+.atv-search input:focus ~ .atv-search-kbd,
+.atv-search.has-query .atv-search-kbd {
   opacity: 0;
+  pointer-events: none;
 }
 
 .atv-search-clear {
   position: absolute;
-  right: 8px;
-  width: 20px;
-  height: 20px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
   border-radius: 999px;
   border: none;
   background: rgba(255, 255, 255, 0.14);
   color: #f5f5f7;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s ease;
+  transition: background 0.15s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)), transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
-.atv-search-clear:hover {
-  background: rgba(255, 255, 255, 0.28);
+.atv-search-clear::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+}
+
+.atv-search-clear:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-blue);
+}
+
+.atv-search-clear:active {
+  transform: scale(0.95);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-search-clear:hover {
+    background: rgba(255, 255, 255, 0.28);
+  }
 }
 
 .atv-icon-btn {
@@ -278,12 +451,18 @@ body {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.18s ease, color 0.18s ease;
+  transition: background 0.18s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)), color 0.18s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)), transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
-.atv-icon-btn:hover {
-  background: var(--bg-control);
-  color: var(--text-primary);
+@media (hover: hover) and (pointer: fine) {
+  .atv-icon-btn:hover {
+    background: var(--bg-control);
+    color: var(--text-primary);
+  }
+}
+
+.atv-icon-btn:active {
+  transform: scale(0.94);
 }
 
 /* Main Layout */
@@ -292,7 +471,7 @@ body {
   z-index: 10;
   max-width: 1540px;
   margin: 0 auto;
-  padding: 16px 44px 72px;
+  padding: 16px max(44px, env(safe-area-inset-right, 0px)) calc(72px + env(safe-area-inset-bottom, 0px)) max(44px, env(safe-area-inset-left, 0px));
 }
 
 /* Classic Apple TV Hero Showcase — borderless, calm vignette */
@@ -315,11 +494,13 @@ body {
   inset: 0;
   background-size: cover;
   background-position: center 20%;
-  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.32s ease;
 }
 
-.atv-hero:hover .atv-hero-backdrop {
-  transform: scale(1.018);
+@media (hover: hover) and (pointer: fine) {
+  .atv-hero:hover .atv-hero-backdrop {
+    transform: scale(1.018);
+  }
 }
 
 .atv-hero-vignette {
@@ -337,9 +518,26 @@ body {
   max-width: calc(100% - 210px);
 }
 
+@media (max-height: 820px) and (min-width: 721px) {
+  .atv-hero {
+    min-height: 336px;
+    margin-bottom: 26px;
+  }
+  .atv-hero-content {
+    padding: 28px 36px;
+  }
+  .atv-hero-title {
+    font-size: 34px;
+    margin-bottom: 8px;
+  }
+  .atv-hero-desc {
+    margin-bottom: 18px;
+  }
+}
+
 .atv-hero-kicker {
   max-width: 590px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -351,8 +549,8 @@ body {
   max-width: 590px;
   font-size: 42px;
   font-weight: 700;
-  letter-spacing: -0.025em;
-  line-height: 1.08;
+  letter-spacing: -0.022em;
+  line-height: 1.12;
   margin-bottom: 12px;
 }
 
@@ -389,20 +587,28 @@ body {
   padding: 11px 24px;
   border-radius: var(--radius-control);
   background: #f5f5f7;
-  color: #000000;
+  color: #0b0c0f;
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
+  text-decoration: none;
   border: none;
   outline: none;
   box-shadow: none;
   cursor: pointer;
-  transition: background 0.18s ease, opacity 0.18s ease;
+  transition: background 0.18s ease, color 0.18s ease, opacity 0.18s ease, transform 0.16s var(--ease-apple, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
-.atv-btn-primary:hover {
-  background: #ffffff;
-  opacity: 0.9;
+@media (hover: hover) and (pointer: fine) {
+  .atv-btn-primary:hover:not(:disabled) {
+    background: #ffffff;
+    color: #0b0c0f;
+    transform: translateY(-1px);
+  }
+}
+
+.atv-btn-primary:active:not(:disabled) {
+  transform: scale(0.96) translateY(0);
 }
 
 .atv-btn-secondary {
@@ -417,15 +623,31 @@ body {
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
+  text-decoration: none;
   border: none;
   outline: none;
   box-shadow: none;
   cursor: pointer;
-  transition: background 0.18s ease;
+  transition: background 0.18s ease, color 0.18s ease, opacity 0.18s ease, transform 0.16s var(--ease-apple, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
-.atv-btn-secondary:hover {
-  background: var(--bg-control-hover);
+@media (hover: hover) and (pointer: fine) {
+  .atv-btn-secondary:hover:not(:disabled) {
+    background: var(--bg-control-hover);
+    color: #ffffff;
+    transform: translateY(-1px);
+  }
+}
+
+.atv-btn-secondary:active:not(:disabled) {
+  transform: scale(0.96) translateY(0);
+}
+
+.atv-btn-primary:disabled,
+.atv-btn-secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* System Button Size & Tone Modifiers */
@@ -437,8 +659,10 @@ body {
 }
 
 .atv-btn-xs {
+  min-height: 26px;
+  min-width: 26px;
   padding: 5px 11px;
-  font-size: 11.5px;
+  font-size: 12px;
   border-radius: 8px;
   gap: 5px;
 }
@@ -447,15 +671,24 @@ body {
   color: #fca5a5;
 }
 
-.atv-btn-danger-text:hover {
-  color: #fecaca;
+@media (hover: hover) and (pointer: fine) {
+  .atv-btn-danger-text:hover {
+    color: #fecaca;
+  }
 }
 
 .atv-close-btn-sm {
+  position: relative;
   width: 26px !important;
   height: 26px !important;
   font-size: 12px !important;
   border-radius: 7px !important;
+}
+
+.atv-close-btn-sm::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
 }
 
 /* Sections */
@@ -483,20 +716,184 @@ body {
 .atv-section-header h2 {
   font-size: 20px;
   font-weight: 700;
-  letter-spacing: -0.015em;
+  letter-spacing: 0;
 }
 
 .atv-section-count {
   font-size: 13px;
   color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .atv-section-breakdown {
   font-size: 12px;
   font-weight: 500;
-  color: rgba(235, 235, 245, 0.62);
+  color: rgba(235, 235, 245, 0.68);
   padding: 2px 9px;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.05);
+  font-variant-numeric: tabular-nums;
 }
+
+/* Apple TV+ / Netflix Split-Stage Hero Ambient Teaser Video */
+.atv-hero-teaser-wrap {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  width: 74%;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.12) 9%,
+    rgba(0, 0, 0, 0.58) 23%,
+    rgba(0, 0, 0, 0.92) 38%,
+    #000 50%,
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.12) 9%,
+    rgba(0, 0, 0, 0.58) 23%,
+    rgba(0, 0, 0, 0.92) 38%,
+    #000 50%,
+    #000 100%
+  );
+}
+
+.atv-hero-teaser-wrap.is-playing {
+  opacity: 0.92;
+}
+
+.atv-hero-teaser-wrap.hidden {
+  display: none !important;
+}
+
+.atv-hero-teaser-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.88) 0%,
+    #000 12%,
+    #000 84%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.88) 0%,
+    #000 12%,
+    #000 84%,
+    transparent 100%
+  );
+}
+
+.atv-hero-teaser-wrap iframe {
+  position: absolute;
+  top: 50%;
+  left: 53%;
+  width: 126%;
+  height: 182%;
+  border: none;
+  transform: translate(-50%, -50%) scale(1.08);
+  pointer-events: none;
+}
+
+.atv-hero-sound-toggle {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  z-index: 12;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(24, 24, 28, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #f5f5f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  transition: opacity 0.35s ease, background-color 0.16s ease, transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  outline: none;
+}
+
+.atv-hero-sound-toggle.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-hero-sound-toggle:hover {
+    background: rgba(45, 45, 52, 0.96);
+    transform: scale(1.06);
+  }
+}
+
+.atv-hero-sound-toggle:active {
+  transform: scale(0.94);
+}
+
+.atv-hero-sound-toggle:focus-visible {
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.88), 0 4px 14px rgba(0, 0, 0, 0.55);
+  outline: none;
+}
+
+/* Mobile-Native & Apple HIG Accessibility Preferences */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .atv-header,
+  .atv-modal-overlay,
+  .atv-gear-popover,
+  .atv-vc-popover,
+  .atv-search-popover,
+  .atv-notif-popover,
+  .atv-prof-popover,
+  .atv-cselect-menu,
+  .atv-toast,
+  .toast {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .atv-modal-overlay {
+    background: rgba(8, 8, 10, 0.94) !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --text-secondary: rgba(245, 245, 247, 0.88);
+    --text-tertiary: rgba(245, 245, 247, 0.78);
+    --border-glass: rgba(255, 255, 255, 0.28);
+  }
+  .atv-settings-sheet,
+  .atv-modal-dialog,
+  .atv-confirm-sheet,
+  .atv-gear-popover,
+  .atv-vc-popover,
+  .atv-cselect-menu,
+  .atv-search-popover,
+  .atv-notif-popover {
+    border: 1px solid rgba(255, 255, 255, 0.32) !important;
+  }
+}
+
 

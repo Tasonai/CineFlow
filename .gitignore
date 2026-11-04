@@ -8,13 +8,24 @@ venv/
 data/*.json
 data/*.tmp
 data/*.log
+data/*.db*
+data/*.sqlite*
+data/.vault_key
+data/downloads/
+data/profiles/
 data/torrserver/
 
-# Downloaded or compiled local runtime binaries (TorrServer, FFmpeg, FFprobe, Vision)
+# Downloaded or compiled local runtime binaries (TorrServer, FFmpeg, FFprobe)
 backend/bin/torrserver
 backend/bin/ffmpeg
 backend/bin/ffprobe
-backend/bin/vision_ad_detector
+backend/bin/kinorium_login_helper
+backend/bin/*.exe
+backend/bin/*.dll
+
+# Cross-platform build staging & compiled installer artifacts
+build/
+dist/
 
 # macOS & editor files
 .DS_Store

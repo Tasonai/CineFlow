@@ -1,15 +1,14 @@
-import { PLAYER_PREFS_STORAGE_KEY, state } from "./state.js?v=20261024v4";
-import { t } from "./i18n.js?v=20261024v4";
-import { showToast } from "./utils.js?v=20261024v4";
+import { PLAYER_PREFS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261104v19";
+import { t } from "./i18n.js?v=20261104v19";
+import { isIosOrIpadOs, showToast } from "./utils.js?v=20261104v19";
 import {
   closePlayerModal,
   isStageFullscreen,
   playVideoUrl,
-  setMiniPlayerMode,
   setPipBackgroundMode,
   syncCustomVideoControlsUI,
   syncPipDockUI,
-} from "./player.js?v=20261024v4";
+} from "./player.js?v=20261104v19";
 
 export function getAudioPresetLabel(preset) {
   const map = {
@@ -22,7 +21,8 @@ export function getAudioPresetLabel(preset) {
 }
 export function getPlayerPrefs() {
   try {
-    const raw = localStorage.getItem(PLAYER_PREFS_STORAGE_KEY);
+    const storageKey = profileStorageKey(PLAYER_PREFS_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     const parsed = raw ? JSON.parse(raw) || {} : {};
     const rawVol = typeof parsed.volume === "number" ? Math.max(0, Math.min(1, parsed.volume)) : 1.0;
     // Self-heal if previous closePlayerModal / volumechange bug persisted volume=0 or muted=true
@@ -30,7 +30,7 @@ export function getPlayerPrefs() {
     if (parsed.muted === true || rawVol <= 0.02) {
       try {
         localStorage.setItem(
-          PLAYER_PREFS_STORAGE_KEY,
+          storageKey,
           JSON.stringify({ ...parsed, volume: vol, muted: false })
         );
       } catch (_) {}
@@ -61,11 +61,11 @@ export function getPlayerPrefs() {
       : "medium";
     const subBg = ["semi", "solid", "none"].includes(parsed.subBg) ? parsed.subBg : "semi";
     const ambilight = typeof parsed.ambilightEnabled === "boolean" ? parsed.ambilightEnabled : true;
-    const autoSkipAds = typeof parsed.autoSkipAds === "boolean" ? parsed.autoSkipAds : true;
     const autoSkipIntro = typeof parsed.autoSkipIntro === "boolean" ? parsed.autoSkipIntro : true;
     const preferredSourceTab = ["hdrezka", "stremio", "backup4k"].includes(parsed.preferredSourceTab)
       ? parsed.preferredSourceTab
       : "";
+    const sidebarCollapsed = Boolean(parsed.sidebarCollapsed);
     return {
       volume: vol,
       muted: false,
@@ -79,9 +79,9 @@ export function getPlayerPrefs() {
       subSize,
       subBg,
       ambilightEnabled: ambilight,
-      autoSkipAds,
       autoSkipIntro,
       preferredSourceTab,
+      sidebarCollapsed,
     };
   } catch (_) {
     return {
@@ -97,7 +97,6 @@ export function getPlayerPrefs() {
       subSize: "medium",
       subBg: "semi",
       ambilightEnabled: true,
-      autoSkipAds: true,
       autoSkipIntro: true,
       preferredSourceTab: "",
     };
@@ -107,7 +106,7 @@ export function savePlayerPrefs(patch) {
   try {
     const cur = getPlayerPrefs();
     const updated = { ...cur, ...patch };
-    localStorage.setItem(PLAYER_PREFS_STORAGE_KEY, JSON.stringify(updated));
+    localStorage.setItem(profileStorageKey(PLAYER_PREFS_STORAGE_KEY), JSON.stringify(updated));
   } catch (_) {}
 }
 export function buildSoftClipLimiterCurve() {
@@ -136,12 +135,42 @@ export function buildSoftClipLimiterCurve() {
   state.audioLimiterCurve = curve;
   return curve;
 }
+export function isAudioContextSuspendedLike(ctx = state.audioCtx) {
+  return Boolean(ctx && (ctx.state === "suspended" || ctx.state === "interrupted"));
+}
+
+export function resumeAudioContextIfNeeded(ctx = state.audioCtx) {
+  if (isAudioContextSuspendedLike(ctx) && typeof ctx.resume === "function") {
+    ctx.resume().catch(() => {});
+  }
+}
+
+let _audioWakeListenersBound = false;
+function _bindAudioContextWakeListeners() {
+  if (_audioWakeListenersBound || typeof document === "undefined" || typeof window === "undefined") {
+    return;
+  }
+  _audioWakeListenersBound = true;
+  const wakeIfPlaying = () => {
+    if (!state.audioCtx) return;
+    const v = document.getElementById("native-video");
+    if (v && !v.paused && isAudioContextSuspendedLike(state.audioCtx)) {
+      resumeAudioContextIfNeeded(state.audioCtx);
+    }
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) wakeIfPlaying();
+  });
+  window.addEventListener("focus", wakeIfPlaying);
+}
+
 export function ensureUnlockedAudioContext() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) return null;
+  _bindAudioContextWakeListeners();
   if (!state.audioCtx) {
     try {
-      state.audioCtx = new AudioContextClass({ latencyHint: "playback" });
+      state.audioCtx = new AudioContextClass({ latencyHint: "interactive" });
     } catch (_) {
       try {
         state.audioCtx = new AudioContextClass();
@@ -156,12 +185,17 @@ export function ensureUnlockedAudioContext() {
           if (v && !v._cfSourceNode) {
             applyAudioBoostToVideo(v, state.audioBoost, state.audioPreset);
           }
+        } else if (state.audioCtx?.state === "interrupted") {
+          const v = document.getElementById("native-video");
+          if (v && !v.paused && (typeof document === "undefined" || !document.hidden)) {
+            resumeAudioContextIfNeeded(state.audioCtx);
+          }
         }
       });
     }
   }
-  if (state.audioCtx && state.audioCtx.state === "suspended") {
-    state.audioCtx.resume().catch(() => {});
+  if (isAudioContextSuspendedLike(state.audioCtx)) {
+    resumeAudioContextIfNeeded(state.audioCtx);
   }
   return state.audioCtx;
 }
@@ -189,9 +223,22 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
   }
   updatePlayerGearActiveDot();
   if (!video) return;
-  // Do not attach createMediaElementSource while audio boost & EQ are neutral ("flat", 1.0x),
+  const directDelaySec = state.remuxMeta?.active
+    ? 0
+    : Math.max(0, Math.min(5.0, Number(state.audioOffsetSec) || 0));
+  // Do not attach createMediaElementSource while audio boost, EQ & direct delay are neutral ("flat", 1.0x, 0s),
   // so streams play 100% native OS CoreAudio without WebAudio graph overhead or CORS muting.
-  if (!video._cfSourceNode && boost <= 1.01 && preset === "flat") {
+  if (!video._cfSourceNode && boost <= 1.01 && preset === "flat" && directDelaySec < 0.005) {
+    return;
+  }
+
+  if (!video._cfSourceNode && Boolean(video.webkitCurrentPlaybackTargetIsWireless)) {
+    showToast(
+      t(
+        "Во время передачи по AirPlay обработка звука отключена для сохранения беспроводного потока",
+        "Audio DSP is bypassed while streaming over AirPlay"
+      )
+    );
     return;
   }
 
@@ -199,9 +246,9 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
     const ctx = ensureUnlockedAudioContext();
     if (!ctx) return;
 
-    // If WebAudio node was created earlier in session and user returned to neutral 100% + Flat,
+    // If WebAudio node was created earlier in session and user returned to neutral 100% + Flat + 0s delay,
     // route source directly to destination so zero DSP filters/waveshapers run on CPU.
-    if (video._cfSourceNode && boost <= 1.01 && preset === "flat") {
+    if (video._cfSourceNode && boost <= 1.01 && preset === "flat" && directDelaySec < 0.005) {
       if (!video._cfDirectBypass) {
         try {
           video._cfSourceNode.disconnect();
@@ -209,8 +256,8 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
           video._cfDirectBypass = true;
         } catch (_) {}
       }
-      if (ctx.state === "suspended") {
-        ctx.resume().catch(() => {});
+      if (isAudioContextSuspendedLike(ctx)) {
+        resumeAudioContextIfNeeded(ctx);
       }
       return;
     }
@@ -218,6 +265,9 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
     // If user enabled Audio Boost / EQ while an external cross-origin stream was loaded without crossorigin="anonymous",
     // seamlessly reload current stream once with crossorigin enabled so WebAudio never outputs silence.
     // Same-origin endpoints (/api/remux-stream) do not require crossorigin and attach WebAudio immediately.
+    if (!video._cfSourceNode && video._cfCorsBlocked) {
+      return;
+    }
     if (!video._cfSourceNode && !video.hasAttribute("crossorigin") && video.currentSrc) {
       let isCrossOriginStream = false;
       try {
@@ -280,6 +330,8 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
       const limiterShaper = ctx.createWaveShaper();
       limiterShaper.curve = buildSoftClipLimiterCurve();
       limiterShaper.oversample = "2x";
+      const syncDelayNode = ctx.createDelay(5.0);
+      syncDelayNode.delayTime.value = 0;
 
       source.connect(prePadGain);
       prePadGain.connect(dryBypassGain);
@@ -300,10 +352,20 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
       airFilter.connect(postGain);
       postGain.connect(limiterIn);
       limiterIn.connect(limiterShaper);
-      limiterShaper.connect(ctx.destination);
+      limiterShaper.connect(syncDelayNode);
+      syncDelayNode.connect(ctx.destination);
 
       video._cfSourceNode = source;
       video._cfDirectBypass = false;
+      if (isIosOrIpadOs() && !state._iosWebAudioNoticeShown) {
+        state._iosWebAudioNoticeShown = true;
+        showToast(
+          t(
+            "Эквалайзер и усиление включены (на iOS / iPadOS для AirPlay используйте Стандарт 100%)",
+            "Equalizer & boost active (on iOS / iPadOS, use Standard 100% for AirPlay)"
+          )
+        );
+      }
       state.audioNodes = {
         prePadGain,
         dryBypassGain,
@@ -321,6 +383,7 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
         postGain,
         limiterIn,
         limiterShaper,
+        syncDelayNode,
       };
       justCreated = true;
     }
@@ -334,8 +397,8 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
         video._cfDirectBypass = false;
       } catch (_) {}
     }
-    if (ctx.state === "suspended") {
-      ctx.resume().catch(() => {});
+    if (isAudioContextSuspendedLike(ctx)) {
+      resumeAudioContextIfNeeded(ctx);
     }
 
     const now = ctx.currentTime;
@@ -348,6 +411,9 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
         audioParam.setTargetAtTime(val, now, tau);
       }
     };
+    if (n.syncDelayNode) {
+      setParam(n.syncDelayNode.delayTime, directDelaySec);
+    }
 
     const isBoosted = boost > 1.01;
     // Gentle perceptual curve for user boost (100%..400%) paired with dynamic leveling so dialogue rises without clipping
@@ -504,6 +570,7 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
 }
 export function updatePlayerGearActiveDot() {
   const dot = document.getElementById("player-gear-active-dot");
+  const resetBtn = document.getElementById("btn-reset-player-gear");
   const speedBadge = document.getElementById("vc-gear-speed-label");
   const speedSel = document.getElementById("select-speed");
   const curRate = speedSel ? parseFloat(speedSel.value) || 1 : 1;
@@ -516,16 +583,48 @@ export function updatePlayerGearActiveDot() {
     const pRate = parseFloat(pill.dataset.speed) || 1;
     pill.classList.toggle("active", Math.abs(pRate - curRate) < 0.01);
   });
-  if (!dot) return;
+
+  const modSpeed = hasCustomSpeed;
+  const modBoost = (state.audioBoost || 1) > 1.01;
+  const modEq = Boolean(state.audioPreset && state.audioPreset !== "flat");
+  const modCrop = Boolean(state.videoCrop && state.videoCrop !== "contain");
+  const modSubSize = Boolean(state.subSize && state.subSize !== "medium");
+  const modSubBg = Boolean(state.subBg && state.subBg !== "semi");
+  const modAudioOffset = Math.abs(state.audioOffsetSec || 0) > 0.005;
+  const modSubOffset = Math.abs(state.subtitleOffsetSec || 0) > 0.01;
+  const modSleep = Boolean(state.sleepTimerMode && state.sleepTimerMode !== "off");
+  const modAmbilight = state.ambilightEnabled === false;
+  const modSkipIntro = state.autoSkipIntro === false;
+  const modAutoNext = state.autoNextEpisode === false;
+
+  document.getElementById("speed-group")?.classList.toggle("is-modified", modSpeed);
+  document.getElementById("audio-boost-group")?.classList.toggle("is-modified", modBoost);
+  document.getElementById("audio-eq-group")?.classList.toggle("is-modified", modEq);
+  document.getElementById("video-crop-group")?.classList.toggle("is-modified", modCrop);
+  document.getElementById("sub-size-group")?.classList.toggle("is-modified", modSubSize);
+  document.getElementById("sub-bg-group")?.classList.toggle("is-modified", modSubBg);
+  document.getElementById("sleep-timer-group")?.classList.toggle("is-modified", modSleep);
+  document.getElementById("gear-audio-offset-row")?.classList.toggle("is-modified", modAudioOffset);
+  document.getElementById("gear-sub-offset-row")?.classList.toggle("is-modified", modSubOffset);
+  document.getElementById("gear-ambilight-row")?.classList.toggle("is-modified", modAmbilight);
+  document.getElementById("gear-skip-intro-row")?.classList.toggle("is-modified", modSkipIntro);
+  document.getElementById("gear-auto-next-row")?.classList.toggle("is-modified", modAutoNext);
+
   const isModified =
-    hasCustomSpeed ||
-    (state.audioBoost || 1) > 1.01 ||
-    (state.audioPreset && state.audioPreset !== "flat") ||
-    (state.videoCrop && state.videoCrop !== "contain") ||
-    (state.subSize && state.subSize !== "medium") ||
-    (state.subBg && state.subBg !== "semi") ||
-    (state.sleepTimerMode && state.sleepTimerMode !== "off");
-  dot.classList.toggle("hidden", !isModified);
+    modSpeed ||
+    modBoost ||
+    modEq ||
+    modCrop ||
+    modSubSize ||
+    modSubBg ||
+    modAudioOffset ||
+    modSubOffset ||
+    modSleep ||
+    modAmbilight ||
+    modSkipIntro ||
+    modAutoNext;
+  dot?.classList.toggle("hidden", !isModified);
+  resetBtn?.classList.toggle("hidden", !isModified);
 }
 export function applySubtitleStylePrefs(subSize = state.subSize, subBg = state.subBg) {
   const sizeKey = ["small", "medium", "large", "xlarge"].includes(subSize) ? subSize : "medium";
@@ -543,7 +642,7 @@ export function applySubtitleStylePrefs(subSize = state.subSize, subBg = state.s
   root.style.setProperty("--sub-font-size", sizePxMap[sizeKey] || "21px");
 
   if (bgKey === "solid") {
-    root.style.setProperty("--sub-bg-color", "rgba(6, 7, 10, 0.94)");
+    root.style.setProperty("--sub-bg-color", "rgba(10, 10, 12, 0.94)");
     root.style.setProperty("--sub-text-shadow", "none");
   } else if (bgKey === "none") {
     root.style.setProperty("--sub-bg-color", "transparent");
@@ -552,7 +651,7 @@ export function applySubtitleStylePrefs(subSize = state.subSize, subBg = state.s
       "0 2px 6px rgba(0, 0, 0, 0.98), 0 0 3px rgba(0, 0, 0, 0.95)"
     );
   } else {
-    root.style.setProperty("--sub-bg-color", "rgba(10, 11, 15, 0.72)");
+    root.style.setProperty("--sub-bg-color", "rgba(10, 10, 12, 0.74)");
     root.style.setProperty("--sub-text-shadow", "0 1px 3px rgba(0, 0, 0, 0.85)");
   }
 
@@ -578,7 +677,7 @@ export function sampleAmbilightFrame() {
     glowEl?.classList.add("hidden");
     return;
   }
-  const baseCol = state.activeItem?.ambient_color || "#334155";
+  const baseCol = state.activeItem?.ambient_color || "#242427";
   const nextBg = `radial-gradient(circle at 24% 50%, ${baseCol} 0%, transparent 64%), radial-gradient(circle at 76% 50%, ${baseCol} 0%, transparent 64%)`;
   if (glowEl.dataset.appliedColor !== baseCol) {
     glowEl.style.background = nextBg;
@@ -620,6 +719,15 @@ export function applyVideoCropToVideo(video, cropMode = state.videoCrop) {
   video.classList.remove("crop-contain", "crop-cover", "crop-zoom115", "crop-fill");
   video.classList.add(`crop-${mode}`);
 }
+export function ensurePreservesPitch(video) {
+  if (!video) return;
+  try {
+    if ("preservesPitch" in video) video.preservesPitch = true;
+    if ("webkitPreservesPitch" in video) video.webkitPreservesPitch = true;
+    if ("mozPreservesPitch" in video) video.mozPreservesPitch = true;
+  } catch (_) {}
+}
+
 export function applySavedPlayerPrefsToVideo(video) {
   if (!video) return;
   const prefs = getPlayerPrefs();
@@ -627,6 +735,7 @@ export function applySavedPlayerPrefsToVideo(video) {
   try {
     video.volume = prefs.volume;
     video.muted = Boolean(state.userMutedThisSession);
+    ensurePreservesPitch(video);
     video.playbackRate = prefs.playbackRate;
   } catch (_) {}
   state.internalMuteOverride = false;
@@ -686,48 +795,184 @@ export function isVideoInPiP(videoEl = document.getElementById("native-video")) 
   ) {
     return true;
   }
+  try {
+    if (typeof videoEl.matches === "function" && videoEl.matches(":picture-in-picture")) {
+      return true;
+    }
+  } catch (_) {}
   return false;
 }
-export async function togglePictureInPicture() {
+export async function togglePictureInPicture(options = {}) {
   const video = document.getElementById("native-video");
   if (!video) return;
-  try {
-    if (document.pictureInPictureElement) {
-      await document.exitPictureInPicture();
-      setPipBackgroundMode(false);
-      showToast(t("Выход из режима «Картинка в картинке»", "Exited Picture-in-Picture"));
-    } else if (typeof video.webkitSetPresentationMode === "function") {
-      const curMode = video.webkitPresentationMode;
-      const nextMode = curMode === "picture-in-picture" ? "inline" : "picture-in-picture";
-      video.webkitSetPresentationMode(nextMode);
-      if (nextMode === "picture-in-picture") {
-        setPipBackgroundMode(true);
-        showToast(t("Режим «Картинка в картинке» включён — окно плеера свёрнуто", "Picture-in-Picture enabled — player window minimized"));
-      } else {
-        setPipBackgroundMode(false);
-        showToast(t("Выход из режима «Картинка в картинке»", "Exited Picture-in-Picture"));
+  const isGecko = typeof navigator !== "undefined" && /Firefox\//i.test(navigator.userAgent || "");
+  const currentlyInPip = isVideoInPiP(video) || Boolean(state.isPipBackground);
+
+  if (currentlyInPip) {
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (
+        typeof video.webkitSetPresentationMode === "function" &&
+        video.webkitPresentationMode === "picture-in-picture"
+      ) {
+        video.webkitSetPresentationMode("inline");
+      } else if (isGecko || (typeof video.matches === "function" && video.matches(":picture-in-picture"))) {
+        video.tabIndex = -1;
+        try {
+          video.focus({ preventScroll: true });
+        } catch (_) {}
+        await fetch("/api/remote/native-pip", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ engine: "gecko" }),
+        }).catch(() => {});
       }
-    } else if (document.pictureInPictureEnabled && typeof video.requestPictureInPicture === "function") {
-      await video.requestPictureInPicture();
-      setPipBackgroundMode(true);
-      showToast(t("Режим «Картинка в картинке» включён — окно плеера свёрнуто", "Picture-in-Picture enabled — player window minimized"));
-    } else {
-      const nextMini = !state.isMiniPlayer;
-      setMiniPlayerMode(nextMini);
-      showToast(
-        nextMini
-          ? t("Плавающий мини-плеер включён — перетащите окно в удобный угол", "Floating mini player enabled — drag to any corner")
-          : t("Возврат в полный плеер", "Returned to full player")
-      );
-    }
+    } catch (_) {}
+    setPipBackgroundMode(false);
+    showToast(t("Выход из режима «Картинка в картинке»", "Exited Picture-in-Picture"));
     syncPipDockUI();
-  } catch (err) {
-    if (!document.pictureInPictureEnabled || typeof video.requestPictureInPicture !== "function") {
-      const nextMini = !state.isMiniPlayer;
-      setMiniPlayerMode(nextMini);
+    return;
+  }
+
+  const hasLoadedStream = Boolean(video.readyState >= 1 || video.currentTime > 0 || video.videoWidth > 0);
+  if (!hasLoadedStream) {
+    showToast(
+      t(
+        "Для включения режима «Картинка в картинке» дождитесь начала воспроизведения",
+        "Wait for video playback to start before enabling Picture-in-Picture"
+      )
+    );
+    return;
+  }
+
+  if (state.isPseudoFullscreen || document.documentElement?.classList.contains("is-stage-pseudo-fullscreen")) {
+    state.isPseudoFullscreen = false;
+    document.documentElement.classList.remove("is-stage-fullscreen", "is-stage-pseudo-fullscreen");
+    document.getElementById("video-stage")?.classList.remove("is-pseudo-fullscreen");
+  }
+  if (document.fullscreenElement && typeof document.exitFullscreen === "function") {
+    try {
+      await document.exitFullscreen();
+    } catch (_) {}
+  } else if (document.webkitFullscreenElement && typeof document.webkitExitFullscreen === "function") {
+    try {
+      document.webkitExitFullscreen();
+    } catch (_) {}
+  }
+
+  const triggerNativeMacPip = async (engineHint) => {
+    video.tabIndex = -1;
+    try {
+      video.focus({ preventScroll: true });
+    } catch (_) {}
+    try {
+      const r = await fetch("/api/remote/native-pip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ engine: engineHint }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        return Boolean(d && d.ok);
+      }
+    } catch (_) {}
+    return false;
+  };
+
+  if (isGecko) {
+    const okGecko = await triggerNativeMacPip("gecko");
+    if (okGecko) {
+      setPipBackgroundMode(true);
+      showToast(
+        t(
+          "Режим «Картинка в картинке» включён — окно плеера свёрнуто",
+          "Picture-in-Picture enabled — player window minimized"
+        )
+      );
       syncPipDockUI();
       return;
     }
-    showToast(t("Для включения режима «Картинка в картинке» дождитесь начала воспроизведения", "Wait for video playback to start before enabling Picture-in-Picture"));
+  }
+
+  const lacksGesture =
+    Boolean(options?.fromRemote) ||
+    Boolean(typeof navigator !== "undefined" && navigator.userActivation && !navigator.userActivation.isActive);
+  if (lacksGesture && !options?.fromNativeKey) {
+    const okNative = await triggerNativeMacPip(isGecko ? "gecko" : "standard");
+    if (okNative) {
+      setTimeout(() => {
+        if (state.isPlayerOpen && isVideoInPiP(video) && !state.isPipBackground) {
+          setPipBackgroundMode(true);
+          syncPipDockUI();
+        }
+      }, 260);
+      return;
+    }
+  }
+
+  try {
+    if (document.pictureInPictureEnabled && typeof video.requestPictureInPicture === "function") {
+      await video.requestPictureInPicture();
+      setPipBackgroundMode(true);
+      showToast(
+        t(
+          "Режим «Картинка в картинке» включён — окно плеера свёрнуто",
+          "Picture-in-Picture enabled — player window minimized"
+        )
+      );
+    } else if (typeof video.webkitSetPresentationMode === "function") {
+      video.webkitSetPresentationMode("picture-in-picture");
+      setPipBackgroundMode(true);
+      showToast(
+        t(
+          "Режим «Картинка в картинке» включён — окно плеера свёрнуто",
+          "Picture-in-Picture enabled — player window minimized"
+        )
+      );
+    } else {
+      const okFallback = !options?.fromNativeKey ? await triggerNativeMacPip(isGecko ? "gecko" : "standard") : false;
+      if (okFallback) {
+        setPipBackgroundMode(true);
+        showToast(
+          t(
+            "Режим «Картинка в картинке» включён — окно плеера свёрнуто",
+            "Picture-in-Picture enabled — player window minimized"
+          )
+        );
+      } else {
+        showToast(
+          t(
+            "Режим «Картинка в картинке» не поддерживается браузером",
+            "Picture-in-Picture is not supported by this browser"
+          )
+        );
+      }
+    }
+    syncPipDockUI();
+  } catch (err) {
+    if (!options?.fromNativeKey) {
+      const okRetry = await triggerNativeMacPip(isGecko ? "gecko" : "standard");
+      if (okRetry) {
+        if (isGecko) {
+          setPipBackgroundMode(true);
+          showToast(
+            t(
+              "Режим «Картинка в картинке» включён — окно плеера свёрнуто",
+              "Picture-in-Picture enabled — player window minimized"
+            )
+          );
+          syncPipDockUI();
+        }
+        return;
+      }
+    }
+    showToast(
+      t(
+        "Поток ещё загружается — подождите начала воспроизведения видео",
+        "Stream is still loading — wait for video playback to start"
+      )
+    );
+    syncPipDockUI();
   }
 }

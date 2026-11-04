@@ -1,5 +1,8 @@
 import atexit
+import calendar
 from concurrent.futures import ThreadPoolExecutor
+import copy
+import datetime
 import functools
 import gzip
 import html
@@ -8,13 +11,259 @@ import json
 import os
 import re
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
 import urllib.request
+import zlib
 from typing import Any, Dict, List, Optional, Tuple
 
 from .doh import DoHSplitNetworkClient
+from .kinorium_persons import (
+    parse_search_persons_and_movies,
+    parse_person_filmography_html,
+)
+from .en_metadata import RU_COUNTRIES_TO_EN, RU_GENRES_TO_EN
+from .regions import get_country_profile
+from .storage_db import get_storage_db, profile_id_from_state_path, set_private_file_permissions
+
+_RU_COUNTRIES_SORTED = tuple(sorted(RU_COUNTRIES_TO_EN.keys(), key=len, reverse=True))
+
+_MAX_KINORIUM_RESP_BYTES = 6 * 1024 * 1024
+
+
+def _safe_year_int(val: Any, default: int = 0) -> int:
+    if isinstance(val, bool) or val is None:
+        return default
+    if isinstance(val, (int, float)):
+        return int(val)
+    m = re.search(r"\b(18\d\d|19\d\d|20\d\d)\b", str(val))
+    if m:
+        return int(m.group(1))
+    try:
+        return int(str(val).strip())
+    except Exception:
+        return default
+
+_RU_MONTHS_TO_NUM = {
+    "января": 1,
+    "январь": 1,
+    "янв": 1,
+    "февраля": 2,
+    "февраль": 2,
+    "фев": 2,
+    "марта": 3,
+    "март": 3,
+    "мар": 3,
+    "апреля": 4,
+    "апрель": 4,
+    "апр": 4,
+    "мая": 5,
+    "май": 5,
+    "июня": 6,
+    "июнь": 6,
+    "июн": 6,
+    "июля": 7,
+    "июль": 7,
+    "июл": 7,
+    "августа": 8,
+    "август": 8,
+    "авг": 8,
+    "сентября": 9,
+    "сентябрь": 9,
+    "сен": 9,
+    "сент": 9,
+    "октября": 10,
+    "октябрь": 10,
+    "окт": 10,
+    "ноября": 11,
+    "ноябрь": 11,
+    "ноя": 11,
+    "декабря": 12,
+    "декабрь": 12,
+    "дек": 12,
+}
+
+_EN_MONTHS_TO_NUM = {
+    "january": 1,
+    "jan": 1,
+    "february": 2,
+    "feb": 2,
+    "march": 3,
+    "mar": 3,
+    "april": 4,
+    "apr": 4,
+    "may": 5,
+    "june": 6,
+    "jun": 6,
+    "july": 7,
+    "jul": 7,
+    "august": 8,
+    "aug": 8,
+    "september": 9,
+    "sep": 9,
+    "sept": 9,
+    "october": 10,
+    "oct": 10,
+    "november": 11,
+    "nov": 11,
+    "december": 12,
+    "dec": 12,
+}
+
+
+def _read_resp_bounded(resp: Any, limit: int = _MAX_KINORIUM_RESP_BYTES) -> bytes:
+    try:
+        return resp.read(limit + 1)[:limit]
+    except TypeError:
+        return resp.read()[:limit]
+
+
+def _decompress_gzip_bounded(raw: bytes, limit: int = _MAX_KINORIUM_RESP_BYTES) -> bytes:
+    if not raw:
+        return b""
+    try:
+        dobj = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        out = dobj.decompress(raw, limit)
+        return out[:limit]
+    except Exception:
+        return raw[:limit]
+
+
+def _is_placeholder_display_name(val: Any, uid: str = "") -> bool:
+    s = str(val or "").strip()
+    if not s:
+        return True
+    low = s.lower()
+    if low in ("не подключен", "not connected", "kinorium", "кинориум", "гость", "guest"):
+        return True
+    if s.isdigit() or (uid and s == str(uid).strip()):
+        return True
+    if low.startswith(("http://", "https://", "user/")) or "kinorium.com" in low:
+        return True
+    if re.match(r"^(?:user|id)[_\-\s]*\d+$", low):
+        return True
+    return False
+
+
+def _parse_episode_air_date_iso(raw_text: str) -> Tuple[str, str]:
+    """Extracts (human_date, YYYY-MM-DD) from a Kinorium episode block if present."""
+    if not raw_text:
+        return "", ""
+    # Strip episode title markup/attributes first so dates inside titles (e.g. "11.22.1963", "May 2024")
+    # never masquerade as the episode's air date.
+    cleaned_html = re.sub(r"<h3\b[^>]*>.*?</h3>", " ", raw_text, flags=re.I | re.S)
+    cleaned_html = re.sub(r"\b(?:data-movieName|title)\s*=\s*(['\"]).*?\1", " ", cleaned_html, flags=re.I | re.S)
+    txt = html.unescape(re.sub(r"<[^>]+>", " ", cleaned_html)).replace("\xa0", " ")
+    txt = re.sub(r"\s+", " ", txt).strip()
+    if not txt:
+        return "", ""
+
+    def _valid_ymd(yyyy: int, mm: int, dd: int) -> bool:
+        if not (1900 <= yyyy <= 2100 and 1 <= mm <= 12):
+            return False
+        max_d = calendar.monthrange(yyyy, mm)[1]
+        return 1 <= dd <= max_d
+
+    m_iso = re.search(r"\b((?:19|20)\d{2})-(\d{2})-(\d{2})\b", txt)
+    if m_iso:
+        yyyy, mm, dd = int(m_iso.group(1)), int(m_iso.group(2)), int(m_iso.group(3))
+        if _valid_ymd(yyyy, mm, dd):
+            iso_s = f"{yyyy:04d}-{mm:02d}-{dd:02d}"
+            return iso_s, iso_s
+
+    m_dmy = re.search(r"\b(\d{1,2})\.(\d{1,2})\.((?:19|20)\d{2})\b", txt)
+    if m_dmy:
+        dd, mm, yyyy = int(m_dmy.group(1)), int(m_dmy.group(2)), int(m_dmy.group(3))
+        if _valid_ymd(yyyy, mm, dd):
+            return m_dmy.group(0), f"{yyyy:04d}-{mm:02d}-{dd:02d}"
+
+    m_ru = re.search(
+        r"\b(\d{1,2})\s+(январ[ья]|янв|феврал[ья]|фев|март[а]?|мар|апрел[ья]|апр|ма[яй]|июн[ья]|июн|июл[ья]|июл|август[а]?|авг|сентябр[ья]|сент?|октябр[ья]|окт|ноябр[ья]|ноя|декабр[ья]|дек)\.?\s+((?:19|20)\d{2})\b",
+        txt,
+        re.I,
+    )
+    if m_ru:
+        dd = int(m_ru.group(1))
+        mm = _RU_MONTHS_TO_NUM.get(m_ru.group(2).lower().rstrip("."), 0)
+        yyyy = int(m_ru.group(3))
+        if _valid_ymd(yyyy, mm, dd):
+            return m_ru.group(0).strip(), f"{yyyy:04d}-{mm:02d}-{dd:02d}"
+
+    m_en1 = re.search(
+        r"\b(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sept?|October|Oct|November|Nov|December|Dec)\.?\s+(\d{1,2}),?\s+((?:19|20)\d{2})\b",
+        txt,
+        re.I,
+    )
+    if m_en1:
+        mm = _EN_MONTHS_TO_NUM.get(m_en1.group(1).lower().rstrip("."), 0)
+        dd = int(m_en1.group(2))
+        yyyy = int(m_en1.group(3))
+        if _valid_ymd(yyyy, mm, dd):
+            return m_en1.group(0).strip(), f"{yyyy:04d}-{mm:02d}-{dd:02d}"
+
+    m_en2 = re.search(
+        r"\b(\d{1,2})\s+(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sept?|October|Oct|November|Nov|December|Dec)\.?,?\s+((?:19|20)\d{2})\b",
+        txt,
+        re.I,
+    )
+    if m_en2:
+        dd = int(m_en2.group(1))
+        mm = _EN_MONTHS_TO_NUM.get(m_en2.group(2).lower().rstrip("."), 0)
+        yyyy = int(m_en2.group(3))
+        if _valid_ymd(yyyy, mm, dd):
+            return m_en2.group(0).strip(), f"{yyyy:04d}-{mm:02d}-{dd:02d}"
+
+    m_ru_my = re.search(
+        r"\b(январ[ья]|феврал[ья]|март[а]?|апрел[ья]|ма[яй]|июн[ья]|июл[ья]|август[а]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья])\s+((?:20)\d{2})\b",
+        txt,
+        re.I,
+    )
+    if m_ru_my:
+        mm = _RU_MONTHS_TO_NUM.get(m_ru_my.group(1).lower(), 0)
+        yyyy = int(m_ru_my.group(2))
+        if 1 <= mm <= 12 and 1900 <= yyyy <= 2100:
+            last_day = calendar.monthrange(yyyy, mm)[1]
+            return m_ru_my.group(0).strip(), f"{yyyy:04d}-{mm:02d}-{last_day:02d}"
+
+    return "", ""
+
+
+def _sanitize_kinorium_genres(raw_genres: Any, media_type: str = "movie") -> List[str]:
+    cleaned: List[str] = []
+    for g in raw_genres or []:
+        s = str(g or "").strip().strip(".,•")
+        if (
+            not s
+            or s.isdigit()
+            or re.match(r"^\d{4}(?:[–-]\d{2,4})?$", s)
+            or re.search(r"\d+\s*(?:ч|мин)", s, flags=re.I)
+            or len(s) >= 25
+        ):
+            continue
+        low = s.lower().replace("ё", "е")
+        if low in RU_COUNTRIES_TO_EN:
+            continue
+        stripped_country = False
+        for ru_c in _RU_COUNTRIES_SORTED:
+            if low.endswith(" " + ru_c):
+                s = s[: -(len(ru_c) + 1)].strip().strip(",")
+                low = s.lower().replace("ё", "е")
+                stripped_country = True
+                break
+        if not s or low in RU_COUNTRIES_TO_EN:
+            continue
+        if stripped_country or low in RU_GENRES_TO_EN or not s[0].isupper():
+            cap = s[0].upper() + s[1:]
+            if cap not in cleaned:
+                cleaned.append(cap)
+        elif low in {k.replace("ё", "е") for k in RU_GENRES_TO_EN}:
+            if s not in cleaned:
+                cleaned.append(s)
+    if cleaned:
+        return cleaned[:3]
+    return ["Сериал", "Драма"] if media_type == "series" else ["Фильм", "Драма"]
 
 _RE_NON_WORD_SPACE = re.compile(r"[^\w\s]")
 _RE_MULTI_SPACE = re.compile(r"\s+")
@@ -51,6 +300,12 @@ def _title_variants(text: str) -> List[str]:
     return list(_title_variants_tuple(text))
 
 
+
+class _StatusListResult(dict):
+    """dict of parsed Kinorium list items + `incomplete` flag set when any page failed."""
+
+    incomplete: bool = False
+
 class KinoriumService:
     """
     Live Kinorium Integration for CineFlow:
@@ -74,9 +329,9 @@ class KinoriumService:
             "name": "Kinorium",
             "enabled": True,
             "requires_login": True,
-            "logged_in": True,
-            "status_label": "Подключено: Andrei Crustillio (user/51670)",
-            "login_url": "https://en.kinorium.com/user/51670/",
+            "logged_in": False,
+            "status_label": "Не подключен",
+            "login_url": "https://kinorium.com/",
         },
         "hdrezka": {
             "id": "hdrezka",
@@ -161,18 +416,39 @@ class KinoriumService:
         },
     }
 
-    def __init__(self, net_client: DoHSplitNetworkClient, storage_dir: str):
+    def __init__(
+        self,
+        net_client: DoHSplitNetworkClient,
+        storage_dir: str,
+        *,
+        register_atexit: bool = True,
+        start_background_workers: bool = True,
+    ):
         self.net = net_client
         self.storage_dir = storage_dir
         os.makedirs(self.storage_dir, exist_ok=True)
         self.state_file = os.path.join(self.storage_dir, "kinorium_state.json")
         self.premieres_cache_file = os.path.join(self.storage_dir, "online_premieres_cache.json")
+        self.similar_cache_file = os.path.join(self.storage_dir, "kinorium_similar_cache.json")
         self._state_lock = threading.RLock()
         self._cookie_lock = threading.Lock()
+        self._cookie_refresh_lock = threading.Lock()
         self._episodes_lock = threading.Lock()
+        self._similar_lock = threading.Lock()
+        self._person_lock = threading.Lock()
         self._series_episodes_cache: Dict[str, Dict[str, Any]] = {}
+        self._similar_by_kid: Dict[str, Dict[str, Any]] = {}
+        self._person_search_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._person_filmog_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._session_auth_verified: Optional[bool] = None
         self._kinorium_cookie_cache: str = ""
+        self._kinorium_anon_cookie_cache: str = ""
+        self._sync_cookie_tl = threading.local()
+        self._prefer_en_domain_until: float = 0.0
+        self._rate_limit_lock = threading.Lock()
+        self._last_http_req_ts: float = 0.0
+        self._ip_blocked_until: float = 0.0
+        self._ip_blocked_proxy_sig: str = ""
         self._state_version: int = 1
         self._integrations_cache: Optional[Dict[str, Any]] = None
         self._save_dirty: bool = False
@@ -181,12 +457,76 @@ class KinoriumService:
         self._online_premieres_ts: float = 0.0
         self._online_premieres_last_attempt_ts: float = 0.0
         self._online_premieres_refreshing: bool = False
+        self._db = get_storage_db(self.storage_dir)
+        self._profile_id: str = profile_id_from_state_path(self.storage_dir, self.state_file)
+        self._section_hashes: Dict[str, str] = {}
         self._preload_premieres_disk_cache()
+        self._preload_similar_disk_cache()
+        self.had_persisted_state: bool = self._db.has_profile_state(self._profile_id) or os.path.exists(self.state_file)
         self.state = self._load_state()
         self._build_lookup_indices()
-        atexit.register(self._flush_state_on_exit)
+        self._background_workers_enabled = bool(start_background_workers)
+        if register_atexit:
+            atexit.register(self._flush_state_on_exit)
+
+    def _preload_similar_disk_cache(self) -> None:
+        try:
+            db_map = self._db.load_cache_dict("kinorium_similar", max_entries=800)
+            if db_map:
+                with self._similar_lock:
+                    self._similar_by_kid = {
+                        str(k): v
+                        for k, v in db_map.items()
+                        if str(k).isdigit() and isinstance(v, dict) and isinstance(v.get("items"), list)
+                    }
+                return
+        except Exception:
+            pass
+        if not os.path.isfile(self.similar_cache_file):
+            return
+        try:
+            with open(self.similar_cache_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                cleaned = {
+                    str(k): v
+                    for k, v in data.items()
+                    if str(k).isdigit() and isinstance(v, dict) and isinstance(v.get("items"), list)
+                }
+                with self._similar_lock:
+                    self._similar_by_kid = cleaned
+                if cleaned:
+                    self._db.save_cache_dict("kinorium_similar", cleaned, max_entries=800)
+        except Exception:
+            pass
+
+    def _save_similar_disk_cache(self) -> None:
+        try:
+            with self._similar_lock:
+                if len(self._similar_by_kid) > 800:
+                    sorted_keys = sorted(
+                        self._similar_by_kid.keys(),
+                        key=lambda k: float((self._similar_by_kid.get(k) or {}).get("updated_at") or 0.0),
+                        reverse=True,
+                    )[:650]
+                    self._similar_by_kid = {k: self._similar_by_kid[k] for k in sorted_keys}
+                snapshot = dict(self._similar_by_kid)
+            self._db.save_cache_dict("kinorium_similar", snapshot, max_entries=800)
+        except Exception:
+            pass
 
     def _preload_premieres_disk_cache(self) -> None:
+        try:
+            cached_payload = self._db.get_kv("cache", "online_premieres")
+            if isinstance(cached_payload, dict):
+                cached_items = cached_payload.get("items")
+                cached_ts = float(cached_payload.get("updated_at") or 0.0)
+                if isinstance(cached_items, list) and len(cached_items) >= 20:
+                    self._online_premieres_mem = cached_items
+                    self._online_premieres_ts = cached_ts
+                    return
+        except Exception:
+            pass
         if not os.path.isfile(self.premieres_cache_file):
             return
         try:
@@ -197,19 +537,128 @@ class KinoriumService:
             if isinstance(cached_items, list) and len(cached_items) >= 20:
                 self._online_premieres_mem = cached_items
                 self._online_premieres_ts = cached_ts
+                self._db.set_kv("cache", "online_premieres", {"updated_at": cached_ts, "items": cached_items})
         except Exception:
             pass
+
+    @staticmethod
+    def _sanitize_series_live_meta_dict(state_dict: Dict[str, Any]) -> bool:
+        """
+        Purges poisoned or malformed `series_live_meta` entries (wrong movies, homonym hijacks,
+        placeholder 'Фильм' titles, malformed `kin_tt...` keys, or overwritten numeric IDs).
+        """
+        live_meta = state_dict.get("series_live_meta")
+        if not isinstance(live_meta, dict) or not live_meta:
+            return False
+
+        remote_by_kid: Dict[str, Dict[str, Any]] = {}
+        for sec in ("remote_never_items", "remote_watchlist_items", "remote_watched_items", "remote_watching_items"):
+            sec_d = state_dict.get(sec)
+            if isinstance(sec_d, dict):
+                for rk, rv in sec_d.items():
+                    if isinstance(rv, dict):
+                        remote_by_kid[str(rk)] = rv
+
+        healed = False
+        for k in list(live_meta.keys()):
+            entry = live_meta.get(k)
+            if not isinstance(entry, dict):
+                live_meta.pop(k, None)
+                healed = True
+                continue
+            sk = str(k)
+            # Remove malformed kin_tt... keys
+            if sk.startswith("kin_") and not sk[4:].isdigit():
+                live_meta.pop(k, None)
+                healed = True
+                continue
+
+            t_raw = str(entry.get("title") or "").strip()
+            o_raw = str(entry.get("orig_title") or "").strip()
+            r_url = str(entry.get("rezka_url") or "").strip()
+            r_id = str(entry.get("rezka_id") or "").strip()
+            kid = str(entry.get("kinorium_id") or (sk[4:] if sk.startswith("kin_") else "")).strip()
+
+            # Remove placeholder garbage titles ('Фильм', 'Сериал')
+            if t_raw.lower() in ("фильм", "сериал", "movie", "series"):
+                live_meta.pop(k, None)
+                healed = True
+                continue
+
+            # Repair overwritten bare numeric catalog IDs
+            cur_id = str(entry.get("id") or "").strip()
+            if cur_id.isdigit() and kid.isdigit():
+                entry["id"] = f"kin_{kid}"
+                healed = True
+
+            # Reject movie pages stored inside series_live_meta
+            if "/films/" in r_url.lower():
+                live_meta.pop(k, None)
+                healed = True
+                continue
+
+            # Cross-verify against authoritative Kinorium remote item if available
+            rem = remote_by_kid.get(kid) if kid else None
+            if rem:
+                rem_ru = _norm_title(rem.get("ru_title") or "")
+                rem_orig = _norm_title(rem.get("orig_title") or "")
+                ent_ru = _norm_title(t_raw)
+                ent_orig = _norm_title(o_raw)
+                if rem_orig and ent_orig and rem_orig != ent_orig:
+                    live_meta.pop(k, None)
+                    healed = True
+                    continue
+                if rem_ru and ent_ru and rem_ru != ent_ru and not (rem_orig and rem_orig == ent_orig):
+                    live_meta.pop(k, None)
+                    healed = True
+                    continue
+                if not t_raw and rem.get("ru_title"):
+                    entry["title"] = str(rem["ru_title"]).strip()
+                    ent_ru = _norm_title(entry["title"])
+                    healed = True
+                if not o_raw and rem.get("orig_title"):
+                    entry["orig_title"] = str(rem["orig_title"]).strip()
+                    ent_orig = _norm_title(entry["orig_title"])
+                    healed = True
+                if not entry.get("year") and rem.get("year"):
+                    yr_rem = _safe_year_int(rem.get("year"))
+                    if yr_rem:
+                        entry["year"] = yr_rem
+                        healed = True
+
+            # Detect homonym slug hijacks (e.g. 'Shrinking' / 'Терапия' -> 'terapiya-sebastyana-fitceka', 'Carrie' -> 'kerri-i-superkola')
+            eff_orig = str(entry.get("orig_title") or "").strip()
+            eff_ru = str(entry.get("title") or "").strip()
+            if r_url and (eff_orig or eff_ru):
+                m_slug = re.search(r"/\d+-([a-z0-9-]+?)(?:-\d{4})?(?:-latest)?\.html", r_url.lower())
+                if m_slug:
+                    slug_words = [w for w in m_slug.group(1).split("-") if w]
+                    ru_words = [w for w in _norm_title(eff_ru).split() if w]
+                    orig_ascii = re.sub(r"[^a-z0-9\s]", " ", eff_orig.lower()).split()
+                    max_expected_words = max(len(ru_words), len(orig_ascii), 1)
+                    orig_in_slug = bool(orig_ascii) and all(ow in slug_words for ow in orig_ascii if len(ow) >= 3)
+                    if len(slug_words) >= max_expected_words + 2 and not orig_in_slug:
+                        live_meta.pop(k, None)
+                        healed = True
+                        continue
+            # Also reject non-series cartoons without seasons_map if marked single episode
+            smap = entry.get("seasons_map")
+            if "/cartoons/" in r_url.lower() and not smap and r_id:
+                live_meta.pop(k, None)
+                healed = True
+                continue
+        return healed
 
     def _load_state(self) -> Dict[str, Any]:
         default_state: Dict[str, Any] = {
             "account": {
-                "connected": True,
-                "user_id": "51670",
-                "profile_url": "https://en.kinorium.com/user/51670/",
-                "username": "Andrei Crustillio (user/51670)",
-                "display_name": "Andrei Crustillio",
+                "connected": False,
+                "user_id": "",
+                "profile_url": "https://kinorium.com/",
+                "username": "",
+                "display_name": "Не подключен",
                 "session_cookie": "",
-                "auto_scrobble_threshold": 0.85,
+                "auto_scrobble_threshold": 0.95,
                 "watched_count": 0,
                 "friends_count": 0,
                 "last_synced": "",
@@ -228,34 +677,73 @@ class KinoriumService:
             "friends_ratings_by_kid": {},
             "continue_watching": [],
             "watched_episodes": {},
+            "unwatched_episodes": {},
             "episode_ratings": {},
+            "cleared_episode_ratings": {},
+            "cw_dismissed": [],
+            "cw_dismissed_entries": {},
             "series_live_meta": {},
+            "descriptions_by_kid": {},
         }
-        if os.path.exists(self.state_file):
+        loaded: Optional[Dict[str, Any]] = None
+        imported_from_json = False
+        try:
+            loaded = self._db.load_profile_state(self._profile_id)
+        except Exception:
+            loaded = None
+
+        if loaded is None and os.path.exists(self.state_file):
             try:
                 with open(self.state_file, "r", encoding="utf-8") as f:
-                    loaded = json.load(f)
-                    for k, v in loaded.items():
-                        if k == "integrations" and isinstance(v, dict):
-                            merged_int = json.loads(json.dumps(self.DEFAULT_INTEGRATIONS))
-                            for ik, iv in v.items():
-                                if ik in merged_int and isinstance(iv, dict):
-                                    merged_int[ik].update(iv)
-                                    if "enabled" not in merged_int[ik]:
-                                        merged_int[ik]["enabled"] = True
-                            default_state["integrations"] = merged_int
-                        elif k == "account" and isinstance(v, dict):
-                            default_state["account"].update(v)
-                            if default_state["account"].get("session_cookie"):
-                                default_state["account"]["session_cookie"] = self.sanitize_session_cookie(
-                                    str(default_state["account"]["session_cookie"])
-                                )
-                        else:
-                            default_state[k] = v
+                    raw_json = json.load(f)
+                if isinstance(raw_json, dict):
+                    loaded = raw_json
+                    imported_from_json = True
             except Exception:
-                pass
+                loaded = None
+
+        if isinstance(loaded, dict):
+            for k, v in loaded.items():
+                if k == "integrations" and isinstance(v, dict):
+                    merged_int = json.loads(json.dumps(self.DEFAULT_INTEGRATIONS))
+                    for ik, iv in v.items():
+                        if ik in merged_int and isinstance(iv, dict):
+                            merged_int[ik].update(iv)
+                            if "enabled" not in merged_int[ik]:
+                                merged_int[ik]["enabled"] = True
+                    default_state["integrations"] = merged_int
+                elif k == "account" and isinstance(v, dict):
+                    default_state["account"].update(v)
+                    raw_dn = str(default_state["account"].get("display_name") or "").strip()
+                    uid_val = str(default_state["account"].get("user_id") or "").strip()
+                    if _is_placeholder_display_name(raw_dn, uid_val):
+                        if uid_val == "51670" and default_state["account"].get("connected"):
+                            default_state["account"]["display_name"] = "Andrei Crustillio"
+                        elif default_state["account"].get("connected"):
+                            default_state["account"]["display_name"] = ""
+                        else:
+                            default_state["account"]["display_name"] = "Не подключен"
+                    if default_state["account"].get("auto_scrobble_threshold") == 0.85:
+                        default_state["account"]["auto_scrobble_threshold"] = 0.95
+                    if default_state["account"].get("session_cookie"):
+                        default_state["account"]["session_cookie"] = self.sanitize_session_cookie(
+                            str(default_state["account"]["session_cookie"])
+                        )
+                    if (
+                        "integrations" not in loaded
+                        and default_state["account"].get("connected")
+                        and default_state["account"].get("user_id")
+                    ):
+                        default_state["integrations"]["kinorium"]["logged_in"] = True
+                        uid_loaded = default_state["account"]["user_id"]
+                        default_state["integrations"]["kinorium"]["login_url"] = (
+                            f"https://en.kinorium.com/user/{uid_loaded}/"
+                        )
+                else:
+                    default_state[k] = v
+
         # Clean up any malformed 'kin_tt...' keys from earlier non-numeric ID fallbacks
-        for dict_key in ("watched_episodes", "episode_ratings", "watched", "ratings"):
+        for dict_key in ("watched_episodes", "unwatched_episodes", "episode_ratings", "cleared_episode_ratings", "watched", "ratings"):
             sub_d = default_state.get(dict_key)
             if isinstance(sub_d, dict):
                 bad_keys = [k for k in list(sub_d.keys()) if str(k).startswith("kin_") and not str(k)[4:].isdigit()]
@@ -264,17 +752,182 @@ class KinoriumService:
                     orig_id = str(bk)[4:]
                     if orig_id and orig_id not in sub_d and raw_val is not None:
                         sub_d[orig_id] = raw_val
+        # Strip any country names accidentally parsed into genres in persisted Kinorium lists
+        for r_key in (
+            "remote_watched_items",
+            "remote_watching_items",
+            "remote_watchlist_items",
+            "remote_never_items",
+            "watched",
+        ):
+            r_dict = default_state.get(r_key)
+            if isinstance(r_dict, dict):
+                for entry in r_dict.values():
+                    if isinstance(entry, dict) and isinstance(entry.get("genres"), list):
+                        entry["genres"] = _sanitize_kinorium_genres(
+                            entry["genres"], str(entry.get("media_type") or "movie")
+                        )
+
+        healed_live = self._sanitize_series_live_meta_dict(default_state)
+        healed_conflicts = self._sanitize_never_vs_watched_conflicts(default_state)
+        saved_to_db = False
+        if imported_from_json or ((healed_live or healed_conflicts) and self.had_persisted_state):
+            try:
+                self._section_hashes = self._db.save_profile_state(self._profile_id, default_state, {})
+                saved_to_db = True
+            except Exception:
+                pass
+        live_cookie = str((default_state.get("account") or {}).get("session_cookie") or "").strip()
+        if live_cookie and (saved_to_db or (loaded is not None and self._db.has_profile_state(self._profile_id))):
+            # The encrypted SQLite store is authoritative: scrub plaintext secrets from the legacy JSON
+            self._scrub_legacy_json_secrets(self.state_file)
         return default_state
+
+    @staticmethod
+    def _scrub_legacy_json_secrets(json_path: str) -> None:
+        if not json_path or not os.path.isfile(json_path):
+            return
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                legacy = json.load(f)
+            acc = legacy.get("account") if isinstance(legacy, dict) else None
+            if not isinstance(acc, dict):
+                set_private_file_permissions(json_path, is_dir=False)
+                return
+            secret_keys = [k for k in ("session_cookie", "auth_token") if str(acc.get(k) or "").strip()]
+            if secret_keys:
+                for k in secret_keys:
+                    acc[k] = ""
+                tmp_path = f"{json_path}.scrub.tmp.{os.getpid()}.{threading.get_ident()}"
+                try:
+                    with open(tmp_path, "w", encoding="utf-8") as f:
+                        json.dump(legacy, f, ensure_ascii=False)
+                    os.replace(tmp_path, json_path)
+                except Exception:
+                    try:
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+                    except Exception:
+                        pass
+                    raise
+            set_private_file_permissions(json_path, is_dir=False)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _sanitize_never_vs_watched_conflicts(state_dict: Dict[str, Any]) -> bool:
+        """
+        Ensures any title that is watched (`watched=True` / in `remote_watched_items`) or rated (`score > 0`)
+        never remains in 'Не буду смотреть' (`remote_never_items` / `never_local`), moving rated items in
+        `remote_never_items` into `remote_watched_items`.
+        """
+        if not isinstance(state_dict, dict):
+            return False
+        changed = False
+        rem_watched = state_dict.setdefault("remote_watched_items", {})
+        rem_watching = state_dict.setdefault("remote_watching_items", {})
+        rem_never = state_dict.setdefault("remote_never_items", {})
+        loc_watched = state_dict.get("watched") or {}
+        loc_ratings = state_dict.get("ratings") or {}
+        loc_never = state_dict.setdefault("never_local", [])
+        rem_never_removed = state_dict.setdefault("never_removed", [])
+
+        for kid in list(rem_never.keys()):
+            n_entry = rem_never.get(kid)
+            if not isinstance(n_entry, dict):
+                continue
+            k_str = str(kid)
+            k_pref = f"kin_{k_str}"
+            lw = loc_watched.get(k_pref) or loc_watched.get(k_str)
+            lr = loc_ratings.get(k_pref) or loc_ratings.get(k_str)
+            has_local_watched = bool(isinstance(lw, dict) and lw.get("watched"))
+            has_local_score = bool(
+                isinstance(lr, dict)
+                and not lr.get("cleared")
+                and str(lr.get("score") or "").isdigit()
+                and int(lr.get("score") or 0) > 0
+            )
+            entry_score = n_entry.get("score")
+            has_entry_score = bool(str(entry_score or "").isdigit() and int(entry_score or 0) > 0)
+            in_watched = k_str in rem_watched
+            in_watching = k_str in rem_watching
+            if in_watched or in_watching or has_local_watched or has_local_score or has_entry_score or bool(n_entry.get("watched")):
+                popped = rem_never.pop(kid, None)
+                changed = True
+                if not in_watching:
+                    w_existing = rem_watched.get(k_str)
+                    if isinstance(w_existing, dict):
+                        if not w_existing.get("score") and has_entry_score:
+                            w_existing["score"] = int(entry_score)
+                        w_existing["watched"] = True
+                        w_existing["not_watching"] = False
+                        w_existing["status"] = "done"
+                    elif isinstance(popped, dict):
+                        popped_copy = dict(popped)
+                        popped_copy["watched"] = True
+                        popped_copy["not_watching"] = False
+                        popped_copy["status"] = "done"
+                        if has_local_score and not popped_copy.get("score"):
+                            popped_copy["score"] = int(lr["score"])
+                        rem_watched[k_str] = popped_copy
+                for cand_id in (k_str, k_pref):
+                    if cand_id in loc_never:
+                        loc_never.remove(cand_id)
+                    if cand_id not in rem_never_removed:
+                        rem_never_removed.append(cand_id)
+
+        # Mutually exclusive lists: items in remote_watched_items must not linger in remote_watching_items
+        for kid in list(rem_watched.keys()):
+            k_str = str(kid)
+            if k_str in rem_watching:
+                rem_watching.pop(k_str, None)
+                changed = True
+
+        if isinstance(loc_never, list) and loc_never:
+            for item_key in list(loc_never):
+                s_key = str(item_key)
+                kid_part = s_key[4:] if (s_key.startswith("kin_") and s_key[4:].isdigit()) else (s_key if s_key.isdigit() else "")
+                lw = loc_watched.get(s_key) or (loc_watched.get(f"kin_{kid_part}") if kid_part else None)
+                lr = loc_ratings.get(s_key) or (loc_ratings.get(f"kin_{kid_part}") if kid_part else None)
+                is_w = bool((isinstance(lw, dict) and lw.get("watched")) or (kid_part and kid_part in rem_watched))
+                is_r = bool(
+                    isinstance(lr, dict)
+                    and not lr.get("cleared")
+                    and str(lr.get("score") or "").isdigit()
+                    and int(lr.get("score") or 0) > 0
+                )
+                if is_w or is_r:
+                    loc_never.remove(item_key)
+                    if s_key not in rem_never_removed:
+                        rem_never_removed.append(s_key)
+                    changed = True
+
+        if isinstance(state_dict.get("account"), dict):
+            state_dict["account"]["watched_count"] = len(rem_watched)
+            state_dict["account"]["never_count"] = len(rem_never)
+        return changed
 
     def _write_state_file_locked(self) -> None:
         try:
-            tmp_path = f"{self.state_file}.tmp.{threading.get_ident()}"
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(self.state, f, ensure_ascii=False, separators=(",", ":"))
-            os.replace(tmp_path, self.state_file)
+            desc_map = self.state.get("descriptions_by_kid")
+            if isinstance(desc_map, dict) and len(desc_map) > 2000:
+                keep_keys = list(desc_map.keys())[-2000:]
+                self.state["descriptions_by_kid"] = {k: desc_map[k] for k in keep_keys}
+            self._section_hashes = self._db.save_profile_state(
+                self._profile_id,
+                self.state,
+                self._section_hashes,
+            )
             self._save_dirty = False
         except Exception:
-            pass
+            # e.g. "dictionary changed size during iteration" while another thread mutates state:
+            # keep the change dirty and retry shortly instead of silently losing it.
+            self._save_dirty = True
+            if self._save_timer is None:
+                t = threading.Timer(3.0, self._flush_dirty_state)
+                t.daemon = True
+                self._save_timer = t
+                t.start()
 
     def _flush_dirty_state(self) -> None:
         with self._state_lock:
@@ -317,95 +970,180 @@ class KinoriumService:
         - `remote_watchlist_items` (Буду смотреть / future)
         - `remote_never_items` (Не буду смотреть / never)
         """
-        self._by_ru: Dict[str, Dict[str, Any]] = {}
-        self._by_orig: Dict[str, Dict[str, Any]] = {}
-        self._by_kid: Dict[str, Dict[str, Any]] = {}
-        self._watching_by_ru: set = set()
-        self._watching_by_orig: set = set()
-        self._watchlist_by_ru: set = set()
-        self._watchlist_by_orig: set = set()
-        self._never_by_ru: set = set()
-        self._never_by_orig: set = set()
-        self._friend_kid_by_ru: Dict[str, str] = {}
-        self._friend_kid_by_orig: Dict[str, str] = {}
-        self._live_meta_by_id: Dict[str, Dict[str, Any]] = {}
-        self._live_meta_by_ru: Dict[str, Dict[str, Any]] = {}
-        self._live_meta_by_orig: Dict[str, Dict[str, Any]] = {}
+        by_ru: Dict[str, Dict[str, Any]] = {}
+        by_orig: Dict[str, Dict[str, Any]] = {}
+        by_kid: Dict[str, Dict[str, Any]] = {}
+        watching_by_ru: set = set()
+        watching_by_orig: set = set()
+        watchlist_by_ru: set = set()
+        watchlist_by_orig: set = set()
+        never_by_ru: set = set()
+        never_by_orig: set = set()
+        friend_kid_by_ru: Dict[str, str] = {}
+        friend_kid_by_orig: Dict[str, str] = {}
+        live_meta_by_id: Dict[str, Dict[str, Any]] = {}
+        live_meta_by_ru: Dict[str, Dict[str, Any]] = {}
+        live_meta_by_orig: Dict[str, Dict[str, Any]] = {}
 
-        for m_key, m_val in (self.state.get("series_live_meta") or {}).items():
+        with self._state_lock:
+            live_meta_snap = list((self.state.get("series_live_meta") or {}).items())
+            watched_map = dict(self.state.get("remote_watched_items") or {})
+            watching_map = dict(self.state.get("remote_watching_items") or {})
+            watchlist_map = dict(self.state.get("remote_watchlist_items") or {})
+            never_map = dict(self.state.get("remote_never_items") or {})
+            friend_known_snap = list((self.state.get("friend_known_titles") or {}).items())
+            for kid, w_item in list(watching_map.items()):
+                if (
+                    isinstance(w_item, dict)
+                    and not w_item.get("score")
+                    and kid in watched_map
+                    and isinstance(watched_map[kid], dict)
+                    and watched_map[kid].get("score")
+                ):
+                    w_item["score"] = watched_map[kid]["score"]
+
+        for m_key, m_val in live_meta_snap:
             if not isinstance(m_val, dict):
                 continue
-            self._live_meta_by_id[str(m_key)] = m_val
-            if m_val.get("id"):
-                self._live_meta_by_id[str(m_val["id"])] = m_val
+            live_meta_by_id[str(m_key)] = m_val
+            raw_mid = str(m_val.get("id") or "")
+            if raw_mid and not raw_mid.isdigit():
+                live_meta_by_id[raw_mid] = m_val
             if m_val.get("kinorium_id"):
-                self._live_meta_by_id[str(m_val["kinorium_id"])] = m_val
-                self._live_meta_by_id[f"kin_{m_val['kinorium_id']}"] = m_val
+                live_meta_by_id[str(m_val["kinorium_id"])] = m_val
+                live_meta_by_id[f"kin_{m_val['kinorium_id']}"] = m_val
             m_nr = _norm_title(m_val.get("title", ""))
             m_no = _norm_title(m_val.get("orig_title", ""))
-            if m_nr:
-                self._live_meta_by_ru[m_nr] = m_val
-            if m_no:
-                self._live_meta_by_orig[m_no] = m_val
+            if m_nr and m_nr not in ("фильм", "сериал"):
+                live_meta_by_ru[m_nr] = m_val
+            if m_no and m_no not in ("фильм", "сериал"):
+                live_meta_by_orig[m_no] = m_val
 
-        watched_map = self.state.get("remote_watched_items") or {}
-        watching_map = self.state.get("remote_watching_items") or {}
-        for kid, w_item in watching_map.items():
-            if not w_item.get("score") and kid in watched_map and watched_map[kid].get("score"):
-                w_item["score"] = watched_map[kid]["score"]
-
-        for section_key in (
-            "remote_never_items",
-            "remote_watchlist_items",
-            "remote_watching_items",
-            "remote_watched_items",
+        for section_map in (
+            never_map,
+            watchlist_map,
+            watching_map,
+            watched_map,
         ):
-            for kid, item in (self.state.get(section_key) or {}).items():
-                self._by_kid[str(kid)] = item
+            for kid, item in list(section_map.items()):
+                if not isinstance(item, dict):
+                    continue
+                by_kid[str(kid)] = item
                 nr = _norm_title(item.get("ru_title", ""))
                 no = _norm_title(item.get("orig_title", ""))
                 if nr:
-                    self._by_ru[nr] = item
+                    by_ru[nr] = item
                 if no:
-                    self._by_orig[no] = item
+                    by_orig[no] = item
 
-        for kid, item in watching_map.items():
+        for kid, item in list(watching_map.items()):
+            if not isinstance(item, dict):
+                continue
             nr = _norm_title(item.get("ru_title", ""))
             no = _norm_title(item.get("orig_title", ""))
             if nr:
-                self._watching_by_ru.add(nr)
+                watching_by_ru.add(nr)
             if no:
-                self._watching_by_orig.add(no)
+                watching_by_orig.add(no)
 
-        for kid, item in (self.state.get("remote_watchlist_items") or {}).items():
+        for kid, item in list(watchlist_map.items()):
+            if not isinstance(item, dict):
+                continue
             nr = _norm_title(item.get("ru_title", ""))
             no = _norm_title(item.get("orig_title", ""))
             if nr:
-                self._watchlist_by_ru.add(nr)
+                watchlist_by_ru.add(nr)
             if no:
-                self._watchlist_by_orig.add(no)
+                watchlist_by_orig.add(no)
 
-        for kid, item in (self.state.get("remote_never_items") or {}).items():
+        for kid, item in list(never_map.items()):
+            if not isinstance(item, dict):
+                continue
             nr = _norm_title(item.get("ru_title", ""))
             no = _norm_title(item.get("orig_title", ""))
             if nr:
-                self._never_by_ru.add(nr)
+                never_by_ru.add(nr)
             if no:
-                self._never_by_orig.add(no)
+                never_by_orig.add(no)
 
-        for kid, fmeta in (self.state.get("friend_known_titles") or {}).items():
+        for kid, fmeta in friend_known_snap:
+            if not isinstance(fmeta, dict):
+                continue
             fnr = _norm_title(fmeta.get("ru_title", ""))
             fno = _norm_title(fmeta.get("orig_title", ""))
             if fnr:
-                self._friend_kid_by_ru[fnr] = str(kid)
+                friend_kid_by_ru[fnr] = str(kid)
             if fno:
-                self._friend_kid_by_orig[fno] = str(kid)
+                friend_kid_by_orig[fno] = str(kid)
+
+        with self._state_lock:
+            self._by_ru = by_ru
+            self._by_orig = by_orig
+            self._by_kid = by_kid
+            self._watching_by_ru = watching_by_ru
+            self._watching_by_orig = watching_by_orig
+            self._watchlist_by_ru = watchlist_by_ru
+            self._watchlist_by_orig = watchlist_by_orig
+            self._never_by_ru = never_by_ru
+            self._never_by_orig = never_by_orig
+            self._friend_kid_by_ru = friend_kid_by_ru
+            self._friend_kid_by_orig = friend_kid_by_orig
+            self._live_meta_by_id = live_meta_by_id
+            self._live_meta_by_ru = live_meta_by_ru
+            self._live_meta_by_orig = live_meta_by_orig
+
+    def switch_state_file(
+        self,
+        new_state_file: str,
+        *,
+        force_reload: bool = False,
+        discard_dirty: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Atomically flushes the current profile's Kinorium state to disk and switches
+        `self.state_file` to `new_state_file`, reloading state and rebuilding all indices.
+        """
+        target_path = os.path.abspath(new_state_file)
+        with self._state_lock:
+            if os.path.abspath(self.state_file) == target_path and not force_reload:
+                return self.get_account_summary()
+            if self._save_timer is not None:
+                self._save_timer.cancel()
+                self._save_timer = None
+            if self._save_dirty and not discard_dirty:
+                self._write_state_file_locked()
+            self._save_dirty = False
+            prev_integrations = json.loads(json.dumps(self.state.get("integrations") or self.DEFAULT_INTEGRATIONS))
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            next_pid = profile_id_from_state_path(self.storage_dir, target_path)
+            is_brand_new = (not self._db.has_profile_state(next_pid)) and (not os.path.exists(target_path))
+            self.state_file = target_path
+            self._profile_id = next_pid
+            self._section_hashes = {}
+            self.had_persisted_state = not is_brand_new
+            with self._cookie_lock:
+                self._kinorium_cookie_cache = ""
+            with self._episodes_lock:
+                self._series_episodes_cache.clear()
+            self._session_auth_verified = None
+            self._integrations_cache = None
+            self._state_version += 1
+            self.state = self._load_state()
+            if is_brand_new and isinstance(prev_integrations, dict):
+                for srv_id, srv_cfg in prev_integrations.items():
+                    if srv_id == "kinorium" or not isinstance(srv_cfg, dict):
+                        continue
+                    if srv_id in self.state.get("integrations", {}):
+                        self.state["integrations"][srv_id]["enabled"] = bool(srv_cfg.get("enabled", True))
+                self._write_state_file_locked()
+            self._build_lookup_indices()
+            return self.get_account_summary()
 
     @staticmethod
     def extract_user_path(raw_input: str) -> str:
         s = (raw_input or "").strip()
         if not s:
-            return "/user/51670/"
+            return ""
         m_u = re.search(r"(?:^|/|\b)user/(\d+)", s, re.I)
         if m_u:
             return f"/user/{m_u.group(1)}/"
@@ -419,6 +1157,33 @@ class KinoriumService:
         if m_num:
             return f"/user/{m_num.group(1)}/"
         return "/" + s.strip("/") + "/"
+
+    @staticmethod
+    def extract_cookie_user_id(raw_cookie: str) -> str:
+        """Extracts `user_id` from Kinorium's URL-encoded JSON `auth` cookie if present."""
+        if not raw_cookie:
+            return ""
+        for chunk in re.split(r";|\r|\n", str(raw_cookie)):
+            chunk = chunk.strip()
+            if "=" not in chunk:
+                continue
+            k, v = chunk.split("=", 1)
+            if k.strip() == "auth":
+                val = v.strip()
+                if not val or val.lower() == "deleted":
+                    continue
+                try:
+                    decoded = urllib.parse.unquote(val)
+                    obj = json.loads(decoded)
+                    if isinstance(obj, dict):
+                        uid = str(obj.get("user_id") or "").strip()
+                        if uid.isdigit() and int(uid) > 0:
+                            return uid
+                except Exception:
+                    m = re.search(r'"user_id"\s*:\s*"?(\d+)"?', urllib.parse.unquote(val))
+                    if m and int(m.group(1)) > 0:
+                        return m.group(1)
+        return ""
 
     @staticmethod
     def sanitize_session_cookie(raw_cookie: str) -> str:
@@ -489,7 +1254,7 @@ class KinoriumService:
             k, v = chunk.split("=", 1)
             k = k.strip()
             v = v.strip()
-            if not k:
+            if not k or not v or v.lower() == "deleted":
                 continue
             kl = k.lower()
             if kl in skip_exact or kl.startswith(skip_prefixes):
@@ -498,96 +1263,597 @@ class KinoriumService:
                 continue
             kept[k] = v
 
+        # Never share the browser's live PHPSESSID when persistent 'auth' cookie is present,
+        # otherwise concurrent requests with a different TLS/UA fingerprint invalidate the browser session.
+        if any(k.lower() == "auth" for k in kept):
+            for k_sess in [k for k in kept if k.lower() == "phpsessid"]:
+                kept.pop(k_sess, None)
+
         return "; ".join(f"{k}={v}" for k, v in kept.items())
 
-    def _ensure_kinorium_cookies(self, extra_cookie: str = "") -> str:
-        with self._cookie_lock:
-            if self._kinorium_cookie_cache and not extra_cookie:
-                return self._kinorium_cookie_cache
+    def _solve_kinorium_js_challenge(self, body: str) -> str:
+        """
+        Cross-platform solver for Kinorium's JS anti-bot cookie challenge (`document['cookie'] = ...`).
+        Works across macOS (`jsc`), Node.js (`node`), Windows/Linux headless Chromium (`msedge` / `chrome`),
+        and pure-Python static/concatenation cookie assignments without requiring macOS-only tools.
+        """
+        if not body or len(body) > 131072 or ("document['cookie']" not in body and "document.cookie" not in body):
+            return ""
+        js_code = re.sub(r"</?script[^>]*>", "", body, flags=re.I)
+        if re.search(
+            r"\b(?:require|process|child_process|Deno|Bun|ActiveXObject|WScript|WebSocket|fetch|importScripts)\b",
+            js_code,
+        ):
+            return ""
+        shim_core = f"""
+        var __cf_orig_console = (typeof globalThis !== "undefined" && globalThis.console) ? globalThis.console : null;
+        var __cf_emit = (typeof print === "function")
+          ? print
+          : (__cf_orig_console && __cf_orig_console.log ? __cf_orig_console.log.bind(__cf_orig_console) : function() {{}});
+        var process = undefined, require = undefined, global = undefined, Deno = undefined, Bun = undefined;
+        var cookies = [];
+        var console = {{ log: function() {{}}, warn: function() {{}}, error: function() {{}} }};
+        var document = {{
+          set cookie(val) {{
+            var kv = String(val || "").split(";")[0];
+            var eq = kv.indexOf("=");
+            if (eq > 0) {{
+              cookies.push(kv.slice(0, eq).trim() + "=" + kv.slice(eq + 1).trim());
+            }}
+          }},
+          get cookie() {{ return cookies.join("; "); }},
+          createElement: function() {{ return {{ getContext: function() {{ return {{ getExtension: function() {{ return {{ UNMASKED_RENDERER_WEBGL: 1 }}; }}, getParameter: function() {{ return "ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)"; }} }}; }} }}; }},
+          startViewTransition: function() {{}}
+        }};
+        var window = {{ screen: {{ width: 1920, height: 1080 }}, speechSynthesis: {{}} }};
+        var navigator = {{ maxTouchPoints: 0, webdriver: false, userAgent: {json.dumps(self.UA)}, bluetooth: {{}}, userAgentData: {{}}, speechSynthesis: {{}}, platform: "MacIntel", hardwareConcurrency: 8, deviceMemory: 8, languages: ["ru-RU", "ru", "en-US"] }};
+        var top = {{ location: {{ href: "https://en.kinorium.com/", reload: function() {{}} }} }};
+        var location = top.location;
+        var XMLHttpRequest = function() {{ this.open = function(){{}}; this.setRequestHeader = function(){{}}; this.send = function(){{}}; }};
+        try {{
+          {js_code}
+        }} catch (_err) {{}}
+        __cf_emit("COOKIES_OUT:" + cookies.join("; "));
+        """
 
-            cj = http.cookiejar.CookieJar()
-            opener = urllib.request.build_opener(
-                urllib.request.HTTPCookieProcessor(cj),
-                urllib.request.ProxyHandler({}),
+        no_win_flag = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        import shutil as _shutil
+
+        # 1. macOS JavaScriptCore CLI (if present) or Node.js (cross-platform isolated VM)
+        js_runners: List[List[str]] = []
+        if os.path.isfile(self.JSC_PATH):
+            js_runners.append([self.JSC_PATH, "-e", shim_core])
+        node_bin = _shutil.which("node") or _shutil.which("nodejs")
+        if node_bin:
+            node_vm_runner = (
+                "const vm = require('vm');\n"
+                "const sb = Object.create(null);\n"
+                "sb.print = (s) => process.stdout.write(String(s) + '\\n');\n"
+                "sb.String = String; sb.Number = Number; sb.Boolean = Boolean; sb.Array = Array;\n"
+                "sb.Object = Object; sb.Math = Math; sb.Date = Date; sb.RegExp = RegExp;\n"
+                "sb.JSON = JSON; sb.parseInt = parseInt; sb.parseFloat = parseFloat;\n"
+                "sb.encodeURIComponent = encodeURIComponent; sb.decodeURIComponent = decodeURIComponent;\n"
+                f"const code = {json.dumps(shim_core)};\n"
+                "try {\n"
+                "  const ctx = vm.createContext(sb, { codeGeneration: { strings: false, wasm: false } });\n"
+                "  vm.runInContext(code, ctx, { timeout: 2000 });\n"
+                "} catch (_) {}\n"
             )
-            req = urllib.request.Request("https://ru.kinorium.com/movies/online/", headers={"User-Agent": self.UA})
-            raw = opener.open(req, timeout=10).read()
-            if raw[:2] == b"\x1f\x8b":
-                raw = gzip.decompress(raw)
-            body = raw.decode("utf-8", errors="ignore")
+            js_runners.append([node_bin, "--disallow-code-generation-from-strings", "-e", node_vm_runner])
 
-            js_cookie = ""
-            if "var x =" in body and "document['cookie']" in body and os.path.exists(self.JSC_PATH):
-                js_code = re.sub(r"</?script>", "", body)
-                shim = f"""
-                var cookies = [];
-                var console = {{ log: function() {{}} }};
-                var document = {{
-                  set cookie(val) {{
-                    var kv = val.split(";")[0];
-                    var eq = kv.indexOf("=");
-                    cookies.push(kv.slice(0, eq).trim() + "=" + kv.slice(eq + 1).trim());
-                  }},
-                  get cookie() {{ return cookies.join("; "); }},
-                  createElement: function() {{ return {{ getContext: function() {{ return {{ getExtension: function() {{ return {{ UNMASKED_RENDERER_WEBGL: 1 }}; }}, getParameter: function() {{ return "ANGLE (Apple, Apple M2, OpenGL 4.1)"; }} }}; }} }}; }},
-                  startViewTransition: function() {{}}
-                }};
-                var window = {{ screen: {{ width: 1920, height: 1080 }}, speechSynthesis: {{}} }};
-                var navigator = {{ maxTouchPoints: 0, webdriver: false, userAgent: "{self.UA}", bluetooth: {{}}, userAgentData: {{}}, speechSynthesis: {{}}, platform: "MacIntel", hardwareConcurrency: 8, deviceMemory: 8, languages: ["ru-RU", "ru"] }};
-                var top = {{ location: {{ href: "https://ru.kinorium.com/", reload: function() {{}} }} }};
-                var XMLHttpRequest = function() {{ this.open = function(){{}}; this.setRequestHeader = function(){{}}; this.send = function(){{}}; }};
-                {js_code}
-                print("COOKIES_OUT:" + cookies.join("; "));
-                """
-                out = subprocess.check_output([self.JSC_PATH, "-e", shim], timeout=5).decode("utf-8")
+        for cmd in js_runners:
+            try:
+                out = subprocess.check_output(
+                    cmd,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    creationflags=no_win_flag,
+                ).decode("utf-8", errors="ignore")
                 for line in out.splitlines():
                     if "COOKIES_OUT:" in line:
-                        js_cookie = line.split("COOKIES_OUT:", 1)[1].strip()
+                        solved = line.split("COOKIES_OUT:", 1)[1].strip()
+                        if solved:
+                            return solved
+            except Exception:
+                continue
+
+        # 2. Pure-Python extraction for literal / string-concatenated document['cookie'] assignments
+        try:
+            var_table: Dict[str, str] = {}
+            for vm in re.finditer(
+                r"\b(?:var|let|const)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(['\"])([^'\"]*)\2",
+                js_code,
+            ):
+                var_table[vm.group(1)] = vm.group(3)
+
+            extracted_pairs: List[str] = []
+            assign_re = re.compile(
+                r"document(?:\[['\"]cookie['\"]\]|\.cookie)\s*=\s*((?:(?:'[^']*'|\"[^\"]*\"|[A-Za-z0-9_$+\s])+))"
+            )
+            tok_re = re.compile(r"'([^']*)'|\"([^\"]*)\"|([A-Za-z_$][A-Za-z0-9_$]*)|(\d+)")
+            for cm in assign_re.finditer(js_code):
+                expr = cm.group(1).strip()
+                parts: List[str] = []
+                valid_expr = True
+                for raw_seg in expr.split("+"):
+                    t = raw_seg.strip()
+                    if not t:
+                        continue
+                    tm = tok_re.fullmatch(t)
+                    if not tm:
+                        valid_expr = False
                         break
+                    if tm.group(1) is not None:
+                        parts.append(tm.group(1))
+                    elif tm.group(2) is not None:
+                        parts.append(tm.group(2))
+                    elif tm.group(3) is not None and tm.group(3) in var_table:
+                        parts.append(var_table[tm.group(3)])
+                    elif tm.group(4) is not None:
+                        parts.append(tm.group(4))
+                    else:
+                        valid_expr = False
+                        break
+                if valid_expr and parts:
+                    kv = "".join(parts).split(";", 1)[0].strip()
+                    if "=" in kv:
+                        ck_k, ck_v = kv.split("=", 1)
+                        if ck_k.strip() and ck_v.strip():
+                            extracted_pairs.append(f"{ck_k.strip()}={ck_v.strip()}")
+            if extracted_pairs:
+                return "; ".join(extracted_pairs)
+        except Exception:
+            pass
 
-            merged: Dict[str, str] = {}
-            for c in cj:
-                merged[c.name] = c.value
-            if js_cookie:
-                for item in js_cookie.split(";"):
-                    item = item.strip()
-                    if "=" in item:
-                        jk, jv = item.split("=", 1)
-                        merged[jk.strip()] = jv.strip()
+        # 3. Windows native Chakra JScript9 CLI (cscript.exe, ~15ms, zero browser startup)
+        cscript_bin = _shutil.which("cscript") or _shutil.which("cscript.exe")
+        if cscript_bin and sys.platform == "win32":
+            try:
+                import tempfile as _tempfile
 
-            raw_user_ck = extra_cookie or self.state["account"].get("session_cookie", "").strip()
-            clean_user_ck = self.sanitize_session_cookie(raw_user_ck)
-            if clean_user_ck:
-                for item in clean_user_ck.split(";"):
-                    item = item.strip()
-                    if "=" in item:
-                        uk, uv = item.split("=", 1)
-                        merged[uk.strip()] = uv.strip()
+                cscript_shim = (
+                    "var __cf_emit = function(s){ try { WScript.Echo(s); } catch(e){} };\n"
+                    "var ActiveXObject = undefined, GetObject = undefined, WScript_safe = undefined;\n"
+                    "var cookies = [];\n"
+                    "var console = { log: function(){}, warn: function(){}, error: function(){} };\n"
+                    "var document = {\n"
+                    "  createElement: function(){ return { getContext: function(){ return { getExtension: function(){ return { UNMASKED_RENDERER_WEBGL: 1 }; }, getParameter: function(){ return 'ANGLE (Generic GPU, Direct3D11)'; } }; } }; },\n"
+                    "  startViewTransition: function(){}\n"
+                    "};\n"
+                    "if (Object.defineProperty) {\n"
+                    "  Object.defineProperty(document, 'cookie', {\n"
+                    "    set: function(val){ var kv=String(val||'').split(';')[0]; var eq=kv.indexOf('='); if(eq>0) cookies.push(kv.slice(0,eq).trim()+'='+kv.slice(eq+1).trim()); },\n"
+                    "    get: function(){ return cookies.join('; '); }\n"
+                    "  });\n"
+                    "}\n"
+                    f"var window = {{ screen: {{ width: 1920, height: 1080 }}, speechSynthesis: {{}} }};\n"
+                    f"var navigator = {{ maxTouchPoints: 0, webdriver: false, userAgent: {json.dumps(self.UA)}, platform: 'Win32', hardwareConcurrency: 8, deviceMemory: 8, languages: ['ru-RU', 'ru', 'en-US'] }};\n"
+                    "var top = { location: { href: 'https://en.kinorium.com/', reload: function(){} } };\n"
+                    "var location = top.location;\n"
+                    "var XMLHttpRequest = function(){ this.open=function(){}; this.setRequestHeader=function(){}; this.send=function(){}; };\n"
+                    f"try {{ {js_code} }} catch (_err) {{}}\n"
+                    "__cf_emit('COOKIES_OUT:' + cookies.join('; '));\n"
+                )
+                with _tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
+                    tf.write(cscript_shim)
+                    js_tmp_path = tf.name
+                try:
+                    out = subprocess.check_output(
+                        [
+                            cscript_bin,
+                            "//NoLogo",
+                            "//B",
+                            "//T:3",
+                            "//E:{16d51579-a30b-4c8b-a276-0ff4dc41e755}",
+                            js_tmp_path,
+                        ],
+                        stderr=subprocess.DEVNULL,
+                        timeout=4,
+                        creationflags=no_win_flag,
+                    ).decode("utf-8", errors="ignore")
+                    for line in out.splitlines():
+                        if "COOKIES_OUT:" in line:
+                            solved = line.split("COOKIES_OUT:", 1)[1].strip()
+                            if solved:
+                                return solved
+                finally:
+                    try:
+                        os.unlink(js_tmp_path)
+                    except OSError:
+                        pass
+            except Exception:
+                pass
 
-            self._kinorium_cookie_cache = "; ".join(f"{k}={v}" for k, v in merged.items())
-            return self._kinorium_cookie_cache
+        # 4. Windows / Linux headless Edge / Chrome V8 DOM evaluation with persistent profile dir
+        try:
+            from windows.kinorium_login_webview import find_chromium_browser
 
-    def fetch_kinorium_html(self, url: str, extra_headers: Optional[Dict[str, str]] = None) -> str:
-        ck = self._ensure_kinorium_cookies()
-        hdrs = {"User-Agent": self.UA, "Cookie": ck}
+            browser_exe = find_chromium_browser()
+            if browser_exe:
+                import tempfile as _tempfile
+
+                prof_dir = os.path.join(self.storage_dir, ".headless_js_profile")
+                os.makedirs(prof_dir, exist_ok=True)
+                with _tempfile.TemporaryDirectory(prefix="cf_kin_js_") as td:
+                    html_file = os.path.join(td, "challenge.html")
+                    wrapped_html = (
+                        "<!doctype html><html><head><meta charset='utf-8'></head><body><script>"
+                        "var __ck=[];Object.defineProperty(document,'cookie',{"
+                        "set:function(v){var s=String(v||'').split(';')[0];if(s.indexOf('=')>0)__ck.push(s.trim());},"
+                        "get:function(){return __ck.join('; ');}});"
+                        f"try{{{js_code}}}catch(e){{}}"
+                        "document.body.setAttribute('data-cf-ck',__ck.join('; '));"
+                        "</script></body></html>"
+                    )
+                    with open(html_file, "w", encoding="utf-8") as hf:
+                        hf.write(wrapped_html)
+                    file_url = "file:///" + html_file.replace("\\", "/").lstrip("/")
+                    dom_out = subprocess.check_output(
+                        [
+                            browser_exe,
+                            "--headless=new",
+                            "--disable-gpu",
+                            "--no-first-run",
+                            "--no-default-browser-check",
+                            "--disable-extensions",
+                            "--disable-component-update",
+                            "--disable-sync",
+                            "--proxy-bypass-list=<-loopback>",
+                            f"--user-data-dir={prof_dir}",
+                            "--dump-dom",
+                            file_url,
+                        ],
+                        stderr=subprocess.DEVNULL,
+                        timeout=6,
+                        creationflags=no_win_flag,
+                    ).decode("utf-8", errors="ignore")
+                    m_dom = re.search(r'data-cf-ck="([^"]*)"', dom_out)
+                    if m_dom and m_dom.group(1).strip():
+                        return m_dom.group(1).strip()
+        except Exception:
+            pass
+
+        return ""
+
+    def _kinorium_candidate_domains(self, path_or_url: str) -> Tuple[List[str], str]:
+        """Returns `(ordered_domains, path_with_query)` with automatic `en.kinorium.com` fallback."""
+        s = (path_or_url or "").strip()
+        explicit_en = False
+        if s.startswith(("http://", "https://")):
+            parsed = urllib.parse.urlparse(s)
+            host_low = (parsed.hostname or "").lower()
+            explicit_en = host_low.startswith("en.")
+            pq = parsed.path or "/"
+            if parsed.query:
+                pq = f"{pq}?{parsed.query}"
+        else:
+            pq = s if s.startswith("/") else f"/{s}"
+
+        prefer_en = explicit_en or (time.time() < self._prefer_en_domain_until)
+        if prefer_en:
+            return ["en.kinorium.com", "ru.kinorium.com"], pq
+        if getattr(self.net, "kinorium_domain_fallback", True):
+            return ["ru.kinorium.com", "en.kinorium.com"], pq
+        return ["ru.kinorium.com", "en.kinorium.com"], pq
+
+    def is_ip_cooldown_active(self) -> bool:
+        proxy_sig = str(getattr(self, "proxy_url", None) or "")
+        return time.time() < self._ip_blocked_until and proxy_sig == self._ip_blocked_proxy_sig
+
+    def _kinorium_http_request(
+        self,
+        path_or_url: str,
+        *,
+        method: str = "GET",
+        data: Optional[bytes] = None,
+        extra_headers: Optional[Dict[str, str]] = None,
+        cookie_jar: Optional[http.cookiejar.CookieJar] = None,
+        timeout: float = 10.0,
+    ) -> Tuple[int, str, str]:
+        """
+        Executes a Kinorium HTTP request through `DoHSplitNetworkClient` (DoH + optional proxy)
+        with automatic failover between `ru.kinorium.com` and `en.kinorium.com`.
+        Returns `(status_code, decoded_body, active_domain)`.
+        """
+        domains, pq = self._kinorium_candidate_domains(path_or_url)
+        use_proactive_doh = bool(
+            getattr(self.net, "doh_enabled", True) and getattr(self.net, "kinorium_domain_fallback", False)
+        )
+        proxy_url = getattr(self, "proxy_url", None) or None
+        proxy_sig = str(proxy_url or "")
+        if self.is_ip_cooldown_active():
+            raise urllib.error.URLError("Kinorium IP cooldown active (HTTP 403 Forbidden)")
+
+        # Polite human-like rate-limiting for live network client to prevent Kinorium anti-bot / 403 bans
+        build_fn = getattr(self.net, "_build_opener", None)
+        is_live_net = (
+            build_fn is not None
+            and type(self.net).__name__ == "DoHSplitNetworkClient"
+            and "mock" not in type(build_fn).__module__.lower()
+        )
+        if is_live_net:
+            with self._rate_limit_lock:
+                now_rl = time.time()
+                min_gap = 1.15 + ((hash(pq) & 0xFF) / 255.0) * 0.30
+                wait_s = min_gap - (now_rl - self._last_http_req_ts)
+                if wait_s > 0:
+                    time.sleep(wait_s)
+                self._last_http_req_ts = time.time()
+
+        doh_modes = [True] if use_proactive_doh else [False, True]
+
+        last_exc: Optional[Exception] = None
+        forbidden_domains = 0
+        for dom_idx, domain in enumerate(domains):
+            target_url = f"https://{domain}{pq}"
+            req_headers: Dict[str, str] = {
+                "User-Agent": self.UA,
+                "Accept-Encoding": "gzip, deflate",
+            }
+            if extra_headers:
+                for hk, hv in extra_headers.items():
+                    if hk.lower() in ("origin", "referer") and isinstance(hv, str):
+                        hv = hv.replace("ru.kinorium.com", domain).replace("en.kinorium.com", domain)
+                    req_headers[hk] = hv
+
+            for use_doh in doh_modes:
+                try:
+                    if hasattr(self.net, "_build_opener"):
+                        try:
+                            opener = self.net._build_opener(
+                                proxy_url=proxy_url,
+                                use_doh=use_doh,
+                                use_cookies=bool(cookie_jar is not None),
+                                cookie_jar=cookie_jar,
+                            )
+                        except TypeError:
+                            opener = self.net._build_opener(proxy_url=proxy_url, use_doh=use_doh)
+                            if cookie_jar is not None and hasattr(opener, "add_handler"):
+                                opener.add_handler(urllib.request.HTTPCookieProcessor(cookie_jar))
+                    else:
+                        handlers: List[urllib.request.BaseHandler] = [urllib.request.ProxyHandler({})]
+                        if cookie_jar is not None:
+                            handlers.insert(0, urllib.request.HTTPCookieProcessor(cookie_jar))
+                        opener = urllib.request.build_opener(*handlers)
+
+                    req = urllib.request.Request(
+                        target_url,
+                        data=data,
+                        headers=req_headers,
+                        method=method.upper(),
+                    )
+                    with opener.open(req, timeout=timeout) as resp:
+                        status = int(getattr(resp, "status", 200) or 200)
+                        raw = _read_resp_bounded(resp, _MAX_KINORIUM_RESP_BYTES)
+                        enc = str(resp.headers.get("Content-Encoding") or "").lower()
+                    if "gzip" in enc or raw[:2] == b"\x1f\x8b":
+                        raw = _decompress_gzip_bounded(raw, _MAX_KINORIUM_RESP_BYTES)
+                    body_txt = raw.decode("utf-8", errors="ignore")
+                    if self._ip_blocked_until > 0:
+                        self._ip_blocked_until = 0.0
+                    if dom_idx > 0 and domain == "en.kinorium.com":
+                        self._prefer_en_domain_until = time.time() + 600.0
+                    return status, body_txt, domain
+                except urllib.error.HTTPError as he:
+                    # HTTP 403/451/5xx on ru.kinorium.com may be regional GeoIP/ISP block -> try fallback domain
+                    last_exc = he
+                    if he.code in (403, 429):
+                        forbidden_domains += 1
+                    if he.code in (403, 429, 451, 502, 503, 520, 521, 522, 523, 524, 525, 526):
+                        break
+                    try:
+                        err_raw = _read_resp_bounded(he, 512 * 1024)
+                        if err_raw[:2] == b"\x1f\x8b":
+                            err_raw = _decompress_gzip_bounded(err_raw, 512 * 1024)
+                        return int(he.code), err_raw.decode("utf-8", errors="ignore"), domain
+                    except Exception:
+                        break
+                except Exception as exc:
+                    last_exc = exc
+                    continue
+
+        if is_live_net and forbidden_domains >= len(domains) and len(domains) >= 2:
+            # Both ru.kinorium.com and en.kinorium.com returned 403/429 -> activate 10-minute circuit breaker
+            self._ip_blocked_until = time.time() + 600.0
+            self._ip_blocked_proxy_sig = proxy_sig
+
+        if last_exc is not None:
+            raise last_exc
+        return 0, "", domains[0]
+
+    def _get_active_sync_cookie(self) -> str:
+        tl_override = getattr(self._sync_cookie_tl, "cookie", None)
+        if tl_override is not None:
+            return str(tl_override).strip()
+        with self._state_lock:
+            return str((self.state.get("account") or {}).get("session_cookie") or "").strip()
+
+    def _ensure_kinorium_cookies(
+        self,
+        extra_cookie: str = "",
+        challenge_cookie: str = "",
+        include_auth: bool = True,
+    ) -> str:
+        tl_override = getattr(self._sync_cookie_tl, "cookie", None)
+        start_pid = self._profile_id
+        if not include_auth:
+            stored_user_ck = ""
+            extra_cookie = ""
+        elif tl_override is not None:
+            stored_user_ck = str(tl_override).strip()
+            # When running inside a profile-bound sync job, ignore live self.state session_cookie overrides
+            extra_cookie = ""
+        else:
+            with self._state_lock:
+                stored_user_ck = str((self.state.get("account") or {}).get("session_cookie") or "").strip()
+        clean_stored_ck = self.sanitize_session_cookie(stored_user_ck) if include_auth else ""
+        clean_extra_ck = self.sanitize_session_cookie(extra_cookie) if (include_auth and extra_cookie) else ""
+        extra_is_same_as_stored = bool(
+            not extra_cookie or (clean_extra_ck and clean_extra_ck == clean_stored_ck)
+        )
+
+        with self._cookie_lock:
+            if not include_auth:
+                if self._kinorium_anon_cookie_cache and not challenge_cookie:
+                    return self._kinorium_anon_cookie_cache
+                prev_cached_ck = self._kinorium_anon_cookie_cache
+            else:
+                if (
+                    self._kinorium_cookie_cache
+                    and extra_is_same_as_stored
+                    and not challenge_cookie
+                    and tl_override is None
+                ):
+                    return self._kinorium_cookie_cache
+                prev_cached_ck = self._kinorium_cookie_cache or self._kinorium_anon_cookie_cache
+
+        merged: Dict[str, str] = {"CONTENT_LANG": "ru"}
+        if prev_cached_ck:
+            for item in prev_cached_ck.split(";"):
+                item = item.strip()
+                if "=" in item:
+                    ck_prev, cv_prev = item.split("=", 1)
+                    ck_prev = ck_prev.strip()
+                    cv_prev = cv_prev.strip()
+                    if ck_prev and cv_prev and cv_prev.lower() != "deleted":
+                        if (not include_auth or tl_override is not None) and ck_prev.lower() in (
+                            "auth",
+                            "session",
+                            "phpsessid",
+                            "ulogin",
+                        ):
+                            continue
+                        merged[ck_prev] = cv_prev
+        if include_auth:
+            for ck_src in (clean_stored_ck, clean_extra_ck):
+                if ck_src:
+                    for item in ck_src.split(";"):
+                        item = item.strip()
+                        if "=" in item:
+                            uk, uv = item.split("=", 1)
+                            uk = uk.strip()
+                            uv = uv.strip()
+                            if uk and uv and uv.lower() != "deleted":
+                                merged[uk] = uv
+
+        # Merge anti-bot JS challenge tokens (e.g. t=..., x1=..., pow_token=...) without dropping session_cookie
+        has_explicit_challenge = False
+        for raw_chal in (challenge_cookie, extra_cookie if (extra_cookie and not clean_extra_ck) else ""):
+            if not raw_chal:
+                continue
+            safe_chal = raw_chal.replace("\r", "").replace("\n", "")
+            for item in safe_chal.split(";"):
+                item = item.strip()
+                if "=" not in item:
+                    continue
+                ck_k, ck_v = item.split("=", 1)
+                ck_k = ck_k.strip()
+                ck_v = ck_v.strip()
+                if not ck_k or not ck_v:
+                    continue
+                if ck_k.lower() in ("path", "domain", "expires", "max-age", "samesite", "secure", "httponly"):
+                    continue
+                try:
+                    f"{ck_k}={ck_v}".encode("latin-1")
+                except UnicodeEncodeError:
+                    continue
+                if ck_v.lower() != "deleted":
+                    merged[ck_k] = ck_v
+                    has_explicit_challenge = True
+
+        if not has_explicit_challenge and not prev_cached_ck:
+            with self._cookie_refresh_lock:
+                with self._cookie_lock:
+                    if not include_auth and self._kinorium_anon_cookie_cache:
+                        return self._kinorium_anon_cookie_cache
+                    if (
+                        include_auth
+                        and self._kinorium_cookie_cache
+                        and extra_is_same_as_stored
+                        and tl_override is None
+                        and self._profile_id == start_pid
+                    ):
+                        return self._kinorium_cookie_cache
+
+                # Never send user's auth/session cookie to the initial /movies/online/ JS challenge probe
+                init_hdrs: Dict[str, str] = {"Cookie": "CONTENT_LANG=ru"}
+                cj = http.cookiejar.CookieJar()
+                body = ""
+                try:
+                    _, body, _ = self._kinorium_http_request(
+                        "/movies/online/",
+                        method="GET",
+                        extra_headers=init_hdrs,
+                        cookie_jar=cj,
+                        timeout=9.0,
+                    )
+                except Exception:
+                    body = ""
+
+                js_cookie = ""
+                if "document['cookie']" in body or ("var x =" in body and "cookie" in body):
+                    js_cookie = self._solve_kinorium_js_challenge(body)
+
+                anon_merged: Dict[str, str] = {"CONTENT_LANG": "ru"}
+                for c in cj:
+                    c_val = str(c.value or "").strip()
+                    if c.name and c_val and c_val.lower() != "deleted":
+                        anon_merged[c.name] = c_val
+                        if c.name.lower() != "phpsessid" or "PHPSESSID" not in merged:
+                            merged[c.name] = c_val
+                if js_cookie:
+                    for item in js_cookie.split(";"):
+                        item = item.strip()
+                        if "=" in item:
+                            jk, jv = item.split("=", 1)
+                            jk = jk.strip()
+                            jv = jv.strip()
+                            if jk and jv and jv.lower() != "deleted":
+                                anon_merged[jk] = jv
+                                merged[jk] = jv
+                built_anon = "; ".join(f"{k}={v}" for k, v in anon_merged.items())
+                with self._cookie_lock:
+                    self._kinorium_anon_cookie_cache = built_anon
+
+        merged.setdefault("CONTENT_LANG", "ru")
+        built_ck = "; ".join(f"{k}={v}" for k, v in merged.items())
+        if not include_auth:
+            with self._cookie_lock:
+                self._kinorium_anon_cookie_cache = built_ck
+            return built_ck
+        if extra_is_same_as_stored and tl_override is None and self._profile_id == start_pid:
+            with self._cookie_lock:
+                self._kinorium_cookie_cache = built_ck
+        return built_ck
+
+    def fetch_kinorium_html(
+        self,
+        url: str,
+        extra_headers: Optional[Dict[str, str]] = None,
+        include_auth: Optional[bool] = None,
+    ) -> str:
+        eff_auth = (
+            bool(include_auth)
+            if include_auth is not None
+            else bool(getattr(self._sync_cookie_tl, "include_auth", False))
+        )
+        ck = self._ensure_kinorium_cookies(include_auth=eff_auth)
+        hdrs: Dict[str, str] = {"User-Agent": self.UA}
+        if ck:
+            hdrs["Cookie"] = ck
         if extra_headers:
             hdrs.update(extra_headers)
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        req = urllib.request.Request(url, headers=hdrs)
-        raw = opener.open(req, timeout=12).read()
-        if raw[:2] == b"\x1f\x8b":
-            raw = gzip.decompress(raw)
-        body = raw.decode("utf-8", errors="ignore")
-        if "var x =" in body and "document['cookie']" in body:
-            with self._cookie_lock:
-                self._kinorium_cookie_cache = ""
-            ck = self._ensure_kinorium_cookies()
-            hdrs["Cookie"] = ck
-            req2 = urllib.request.Request(url, headers=hdrs)
-            raw2 = opener.open(req2, timeout=12).read()
-            if raw2[:2] == b"\x1f\x8b":
-                raw2 = gzip.decompress(raw2)
-            body = raw2.decode("utf-8", errors="ignore")
+
+        _, body, _ = self._kinorium_http_request(url, method="GET", extra_headers=hdrs, timeout=12.0)
+        if "var x =" in body and ("document['cookie']" in body or "document.cookie" in body):
+            js_ck = self._solve_kinorium_js_challenge(body)
+            ck2 = self._ensure_kinorium_cookies(
+                challenge_cookie=js_ck or "CONTENT_LANG=ru",
+                include_auth=eff_auth,
+            )
+            if ck2:
+                hdrs["Cookie"] = ck2
+            _, body, _ = self._kinorium_http_request(url, method="GET", extra_headers=hdrs, timeout=12.0)
         return body
 
     @staticmethod
@@ -630,7 +1896,192 @@ class KinoriumService:
         except Exception:
             return None
 
-    def fetch_movie_critics_pct(
+    @staticmethod
+    def extract_similar_items_html(body: str) -> List[Dict[str, Any]]:
+        if not body:
+            return []
+        m_sec = re.search(
+            r"<section\b[^>]*\bid=['\"]similar-slider['\"][^>]*>(.*?)</section>",
+            body,
+            re.I | re.S,
+        )
+        if not m_sec:
+            return []
+        sec_html = m_sec.group(1)
+        chunks = re.split(r"(?=<div\s+class=['\"]item\b)", sec_html)
+        cur_yr = time.localtime().tm_year
+        seen_kids = set()
+        out: List[Dict[str, Any]] = []
+
+        for chunk in chunks:
+            m_div = re.match(r"<div\s+class=['\"]([^'\"]+)['\"]", chunk)
+            if not m_div:
+                continue
+            cls_tokens = set(m_div.group(1).split())
+            if "reported" in cls_tokens:
+                continue
+
+            m_kid = re.search(r"data-movieId\s*=\s*['\"](\d+)['\"]", chunk) or re.search(
+                r"data-id\s*=\s*['\"](\d+)['\"]", chunk
+            )
+            if not m_kid:
+                continue
+            skid = m_kid.group(1)
+            if skid in seen_kids:
+                continue
+
+            m_ru = re.search(r"data-movieName\s*=\s*(['\"])(.*?)\1", chunk)
+            if m_ru:
+                ru_title = html.unescape(m_ru.group(2)).strip().replace("\xa0", " ")
+            else:
+                m_h3 = re.search(r"movie-title__text[^>]*>(.*?)</h3", chunk, re.S)
+                raw_h3 = re.sub(r"<[^>]+>", "", m_h3.group(1)) if m_h3 else ""
+                ru_title = html.unescape(raw_h3).strip().replace("\xa0", " ")
+            if not ru_title:
+                continue
+
+            m_orig = re.search(
+                r"class=['\"][^'\"]*title_orig\b[^'\"]*['\"][^>]*>(.*?)</(?:span|div|p)>",
+                chunk,
+                re.S,
+            )
+            orig_raw = re.sub(r"<[^>]+>", "", m_orig.group(1)) if m_orig else ""
+            orig_title = html.unescape(orig_raw).strip().replace("\xa0", " ") or ru_title
+
+            m_yr_blk = re.search(r"title_orig_years[^>]*>\s*([^<]+?)\s*<", chunk)
+            yr_txt = html.unescape(m_yr_blk.group(1)).strip() if m_yr_blk else ""
+            m_yr = re.search(r"\b(19\d\d|20\d\d)\b", yr_txt)
+            yr_val = int(m_yr.group(1)) if m_yr else 0
+
+            m_kr = re.search(r"kr-rating[^>]*>\s*(\d+(?:\.\d+)?)\s*<", chunk)
+            kr_val: Optional[float] = None
+            if m_kr:
+                try:
+                    kr_val = float(m_kr.group(1))
+                except Exception:
+                    kr_val = None
+
+            if yr_val > cur_yr and kr_val is None:
+                continue
+
+            is_serial = bool(
+                re.search(r"data-isSerial\s*=\s*['\"]1['\"]", chunk)
+                or "poster-box-serial" in chunk
+                or "сериал" in yr_txt.lower()
+            )
+            seen_kids.add(skid)
+            out.append(
+                {
+                    "kinorium_id": skid,
+                    "ru_title": ru_title,
+                    "orig_title": orig_title,
+                    "year": yr_val,
+                    "media_type": "series" if is_serial else "movie",
+                    "kinorium_rating": kr_val,
+                }
+            )
+        return out
+
+    def _store_similar_for_kid(self, eff_kid: str, items: List[Dict[str, Any]]) -> None:
+        if not eff_kid or not eff_kid.isdigit():
+            return
+        with self._similar_lock:
+            self._similar_by_kid[eff_kid] = {
+                "updated_at": round(time.time(), 1),
+                "items": items,
+            }
+        self._save_similar_disk_cache()
+
+    def _get_cached_similar_for_kid(self, eff_kid: str, max_age_sec: float = 1209600.0) -> Optional[List[Dict[str, Any]]]:
+        if not eff_kid or not eff_kid.isdigit():
+            return None
+        with self._similar_lock:
+            entry = self._similar_by_kid.get(eff_kid)
+        if not isinstance(entry, dict):
+            return None
+        ts = float(entry.get("updated_at") or 0.0)
+        if max_age_sec > 0 and (time.time() - ts) > max_age_sec:
+            return None
+        items = entry.get("items")
+        return list(items) if isinstance(items, list) else None
+
+    @staticmethod
+    def _extract_balanced_block_html(body: str, open_tag_regex: str) -> str:
+        m = re.search(open_tag_regex, body, re.S | re.I)
+        if not m:
+            return ""
+        tag_m = re.match(r"<\s*(div|section|p)\b", m.group(0), re.I)
+        if not tag_m:
+            return ""
+        tag_name = tag_m.group(1).lower()
+        pos = m.end()
+        depth = 1
+        tok_re = re.compile(rf"<\s*(/?)\s*{tag_name}\b[^>]*>", re.I | re.S)
+        for tm in tok_re.finditer(body, pos):
+            full_tok = tm.group(0)
+            if full_tok.endswith("/>"):
+                continue
+            if tm.group(1) == "/":
+                depth -= 1
+                if depth == 0:
+                    return body[pos : tm.start()]
+            else:
+                depth += 1
+        return body[pos : pos + 8000]
+
+    @staticmethod
+    def extract_movie_description_html(body: str) -> str:
+        if not body:
+            return ""
+        open_patterns = (
+            r'<section[^>]*\bitemprop=["\']description["\'][^>]*>',
+            r'<div[^>]*\bitemprop=["\']description["\'][^>]*>',
+            r'<p[^>]*\bitemprop=["\']description["\'][^>]*>',
+            r'<div[^>]*class=["\'][^"\']*\b(?:movie-page__description|film-page__description|description_text)\b[^"\']*["\'][^>]*>',
+        )
+        for pat in open_patterns:
+            inner = KinoriumService._extract_balanced_block_html(body, pat)
+            if inner:
+                cleaned = re.sub(r"<script[^>]*>.*?</script>", " ", inner, flags=re.S | re.I)
+                cleaned = re.sub(r"<style[^>]*>.*?</style>", " ", cleaned, flags=re.S | re.I)
+                cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+                cleaned = html.unescape(cleaned).replace("\xa0", " ")
+                cleaned = re.sub(r"\s+", " ", cleaned).strip()
+                cleaned = re.sub(
+                    r"\s*(?:Развернуть|Свернуть|Читать полностью|Read\s+more|Show\s+more|More)\s*\.?\s*$",
+                    "",
+                    cleaned,
+                    flags=re.I,
+                ).strip()
+                if len(cleaned) >= 24:
+                    return cleaned
+        for m_ld in re.finditer(
+            r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+            body[:120000],
+            re.S | re.I,
+        ):
+            try:
+                ld_obj = json.loads(m_ld.group(1).strip())
+                objs: List[Any] = list(ld_obj) if isinstance(ld_obj, list) else [ld_obj]
+                idx = 0
+                while idx < len(objs):
+                    entry = objs[idx]
+                    idx += 1
+                    if not isinstance(entry, dict):
+                        continue
+                    if isinstance(entry.get("@graph"), list):
+                        objs.extend(entry["@graph"])
+                    if entry.get("description"):
+                        d_txt = html.unescape(str(entry["description"])).replace("\xa0", " ")
+                        d_txt = re.sub(r"<[^>]+>", " ", d_txt)
+                        d_txt = re.sub(r"\s+", " ", d_txt).strip()
+                        if len(d_txt) >= 24 and "кинориум" not in d_txt.lower()[:40]:
+                            return d_txt
+            except Exception:
+                continue
+        return ""
+
+    def fetch_movie_page_extras(
         self,
         kid: str = "",
         item_id: str = "",
@@ -639,7 +2090,7 @@ class KinoriumService:
         year: Optional[int] = None,
         media_type: str = "",
         allow_network: bool = True,
-    ) -> Optional[int]:
+    ) -> Dict[str, Any]:
         eff_kid = str(kid or "").strip()
         if not eff_kid.isdigit():
             resolved = self._resolve_kinorium_id(
@@ -648,34 +2099,219 @@ class KinoriumService:
                 orig_title=orig_title,
                 allow_network=allow_network,
                 media_type=media_type,
-                year=year,
+                year=year if (year and year > 0) else None,
             )
             eff_kid = str(resolved or "").strip()
         if not eff_kid.isdigit():
-            return None
+            return {"kinorium_id": "", "critics_pct": None, "similar_raw": [], "description": ""}
 
-        critics_map = self.state.setdefault("critics_by_kid", {})
-        if eff_kid in critics_map:
-            cached_v = critics_map[eff_kid]
-            return int(cached_v) if isinstance(cached_v, int) and cached_v > 0 else None
+        with self._state_lock:
+            critics_map = self.state.setdefault("critics_by_kid", {})
+            desc_map = self.state.setdefault("descriptions_by_kid", {})
+            has_cached_critics = eff_kid in critics_map
+            cached_critics: Optional[int] = None
+            if has_cached_critics:
+                cv = critics_map[eff_kid]
+                cached_critics = int(cv) if isinstance(cv, int) and cv > 0 else None
+            else:
+                for skey in ("remote_watching_items", "remote_watchlist_items", "remote_watched_items", "remote_never_items"):
+                    rem_entry = (self.state.get(skey) or {}).get(eff_kid)
+                    if isinstance(rem_entry, dict) and rem_entry.get("critics_rating") is not None:
+                        c_val = int(rem_entry["critics_rating"])
+                        critics_map[eff_kid] = c_val
+                        has_cached_critics = True
+                        cached_critics = c_val
+                        break
+            has_cached_desc = eff_kid in desc_map
+            cached_desc = str(desc_map.get(eff_kid) or "").strip()
 
-        for skey in ("remote_watching_items", "remote_watchlist_items", "remote_watched_items", "remote_never_items"):
-            rem_entry = (self.state.get(skey) or {}).get(eff_kid)
-            if isinstance(rem_entry, dict) and rem_entry.get("critics_rating") is not None:
-                c_val = int(rem_entry["critics_rating"])
-                critics_map[eff_kid] = c_val
-                return c_val
+        cached_sim = self._get_cached_similar_for_kid(eff_kid)
+        if (has_cached_critics and cached_sim is not None and has_cached_desc) or not allow_network:
+            return {
+                "kinorium_id": eff_kid,
+                "critics_pct": cached_critics,
+                "similar_raw": cached_sim or [],
+                "description": cached_desc,
+            }
 
-        if not allow_network:
-            return None
-
+        start_pid = self._profile_id
         try:
             body = self.fetch_kinorium_html(f"https://ru.kinorium.com/{eff_kid}/")
+            is_valid_movie_html = bool(
+                body
+                and len(body) >= 1200
+                and not ("var x =" in body and ("document['cookie']" in body or "document.cookie" in body))
+            )
+            if not is_valid_movie_html:
+                return {
+                    "kinorium_id": eff_kid,
+                    "critics_pct": cached_critics,
+                    "similar_raw": cached_sim or [],
+                    "description": cached_desc,
+                }
             pct = self.extract_critics_pct(body[:65000])
-            critics_map[eff_kid] = int(pct) if pct is not None else -1
-            return pct
+            desc_extracted = self.extract_movie_description_html(body)
+            sim_raw = self.extract_similar_items_html(body)
+            if self._profile_id == start_pid:
+                with self._state_lock:
+                    if self._profile_id == start_pid:
+                        self.state.setdefault("critics_by_kid", {})[eff_kid] = int(pct) if pct is not None else -1
+                        if desc_extracted:
+                            self.state.setdefault("descriptions_by_kid", {})[eff_kid] = desc_extracted
+                        elif eff_kid not in self.state.setdefault("descriptions_by_kid", {}):
+                            self.state["descriptions_by_kid"][eff_kid] = ""
+                self._save_state(immediate=False, bump_version=False)
+                self._store_similar_for_kid(eff_kid, sim_raw)
+            return {
+                "kinorium_id": eff_kid,
+                "critics_pct": pct,
+                "similar_raw": sim_raw,
+                "description": desc_extracted or cached_desc,
+            }
         except Exception:
-            return None
+            return {
+                "kinorium_id": eff_kid,
+                "critics_pct": cached_critics,
+                "similar_raw": cached_sim or [],
+                "description": cached_desc,
+            }
+
+    def get_similar_catalog_items(
+        self,
+        kid: str = "",
+        item_id: str = "",
+        title: str = "",
+        orig_title: str = "",
+        year: Optional[int] = None,
+        media_type: str = "",
+        allow_network: bool = True,
+        limit: int = 12,
+        preloaded_raw: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Dict[str, Any]]:
+        if preloaded_raw is not None:
+            raw_list = list(preloaded_raw)
+        else:
+            extras = self.fetch_movie_page_extras(
+                kid=kid,
+                item_id=item_id,
+                title=title,
+                orig_title=orig_title,
+                year=year,
+                media_type=media_type,
+                allow_network=allow_network,
+            )
+            raw_list = list(extras.get("similar_raw") or [])
+
+        if not raw_list:
+            return []
+
+        rated_high = sum(1 for r in raw_list if isinstance(r.get("kinorium_rating"), (int, float)) and float(r["kinorium_rating"]) >= 6.0)
+        friends_by_kid = self.state.get("friends_ratings_by_kid") or {}
+        scored: List[tuple] = []
+
+        for idx, raw in enumerate(raw_list):
+            skid = str(raw.get("kinorium_id") or "").strip()
+            if not skid.isdigit():
+                continue
+            kr_raw = raw.get("kinorium_rating")
+            if kr_raw is None and rated_high >= 4:
+                continue
+            kr_num = float(kr_raw) if isinstance(kr_raw, (int, float)) else 6.8
+            if rated_high >= 6 and kr_num < 5.8:
+                continue
+
+            sim_id = f"kin_{skid}"
+            ru_t = str(raw.get("ru_title") or "").strip()
+            orig_t = str(raw.get("orig_title") or ru_t).strip()
+            mtype = "series" if raw.get("media_type") == "series" else "movie"
+            yr_val = int(raw.get("year") or 0)
+
+            k_status = self.get_item_status(sim_id, title=ru_t, orig_title=orig_t)
+            if k_status.get("not_watching"):
+                continue
+
+            rem_entry = self._by_kid.get(skid) or {}
+            genres = list(rem_entry.get("genres") or (["Сериал"] if mtype == "series" else ["Фильм"]))
+            imdb_val = float(rem_entry.get("imdb_rating") or kr_num)
+            critics_val = rem_entry.get("critics_rating")
+            if critics_val is None:
+                c_cached = (self.state.get("critics_by_kid") or {}).get(skid)
+                if isinstance(c_cached, int) and c_cached > 0:
+                    critics_val = c_cached
+
+            fr_list = friends_by_kid.get(skid) or []
+            fr_avg = (
+                sum(float(f["score"]) for f in fr_list if f.get("score")) / len(fr_list)
+                if fr_list
+                else 0.0
+            )
+
+            rank_score = kr_num * 1.15
+            if media_type in ("movie", "series") and mtype == media_type:
+                rank_score += 1.35
+            if not k_status.get("watched"):
+                rank_score += 0.75
+            if k_status.get("in_watchlist"):
+                rank_score += 0.55
+            if fr_avg >= 7.8:
+                rank_score += 0.65
+            if yr_val >= 2005:
+                rank_score += 0.25
+            rank_score -= idx * 0.01
+
+            if k_status.get("in_watchlist"):
+                reason_ru = "В списке «Буду смотреть»"
+                reason_en = "In your Watchlist"
+            elif fr_avg >= 7.8:
+                fr_disp = f"{fr_avg:.1f}".rstrip("0").rstrip(".")
+                reason_ru = f"Оценка друзей {fr_disp}"
+                reason_en = f"Friends rated {fr_disp}"
+            else:
+                reason_ru = "Подборка Kinorium"
+                reason_en = "Kinorium similar"
+
+            ratings_obj: Dict[str, Any] = {
+                "kinorium": round(kr_num, 1),
+                "imdb": round(imdb_val, 1),
+            }
+            if critics_val is not None:
+                ratings_obj["critics"] = int(critics_val)
+
+            item_dict: Dict[str, Any] = {
+                "id": sim_id,
+                "kinorium_id": skid,
+                "title": ru_t,
+                "orig_title": orig_t,
+                "title_pl": orig_t,
+                "year": yr_val or "",
+                "media_type": mtype,
+                "seasons_count": int(rem_entry.get("seasons_count") or 1),
+                "episodes_per_season": int(rem_entry.get("episodes_per_season") or (0 if mtype == "series" else 1)),
+                "genres": genres[:3],
+                "description": str(rem_entry.get("description") or f"{ru_t} ({orig_t})"),
+                "poster": str(rem_entry.get("poster") or f"https://ru-images.kinorium.com/movie/600/{skid}.jpg"),
+                "poster_en": f"https://en-images.kinorium.com/movie/600/{skid}.jpg",
+                "backdrop": str(rem_entry.get("backdrop") or f"https://ru-images.kinorium.com/movie/1080/{skid}.jpg"),
+                "ambient_color": "#1e293b",
+                "ratings": ratings_obj,
+                "providers": [
+                    {"id": "hdrezka", "available": True, "quality": "1080p", "audio": "RU/EN"},
+                    {"id": "backup4k", "available": True, "quality": "4K Remux", "audio": "RU/EN"},
+                ],
+                "kinorium": k_status,
+                "similar_source": "kinorium",
+                "similar_reason": reason_ru,
+                "similar_reason_en": reason_en,
+            }
+            if rem_entry.get("rezka_id"):
+                item_dict["rezka_id"] = str(rem_entry["rezka_id"])
+            if rem_entry.get("rezka_url"):
+                item_dict["rezka_url"] = str(rem_entry["rezka_url"])
+
+            scored.append((rank_score, item_dict))
+
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return [it for _, it in scored[: max(1, int(limit))]]
 
     @staticmethod
     def parse_movie_list_html(body: str, default_status: str = "done") -> Dict[str, Dict[str, Any]]:
@@ -683,12 +2319,12 @@ class KinoriumService:
         main_part = body.split("filmList__pager")[0] if "filmList__pager" in body else body
         for block_m in re.finditer(r"user-status-list(.*?)(?=user-status-list|\Z)", main_part, re.S):
             blk = block_m.group(1)[:8500]
-            m_id = re.search(r'data-movieId\s*=\s*"(\d+)"', blk)
-            m_name = re.search(r'data-movieName\s*=\s*"([^"]+)"', blk)
+            m_id = re.search(r'data-movieId\s*=\s*(["\'])(\d+)\1', blk)
+            m_name = re.search(r'data-movieName\s*=\s*(["\'])(.*?)\1', blk)
             if not m_id or not m_name:
                 continue
-            kid = m_id.group(1)
-            ru_clean = html.unescape(m_name.group(1)).strip().replace("\xa0", " ")
+            kid = m_id.group(2)
+            ru_clean = html.unescape(m_name.group(2)).strip().replace("\xa0", " ")
 
             # Determine status from block header class or default_status
             header_slice = blk[:220]
@@ -712,13 +2348,13 @@ class KinoriumService:
             if "statusWidget_is-alian-profile" in blk:
                 m_vbg = re.search(
                     r"statusWidget_is-alian-profile.*?<span[^>]*class=['\"]valueBg([^'\"]*)['\"]",
-                    blk[:3800],
+                    blk[:6500],
                     re.S,
                 )
             else:
                 m_vbg = re.search(
                     r"statusWidgetData.*?<span[^>]*class=['\"]valueBg([^'\"]*)['\"]",
-                    blk[:2800],
+                    blk[:5500],
                     re.S,
                 )
             score = None
@@ -740,8 +2376,8 @@ class KinoriumService:
 
             orig_title = ""
             year = None
-            seasons_count = 2 if media_type == "series" else 1
-            episodes_count = 8 if media_type == "series" else 1
+            seasons_count = 1
+            episodes_count = 0 if media_type == "series" else 1
 
             m_yr = re.search(r"(?:^|,\s*)((?:19|20)\d{2})\b", small_clean)
             if m_yr:
@@ -767,10 +2403,20 @@ class KinoriumService:
                 extra_txt = re.sub(r"\s+", " ", extra_txt).strip()
                 extra_desc = extra_txt
                 first_line = extra_txt.split("•")[0]
+                raw_genre_parts: List[str] = []
                 for g_part in first_line.split(","):
                     g_clean = g_part.strip()
-                    if g_clean and not re.search(r"\d+\s*(?:ч|мин)", g_clean) and len(g_clean) < 25:
-                        genres.append(g_clean.capitalize())
+                    if not g_clean:
+                        continue
+                    if re.search(r"\d+\s*(?:ч|мин)", g_clean, flags=re.I):
+                        break
+                    g_low = g_clean.lower().replace("ё", "е")
+                    if g_low in RU_COUNTRIES_TO_EN:
+                        break
+                    if g_clean[0].isupper() and g_low not in RU_GENRES_TO_EN:
+                        break
+                    raw_genre_parts.append(g_clean)
+                genres = _sanitize_kinorium_genres(raw_genre_parts, media_type)
 
             # Kinorium & IMDb ratings
             m_kr = re.search(
@@ -788,23 +2434,42 @@ class KinoriumService:
             imdb_rating = float(m_ir.group(1)) if m_ir else kinorium_rating
             critics_rating = KinoriumService.extract_critics_pct(blk)
 
+            cur_yr = time.localtime().tm_year
             is_unreleased = bool(
                 is_future_film
                 or year is None
-                or year > 2026
+                or year > cur_yr
                 or not has_real_rating
-                or (year == 2026 and not m_kr)
+                or (year == cur_yr and not m_kr)
             )
 
             m_date = re.search(r'class="filmList__date-links date"[^>]*>\s*([^<]+?)\s*</a>', blk)
             watched_at = html.unescape(m_date.group(1)).strip() if m_date else ""
             friends_tooltip = KinoriumService.extract_friends_tooltip_ratings(blk)
 
+            comment_text = ""
+            m_st_txt = re.search(
+                r"<div[^>]*class=['\"][^'\"]*\bstatusText\b[^'\"]*['\"][^>]*>(.*?)</div>",
+                blk,
+                re.S,
+            )
+            if m_st_txt:
+                raw_c = re.sub(r"<[^>]+>", " ", m_st_txt.group(1))
+                comment_text = html.unescape(raw_c).replace("\xa0", " ").strip()
+                comment_text = re.sub(r"\s+", " ", comment_text)
+            if not comment_text:
+                m_dc = re.search(r'data-comment=(["\'])(.*?)\1', blk, re.S)
+                if m_dc:
+                    raw_c = html.unescape(m_dc.group(2))
+                    raw_c = re.sub(r"<[^>]+>", " ", raw_c)
+                    comment_text = html.unescape(raw_c).replace("\xa0", " ").strip()
+                    comment_text = re.sub(r"\s+", " ", comment_text)
+
             results[kid] = {
                 "kinorium_id": kid,
                 "ru_title": ru_clean,
                 "orig_title": orig_title,
-                "year": year or 2024,
+                "year": year or 0,
                 "media_type": media_type,
                 "seasons_count": seasons_count,
                 "episodes_per_season": episodes_count,
@@ -825,6 +2490,7 @@ class KinoriumService:
                 "available_online": not is_unreleased,
                 "score": score,
                 "watched_at": watched_at,
+                **({"comment": comment_text} if comment_text else {}),
                 **({"friends_tooltip": friends_tooltip} if friends_tooltip else {}),
             }
         return results
@@ -855,11 +2521,12 @@ class KinoriumService:
                 continue
 
             m_title = re.search(r'<span\s+class=["\']title["\'][^>]*>(.*?)</span>', blk_slice[:2600], re.S) or re.search(
-                r'data-movieName\s*=\s*["\']([^"\']+)["\']', blk_slice
+                r'data-movieName\s*=\s*(["\'])(.*?)\1', blk_slice
             )
             if not m_title:
                 continue
-            ru_title = re.sub(r"<[^>]+>", "", m_title.group(1))
+            raw_title_match = m_title.group(2) if m_title.lastindex and m_title.lastindex >= 2 else m_title.group(1)
+            ru_title = re.sub(r"<[^>]+>", "", raw_title_match)
             ru_title = html.unescape(ru_title).replace("\xa0", " ").strip()
             if not ru_title:
                 continue
@@ -927,7 +2594,7 @@ class KinoriumService:
                     total_eps = max(1, int(m_eps.group(1)))
                     episodes_per_season = max(1, min(26, round(total_eps / max(1, seasons_count))))
                 else:
-                    episodes_per_season = 8
+                    episodes_per_season = 0
 
             genres: List[str] = []
             duration_label = ""
@@ -1002,18 +2669,19 @@ class KinoriumService:
             if critics_pct is not None:
                 ratings_dict["critics"] = critics_pct
 
+            cur_yr = time.localtime().tm_year
             item_obj: Dict[str, Any] = {
                 "id": f"kin_{kid}",
                 "kinorium_id": kid,
                 "title": ru_title,
                 "orig_title": orig_title or ru_title,
                 "title_pl": orig_title or ru_title,
-                "year": year or 2026,
+                "year": year or cur_yr,
                 "media_type": media_type,
                 "seasons_count": seasons_count,
                 "episodes_per_season": episodes_per_season,
                 "genres": genres[:3] or (["Сериал"] if media_type == "series" else ["Фильм"]),
-                "description": extra_desc or f"{ru_title} ({orig_title or year or 2026})",
+                "description": extra_desc or f"{ru_title} ({orig_title or year or cur_yr})",
                 "poster": poster_url,
                 "poster_en": f"https://en-images.kinorium.com/movie/600/{kid}.jpg",
                 "backdrop": backdrop_url,
@@ -1038,6 +2706,7 @@ class KinoriumService:
         return parsed_items
 
     def _refresh_online_premieres_sync(self) -> List[Dict[str, Any]]:
+        start_pid = self._profile_id
         results_map: Dict[str, str] = {}
 
         def _fetch_one(key: str, url: str) -> None:
@@ -1046,20 +2715,8 @@ class KinoriumService:
             except Exception:
                 results_map[key] = ""
 
-        t_movies = threading.Thread(
-            target=_fetch_one,
-            args=("movies", "https://ru.kinorium.com/movies/online/?perpage=100"),
-            daemon=True,
-        )
-        t_shows = threading.Thread(
-            target=_fetch_one,
-            args=("shows", "https://ru.kinorium.com/shows/popular/?perpage=100"),
-            daemon=True,
-        )
-        t_movies.start()
-        t_shows.start()
-        t_movies.join(timeout=14.0)
-        t_shows.join(timeout=14.0)
+        _fetch_one("movies", "https://ru.kinorium.com/movies/online/?perpage=100")
+        _fetch_one("shows", "https://ru.kinorium.com/shows/popular/?perpage=100")
 
         online_movies = self.parse_premieres_list_html(results_map.get("movies", ""))
         fresh_series = self.parse_premieres_list_html(
@@ -1071,12 +2728,13 @@ class KinoriumService:
 
         combined: List[Dict[str, Any]] = []
         seen_kids = set()
-        friend_id_by_name = {
-            str(f.get("name") or "").strip(): str(f.get("id") or "")
-            for f in (self.state.get("friends") or [])
-            if f.get("name")
-        }
-        own_name = str(self.state.get("account", {}).get("display_name") or "").strip()
+        with self._state_lock:
+            friend_id_by_name = {
+                str(f.get("name") or "").strip(): str(f.get("id") or "")
+                for f in (self.state.get("friends") or [])
+                if isinstance(f, dict) and f.get("name")
+            }
+            own_name = str(self.state.get("account", {}).get("display_name") or "").strip()
         updated_friends_cache = False
 
         for it in online_movies + fresh_series:
@@ -1086,26 +2744,27 @@ class KinoriumService:
             if kid:
                 seen_kids.add(kid)
             f_tips = it.pop("friends_tooltip", None) or []
-            if kid and f_tips:
+            if kid and f_tips and self._profile_id == start_pid:
                 with self._state_lock:
-                    fbk = self.state.setdefault("friends_ratings_by_kid", {})
-                    cur_list = list(fbk.get(kid) or [])
-                    by_name = {str(x.get("name") or ""): x for x in cur_list if x.get("name")}
-                    for ft in f_tips:
-                        fnm = str(ft.get("name") or "").strip()
-                        fsc = ft.get("score")
-                        if not fnm or fnm == own_name or not fsc:
-                            continue
-                        by_name[fnm] = {
-                            "name": fnm,
-                            "user_id": friend_id_by_name.get(fnm) or by_name.get(fnm, {}).get("user_id", ""),
-                            "score": int(fsc),
-                        }
-                        updated_friends_cache = True
-                    fbk[kid] = list(by_name.values())
+                    if self._profile_id == start_pid:
+                        fbk = self.state.setdefault("friends_ratings_by_kid", {})
+                        cur_list = list(fbk.get(kid) or [])
+                        by_name = {str(x.get("name") or ""): x for x in cur_list if isinstance(x, dict) and x.get("name")}
+                        for ft in f_tips:
+                            fnm = str(ft.get("name") or "").strip()
+                            fsc = ft.get("score")
+                            if not fnm or fnm == own_name or not fsc:
+                                continue
+                            by_name[fnm] = {
+                                "name": fnm,
+                                "user_id": friend_id_by_name.get(fnm) or by_name.get(fnm, {}).get("user_id", ""),
+                                "score": int(fsc),
+                            }
+                            updated_friends_cache = True
+                        fbk[kid] = list(by_name.values())
             combined.append(it)
 
-        if updated_friends_cache:
+        if updated_friends_cache and self._profile_id == start_pid:
             try:
                 self._save_state()
             except Exception:
@@ -1118,8 +2777,7 @@ class KinoriumService:
                 self._online_premieres_ts = now
                 self._state_version += 1
             try:
-                with open(self.premieres_cache_file, "w", encoding="utf-8") as f:
-                    json.dump({"updated_at": now, "items": combined}, f, ensure_ascii=False)
+                self._db.set_kv("cache", "online_premieres", {"updated_at": now, "items": combined})
             except Exception:
                 pass
         return combined
@@ -1144,15 +2802,36 @@ class KinoriumService:
 
         threading.Thread(target=_bg_refresh, daemon=True).start()
 
-    def get_online_premieres_count(self) -> int:
+    def get_online_premieres_count(self, allow_network: bool = True) -> int:
         now = time.time()
         with self._state_lock:
             if self._online_premieres_mem:
-                count = len(self._online_premieres_mem)
+                cached_copy = [dict(it) for it in self._online_premieres_mem]
+            else:
+                cached_copy = []
+        if cached_copy:
+            if allow_network:
                 self._maybe_trigger_bg_premieres_refresh(now)
-                return count
-        items = self.fetch_online_premieres(force_refresh=False)
-        return len(items)
+            items = cached_copy
+        elif allow_network:
+            items = self.fetch_online_premieres(force_refresh=False)
+        else:
+            return 0
+        if not self.is_service_enabled("kinorium"):
+            return len(items)
+        count = 0
+        for it in items:
+            k_status = self.get_item_status(
+                str(it.get("id") or ""),
+                base_kinorium_rating=float((it.get("ratings") or {}).get("kinorium") or 7.8),
+                title=str(it.get("title") or ""),
+                orig_title=str(it.get("orig_title") or ""),
+            )
+            if not self.is_item_fully_watched_or_caught_up(
+                k_status, media_type=str(it.get("media_type") or "movie")
+            ):
+                count += 1
+        return count
 
     def fetch_online_premieres(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
         now = time.time()
@@ -1169,9 +2848,12 @@ class KinoriumService:
             with self._state_lock:
                 if self._online_premieres_mem:
                     cached_copy = [dict(it) for it in self._online_premieres_mem]
+                last_att = self._online_premieres_last_attempt_ts
             if cached_copy:
                 self._maybe_trigger_bg_premieres_refresh(now)
                 return cached_copy
+            if (now - last_att) < 300.0 or self.is_ip_cooldown_active():
+                return []
 
         with self._state_lock:
             self._online_premieres_last_attempt_ts = now
@@ -1179,7 +2861,12 @@ class KinoriumService:
         return [dict(it) for it in fresh]
 
     def fetch_status_list_ajax(self, user_id: str, status_code: str, max_pages: int = 3) -> Dict[str, Dict[str, Any]]:
-        collected: Dict[str, Dict[str, Any]] = {}
+        """
+        Returns the parsed list. When any page fails (network error, anti-bot page, missing
+        `result` payload) the returned dict carries `incomplete=True` so callers can keep the
+        previously synced section instead of wiping it.
+        """
+        collected: "_StatusListResult" = _StatusListResult()
         for page_num in range(1, max_pages + 1):
             url = (
                 f"https://ru.kinorium.com/handlers/getStatusList/"
@@ -1195,7 +2882,10 @@ class KinoriumService:
                     },
                 )
                 data = json.loads(raw_json)
-                html_chunk = data.get("result", {}).get("html", "") or data.get("result", {}).get("content", "")
+                if not isinstance(data, dict) or not isinstance(data.get("result"), dict):
+                    collected.incomplete = True
+                    break
+                html_chunk = data["result"].get("html", "") or data["result"].get("content", "")
                 parsed = self.parse_movie_list_html(html_chunk, default_status=status_code)
                 if not parsed:
                     break
@@ -1203,6 +2893,7 @@ class KinoriumService:
                 if len(parsed) < 190:
                     break
             except Exception:
+                collected.incomplete = True
                 break
         return collected
 
@@ -1218,11 +2909,13 @@ class KinoriumService:
         from .hdrezka import HDRezkaClient
 
         prev_wl = self.state.get("remote_watchlist_items") or {}
-        rc = HDRezkaClient(self.net)
+        rc = getattr(self, "_rezka_client", None) or HDRezkaClient(self.net)
         to_check: List[str] = []
 
+        cur_yr = time.localtime().tm_year
         for kid, v in watchlist_items.items():
-            if v.get("is_unreleased") or int(v.get("year") or 2024) > 2026:
+            yr_num = int(v.get("year") or 0)
+            if v.get("is_unreleased") or (yr_num and yr_num > cur_yr):
                 v["available_online"] = False
                 continue
             prev_entry = prev_wl.get(kid)
@@ -1286,7 +2979,224 @@ class KinoriumService:
             with ThreadPoolExecutor(max_workers=8) as pool:
                 list(pool.map(_check_kid, to_check))
 
-    def sync_user_profile(self, user_identifier: str = "51670", session_cookie: Optional[str] = None) -> Dict[str, Any]:
+    @staticmethod
+    def _extract_profile_avatar_url(prof_html: str, user_id: str) -> str:
+        uid = str(user_id or "").strip()
+        if prof_html:
+            m_img = None
+            if uid and uid.isdigit():
+                m_img = re.search(
+                    rf'(https?:)?//(?:[a-z]+-)?images\.kinorium\.com/user/(?:64|96|100|150|180|200|300)/{re.escape(uid)}\.(?:jpg|jpeg|png|webp)(?:\?\d+)?',
+                    prof_html,
+                    re.I,
+                )
+            if not m_img:
+                m_img = re.search(
+                    r'(https?:)?//(?:[a-z]+-)?images\.kinorium\.com/user/(?:64|96|100|150|180|200|300)/\d+\.(?:jpg|jpeg|png|webp)(?:\?\d+)?',
+                    prof_html,
+                    re.I,
+                )
+            if m_img:
+                raw_u = m_img.group(0)
+                if raw_u.startswith("//"):
+                    raw_u = "https:" + raw_u
+                return re.sub(r"/user/(?:64|96|100|150|180)/", "/user/200/", raw_u)
+        if uid and uid.isdigit():
+            return f"https://images.kinorium.com/user/200/{uid}.jpg"
+        return ""
+
+    @staticmethod
+    def _extract_cookie_display_name(cookie_str: str) -> str:
+        if not cookie_str:
+            return ""
+        for item in cookie_str.split(";"):
+            item = item.strip()
+            if "=" not in item:
+                continue
+            ck_k, ck_v = item.split("=", 1)
+            if ck_k.strip().lower() != "auth":
+                continue
+            raw_v = ck_v.strip()
+            if not raw_v or raw_v.lower() == "deleted":
+                continue
+            try:
+                decoded = urllib.parse.unquote(raw_v)
+                obj = json.loads(decoded)
+                if isinstance(obj, dict):
+                    for key in ("screenName", "display_name", "full_name"):
+                        val = html.unescape(str(obj.get(key) or "")).strip()
+                        if val and not _is_placeholder_display_name(val):
+                            return val
+                    fn = html.unescape(str(obj.get("name") or obj.get("firstname") or "")).strip()
+                    ln = html.unescape(str(obj.get("surname") or obj.get("lastname") or "")).strip()
+                    comb = f"{fn} {ln}".strip()
+                    if comb and not _is_placeholder_display_name(comb):
+                        return comb
+            except Exception:
+                continue
+        return ""
+
+    @staticmethod
+    def _extract_profile_display_name(prof_html: str, fallback: str = "") -> str:
+        clean_fallback = str(fallback or "").strip()
+        m_fallback_uid = re.search(r"(?:/user/|^)(\d+)/?", clean_fallback)
+        f_uid = m_fallback_uid.group(1) if m_fallback_uid else ""
+        if _is_placeholder_display_name(clean_fallback, f_uid):
+            clean_fallback = ""
+
+        def _strip_site_suffix(raw_s: str) -> str:
+            s = html.unescape(re.sub(r"<[^>]+>", " ", str(raw_s or ""))).replace("\xa0", " ")
+            s = re.sub(r"\s+", " ", s).strip()
+            s = re.sub(r"\s*[-–—|•]\s*(?:Кинориум|Kinorium).*$", "", s, flags=re.I).strip()
+            return s
+
+        display_name = ""
+        m_title = re.search(r"<title[^>]*>(.*?)</title>", prof_html or "", re.S | re.I)
+        if m_title:
+            cand = _strip_site_suffix(m_title.group(1))
+            if not _is_placeholder_display_name(cand, f_uid):
+                display_name = cand
+
+        if not display_name:
+            for pat in (
+                r'<meta[^>]*property=["\']og:title["\'][^>]*content=(["\'])(.*?)\1',
+                r'<meta[^>]*content=(["\'])(.*?)\1[^>]*property=["\']og:title["\']',
+            ):
+                m_og = re.search(pat, prof_html or "", re.S | re.I)
+                if m_og:
+                    cand = _strip_site_suffix(m_og.group(2))
+                    if not _is_placeholder_display_name(cand, f_uid):
+                        display_name = cand
+                        break
+
+        if not display_name:
+            for pat_h in (
+                r'<h1[^>]*class=["\'][^"\']*\b(?:profile|user|userName|screenName)[^"\']*["\'][^>]*>(.*?)</h1>',
+                r'<div[^>]*class=["\'][^"\']*\b(?:profile-header__name|user-header__name|profileName|userName)\b[^"\']*["\'][^>]*>(.*?)</div>',
+                r'<h1[^>]*>(.*?)</h1>',
+            ):
+                m_h = re.search(pat_h, prof_html or "", re.S | re.I)
+                if m_h:
+                    cand = _strip_site_suffix(m_h.group(1))
+                    if not _is_placeholder_display_name(cand, f_uid):
+                        display_name = cand
+                        break
+
+        if _is_placeholder_display_name(display_name, f_uid):
+            display_name = clean_fallback
+        if _is_placeholder_display_name(display_name, f_uid) and f_uid == "51670":
+            display_name = "Andrei Crustillio"
+        return display_name
+
+    @staticmethod
+    def _parse_following_html(html_text: str, self_user_id: str) -> List[Dict[str, Any]]:
+        if not html_text:
+            return []
+        friends_list: List[Dict[str, Any]] = []
+        seen_f = set()
+        for li_m in re.finditer(
+            r"<li[^>]*class=['\"][^'\"]*\bitem\b[^'\"]*['\"][^>]*>(.*?)</li>",
+            html_text,
+            re.S,
+        ):
+            li_blk = li_m.group(1)
+            m_fid = re.search(r'data-id="(\d+)"', li_blk) or re.search(r"/user/(\d+)/", li_blk)
+            m_fnm = re.search(r'class=[\'"][^\'"]*\busername\b[^\'"]*[\'"][^>]*>([^<]+)</a>', li_blk)
+            if not m_fid or not m_fnm:
+                continue
+            fid = str(m_fid.group(1)).strip()
+            fname = html.unescape(m_fnm.group(1)).strip()
+            if not fid or not fname or fid in seen_f or fid == str(self_user_id):
+                continue
+            seen_f.add(fid)
+            m_pct = re.search(r"proxymity__percent[^>]*>\s*(\d+)\s*%", li_blk)
+            m_sim = re.search(r"proxymity__num[^>]*>\s*(\d+)\s*<", li_blk)
+            f_obj: Dict[str, Any] = {
+                "id": fid,
+                "name": fname,
+                "avatar": f"https://images.kinorium.com/user/96/{fid}.jpg",
+            }
+            if m_pct:
+                f_obj["kinorium_proximity_pct"] = int(m_pct.group(1))
+            if m_sim:
+                f_obj["kinorium_similar_count"] = int(m_sim.group(1))
+            friends_list.append(f_obj)
+        return friends_list
+
+    def _resolve_friend_user_by_name_ajax(self, full_name: str, self_user_id: str = "") -> Optional[Dict[str, Any]]:
+        clean_name = str(full_name or "").strip()
+        if not clean_name:
+            return None
+        full_norm = clean_name.lower().replace("ё", "е")
+        parts = [p.strip() for p in re.split(r"[\s_.-]+", clean_name) if len(p.strip()) >= 3]
+        queries: List[str] = [clean_name]
+        for p in sorted(parts, key=len, reverse=True):
+            if p not in queries:
+                queries.append(p)
+
+        seen_q = set()
+        best_followed: Optional[Dict[str, Any]] = None
+        best_exact: Optional[Dict[str, Any]] = None
+        for q in queries[:3]:
+            q_low = q.lower()
+            if q_low in seen_q:
+                continue
+            seen_q.add(q_low)
+            try:
+                qs = urllib.parse.urlencode({"str": q, "filters[only_user]": 1})
+                raw_json = self.fetch_kinorium_html(
+                    f"https://ru.kinorium.com/handlers/Search/?{qs}",
+                    extra_headers={
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Referer": "https://ru.kinorium.com/",
+                    },
+                )
+                data = json.loads(raw_json)
+                candidates = (data.get("user") or {}).get("search") or []
+                for c in candidates:
+                    if not isinstance(c, dict):
+                        continue
+                    cid = str(c.get("user_id") or c.get("id") or "").strip()
+                    if not cid.isdigit() or (self_user_id and cid == str(self_user_id)):
+                        continue
+                    sn = html.unescape(str(c.get("screenName") or "")).strip()
+                    n1 = html.unescape(str(c.get("name") or "")).strip()
+                    n2 = html.unescape(str(c.get("surname") or "")).strip()
+                    combined = f"{n1} {n2}".strip()
+                    sn_norm = sn.lower().replace("ё", "е")
+                    comb_norm = combined.lower().replace("ё", "е")
+                    if sn_norm == full_norm or comb_norm == full_norm:
+                        if c.get("is_followed_by_me") or c.get("is_my_follower"):
+                            best_followed = c
+                            break
+                        if best_exact is None:
+                            best_exact = c
+                if best_followed is not None:
+                    break
+            except Exception:
+                continue
+
+        chosen = best_followed or best_exact
+        if not chosen:
+            return None
+        fid = str(chosen.get("user_id") or chosen.get("id") or "").strip()
+        if not fid.isdigit():
+            return None
+        fname = html.unescape(str(chosen.get("screenName") or clean_name)).strip() or clean_name
+        return {
+            "id": fid,
+            "name": fname,
+            "avatar": f"https://images.kinorium.com/user/96/{fid}.jpg",
+            "is_followed_by_me": bool(chosen.get("is_followed_by_me")),
+            "is_my_follower": bool(chosen.get("is_my_follower")),
+        }
+
+    def sync_user_profile(
+        self,
+        user_identifier: str = "",
+        session_cookie: Optional[str] = None,
+        display_name_hint: str = "",
+    ) -> Dict[str, Any]:
         """
         Synchronizes a real Kinorium profile (supports switching to any Kinorium user):
         - Display name & counts
@@ -1296,27 +3206,562 @@ class KinoriumService:
         - 'Не буду смотреть' (status=never)
         - Real friends list (/following/) & their ratings
         """
+        with self._state_lock:
+            sync_start_profile_id = self._profile_id
+            acc_snap = dict(self.state.get("account") or {})
+            prev_user_id = str(acc_snap.get("user_id") or "")
+            prev_display_name = str(acc_snap.get("display_name") or "").strip()
+            prev_cookie = str(acc_snap.get("session_cookie") or "").strip()
+            prev_friends_snap = [dict(f) for f in (self.state.get("friends") or []) if isinstance(f, dict)]
+            prev_friends_ratings_snap = copy.deepcopy(self.state.get("friends_ratings_by_kid") or {})
+            prev_friend_titles_snap = copy.deepcopy(self.state.get("friend_known_titles") or {})
+            prev_remote_sections = {
+                sk: {str(k): dict(v) for k, v in (self.state.get(sk) or {}).items() if isinstance(v, dict)}
+                for sk in (
+                    "remote_watching_items",
+                    "remote_never_items",
+                    "remote_watchlist_items",
+                    "remote_watched_items",
+                )
+            }
+
+        effective_cookie = prev_cookie
+        provided_new_cookie = False
+        new_cookie_uid = ""
         if session_cookie is not None and session_cookie.strip():
             cleaned_cookie = self.sanitize_session_cookie(session_cookie)
             if cleaned_cookie:
-                self.state["account"]["session_cookie"] = cleaned_cookie
+                effective_cookie = cleaned_cookie
+                provided_new_cookie = True
+                new_cookie_uid = self.extract_cookie_user_id(cleaned_cookie)
+
+        with self._cookie_lock:
+            self._kinorium_cookie_cache = ""
+        self._session_auth_verified = None
+        self._ip_blocked_until = 0.0
+
+        self._sync_cookie_tl.cookie = effective_cookie
+        try:
+            user_path = self.extract_user_path(user_identifier)
+            if provided_new_cookie and new_cookie_uid:
+                user_path = f"/user/{new_cookie_uid}/"
+
+            if not user_path and effective_cookie:
+                ck_uid = self.extract_cookie_user_id(effective_cookie)
+                if ck_uid:
+                    user_path = f"/user/{ck_uid}/"
+                else:
+                    prev_ia = getattr(self._sync_cookie_tl, "include_auth", False)
+                    self._sync_cookie_tl.include_auth = True
+                    try:
+                        home_html = self.fetch_kinorium_html("https://ru.kinorium.com/")
+                        m_cookie_uid = re.search(r"\bUSER_ID\s*=\s*['\"]?(\d+)['\"]?", home_html)
+                        if m_cookie_uid and int(m_cookie_uid.group(1)) > 0:
+                            user_path = f"/user/{m_cookie_uid.group(1)}/"
+                    except Exception:
+                        pass
+                    finally:
+                        self._sync_cookie_tl.include_auth = prev_ia
+            if not user_path:
+                raise ValueError("Укажите ID или ссылку на профиль Kinorium")
+
+            m_path_uid = re.search(r"/user/(\d+)/", user_path)
+            early_target_uid = m_path_uid.group(1) if m_path_uid else ""
+            if prev_user_id and early_target_uid and early_target_uid != prev_user_id and not provided_new_cookie:
+                existing_ck_uid = self.extract_cookie_user_id(effective_cookie)
+                if not existing_ck_uid or existing_ck_uid != early_target_uid:
+                    effective_cookie = ""
+                    self._sync_cookie_tl.cookie = ""
+                    with self._cookie_lock:
+                        self._kinorium_cookie_cache = ""
+
+            base_url = f"https://ru.kinorium.com{user_path}"
+
+            prev_ia_prof = getattr(self._sync_cookie_tl, "include_auth", False)
+            self._sync_cookie_tl.include_auth = bool(effective_cookie)
+            try:
+                prof_html = self.fetch_kinorium_html(base_url)
+            finally:
+                self._sync_cookie_tl.include_auth = prev_ia_prof
+            if self._profile_id != sync_start_profile_id:
+                return {"ok": False, "synced": False, "error": "profile_switched_during_sync"}
+
+            m_uid = re.search(r"/user/(\d+)/", user_path) or re.search(r"data-user_id=['\"](\d+)['\"]", prof_html)
+            user_id = m_uid.group(1) if m_uid else user_identifier.strip("/").replace("user/", "")
+            # Pass empty fallback for uid 51670 here so cookie/hint/previous custom name take priority first
+            fallback_ident = "" if str(user_id) == "51670" else user_identifier
+            display_name = self._extract_profile_display_name(prof_html, fallback_ident)
+
+            if _is_placeholder_display_name(display_name, str(user_id)):
+                ck_name = self._extract_cookie_display_name(effective_cookie)
+                if not _is_placeholder_display_name(ck_name, str(user_id)):
+                    display_name = ck_name
+            if _is_placeholder_display_name(display_name, str(user_id)):
+                clean_hint = str(display_name_hint or "").strip()
+                if not _is_placeholder_display_name(clean_hint, str(user_id)):
+                    display_name = clean_hint
+                elif str(user_id) == prev_user_id and not _is_placeholder_display_name(prev_display_name, str(user_id)):
+                    display_name = prev_display_name
+            if str(user_id) == "51670" and _is_placeholder_display_name(display_name, str(user_id)):
+                display_name = "Andrei Crustillio"
+            avatar_url = self._extract_profile_avatar_url(prof_html, user_id)
+
+            is_switching_user = bool(prev_user_id and str(user_id) != prev_user_id)
+            if is_switching_user and not provided_new_cookie:
+                existing_ck_uid = self.extract_cookie_user_id(effective_cookie)
+                if not existing_ck_uid or existing_ck_uid != str(user_id):
+                    effective_cookie = ""
+                    self._sync_cookie_tl.cookie = ""
+                    with self._cookie_lock:
+                        self._kinorium_cookie_cache = ""
+
+            if effective_cookie:
+                ck_uid = self.extract_cookie_user_id(effective_cookie)
+                m_page_authed = re.search(r"\bUSER_ID\s*=\s*['\"]?(\d+)['\"]?", prof_html)
+                page_authed_uid = m_page_authed.group(1) if (m_page_authed and int(m_page_authed.group(1)) > 0) else ""
+                if ck_uid and ck_uid != str(user_id):
+                    effective_cookie = ""
+                    self._sync_cookie_tl.cookie = ""
+                    with self._cookie_lock:
+                        self._kinorium_cookie_cache = ""
+                    self._session_auth_verified = False
+                elif page_authed_uid and page_authed_uid != str(user_id):
+                    effective_cookie = ""
+                    self._sync_cookie_tl.cookie = ""
+                    with self._cookie_lock:
+                        self._kinorium_cookie_cache = ""
+                    self._session_auth_verified = False
+                elif not ck_uid and "session=" not in effective_cookie and page_authed_uid != str(user_id):
+                    effective_cookie = ""
+                    self._sync_cookie_tl.cookie = ""
+                    with self._cookie_lock:
+                        self._kinorium_cookie_cache = ""
+                    self._session_auth_verified = False
+                else:
+                    self._session_auth_verified = bool(page_authed_uid == str(user_id))
+
+            # 1. Fetch user's real friends (/following/) early before heavy status pagination
+            friends_list: List[Dict[str, Any]] = []
+            try:
+                foll_html = self.fetch_kinorium_html(f"{base_url}following/")
+                friends_list = self._parse_following_html(foll_html, str(user_id))
+            except Exception:
+                pass
+
+            if not friends_list and prof_html:
+                friends_list = self._parse_following_html(prof_html, str(user_id))
+
+            if not friends_list and not is_switching_user and prev_friends_snap:
+                friends_list = [dict(f) for f in prev_friends_snap]
+
+            incomplete_sections: List[str] = []
+
+            def _keep_prev_if_incomplete(fresh: Dict[str, Dict[str, Any]], state_key: str) -> Dict[str, Dict[str, Any]]:
+                # A failed / partial fetch must never wipe a previously synced section of the SAME account
+                if getattr(fresh, "incomplete", False):
+                    incomplete_sections.append(state_key)
+                if getattr(fresh, "incomplete", False) and not is_switching_user:
+                    prev = prev_remote_sections.get(state_key) or {}
+                    if isinstance(prev, dict) and prev:
+                        merged_prev = {str(k): dict(v) for k, v in prev.items() if isinstance(v, dict)}
+                        merged_prev.update(fresh)
+                        return merged_prev
+                return dict(fresh)
+
+            # 2. Fetch 'Смотрю' (status=now)
+            watching_items = _keep_prev_if_incomplete(
+                self.fetch_status_list_ajax(user_id, "now", max_pages=2), "remote_watching_items"
+            )
+
+            # 3. Fetch 'Не буду смотреть' (status=never)
+            never_items = _keep_prev_if_incomplete(
+                self.fetch_status_list_ajax(user_id, "never", max_pages=2), "remote_never_items"
+            )
+
+            # 4. Fetch 'Буду смотреть' (status=future, up to 3 pages = 600 items)
+            watchlist_items = _keep_prev_if_incomplete(
+                self.fetch_status_list_ajax(user_id, "future", max_pages=3), "remote_watchlist_items"
+            )
+            self._verify_recent_watchlist_online_availability(watchlist_items)
+
+            # 5. Fetch all watched/rated pages of the user (status=done, up to 8 pages = 1600 items)
+            watched_raw = self.fetch_status_list_ajax(user_id, "done", max_pages=8)
+            watched_fetch_incomplete = bool(getattr(watched_raw, "incomplete", False))
+            watched_items = dict(watched_raw)
+            if not watched_items:
+                fallback_complete = False
+                for page_num in range(1, 9):
+                    p_url = f"{base_url}ratings/?perpage=200&page={page_num}"
+                    try:
+                        p_html = self.fetch_kinorium_html(p_url)
+                        parsed = self.parse_movie_list_html(p_html, default_status="done")
+                        if not parsed:
+                            fallback_complete = bool(watched_items)
+                            break
+                        watched_items.update(parsed)
+                        if len(parsed) < 190:
+                            fallback_complete = True
+                            break
+                        if page_num == 8:
+                            fallback_complete = True
+                    except Exception:
+                        break
+                if fallback_complete and watched_items:
+                    watched_fetch_incomplete = False
+            if watched_fetch_incomplete and not is_switching_user:
+                incomplete_sections.append("done")
+                prev_done = prev_remote_sections.get("remote_watched_items") or {}
+                if isinstance(prev_done, dict) and prev_done:
+                    merged_done = {str(k): dict(v) for k, v in prev_done.items() if isinstance(v, dict)}
+                    merged_done.update(watched_items)
+                    watched_items = merged_done
+
+            # 6. Collect real friends' ratings & comments for ANY connected Kinorium user
+            friend_id_by_name = {
+                str(f.get("name") or "").strip(): str(f.get("id") or "")
+                for f in friends_list
+                if str(f.get("name") or "").strip() and str(f.get("id") or "").isdigit()
+            }
+            friends_map_by_kid: Dict[str, Dict[str, Dict[str, Any]]] = {}
+            tooltip_friend_counts: Dict[str, int] = {}
+            local_friend_known_titles: Dict[str, Dict[str, Any]] = (
+                {} if is_switching_user else dict(prev_friend_titles_snap)
+            )
+
+            if not is_switching_user and isinstance(prev_friends_ratings_snap, dict):
+                for _prev_kid, prev_flist in prev_friends_ratings_snap.items():
+                    if not isinstance(prev_flist, list):
+                        continue
+                    for pf in prev_flist:
+                        if not isinstance(pf, dict):
+                            continue
+                        pfn = str(pf.get("name") or "").strip()
+                        puid = str(pf.get("user_id") or "").strip()
+                        if pfn and puid.isdigit() and pfn not in friend_id_by_name:
+                            friend_id_by_name[pfn] = puid
+
+            def _upsert_friend_score(
+                kid_key: str,
+                f_name: str,
+                f_uid: str,
+                f_score: Any,
+                f_comment: str = "",
+            ) -> None:
+                fn = str(f_name or "").strip()
+                if not fn or fn == display_name or not f_score:
+                    return
+                try:
+                    sc_int = int(f_score)
+                except Exception:
+                    return
+                if not (1 <= sc_int <= 10):
+                    return
+                uid_resolved = str(f_uid or friend_id_by_name.get(fn) or "")
+                existing_f = friends_map_by_kid.setdefault(str(kid_key), {}).get(fn) or {}
+                clean_cm = str(f_comment or existing_f.get("comment") or "").strip()
+                entry_f: Dict[str, Any] = {
+                    "name": fn,
+                    "user_id": uid_resolved or str(existing_f.get("user_id") or ""),
+                    "score": sc_int,
+                }
+                if clean_cm:
+                    entry_f["comment"] = clean_cm
+                friends_map_by_kid[str(kid_key)][fn] = entry_f
+
+            for status_dict in (watched_items, watching_items, watchlist_items, never_items):
+                for kid, st_item in status_dict.items():
+                    for ft in st_item.pop("friends_tooltip", None) or []:
+                        fn_tip = str(ft.get("name") or "").strip()
+                        if fn_tip and fn_tip != display_name:
+                            tooltip_friend_counts[fn_tip] = tooltip_friend_counts.get(fn_tip, 0) + 1
+                        _upsert_friend_score(kid, fn_tip, "", ft.get("score"))
+
+            known_friend_names = {str(f.get("name") or "").strip() for f in friends_list if f.get("name")}
+            unresolved_names = [
+                fn
+                for fn, _cnt in sorted(tooltip_friend_counts.items(), key=lambda kv: kv[1], reverse=True)
+                if fn and fn not in friend_id_by_name
+            ]
+            if unresolved_names:
+                def _resolve_one(fn_target: str) -> Tuple[str, Optional[Dict[str, Any]]]:
+                    self._sync_cookie_tl.cookie = effective_cookie
+                    try:
+                        return fn_target, self._resolve_friend_user_by_name_ajax(fn_target, str(user_id))
+                    finally:
+                        self._sync_cookie_tl.cookie = None
+
+                with ThreadPoolExecutor(max_workers=min(2, len(unresolved_names[:6]))) as pool:
+                    for fn_target, resolved_obj in pool.map(_resolve_one, unresolved_names[:6]):
+                        if resolved_obj and str(resolved_obj.get("id") or "").isdigit():
+                            r_fid = str(resolved_obj["id"])
+                            friend_id_by_name[fn_target] = r_fid
+                            friend_id_by_name[str(resolved_obj.get("name") or fn_target)] = r_fid
+                            if fn_target not in known_friend_names and not any(str(f.get("id")) == r_fid for f in friends_list):
+                                friends_list.append(
+                                    {
+                                        "id": r_fid,
+                                        "name": fn_target,
+                                        "avatar": f"https://images.kinorium.com/user/96/{r_fid}.jpg",
+                                        "kinorium_similar_count": tooltip_friend_counts.get(fn_target, 1),
+                                    }
+                                )
+                                known_friend_names.add(fn_target)
+
+            # Ensure every friend discovered in tooltips is represented in friends_list (even if user_id couldn't be resolved)
+            for fn_tip, sim_cnt in sorted(tooltip_friend_counts.items(), key=lambda kv: kv[1], reverse=True):
+                if fn_tip not in known_friend_names:
+                    r_fid = str(friend_id_by_name.get(fn_tip) or "")
+                    f_entry: Dict[str, Any] = {
+                        "id": r_fid,
+                        "name": fn_tip,
+                        "avatar": f"https://images.kinorium.com/user/96/{r_fid}.jpg" if r_fid.isdigit() else "",
+                        "kinorium_similar_count": sim_cnt,
+                    }
+                    friends_list.append(f_entry)
+                    known_friend_names.add(fn_tip)
+
+            # Backfill resolved user_ids into any existing friends_map_by_kid entries
+            for fdict in friends_map_by_kid.values():
+                for fn_k, f_entry in fdict.items():
+                    if not f_entry.get("user_id") and friend_id_by_name.get(fn_k):
+                        f_entry["user_id"] = friend_id_by_name[fn_k]
+
+            friends_with_valid_id = [
+                f for f in friends_list[:8] if str(f.get("id") or "").isdigit()
+            ]
+
+            def _fetch_friend_done_items(friend_obj: Dict[str, Any]) -> Tuple[str, str, Dict[str, Dict[str, Any]]]:
+                self._sync_cookie_tl.cookie = effective_cookie
+                try:
+                    fid_s = str(friend_obj["id"])
+                    fname_s = str(friend_obj["name"])
+                    try:
+                        items = self.fetch_status_list_ajax(fid_s, "done", max_pages=2)
+                        if items:
+                            return fid_s, fname_s, items
+                    except Exception:
+                        pass
+                    fallback_items: Dict[str, Dict[str, Any]] = {}
+                    for f_page in range(1, 3):
+                        try:
+                            fr_html = self.fetch_kinorium_html(
+                                f"https://ru.kinorium.com/user/{fid_s}/ratings/?perpage=200&page={f_page}"
+                            )
+                            f_parsed = self.parse_movie_list_html(fr_html, default_status="done")
+                            if not f_parsed:
+                                break
+                            fallback_items.update(f_parsed)
+                            if len(f_parsed) < 190:
+                                break
+                        except Exception:
+                            break
+                    return fid_s, fname_s, fallback_items
+                finally:
+                    self._sync_cookie_tl.cookie = None
+
+            if friends_with_valid_id:
+                with ThreadPoolExecutor(max_workers=min(2, len(friends_with_valid_id))) as pool:
+                    friend_results = list(pool.map(_fetch_friend_done_items, friends_with_valid_id))
+                for fid, fname, f_items in friend_results:
+                    for kid, f_item in f_items.items():
+                        for ft in f_item.pop("friends_tooltip", None) or []:
+                            _upsert_friend_score(kid, ft.get("name", ""), "", ft.get("score"))
+                        if f_item.get("score"):
+                            _upsert_friend_score(
+                                kid,
+                                fname,
+                                fid,
+                                f_item["score"],
+                                str(f_item.get("comment") or ""),
+                            )
+                        elif f_item.get("comment"):
+                            existing_cm = (friends_map_by_kid.get(str(kid)) or {}).get(fname)
+                            if existing_cm and existing_cm.get("score"):
+                                existing_cm["comment"] = str(f_item["comment"]).strip()
+                        if kid not in watched_items and kid not in watchlist_items:
+                            local_friend_known_titles[kid] = {
+                                "kinorium_id": kid,
+                                "ru_title": f_item.get("ru_title", ""),
+                                "orig_title": f_item.get("orig_title", ""),
+                            }
+        finally:
+            self._sync_cookie_tl.cookie = None
+
+        friends_ratings_by_kid: Dict[str, List[Dict[str, Any]]] = {
+            kid: list(fdict.values()) for kid, fdict in friends_map_by_kid.items() if fdict
+        }
+
+        if not friends_ratings_by_kid and not is_switching_user and prev_friends_ratings_snap:
+            friends_ratings_by_kid = prev_friends_ratings_snap
+
+        cur_yr = time.localtime().tm_year
+        wl_online_count = sum(
+            1
+            for v in watchlist_items.values()
+            if v.get("available_online", True)
+            and not v.get("is_unreleased", False)
+            and (int(v.get("year") or 0) == 0 or int(v.get("year") or 0) <= cur_yr)
+        )
+
+        with self._state_lock:
+            if self._profile_id != sync_start_profile_id:
+                # Household profile was switched while this (long) sync was running: never write
+                # profile A's lists / account / cookie into profile B.
+                return {"ok": False, "synced": False, "error": "profile_switched_during_sync"}
+
+            with self._episodes_lock:
+                self._series_episodes_cache.clear()
+            with self._cookie_lock:
                 self._kinorium_cookie_cache = ""
 
-        prev_user_id = str(self.state.get("account", {}).get("user_id") or "")
-        user_path = self.extract_user_path(user_identifier)
-        base_url = f"https://ru.kinorium.com{user_path}"
+            if is_switching_user:
+                # Clear previous user's local overrides and cached state atomically at commit time
+                self.state["watched"] = {}
+                self.state["ratings"] = {}
+                self.state["watchlist"] = []
+                self.state["watchlist_removed"] = []
+                self.state["watching_local"] = []
+                self.state["watching_removed"] = []
+                self.state["never_local"] = []
+                self.state["never_removed"] = []
+                self.state["continue_watching"] = []
+                self.state["friends"] = []
+                self.state["friends_ratings_by_kid"] = {}
+                self.state["friend_known_titles"] = {}
+                self.state["remote_watched_items"] = {}
+                self.state["remote_watching_items"] = {}
+                self.state["remote_watchlist_items"] = {}
+                self.state["remote_never_items"] = {}
+                self.state["watched_episodes"] = {}
+                self.state["unwatched_episodes"] = {}
+                self.state["episode_ratings"] = {}
+                self.state["cleared_episode_ratings"] = {}
+                self.state["cw_dismissed"] = []
+                self.state["cw_dismissed_entries"] = {}
 
-        prof_html = self.fetch_kinorium_html(base_url)
-        m_title = re.search(r"<title>(.*?)</title>", prof_html)
-        display_name = html.unescape(m_title.group(1)).strip() if m_title else user_identifier
-        display_name = display_name.replace(" - Кинориум", "").strip()
+            if _is_placeholder_display_name(display_name, str(user_id)):
+                display_name = "Andrei Crustillio" if str(user_id) == "51670" else ""
 
-        m_uid = re.search(r"data-user_id='(\d+)'", prof_html) or re.search(r"/user/(\d+)/", user_path)
-        user_id = m_uid.group(1) if m_uid else user_identifier.strip("/").replace("user/", "")
+            self.state["account"]["session_cookie"] = effective_cookie
+            self.state["account"]["connected"] = True
+            self.state["account"]["user_id"] = str(user_id)
+            self.state["account"]["profile_url"] = f"https://en.kinorium.com{user_path}"
+            self.state["account"]["username"] = f"{display_name} (user/{user_id})" if display_name else f"user/{user_id}"
+            self.state["account"]["display_name"] = display_name
+            self.state["account"]["avatar_url"] = avatar_url
+            self.state["account"]["watched_count"] = len(watched_items)
+            self.state["account"]["watching_count"] = len(watching_items)
+            self.state["account"]["watchlist_count"] = wl_online_count
+            self.state["account"]["never_count"] = len(never_items)
+            self.state["account"]["friends_count"] = len(friends_list)
+            self.state["account"]["last_synced"] = time.strftime("%Y-%m-%d %H:%M")
 
-        is_switching_user = bool(prev_user_id and str(user_id) != prev_user_id)
-        if is_switching_user:
-            # Clear previous user's local overrides and cached state so the new user gets a clean profile
+            if not is_switching_user:
+                loc_watched_map = self.state.get("watched") or {}
+                loc_ratings_map = self.state.get("ratings") or {}
+                rem_wt_set = {str(x) for x in (self.state.get("watching_removed") or [])}
+                rem_wl_set = {str(x) for x in (self.state.get("watchlist_removed") or [])}
+                rem_nv_set = {str(x) for x in (self.state.get("never_removed") or [])}
+                for kid_k in list(watched_items.keys()):
+                    w_loc = loc_watched_map.get(f"kin_{kid_k}") or loc_watched_map.get(str(kid_k))
+                    if isinstance(w_loc, dict) and w_loc.get("watched") is False and not w_loc.get("remote_unwatched_pushed"):
+                        watched_items.pop(kid_k, None)
+                        continue
+                    r_loc = loc_ratings_map.get(f"kin_{kid_k}") or loc_ratings_map.get(str(kid_k))
+                    if isinstance(r_loc, dict) and r_loc.get("cleared") and not r_loc.get("remote_cleared_pushed"):
+                        if isinstance(watched_items.get(kid_k), dict):
+                            watched_items[kid_k]["score"] = None
+                for kid_k in list(watching_items.keys()):
+                    if str(kid_k) in rem_wt_set or f"kin_{kid_k}" in rem_wt_set:
+                        watching_items.pop(kid_k, None)
+                        continue
+                    r_loc = loc_ratings_map.get(f"kin_{kid_k}") or loc_ratings_map.get(str(kid_k))
+                    if isinstance(r_loc, dict) and r_loc.get("cleared") and not r_loc.get("remote_cleared_pushed"):
+                        if isinstance(watching_items.get(kid_k), dict):
+                            watching_items[kid_k]["score"] = None
+                for kid_k in list(watchlist_items.keys()):
+                    if str(kid_k) in rem_wl_set or f"kin_{kid_k}" in rem_wl_set:
+                        watchlist_items.pop(kid_k, None)
+                for kid_k in list(never_items.keys()):
+                    if str(kid_k) in rem_nv_set or f"kin_{kid_k}" in rem_nv_set:
+                        never_items.pop(kid_k, None)
+                self.state["account"]["watched_count"] = len(watched_items)
+                self.state["account"]["watching_count"] = len(watching_items)
+                self.state["account"]["never_count"] = len(never_items)
+
+            self.state["remote_watched_items"] = watched_items
+            self.state["remote_watching_items"] = watching_items
+            self.state["remote_watchlist_items"] = watchlist_items
+            self.state["remote_never_items"] = never_items
+            self.state["friends"] = friends_list
+            self.state["friends_ratings_by_kid"] = friends_ratings_by_kid
+            self.state["friend_known_titles"] = local_friend_known_titles
+            self._sanitize_never_vs_watched_conflicts(self.state)
+
+            if "integrations" in self.state and "kinorium" in self.state["integrations"]:
+                self.state["integrations"]["kinorium"]["login_url"] = f"https://en.kinorium.com{user_path}"
+
+            self.set_service_login(
+                "kinorium",
+                True,
+                f"{display_name} • {len(watched_items)} просмотрено • {len(watching_items)} смотрю • {len(friends_list)} друзей",
+                enabled=True,
+            )
+            self._build_lookup_indices()
+            self._save_state()
+
+        if (
+            not is_switching_user
+            and not incomplete_sections
+            and effective_cookie
+        ):
+            # Push local-only statuses only when the remote lists were fetched completely,
+            # otherwise every item missing from a partial list would be re-posted.
+            try:
+                self.reconcile_local_statuses_to_remote()
+            except Exception:
+                pass
+        try:
+            self.reconcile_all_local_episodes(pull_watching_limit=0)
+        except Exception:
+            pass
+        with self._state_lock:
+            if self._profile_id != sync_start_profile_id:
+                return {"ok": False, "synced": False, "error": "profile_switched_during_sync"}
+            wl_after = self.get_sections_counts().get("watchlist", wl_online_count)
+            watching_after = len(self.state.get("remote_watching_items") or {})
+            watched_after = len(self.state.get("remote_watched_items") or {})
+            never_after = len(self.state.get("remote_never_items") or {})
+            self.state["account"]["watched_count"] = watched_after
+            self.state["account"]["watching_count"] = watching_after
+            self.state["account"]["watchlist_count"] = wl_after
+            self.state["account"]["never_count"] = never_after
+            self._save_state()
+        return {
+            "synced": True,
+            "user_id": str(user_id),
+            "display_name": display_name,
+            "avatar_url": avatar_url,
+            "profile_url": f"https://en.kinorium.com{user_path}",
+            "watched_count": watched_after,
+            "watching_count": watching_after,
+            "watchlist_count": wl_after,
+            "never_count": never_after,
+            "friends": friends_list,
+        }
+
+    def disconnect_user_profile(self) -> Dict[str, Any]:
+        """
+        Disconnects the current Kinorium user profile and clears all user-specific lists
+        so a new user installing the app can connect their own Kinorium profile cleanly.
+        """
+        with self._state_lock:
+            with self._cookie_lock:
+                self._kinorium_cookie_cache = ""
+            with self._episodes_lock:
+                self._series_episodes_cache.clear()
+            self._session_auth_verified = None
+
             self.state["watched"] = {}
             self.state["ratings"] = {}
             self.state["watchlist"] = []
@@ -1334,252 +3779,78 @@ class KinoriumService:
             self.state["remote_watchlist_items"] = {}
             self.state["remote_never_items"] = {}
             self.state["watched_episodes"] = {}
+            self.state["unwatched_episodes"] = {}
             self.state["episode_ratings"] = {}
+            self.state["cleared_episode_ratings"] = {}
             self.state["cw_dismissed"] = []
+            self.state["cw_dismissed_entries"] = {}
 
-        # 1. Fetch 'Смотрю' (status=now)
-        watching_items = self.fetch_status_list_ajax(user_id, "now", max_pages=2)
-
-        # 2. Fetch 'Не буду смотреть' (status=never)
-        never_items = self.fetch_status_list_ajax(user_id, "never", max_pages=2)
-
-        # 3. Fetch 'Буду смотреть' (status=future, up to 3 pages = 600 items)
-        watchlist_items = self.fetch_status_list_ajax(user_id, "future", max_pages=3)
-        self._verify_recent_watchlist_online_availability(watchlist_items)
-
-        # 4. Fetch all watched/rated pages of the user (status=done, up to 8 pages = 1600 items)
-        watched_items = self.fetch_status_list_ajax(user_id, "done", max_pages=8)
-        if not watched_items:
-            for page_num in range(1, 9):
-                p_url = f"{base_url}ratings/?perpage=200&page={page_num}"
-                try:
-                    p_html = self.fetch_kinorium_html(p_url)
-                    parsed = self.parse_movie_list_html(p_html, default_status="done")
-                    if not parsed:
-                        break
-                    watched_items.update(parsed)
-                    if len(parsed) < 190:
-                        break
-                except Exception:
-                    break
-
-        # 5. Fetch user's real friends (/following/) including official Kinorium proximity % & similar counts
-        self._kinorium_cookie_cache = ""
-        friends_list: List[Dict[str, Any]] = []
-        try:
-            foll_html = self.fetch_kinorium_html(f"{base_url}following/")
-            seen_f = set()
-            for li_m in re.finditer(
-                r"<li[^>]*class=['\"][^'\"]*\bitem\b[^'\"]*['\"][^>]*>(.*?)</li>",
-                foll_html,
-                re.S,
-            ):
-                li_blk = li_m.group(1)
-                m_fid = re.search(r'data-id="(\d+)"', li_blk)
-                m_fnm = re.search(r'class=[\'"][^\'"]*\busername\b[^\'"]*[\'"][^>]*>([^<]+)</a>', li_blk)
-                if not m_fid or not m_fnm:
-                    continue
-                fid = m_fid.group(1)
-                fname = html.unescape(m_fnm.group(1)).strip()
-                if fid in seen_f or fid == str(user_id):
-                    continue
-                seen_f.add(fid)
-                m_pct = re.search(r"proxymity__percent[^>]*>\s*(\d+)\s*%", li_blk)
-                m_sim = re.search(r"proxymity__num[^>]*>\s*(\d+)\s*<", li_blk)
-                f_obj: Dict[str, Any] = {
-                    "id": fid,
-                    "name": fname,
-                    "avatar": f"https://images.kinorium.com/user/96/{fid}.jpg",
-                }
-                if m_pct:
-                    f_obj["kinorium_proximity_pct"] = int(m_pct.group(1))
-                if m_sim:
-                    f_obj["kinorium_similar_count"] = int(m_sim.group(1))
-                friends_list.append(f_obj)
-        except Exception:
-            pass
-
-        if not friends_list and not is_switching_user and self.state.get("friends"):
-            friends_list = self.state["friends"]
-
-        # 6. Collect real friends' ratings from:
-        #    (a) Kinorium's 'Друзья' tooltip across all user status lists (covers entire friend history)
-        #    (b) Each friend's recent ratings pages (/user/{fid}/ratings/, using statusWidget_is-alian-profile)
-        friend_id_by_name = {str(f.get("name") or "").strip(): str(f.get("id") or "") for f in friends_list}
-        friends_map_by_kid: Dict[str, Dict[str, Dict[str, Any]]] = {}
-
-        def _upsert_friend_score(kid_key: str, f_name: str, f_uid: str, f_score: Any) -> None:
-            fn = str(f_name or "").strip()
-            if not fn or fn == display_name or not f_score:
-                return
-            try:
-                sc_int = int(f_score)
-            except Exception:
-                return
-            if not (1 <= sc_int <= 10):
-                return
-            uid_resolved = str(f_uid or friend_id_by_name.get(fn) or "")
-            friends_map_by_kid.setdefault(str(kid_key), {})[fn] = {
-                "name": fn,
-                "user_id": uid_resolved,
-                "score": sc_int,
+            self.state["account"] = {
+                "connected": False,
+                "user_id": "",
+                "profile_url": "https://en.kinorium.com/",
+                "username": "",
+                "display_name": "Не подключен",
+                "avatar_url": "",
+                "watched_count": 0,
+                "watching_count": 0,
+                "watchlist_count": 0,
+                "never_count": 0,
+                "friends_count": 0,
+                "last_synced": "",
+                "session_cookie": "",
+                "auto_scrobble_threshold": 0.95,
             }
+            self.set_service_login("kinorium", False, "")
+            self._build_lookup_indices()
+            self._save_state()
+            return self.get_account_summary()
 
-        for status_dict in (watched_items, watching_items, watchlist_items, never_items):
-            for kid, st_item in status_dict.items():
-                for ft in st_item.pop("friends_tooltip", None) or []:
-                    _upsert_friend_score(kid, ft.get("name", ""), "", ft.get("score"))
-
-        for friend in friends_list[:8]:
-            fid = str(friend["id"])
-            fname = str(friend["name"])
-            for f_page in range(1, 3):
-                try:
-                    fr_html = self.fetch_kinorium_html(
-                        f"https://ru.kinorium.com/user/{fid}/ratings/?perpage=200&page={f_page}"
-                    )
-                    f_parsed = self.parse_movie_list_html(fr_html, default_status="done")
-                    if not f_parsed:
-                        break
-                    for kid, f_item in f_parsed.items():
-                        for ft in f_item.pop("friends_tooltip", None) or []:
-                            _upsert_friend_score(kid, ft.get("name", ""), "", ft.get("score"))
-                        if f_item.get("score"):
-                            _upsert_friend_score(kid, fname, fid, f_item["score"])
-                        if kid not in watched_items and kid not in watchlist_items:
-                            self.state.setdefault("friend_known_titles", {})[kid] = {
-                                "kinorium_id": kid,
-                                "ru_title": f_item.get("ru_title", ""),
-                                "orig_title": f_item.get("orig_title", ""),
-                            }
-                    if len(f_parsed) < 190:
-                        break
-                except Exception:
-                    break
-
-        friends_ratings_by_kid: Dict[str, List[Dict[str, Any]]] = {
-            kid: list(fdict.values()) for kid, fdict in friends_map_by_kid.items() if fdict
-        }
-
-        if not friends_ratings_by_kid and not is_switching_user and self.state.get("friends_ratings_by_kid"):
-            friends_ratings_by_kid = self.state["friends_ratings_by_kid"]
-
-        wl_online_count = sum(
-            1
-            for v in watchlist_items.values()
-            if v.get("available_online", True)
-            and not v.get("is_unreleased", False)
-            and int(v.get("year") or 2024) <= 2026
-        )
-
-        self.state["account"]["connected"] = True
-        self.state["account"]["user_id"] = str(user_id)
-        self.state["account"]["profile_url"] = f"https://en.kinorium.com{user_path}"
-        self.state["account"]["username"] = f"{display_name} (user/{user_id})"
-        self.state["account"]["display_name"] = display_name
-        self.state["account"]["watched_count"] = len(watched_items)
-        self.state["account"]["watching_count"] = len(watching_items)
-        self.state["account"]["watchlist_count"] = wl_online_count
-        self.state["account"]["never_count"] = len(never_items)
-        self.state["account"]["friends_count"] = len(friends_list)
-        self.state["account"]["last_synced"] = time.strftime("%Y-%m-%d %H:%M")
-
-        self.state["remote_watched_items"] = watched_items
-        self.state["remote_watching_items"] = watching_items
-        self.state["remote_watchlist_items"] = watchlist_items
-        self.state["remote_never_items"] = never_items
-        self.state["friends"] = friends_list
-        self.state["friends_ratings_by_kid"] = friends_ratings_by_kid
-
-        if "integrations" in self.state and "kinorium" in self.state["integrations"]:
-            self.state["integrations"]["kinorium"]["login_url"] = f"https://en.kinorium.com{user_path}"
-
-        self.set_service_login(
-            "kinorium",
-            True,
-            f"{display_name} • {len(watched_items)} просмотрено • {len(watching_items)} смотрю • {len(friends_list)} друзей",
-        )
-        self._build_lookup_indices()
-        self._save_state()
-        try:
-            self.reconcile_all_local_episodes(pull_watching_limit=16)
-        except Exception:
-            pass
-        wl_after = self.get_sections_counts().get("watchlist", wl_online_count)
-        watching_after = len(self.state.get("remote_watching_items") or {})
-        watched_after = len(self.state.get("remote_watched_items") or {})
-        self.state["account"]["watched_count"] = watched_after
-        self.state["account"]["watching_count"] = watching_after
-        self.state["account"]["watchlist_count"] = wl_after
-        self._save_state()
-        return {
-            "user_id": str(user_id),
-            "display_name": display_name,
-            "profile_url": f"https://en.kinorium.com{user_path}",
-            "watched_count": watched_after,
-            "watching_count": watching_after,
-            "watchlist_count": wl_after,
-            "never_count": len(never_items),
-            "friends": friends_list,
-        }
-
-    def disconnect_user_profile(self) -> Dict[str, Any]:
-        """
-        Disconnects the current Kinorium user profile and clears all user-specific lists
-        so a new user installing the app can connect their own Kinorium profile cleanly.
-        """
-        self.state["watched"] = {}
-        self.state["ratings"] = {}
-        self.state["watchlist"] = []
-        self.state["watchlist_removed"] = []
-        self.state["watching_local"] = []
-        self.state["watching_removed"] = []
-        self.state["never_local"] = []
-        self.state["never_removed"] = []
-        self.state["continue_watching"] = []
-        self.state["friends"] = []
-        self.state["friends_ratings_by_kid"] = {}
-        self.state["friend_known_titles"] = {}
-        self.state["remote_watched_items"] = {}
-        self.state["remote_watching_items"] = {}
-        self.state["remote_watchlist_items"] = {}
-        self.state["remote_never_items"] = {}
-        self.state["watched_episodes"] = {}
-        self.state["episode_ratings"] = {}
-        self.state["cw_dismissed"] = []
-
-        self.state["account"] = {
-            "connected": False,
-            "user_id": "",
-            "profile_url": "https://en.kinorium.com/",
-            "username": "",
-            "display_name": "Не подключен",
-            "watched_count": 0,
-            "watching_count": 0,
-            "watchlist_count": 0,
-            "never_count": 0,
-            "friends_count": 0,
-            "last_synced": "",
-            "session_cookie": "",
-            "auto_scrobble_threshold": 0.85,
-        }
-        self.set_service_login("kinorium", False, "")
-        self._build_lookup_indices()
-        self._save_state()
-        return self.get_account_summary()
+    def _count_dismissed_cw_items_locked(self) -> int:
+        dismissed = self.state.get("cw_dismissed") or []
+        if not dismissed:
+            return 0
+        stash = self.state.get("cw_dismissed_entries")
+        non_title = [d for d in dismissed if isinstance(d, str) and d and not d.startswith("title:")]
+        if non_title:
+            return len(set(non_title))
+        if isinstance(stash, dict) and stash:
+            return len(stash)
+        return len(set(dismissed))
 
     def get_account_summary(self) -> Dict[str, Any]:
-        acc = self.state.get("account") or {}
+        with self._state_lock:
+            acc = dict(self.state.get("account") or {})
+            cw_dismissed_cnt = self._count_dismissed_cw_items_locked()
+        uid = str(acc.get("user_id") or "").strip()
+        connected = bool(acc.get("connected") and uid)
+        avatar_url = str(acc.get("avatar_url") or "").strip()
+        if avatar_url and "/user/180/" in avatar_url:
+            avatar_url = avatar_url.replace("/user/180/", "/user/200/")
+        if connected and uid.isdigit():
+            avatar_url = f"/api/kinorium/avatar?uid={uid}"
+        disp = str(acc.get("display_name") or "Не подключен").strip()
+        is_placeholder_name = _is_placeholder_display_name(disp, uid)
+        if connected and uid == "51670" and is_placeholder_name:
+            disp = "Andrei Crustillio"
+        elif connected and is_placeholder_name:
+            # Never surface raw URLs or "user_<id>" placeholders as a person's name
+            disp = "Kinorium"
+        elif not connected and is_placeholder_name:
+            disp = "Не подключен"
         return {
             "connected": bool(acc.get("connected")),
-            "user_id": str(acc.get("user_id") or ""),
-            "display_name": str(acc.get("display_name") or "Не подключен"),
+            "user_id": uid,
+            "display_name": disp,
+            "avatar_url": avatar_url if connected else "",
             "profile_url": str(acc.get("profile_url") or "https://en.kinorium.com/"),
+            "watched_count": int(acc.get("watched_count") or 0),
             "last_synced": str(acc.get("last_synced") or ""),
             "has_session_cookie": bool((acc.get("session_cookie") or "").strip()),
+            "cw_dismissed_count": cw_dismissed_cnt,
         }
 
-    def export_backup_state(self) -> Dict[str, Any]:
+    def export_backup_state(self, redact_secrets: bool = False) -> Dict[str, Any]:
         keys_to_export = [
             "account",
             "integrations",
@@ -1593,9 +3864,14 @@ class KinoriumService:
             "never_removed",
             "continue_watching",
             "watched_episodes",
+            "unwatched_episodes",
             "episode_ratings",
+            "cleared_episode_ratings",
             "cw_dismissed",
+            "cw_dismissed_entries",
             "series_live_meta",
+            "critics_by_kid",
+            "descriptions_by_kid",
             "remote_watched_items",
             "remote_watching_items",
             "remote_watchlist_items",
@@ -1604,7 +3880,14 @@ class KinoriumService:
             "friends_ratings_by_kid",
             "friend_known_titles",
         ]
-        return {k: self.state.get(k) for k in keys_to_export if k in self.state}
+        with self._state_lock:
+            exported = {k: copy.deepcopy(self.state.get(k)) for k in keys_to_export if k in self.state}
+        if redact_secrets and isinstance(exported.get("account"), dict):
+            safe_acc = dict(exported["account"])
+            safe_acc["session_cookie"] = ""
+            safe_acc.pop("auth_token", None)
+            exported["account"] = safe_acc
+        return exported
 
     def import_backup_state(self, backup_data: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(backup_data, dict):
@@ -1622,9 +3905,14 @@ class KinoriumService:
             "never_removed",
             "continue_watching",
             "watched_episodes",
+            "unwatched_episodes",
             "episode_ratings",
+            "cleared_episode_ratings",
             "cw_dismissed",
+            "cw_dismissed_entries",
             "series_live_meta",
+            "critics_by_kid",
+            "descriptions_by_kid",
             "remote_watched_items",
             "remote_watching_items",
             "remote_watchlist_items",
@@ -1633,22 +3921,75 @@ class KinoriumService:
             "friends_ratings_by_kid",
             "friend_known_titles",
         ]
-        prev_uid = str(self.state.get("account", {}).get("user_id") or "")
-        for k in allowed_keys:
-            if k in backup_data and backup_data[k] is not None:
-                if k == "integrations" and isinstance(backup_data[k], dict):
-                    merged_int = json.loads(json.dumps(self.DEFAULT_INTEGRATIONS))
-                    for ik, iv in backup_data[k].items():
-                        if ik in merged_int and isinstance(iv, dict):
-                            merged_int[ik].update(iv)
-                            if "enabled" not in merged_int[ik]:
-                                merged_int[ik]["enabled"] = True
-                    self.state["integrations"] = merged_int
-                else:
-                    self.state[k] = backup_data[k]
-        new_uid = str(self.state.get("account", {}).get("user_id") or "")
-        self._build_lookup_indices()
-        self._save_state()
+        dict_keys = {
+            "watched",
+            "ratings",
+            "watched_episodes",
+            "unwatched_episodes",
+            "episode_ratings",
+            "cleared_episode_ratings",
+            "cw_dismissed_entries",
+            "series_live_meta",
+            "critics_by_kid",
+            "descriptions_by_kid",
+            "remote_watched_items",
+            "remote_watching_items",
+            "remote_watchlist_items",
+            "remote_never_items",
+            "friends_ratings_by_kid",
+            "friend_known_titles",
+        }
+        list_keys = {
+            "watchlist",
+            "watchlist_removed",
+            "watching_local",
+            "watching_removed",
+            "never_local",
+            "never_removed",
+            "continue_watching",
+            "cw_dismissed",
+            "friends",
+        }
+        with self._state_lock:
+            prev_uid = str((self.state.get("account") or {}).get("user_id") or "")
+            for k in allowed_keys:
+                if k in backup_data and backup_data[k] is not None:
+                    if k == "integrations" and isinstance(backup_data[k], dict):
+                        merged_int = copy.deepcopy(self.DEFAULT_INTEGRATIONS)
+                        for ik, iv in backup_data[k].items():
+                            if ik in merged_int and isinstance(iv, dict):
+                                merged_int[ik].update(copy.deepcopy(iv))
+                                if "enabled" not in merged_int[ik]:
+                                    merged_int[ik]["enabled"] = True
+                        self.state["integrations"] = merged_int
+                        self._integrations_cache = merged_int
+                    elif k == "account" and isinstance(backup_data[k], dict):
+                        acc_in = copy.deepcopy(backup_data[k])
+                        raw_ck = str(acc_in.get("session_cookie") or "").strip()
+                        merged_acc = dict(self.state.get("account") or {})
+                        if raw_ck:
+                            acc_in["session_cookie"] = self.sanitize_session_cookie(raw_ck)
+                        elif merged_acc.get("session_cookie"):
+                            acc_in.pop("session_cookie", None)
+                        else:
+                            acc_in["session_cookie"] = ""
+                        if not str(acc_in.get("auth_token") or "").strip() and merged_acc.get("auth_token"):
+                            acc_in.pop("auth_token", None)
+                        merged_acc.update(acc_in)
+                        self.state["account"] = merged_acc
+                    elif k in dict_keys and isinstance(backup_data[k], dict):
+                        self.state[k] = copy.deepcopy(backup_data[k])
+                    elif k in list_keys and isinstance(backup_data[k], list):
+                        self.state[k] = copy.deepcopy(backup_data[k])
+            with self._cookie_lock:
+                self._kinorium_cookie_cache = ""
+            with self._episodes_lock:
+                self._series_episodes_cache.clear()
+            self._session_auth_verified = None
+            new_uid = str((self.state.get("account") or {}).get("user_id") or "")
+            self._sanitize_never_vs_watched_conflicts(self.state)
+            self._build_lookup_indices()
+            self._save_state()
         if new_uid and new_uid != prev_uid and not backup_data.get("remote_watched_items"):
             try:
                 self.sync_user_profile(new_uid)
@@ -1657,20 +3998,21 @@ class KinoriumService:
         return self.get_account_summary()
 
     def get_integrations(self) -> Dict[str, Any]:
-        cached = self._integrations_cache
-        if cached is not None:
-            return cached
-        stored = self.state.get("integrations")
-        merged = {k: dict(v) for k, v in self.DEFAULT_INTEGRATIONS.items()}
-        if isinstance(stored, dict):
-            for ik, iv in stored.items():
-                if ik in merged and isinstance(iv, dict):
-                    merged[ik].update(iv)
-                    if "enabled" not in merged[ik]:
-                        merged[ik]["enabled"] = True
-        self.state["integrations"] = merged
-        self._integrations_cache = merged
-        return merged
+        with self._state_lock:
+            cached = self._integrations_cache
+            if cached is not None:
+                return cached
+            stored = self.state.get("integrations")
+            merged = {k: dict(v) for k, v in self.DEFAULT_INTEGRATIONS.items()}
+            if isinstance(stored, dict):
+                for ik, iv in stored.items():
+                    if ik in merged and isinstance(iv, dict):
+                        merged[ik].update(iv)
+                        if "enabled" not in merged[ik]:
+                            merged[ik]["enabled"] = True
+            self.state["integrations"] = merged
+            self._integrations_cache = merged
+            return merged
 
     def is_service_enabled(self, service_id: str) -> bool:
         if not service_id or service_id == "all":
@@ -1680,12 +4022,42 @@ class KinoriumService:
             return True
         return bool(integ.get("enabled", True))
 
-    def set_service_enabled(self, service_id: str, enabled: bool) -> Dict[str, Any]:
-        integrations = self.get_integrations()
-        if service_id in integrations:
-            integrations[service_id]["enabled"] = bool(enabled)
-            self._save_state()
-        return integrations
+    def set_services_enabled_bulk(self, enabled_map: Dict[str, Any]) -> Dict[str, Any]:
+        with self._state_lock:
+            integrations = self.get_integrations()
+            changed = False
+            for srv_id, val in (enabled_map or {}).items():
+                if srv_id in integrations and val is not None:
+                    b_val = bool(val)
+                    if integrations[srv_id].get("enabled") != b_val:
+                        integrations[srv_id]["enabled"] = b_val
+                        changed = True
+            if changed:
+                self._save_state()
+            return integrations
+
+    def apply_country_localization(
+        self,
+        country_code: str,
+        adjust_local_services: bool = False,
+        persist: bool = True,
+    ) -> Dict[str, Any]:
+        prof = get_country_profile(country_code)
+        with self._state_lock:
+            integrations = self.get_integrations()
+            changed = False
+            for srv_id, url_val in (prof.get("service_urls") or {}).items():
+                if srv_id in integrations and integrations[srv_id].get("login_url") != url_val:
+                    integrations[srv_id]["login_url"] = url_val
+                    changed = True
+            if adjust_local_services and "playerpl" in integrations:
+                want_pl = "playerpl" in (prof.get("local_services") or [])
+                if integrations["playerpl"].get("enabled") != want_pl:
+                    integrations["playerpl"]["enabled"] = want_pl
+                    changed = True
+            if changed and persist:
+                self._save_state()
+        return prof
 
     def set_service_login(
         self,
@@ -1694,30 +4066,31 @@ class KinoriumService:
         username: str = "",
         enabled: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        integrations = self.get_integrations()
-        if enabled is not None and service_id in integrations:
-            integrations[service_id]["enabled"] = bool(enabled)
+        with self._state_lock:
+            integrations = self.get_integrations()
+            if enabled is not None and service_id in integrations:
+                integrations[service_id]["enabled"] = bool(enabled)
 
-        if logged_in is not None:
-            if service_id == "hdrezka":
-                integrations["hdrezka"]["logged_in"] = True
-                integrations["hdrezka"]["status_label"] = "Активно без регистрации (Обход ограничений + 1080p)"
-            elif service_id == "backup4k":
-                integrations["backup4k"]["logged_in"] = True
-                integrations["backup4k"]["status_label"] = "Прямой 4K UHD HDR поток и TorrServer"
-            elif service_id in integrations:
-                integrations[service_id]["logged_in"] = bool(logged_in)
-                if logged_in:
-                    label = f"Подключено ({username})" if username else "Вход выполнен"
-                    integrations[service_id]["status_label"] = label
-                else:
-                    integrations[service_id]["status_label"] = "Не выполнен вход"
+            if logged_in is not None:
+                if service_id == "hdrezka":
+                    integrations["hdrezka"]["logged_in"] = True
+                    integrations["hdrezka"]["status_label"] = "Активно без регистрации (Обход ограничений + 1080p)"
+                elif service_id == "backup4k":
+                    integrations["backup4k"]["logged_in"] = True
+                    integrations["backup4k"]["status_label"] = "Прямой 4K UHD HDR поток и TorrServer"
+                elif service_id in integrations:
+                    integrations[service_id]["logged_in"] = bool(logged_in)
+                    if logged_in:
+                        label = f"Подключено ({username})" if username else "Вход выполнен"
+                        integrations[service_id]["status_label"] = label
+                    else:
+                        integrations[service_id]["status_label"] = "Не выполнен вход"
 
-            if service_id == "kinorium":
-                self.state["account"]["connected"] = bool(logged_in)
+                if service_id == "kinorium":
+                    self.state["account"]["connected"] = bool(logged_in)
 
-        self._save_state()
-        return integrations
+            self._save_state()
+            return integrations
 
     def get_series_live_meta(
         self,
@@ -1725,94 +4098,166 @@ class KinoriumService:
         title: str = "",
         orig_title: str = "",
         kid: Optional[str] = None,
+        year: int = 0,
+        media_type: str = "series",
     ) -> Optional[Dict[str, Any]]:
-        if item_id and item_id in self._live_meta_by_id:
-            return self._live_meta_by_id[item_id]
+        if media_type and str(media_type).strip().lower() != "series":
+            return None
+
+        def _year_ok(cand: Dict[str, Any]) -> bool:
+            cy = _safe_year_int(cand.get("year"))
+            ry = _safe_year_int(year)
+            if cy >= 1900 and ry >= 1900 and abs(cy - ry) > 2:
+                return False
+            return True
+
+        with self._state_lock:
+            meta_by_id = self._live_meta_by_id
+            meta_by_orig = self._live_meta_by_orig
+            meta_by_ru = self._live_meta_by_ru
+
+        if item_id and not str(item_id).isdigit() and item_id in meta_by_id:
+            hit = meta_by_id[item_id]
+            if _year_ok(hit):
+                return hit
         if kid:
-            if str(kid) in self._live_meta_by_id:
-                return self._live_meta_by_id[str(kid)]
-            if f"kin_{kid}" in self._live_meta_by_id:
-                return self._live_meta_by_id[f"kin_{kid}"]
-        for nr in _title_variants(title):
-            if nr in self._live_meta_by_ru:
-                return self._live_meta_by_ru[nr]
+            if str(kid) in meta_by_id:
+                return meta_by_id[str(kid)]
+            if f"kin_{kid}" in meta_by_id:
+                return meta_by_id[f"kin_{kid}"]
         for no in _title_variants(orig_title):
-            if no in self._live_meta_by_orig:
-                return self._live_meta_by_orig[no]
+            if no in meta_by_orig and _year_ok(meta_by_orig[no]):
+                return meta_by_orig[no]
+        for nr in _title_variants(title):
+            if nr in ("фильм", "сериал"):
+                continue
+            if nr in meta_by_ru and _year_ok(meta_by_ru[nr]):
+                cand = meta_by_ru[nr]
+                # If caller has a Latin orig_title and candidate also has a Latin orig_title, require match
+                if orig_title and cand.get("orig_title"):
+                    if _norm_title(orig_title) != _norm_title(cand["orig_title"]):
+                        continue
+                return cand
         return None
 
     def save_series_live_meta(self, updates: List[Dict[str, Any]]):
         if not updates:
             return
-        store = self.state.setdefault("series_live_meta", {})
-        now_ts = time.time()
-        changed = False
-        for u in updates:
-            if not isinstance(u, dict):
-                continue
-            uid = str(u.get("id") or "").strip()
-            title = str(u.get("title") or "").strip()
-            orig_title = str(u.get("orig_title") or "").strip()
-            kid = self._resolve_kinorium_id(uid, title, orig_title, allow_network=False) or ""
-            key = f"kin_{kid}" if kid else (uid or _norm_title(title))
-            if not key:
-                continue
-            existing = store.get(key) if isinstance(store.get(key), dict) else {}
-            raw_smap = u.get("seasons_map")
-            smap = (
-                raw_smap
-                if isinstance(raw_smap, dict) and raw_smap
-                else (existing.get("seasons_map") if isinstance(existing.get("seasons_map"), dict) else {})
-            )
-            is_comp = (
-                bool(u.get("is_completed"))
-                if "is_completed" in u and u.get("is_completed") is not None
-                else bool(existing.get("is_completed", False))
-            )
-            status_txt = (
-                str(u.get("series_status_text") or "")
-                if "series_status_text" in u
-                else str(existing.get("series_status_text") or "")
-            )
-            entry = {
-                "id": uid or key,
-                "kinorium_id": str(kid) if kid else "",
-                "title": title,
-                "orig_title": orig_title,
-                "rezka_id": str(u.get("rezka_id") or existing.get("rezka_id") or ""),
-                "rezka_url": str(u.get("rezka_url") or existing.get("rezka_url") or ""),
-                "latest_season": int(u.get("latest_season") or 1),
-                "latest_episode": int(u.get("latest_episode") or 1),
-                "seasons_map": smap,
-                "is_completed": is_comp,
-                "series_status_text": status_txt,
-                "studios_summary": str(u.get("studios_summary") or "HDRezka"),
-                "studios_count": int(u.get("studios_count") or 0),
-                "not_found": bool(u.get("not_found", False)),
-                "updated_at": float(u.get("updated_at") or now_ts),
-            }
-            store[key] = entry
-            self._live_meta_by_id[key] = entry
-            if uid:
-                self._live_meta_by_id[uid] = entry
-            if kid:
-                self._live_meta_by_id[str(kid)] = entry
-                self._live_meta_by_id[f"kin_{kid}"] = entry
-            nr = _norm_title(title)
-            no = _norm_title(orig_title)
-            if nr:
-                self._live_meta_by_ru[nr] = entry
-            if no:
-                self._live_meta_by_orig[no] = entry
-            changed = True
-        if changed:
-            self._save_state()
+        with self._state_lock:
+            store = self.state.setdefault("series_live_meta", {})
+            now_ts = time.time()
+            changed = False
+            for u in updates:
+                if not isinstance(u, dict):
+                    continue
+                mt = str(u.get("media_type") or "series").strip().lower()
+                if mt != "series":
+                    continue
+                uid = str(u.get("id") or "").strip()
+                title = str(u.get("title") or "").strip()
+                orig_title = str(u.get("orig_title") or "").strip()
+                year_val = int(u.get("year") or 0)
+                r_url = str(u.get("rezka_url") or "").strip()
+                if title.lower() in ("фильм", "сериал", "movie", "series"):
+                    title = ""
+                if not title and not orig_title and not uid:
+                    continue
+                if "/films/" in r_url.lower():
+                    continue
+                # Never store bare HDRezka integer as catalog uid
+                if uid.isdigit() and uid == str(u.get("rezka_id") or "").strip():
+                    uid = ""
+
+                kid = self._resolve_kinorium_id(
+                    uid,
+                    title,
+                    orig_title,
+                    allow_network=False,
+                    media_type="series",
+                    year=year_val if year_val else None,
+                ) or ""
+                key = f"kin_{kid}" if kid else (uid or _norm_title(orig_title or title))
+                if not key or (key.startswith("kin_") and not key[4:].isdigit()):
+                    continue
+                existing = store.get(key) if isinstance(store.get(key), dict) else {}
+                raw_smap = u.get("seasons_map")
+                smap = (
+                    raw_smap
+                    if isinstance(raw_smap, dict) and raw_smap
+                    else (existing.get("seasons_map") if isinstance(existing.get("seasons_map"), dict) else {})
+                )
+                is_comp = (
+                    bool(u.get("is_completed"))
+                    if "is_completed" in u and u.get("is_completed") is not None
+                    else bool(existing.get("is_completed", False))
+                )
+                status_txt = (
+                    str(u.get("series_status_text") or "")
+                    if "series_status_text" in u
+                    else str(existing.get("series_status_text") or "")
+                )
+                eff_uid = uid or (f"kin_{kid}" if kid else str(existing.get("id") or key))
+                if eff_uid.isdigit() and kid:
+                    eff_uid = f"kin_{kid}"
+                old_s = int(existing.get("latest_season") or 0)
+                old_e = int(existing.get("latest_episode") or 0)
+                # Missing fields must keep the known values (defaulting to 1/1 wiped e.g. S5E10 and then
+                # produced a false "new episode" on the next real update).
+                new_s = int(u.get("latest_season") or old_s or 1)
+                new_e = int(u.get("latest_episode") or old_e or 1)
+                is_new_air = False
+                if old_s > 0 and old_e > 0:
+                    if new_s > old_s or (new_s == old_s and new_e > old_e):
+                        is_new_air = True
+                has_act_rel = is_new_air or bool(
+                    existing.get("has_actual_new_release")
+                    and (now_ts - float(existing.get("last_new_release_ts") or 0.0) < 604800.0)
+                )
+                last_rel_ts = now_ts if is_new_air else float(existing.get("last_new_release_ts") or 0.0)
+                entry = {
+                    "id": eff_uid,
+                    "kinorium_id": str(kid) if kid else "",
+                    "title": title or str(existing.get("title") or ""),
+                    "orig_title": orig_title or str(existing.get("orig_title") or ""),
+                    "year": year_val or int(existing.get("year") or 0),
+                    "rezka_id": str(u.get("rezka_id") or existing.get("rezka_id") or ""),
+                    "rezka_url": str(r_url or existing.get("rezka_url") or ""),
+                    "latest_season": new_s,
+                    "latest_episode": new_e,
+                    "seasons_map": smap,
+                    "is_completed": is_comp,
+                    "series_status_text": status_txt,
+                    "studios_summary": str(u.get("studios_summary") or "HDRezka"),
+                    "studios_count": int(u.get("studios_count") or 0),
+                    "not_found": bool(u.get("not_found", False)),
+                    "has_actual_new_release": has_act_rel,
+                    "last_new_release_ts": last_rel_ts,
+                    "updated_at": float(u.get("updated_at") or now_ts),
+                }
+                store[key] = entry
+                self._live_meta_by_id[key] = entry
+                if eff_uid and not eff_uid.isdigit():
+                    self._live_meta_by_id[eff_uid] = entry
+                if kid:
+                    self._live_meta_by_id[str(kid)] = entry
+                    self._live_meta_by_id[f"kin_{kid}"] = entry
+                nr = _norm_title(entry["title"])
+                no = _norm_title(entry["orig_title"])
+                if nr and nr not in ("фильм", "сериал"):
+                    self._live_meta_by_ru[nr] = entry
+                if no and no not in ("фильм", "сериал"):
+                    self._live_meta_by_orig[no] = entry
+                changed = True
+            if changed:
+                self._save_state()
 
     def _resolve_remote_item(
         self,
         item_id: str,
         title: str = "",
         orig_title: str = "",
+        year: Optional[int] = None,
+        media_type: str = "",
     ) -> Optional[Dict[str, Any]]:
         if item_id and item_id.startswith("kin_"):
             kid = item_id[4:]
@@ -1820,16 +4265,31 @@ class KinoriumService:
                 return self._by_kid[kid]
         elif item_id and item_id.isdigit() and item_id in self._by_kid:
             return self._by_kid[item_id]
-        for nr in _title_variants(title):
-            if nr in self._by_ru:
-                return self._by_ru[nr]
-            if nr in self._by_orig:
-                return self._by_orig[nr]
+
+        def _compat(cand: Dict[str, Any]) -> bool:
+            if year and cand.get("year"):
+                try:
+                    if abs(int(year) - int(cand["year"])) > 2:
+                        return False
+                except Exception:
+                    pass
+            return True
+
         for no in _title_variants(orig_title):
-            if no in self._by_orig:
+            if no in self._by_orig and _compat(self._by_orig[no]):
                 return self._by_orig[no]
-            if no in self._by_ru:
+            if no in self._by_ru and _compat(self._by_ru[no]):
                 return self._by_ru[no]
+        for nr in _title_variants(title):
+            if nr in ("фильм", "сериал"):
+                continue
+            if nr in self._by_ru and _compat(self._by_ru[nr]):
+                cand = self._by_ru[nr]
+                if orig_title and cand.get("orig_title") and _norm_title(orig_title) != _norm_title(cand["orig_title"]):
+                    continue
+                return cand
+            if nr in self._by_orig and _compat(self._by_orig[nr]):
+                return self._by_orig[nr]
         return None
 
     def _resolve_kinorium_id(
@@ -1914,6 +4374,9 @@ class KinoriumService:
                         ey_raw = str(entry.get("year_serial_b") or entry.get("year") or "")
                         if ey_raw.isdigit() and abs(int(ey_raw) - int(year)) <= 1:
                             sc += 25
+                        elif ey_raw.isdigit() and abs(int(ey_raw) - int(year)) >= 3:
+                            # Remakes / homonyms (Shogun 1980 vs 2024): a known, distant year is disqualifying
+                            sc -= 120
                     if sc > best_score:
                         best_score = sc
                         best_kid = cand_kid
@@ -1922,15 +4385,104 @@ class KinoriumService:
                     break
             except Exception:
                 continue
-        if best_kid and best_entry is not None:
-            self.state.setdefault("friend_known_titles", {})[best_kid] = {
-                "kinorium_id": best_kid,
-                "ru_title": str(best_entry.get("name") or title),
-                "orig_title": str(best_entry.get("name_orig") or best_entry.get("orig") or orig_title),
-            }
+        # Only a real title match (>=80 title points + bonuses) is trusted: these ids drive
+        # status / rating writes on the user's real Kinorium account.
+        if best_kid and best_entry is not None and best_score >= 100:
+            with self._state_lock:
+                fkt = self.state.setdefault("friend_known_titles", {})
+                if len(fkt) > 2000:
+                    for k_ev in list(fkt.keys())[:500]:
+                        fkt.pop(k_ev, None)
+                fkt[best_kid] = {
+                    "kinorium_id": best_kid,
+                    "ru_title": str(best_entry.get("name") or title),
+                    "orig_title": str(best_entry.get("name_orig") or best_entry.get("orig") or orig_title),
+                }
             self._build_lookup_indices()
             return best_kid
         return None
+
+    def search_persons_and_movies(self, query: str) -> Dict[str, List[Dict[str, Any]]]:
+        q_clean = (query or "").strip()
+        if not q_clean:
+            return {"persons": [], "movies": []}
+        cache_key = _norm_title(q_clean)
+        now_ts = time.time()
+        with self._person_lock:
+            cached = self._person_search_cache.get(cache_key)
+            if cached and (now_ts - cached[0]) < 900:
+                return cached[1]
+        try:
+            q_enc = urllib.parse.quote(q_clean)
+            raw = self.fetch_kinorium_html(
+                f"https://ru.kinorium.com/handlers/Search/?str={q_enc}",
+                extra_headers={
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Referer": "https://ru.kinorium.com/",
+                },
+            )
+            res = parse_search_persons_and_movies(raw)
+        except Exception:
+            return {"persons": [], "movies": []}
+
+        with self._person_lock:
+            if len(self._person_search_cache) > 256:
+                for k_ev in list(self._person_search_cache.keys())[:64]:
+                    self._person_search_cache.pop(k_ev, None)
+            self._person_search_cache[cache_key] = (now_ts, res)
+        return res
+
+    def fetch_person_filmography(self, persona_id: str = "", name: str = "") -> Dict[str, Any]:
+        eff_pid = str(persona_id or "").strip()
+        q_name = (name or "").strip()
+        if not eff_pid.isdigit() and q_name:
+            s_res = self.search_persons_and_movies(q_name)
+            q_norm = _norm_title(q_name)
+            best_p: Optional[Dict[str, Any]] = None
+            best_sc = -999
+            for idx, cand in enumerate(s_res.get("persons") or []):
+                cn_ru = _norm_title(str(cand.get("name") or ""))
+                cn_en = _norm_title(str(cand.get("orig_name") or ""))
+                sc = (60 if cand.get("has_image") else 0) + (20 if cand.get("birth_date") else 0) - idx * 3
+                if q_norm and (q_norm == cn_ru or q_norm == cn_en):
+                    sc += 120
+                elif q_norm and (q_norm in cn_ru or q_norm in cn_en or cn_ru in q_norm or (cn_en and cn_en in q_norm)):
+                    sc += 65
+                if sc > best_sc:
+                    best_sc = sc
+                    best_p = cand
+            if best_p:
+                eff_pid = str(best_p.get("kinorium_person_id") or "")
+                q_name = str(best_p.get("name") or q_name)
+        if not eff_pid.isdigit():
+            return {}
+
+        now_ts = time.time()
+        with self._person_lock:
+            cached = self._person_filmog_cache.get(eff_pid)
+            if cached and (now_ts - cached[0]) < 1800:
+                return cached[1]
+
+        try:
+            html_page = self.fetch_kinorium_html(f"https://ru.kinorium.com/name/{eff_pid}/")
+        except Exception:
+            return {}
+
+        result = parse_person_filmography_html(
+            html_page,
+            eff_pid,
+            fallback_name=q_name,
+            genres_sanitizer=_sanitize_kinorium_genres,
+        )
+        if not result:
+            return {}
+
+        with self._person_lock:
+            if len(self._person_filmog_cache) > 128:
+                for k_ev in list(self._person_filmog_cache.keys())[:32]:
+                    self._person_filmog_cache.pop(k_ev, None)
+            self._person_filmog_cache[eff_pid] = (now_ts, result)
+        return result
 
     def get_item_status(
         self,
@@ -1939,22 +4491,39 @@ class KinoriumService:
         title: str = "",
         orig_title: str = "",
     ) -> Dict[str, Any]:
-        # 1. Check local overrides (scrobbled or rated during current session)
-        local_watched = self.state.get("watched", {}).get(item_id)
-        local_rating = self.state.get("ratings", {}).get(item_id)
-        local_in_watchlist = item_id in self.state.get("watchlist", [])
-        local_watching = item_id in self.state.get("watching_local", [])
-        local_never = item_id in self.state.get("never_local", [])
-
-        # 2. Check real synced Kinorium profile (`remote_*_items`)
+        # 1. Resolve synced Kinorium entry & canonical kin_<id> alias early so local overrides
+        #    recorded under either `item_id` or `kin_<id>` are always respected consistently.
         remote_item = self._resolve_remote_item(item_id, title, orig_title)
         kid_str = str(remote_item.get("kinorium_id")) if remote_item and remote_item.get("kinorium_id") else ""
+        kid_early = kid_str or str(self._resolve_kinorium_id(item_id, title, orig_title, allow_network=False) or "")
+        k_pref_early = f"kin_{kid_early}" if kid_early.isdigit() else ""
+        lookup_ids = [k for k in dict.fromkeys([item_id, k_pref_early]) if k]
+
+        watched_dict = self.state.get("watched") or {}
+        ratings_dict = self.state.get("ratings") or {}
+        watchlist_arr = self.state.get("watchlist") or []
+        watching_local_arr = self.state.get("watching_local") or []
+        never_local_arr = self.state.get("never_local") or []
+
+        local_watched = None
+        for lk in lookup_ids:
+            if lk in watched_dict:
+                local_watched = watched_dict[lk]
+                break
+        local_rating = None
+        for lk in lookup_ids:
+            if lk in ratings_dict:
+                local_rating = ratings_dict[lk]
+                break
+        local_in_watchlist = any(lk in watchlist_arr for lk in lookup_ids)
+        local_watching = any(lk in watching_local_arr for lk in lookup_ids)
+        local_never = any(lk in never_local_arr for lk in lookup_ids)
 
         if local_watched is not None:
             is_watched = bool(local_watched.get("watched"))
         else:
             is_watched = bool(
-                (kid_str and kid_str in (self.state.get("remote_watched_items") or {}))
+                (kid_early and kid_early in (self.state.get("remote_watched_items") or {}))
                 or (remote_item and remote_item.get("watched"))
             )
 
@@ -1969,56 +4538,69 @@ class KinoriumService:
         user_comment = (
             ""
             if (local_rating and local_rating.get("cleared"))
-            else (local_rating.get("comment", "") if local_rating else "")
+            else (
+                local_rating.get("comment")
+                if (local_rating and local_rating.get("comment"))
+                else (remote_item.get("comment", "") if remote_item else "")
+            )
         )
 
         nr_vars = _title_variants(title)
         no_vars = _title_variants(orig_title)
         nr = nr_vars[0] if nr_vars else ""
 
-        unwatched_watchlist = self.state.get("watchlist_removed", [])
+        unwatched_watchlist = self.state.get("watchlist_removed") or []
+        is_wl_removed = any(lk in unwatched_watchlist for lk in lookup_ids)
         in_watchlist = bool(
-            item_id not in unwatched_watchlist
+            not is_wl_removed
             and (
                 local_in_watchlist
-                or (kid_str and kid_str in (self.state.get("remote_watchlist_items") or {}))
+                or (kid_early and kid_early in (self.state.get("remote_watchlist_items") or {}))
                 or any(v in self._watchlist_by_ru for v in nr_vars)
                 or any(v in self._watchlist_by_orig for v in no_vars)
             )
         )
 
-        watching_removed = self.state.get("watching_removed", [])
+        watching_removed = self.state.get("watching_removed") or []
+        is_w_removed = any(lk in watching_removed for lk in lookup_ids)
         is_watching = bool(
-            item_id not in watching_removed
+            not is_watched
+            and not is_w_removed
             and (
                 local_watching
-                or (kid_str and kid_str in (self.state.get("remote_watching_items") or {}))
+                or (kid_early and kid_early in (self.state.get("remote_watching_items") or {}))
                 or any(v in self._watching_by_ru for v in nr_vars)
                 or any(v in self._watching_by_orig for v in no_vars)
             )
         )
 
-        never_removed = self.state.get("never_removed", [])
+        never_removed = self.state.get("never_removed") or []
+        is_n_removed = any(lk in never_removed for lk in lookup_ids)
         not_watching = bool(
-            item_id not in never_removed
+            not is_watched
+            and not user_score
+            and not is_n_removed
             and (
                 local_never
-                or (kid_str and kid_str in (self.state.get("remote_never_items") or {}))
+                or (kid_early and kid_early in (self.state.get("remote_never_items") or {}))
                 or any(v in self._never_by_ru for v in nr_vars)
                 or any(v in self._never_by_orig for v in no_vars)
             )
         )
 
         # 3. Resolve real friends' ratings and per-season watched episodes map first
-        kid = kid_str or self._resolve_kinorium_id(item_id, title, orig_title)
+        kid = kid_early or None
         friends_ratings: List[Dict[str, Any]] = []
-        if kid:
-            friends_ratings = (self.state.get("friends_ratings_by_kid") or {}).get(str(kid), [])
+        with self._state_lock:
+            if kid:
+                friends_ratings = list((self.state.get("friends_ratings_by_kid") or {}).get(str(kid), []))
+            raw_we_snap = dict(self.state.get("watched_episodes") or {})
+            raw_er_snap = dict(self.state.get("episode_ratings") or {})
+            cw_list_snap = [dict(x) for x in (self.state.get("continue_watching") or []) if isinstance(x, dict)]
 
-        raw_we = self.state.get("watched_episodes") or {}
         we_map: Dict[str, List[int]] = {}
         for k_lookup in filter(None, [item_id, f"kin_{kid}" if kid else ""]):
-            sub_map = raw_we.get(k_lookup) or {}
+            sub_map = raw_we_snap.get(k_lookup) or {}
             if isinstance(sub_map, dict):
                 for s_k, ep_list in sub_map.items():
                     if isinstance(ep_list, list):
@@ -2027,10 +4609,9 @@ class KinoriumService:
                         )
                         we_map[str(s_k)] = merged_eps
 
-        raw_er = self.state.get("episode_ratings") or {}
         ep_ratings_map: Dict[str, Dict[str, Any]] = {}
         for k_lookup in filter(None, [item_id, f"kin_{kid}" if kid else ""]):
-            sub_er = raw_er.get(k_lookup) or {}
+            sub_er = raw_er_snap.get(k_lookup) or {}
             if isinstance(sub_er, dict):
                 for ep_k, ep_val in sub_er.items():
                     if isinstance(ep_val, dict):
@@ -2038,10 +4619,11 @@ class KinoriumService:
 
         # 4. Unified Season & Episode resolution across Continue Watching, Poster Grid, Notifications & Player
         mtype_val = (remote_item.get("media_type") if remote_item else "series") or "series"
-        has_new_episode = bool(is_watching and not is_watched and not not_watching and mtype_val == "series")
+        has_new_episode = False
+        all_released_episodes_watched = False
 
         cw_match = None
-        for cw_it in self.state.get("continue_watching") or []:
+        for cw_it in cw_list_snap:
             if (
                 cw_it.get("id") == item_id
                 or (kid and cw_it.get("id") == f"kin_{kid}")
@@ -2058,29 +4640,165 @@ class KinoriumService:
         latest_episode = None
         studios_summary = ""
 
+        cw_s_num = max(1, int(cw_match.get("season") or 1)) if cw_match else 0
+        cw_e_num = max(1, int(cw_match.get("episode") or 1)) if cw_match else 0
+        cw_ep_already_watched = bool(
+            cw_match and cw_e_num in [int(x) for x in (we_map.get(str(cw_s_num)) or []) if str(x).isdigit()]
+        )
         has_mid_episode_resume = bool(
             cw_match
             and not cw_match.get("is_new_episode")
+            and not cw_ep_already_watched
             and float(cw_match.get("current_time") or 0.0) >= 15.0
         )
 
+        series_status_text = ""
         is_series_completed = False
         if live_meta and not live_meta.get("not_found"):
             latest_season = max(1, int(live_meta.get("latest_season") or 1))
             latest_episode = max(1, int(live_meta.get("latest_episode") or 1))
             studios_summary = str(live_meta.get("studios_summary") or "")
+            series_status_text = str(live_meta.get("series_status_text") or "")
             if bool(live_meta.get("is_completed")):
                 rem_seasons = int(remote_item.get("seasons_count") or 0) if remote_item else 0
                 if not (rem_seasons > latest_season):
                     is_series_completed = True
 
-        if has_mid_episode_resume and cw_match:
+        if latest_season is not None and latest_episode is not None and mtype_val == "series":
+            numeric_seasons_all = sorted(
+                int(k) for k in we_map.keys() if str(k).isdigit() and we_map.get(k)
+            )
+            watched_in_latest_all = [int(x) for x in (we_map.get(str(latest_season)) or []) if str(x).isdigit()]
+            max_prev_s = max(numeric_seasons_all) if numeric_seasons_all else 0
+            has_unwatched_season = bool(latest_season and max_prev_s and latest_season > max_prev_s)
+            has_unwatched_in_latest = bool(latest_season and latest_episode and watched_in_latest_all and max(watched_in_latest_all) < latest_episode)
+
+            if has_unwatched_season or (latest_season and not watched_in_latest_all and max_prev_s < latest_season):
+                # An entire new season has been released that the user has not watched yet
+                all_released_episodes_watched = False
+                has_new_episode = bool(is_watched or bool(live_meta and live_meta.get("has_actual_new_release")))
+            elif has_unwatched_in_latest:
+                # Latest season is not fully watched
+                all_released_episodes_watched = False
+                if is_watched:
+                    has_new_episode = True
+                elif is_watching and not not_watching:
+                    # User is currently watching this season: only mark new_episode if an actual new release occurred since watching started
+                    if live_meta and "has_actual_new_release" in live_meta:
+                        last_rel_ts = float(live_meta.get("last_new_release_ts") or 0.0)
+                        user_cw_ts = float(cw_match.get("updated_at") or 0.0) if cw_match else 0.0
+                        if last_rel_ts > 0 and user_cw_ts > 0:
+                            has_new_episode = bool(last_rel_ts > user_cw_ts)
+                        else:
+                            has_new_episode = bool(live_meta.get("has_actual_new_release"))
+                    elif cw_match and float(cw_match.get("updated_at") or 0.0) > 0:
+                        has_new_episode = False
+                    else:
+                        has_new_episode = True
+            elif is_watched and not is_watching:
+                all_released_episodes_watched = True
+                has_new_episode = False
+            elif (watched_in_latest_all and max(watched_in_latest_all) >= latest_episode) or (
+                numeric_seasons_all and max(numeric_seasons_all) > latest_season
+            ):
+                all_released_episodes_watched = True
+                has_new_episode = False
+            elif is_watching and not not_watching:
+                if is_series_completed:
+                    has_new_episode = False
+                elif live_meta and "has_actual_new_release" in live_meta:
+                    last_rel_ts = float(live_meta.get("last_new_release_ts") or 0.0)
+                    user_cw_ts = float(cw_match.get("updated_at") or 0.0) if cw_match else 0.0
+                    if last_rel_ts > 0 and user_cw_ts > 0:
+                        has_new_episode = bool(last_rel_ts > user_cw_ts)
+                    else:
+                        has_new_episode = bool(live_meta.get("has_actual_new_release"))
+                else:
+                    has_new_episode = False
+
+        if (
+            mtype_val == "series"
+            and is_series_completed
+            and all_released_episodes_watched
+            and not not_watching
+        ):
+            was_watching_now = is_watching
+            is_watched = True
+            is_watching = False
+            has_new_episode = False
+            if was_watching_now or (kid and str(kid) in (self.state.get("remote_watching_items") or {})):
+                now_str_auto = time.strftime("%Y-%m-%d %H:%M")
+                auto_entry = {
+                    "item_id": item_id,
+                    "title": title,
+                    "orig_title": orig_title,
+                    "watched": True,
+                    "watched_at": now_str_auto,
+                    "season": latest_season,
+                    "episode": latest_episode,
+                    "auto_scrobbled": True,
+                }
+                with self._state_lock:
+                    self.state.setdefault("watched", {})[item_id] = auto_entry
+                    loc_w = self.state.setdefault("watching_local", [])
+                    if item_id in loc_w:
+                        loc_w.remove(item_id)
+                    rem_w = self.state.setdefault("watching_removed", [])
+                    if item_id and item_id not in rem_w:
+                        rem_w.append(item_id)
+                    if kid and str(kid).isdigit():
+                        k_str = str(kid)
+                        k_pref = f"kin_{k_str}"
+                        self.state["watched"][k_pref] = auto_entry
+                        if k_pref in loc_w:
+                            loc_w.remove(k_pref)
+                        if k_pref not in rem_w:
+                            rem_w.append(k_pref)
+                        popped_w = (self.state.get("remote_watching_items") or {}).pop(k_str, None)
+                        tpl_w = dict(popped_w) if isinstance(popped_w, dict) else self._ensure_remote_entry_template(k_str, title, orig_title, extra={"media_type": "series"})
+                        tpl_w["watched"] = True
+                        tpl_w["watching"] = False
+                        tpl_w["status"] = "done"
+                        tpl_w["watched_at"] = now_str_auto
+                        tpl_w["auto_scrobbled"] = True
+                        self.state.setdefault("remote_watched_items", {})[k_str] = tpl_w
+                self._build_lookup_indices()
+                self._save_state(immediate=False, bump_version=True)
+                if kid and str(kid).isdigit():
+                    self._run_remote_sync_bg(
+                        action="watched",
+                        item_id=str(item_id or f"kin_{kid}"),
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=str(kid),
+                    )
+                    self._run_remote_sync_bg(
+                        action="watching_remove",
+                        item_id=str(item_id or f"kin_{kid}"),
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=str(kid),
+                    )
+
+        if has_mid_episode_resume and cw_match and not all_released_episodes_watched:
             next_season = max(1, int(cw_match.get("season") or 1))
             next_episode = max(1, int(cw_match.get("episode") or 1))
             episode_verified = True
         elif latest_season is not None and latest_episode is not None:
-            watched_in_latest = we_map.get(str(latest_season)) or []
-            if watched_in_latest:
+            numeric_seasons = sorted(
+                int(k) for k in we_map.keys() if str(k).isdigit() and we_map.get(k)
+            )
+            watched_in_latest = [int(x) for x in (we_map.get(str(latest_season)) or []) if str(x).isdigit()]
+            if is_watched and not is_watching and not has_new_episode:
+                next_season = latest_season
+                next_episode = latest_episode
+                episode_verified = True
+            elif numeric_seasons and max(numeric_seasons) > latest_season:
+                max_s = max(numeric_seasons)
+                has_new_episode = False
+                next_season = max_s
+                next_episode = max(int(x) for x in we_map[str(max_s)] if str(x).isdigit())
+            elif watched_in_latest:
                 max_watched_ep = max(watched_in_latest)
                 if max_watched_ep >= latest_episode:
                     # User already watched up to the latest released episode on HDRezka
@@ -2091,9 +4809,6 @@ class KinoriumService:
                     next_season = latest_season
                     next_episode = max_watched_ep + 1
             else:
-                numeric_seasons = sorted(
-                    int(k) for k in we_map.keys() if str(k).isdigit() and we_map.get(k)
-                )
                 if numeric_seasons:
                     max_prev_s = max(numeric_seasons)
                     max_prev_ep = max(we_map[str(max_prev_s)])
@@ -2107,7 +4822,7 @@ class KinoriumService:
                     else:
                         next_season = min(latest_season, max_prev_s + 1)
                         next_episode = 1
-                elif cw_match and not cw_match.get("is_new_episode") and (
+                elif cw_match and not cw_ep_already_watched and not cw_match.get("is_new_episode") and (
                     cw_match.get("season") or cw_match.get("episode")
                 ):
                     next_season = max(1, int(cw_match.get("season") or 1))
@@ -2119,7 +4834,7 @@ class KinoriumService:
         elif live_meta and live_meta.get("not_found"):
             has_new_episode = False
             episode_verified = False
-        elif cw_match and (cw_match.get("season") or cw_match.get("episode")):
+        elif cw_match and not cw_ep_already_watched and (cw_match.get("season") or cw_match.get("episode")):
             next_season = max(1, int(cw_match.get("season") or next_season))
             next_episode = max(1, int(cw_match.get("episode") or 1))
             episode_verified = not bool(cw_match.get("is_new_episode"))
@@ -2137,7 +4852,7 @@ class KinoriumService:
             st_code = "never"
         elif has_new_episode:
             st_code = "new_ep"
-        elif is_watched:
+        elif is_watched or all_released_episodes_watched:
             st_code = "done"
         elif is_watching:
             st_code = "now"
@@ -2157,17 +4872,20 @@ class KinoriumService:
         return {
             "kinorium_id": kid,
             "kinorium_rating": remote_item.get("kinorium_rating", base_kinorium_rating) if remote_item else base_kinorium_rating,
+            "imdb_rating": remote_item.get("imdb_rating") if remote_item else None,
             "critics_rating": cached_critics,
             "status_code": st_code,
             "watched": is_watched,
             "watching": is_watching,
             "has_new_episode": has_new_episode,
+            "all_released_episodes_watched": all_released_episodes_watched,
             "episode_verified": episode_verified,
             "next_season": next_season,
             "next_episode": next_episode,
             "latest_season": latest_season,
             "latest_episode": latest_episode,
             "is_completed": is_series_completed,
+            "series_status_text": series_status_text,
             "studios_summary": studios_summary,
             "watched_episodes": we_map,
             "episode_ratings": ep_ratings_map,
@@ -2177,8 +4895,38 @@ class KinoriumService:
             "user_rating": user_score,
             "user_comment": user_comment,
             "friends_ratings": friends_ratings,
-            "profile_name": self.state["account"].get("display_name", "Andrei Crustillio"),
+            "profile_name": self.get_account_summary().get("display_name") or "Киноман",
         }
+
+    @staticmethod
+    def is_item_fully_watched_or_caught_up(k_status: Dict[str, Any], media_type: str = "movie") -> bool:
+        """
+        Returns True if a movie is watched or a series has all currently released episodes watched
+        (so it should not appear in 'Премьеры онлайн' or 'Смотрю').
+        """
+        if not isinstance(k_status, dict):
+            return False
+        if k_status.get("not_watching"):
+            return True
+        mtype = str(media_type or "").strip().lower()
+        if mtype != "series":
+            return bool(k_status.get("watched"))
+        if k_status.get("all_released_episodes_watched"):
+            return True
+        ls = k_status.get("latest_season")
+        le = k_status.get("latest_episode")
+        we_map = k_status.get("watched_episodes") or {}
+        if ls is not None and le is not None:
+            ls_int = int(ls or 1)
+            le_int = int(le or 1)
+            w_in_ls = [int(x) for x in (we_map.get(str(ls_int)) or []) if str(x).isdigit()]
+            if w_in_ls and max(w_in_ls) >= le_int:
+                return True
+            num_s = [int(s) for s, eps in we_map.items() if str(s).isdigit() and eps]
+            if num_s and max(num_s) > ls_int:
+                return True
+            return False
+        return bool(k_status.get("watched") and not k_status.get("has_new_episode"))
 
     def get_watching_with_new_episodes(self) -> List[Dict[str, Any]]:
         """
@@ -2189,25 +4937,33 @@ class KinoriumService:
         active_new_eps: List[Dict[str, Any]] = []
         for it in all_watching:
             ks = it.get("kinorium") or {}
-            if ks.get("has_new_episode") and not ks.get("watched") and not ks.get("not_watching"):
+            if ks.get("has_new_episode") and not self.is_item_fully_watched_or_caught_up(ks, media_type="series"):
                 active_new_eps.append(it)
         return active_new_eps
 
-    def get_sections_counts(self, premieres_count: int = 50) -> Dict[str, int]:
-        wl_items = self.state.get("remote_watchlist_items") or {}
+    def get_sections_counts(self, premieres_count: Optional[int] = None) -> Dict[str, int]:
+        if premieres_count is None:
+            premieres_count = self.get_online_premieres_count(allow_network=False)
+        cur_yr = time.localtime().tm_year
+        with self._state_lock:
+            wl_items = list((self.state.get("remote_watchlist_items") or {}).values())
+            watched_cnt = len(self.state.get("remote_watched_items") or {})
+            never_cnt = len(self.state.get("remote_never_items") or {})
         wl_online_count = sum(
             1
-            for v in wl_items.values()
-            if v.get("available_online", True)
+            for v in wl_items
+            if isinstance(v, dict)
+            and v.get("available_online", True)
             and not v.get("is_unreleased", False)
-            and int(v.get("year") or 2024) <= 2026
+            and (_safe_year_int(v.get("year")) == 0 or _safe_year_int(v.get("year")) <= cur_yr)
         )
+        watching_items = self.get_section_catalog_items(section="watching", media_type_filter="all", query="")
         return {
-            "premieres": premieres_count,
-            "watching": len(self.state.get("remote_watching_items") or {}),
+            "premieres": int(premieres_count),
+            "watching": len(watching_items),
             "watchlist": wl_online_count,
-            "watched": len(self.state.get("remote_watched_items") or {}),
-            "never": len(self.state.get("remote_never_items") or {}),
+            "watched": watched_cnt,
+            "never": never_cnt,
         }
 
     def get_section_catalog_items(
@@ -2215,6 +4971,7 @@ class KinoriumService:
         section: str,
         media_type_filter: str = "all",
         query: str = "",
+        include_caught_up: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Converts all synced Kinorium items from a given section:
@@ -2242,13 +4999,15 @@ class KinoriumService:
         q_norm = _norm_title(query)
         items_out: List[Dict[str, Any]] = []
 
-        for kid, entry in raw_dict.items():
+        cur_yr = time.localtime().tm_year
+        for kid, entry in list(raw_dict.items()):
             # In 'watchlist' («Буду смотреть»), hide movies/series that are not yet released online
             if section in ("watchlist", "future"):
+                yr_check = int(entry.get("year") or 0)
                 if (
                     entry.get("available_online") is False
                     or entry.get("is_unreleased") is True
-                    or int(entry.get("year") or 2024) > 2026
+                    or (yr_check and yr_check > cur_yr)
                 ):
                     continue
 
@@ -2258,6 +5017,8 @@ class KinoriumService:
 
             ru_t = entry.get("ru_title", "")
             orig_t = entry.get("orig_title", "") or ru_t
+            if not ru_t and not orig_t:
+                continue
             if q_norm:
                 if q_norm not in _norm_title(ru_t) and q_norm not in _norm_title(orig_t):
                     continue
@@ -2271,6 +5032,18 @@ class KinoriumService:
                 title=ru_t,
                 orig_title=orig_t,
             )
+            if section in ("watched", "done") and not k_status.get("watched"):
+                continue
+            if section in ("watchlist", "future") and not k_status.get("in_watchlist"):
+                continue
+            if section in ("watching", "now"):
+                if not k_status.get("watching") and not (include_caught_up and k_status.get("watched")):
+                    continue
+                if not include_caught_up and self.is_item_fully_watched_or_caught_up(k_status, media_type=mtype):
+                    continue
+            if section in ("never", "not_watching"):
+                if not k_status.get("not_watching") or k_status.get("watched") or k_status.get("user_rating"):
+                    continue
             critics_val = entry.get("critics_rating")
             if critics_val is None and k_status.get("critics_rating") is not None:
                 critics_val = k_status["critics_rating"]
@@ -2283,19 +5056,19 @@ class KinoriumService:
 
             item_obj: Dict[str, Any] = {
                 "id": item_id,
-                "kinorium_id": str(kid),
+                "kinorium_id": str(kid) if str(kid).isdigit() else "",
                 "title": ru_t,
                 "orig_title": orig_t,
                 "title_pl": orig_t,
-                "year": entry.get("year") or 2024,
+                "year": entry.get("year") or "",
                 "media_type": mtype,
-                "seasons_count": entry.get("seasons_count") or (2 if mtype == "series" else 1),
-                "episodes_per_season": entry.get("episodes_per_season") or (8 if mtype == "series" else 1),
+                "seasons_count": entry.get("seasons_count") or 1,
+                "episodes_per_season": entry.get("episodes_per_season") or (0 if mtype == "series" else 1),
                 "genres": entry.get("genres") or (["Сериал"] if mtype == "series" else ["Фильм"]),
                 "description": entry.get("description") or f"{ru_t} ({orig_t})",
-                "poster": entry.get("poster") or f"https://ru-images.kinorium.com/movie/600/{kid}.jpg",
+                "poster": entry.get("poster") or (f"https://ru-images.kinorium.com/movie/600/{kid}.jpg" if str(kid).isdigit() else ""),
                 "poster_en": entry.get("poster_en") or (f"https://en-images.kinorium.com/movie/600/{kid}.jpg" if str(kid).isdigit() else ""),
-                "backdrop": entry.get("backdrop") or f"https://ru-images.kinorium.com/movie/1080/{kid}.jpg",
+                "backdrop": entry.get("backdrop") or (f"https://ru-images.kinorium.com/movie/1080/{kid}.jpg" if str(kid).isdigit() else ""),
                 "ambient_color": "#1e293b",
                 "ratings": ratings_out,
                 "providers": [
@@ -2321,15 +5094,19 @@ class KinoriumService:
         total_seasons: int = 0,
         total_episodes_in_season: int = 0,
         is_series_completed: Optional[bool] = None,
+        allow_unpromoted: bool = False,
         **extra,
     ) -> bool:
         """
-        If a series is completed/ended, currently has status 'Смотрю' (`watching == True`),
+        If a series is completed/ended, currently has status 'Смотрю' (`watching == True`)
+        (or `allow_unpromoted=True` during episode completion),
         and the user finished watching the final episode of the final season, automatically
         switch its status from 'Смотрю' to 'Просмотрено' (`watched = True`, `watching = False`).
         """
         cur_status = self.get_item_status(item_id, title=title, orig_title=orig_title)
-        if not cur_status.get("watching") or cur_status.get("watched") or cur_status.get("not_watching"):
+        if cur_status.get("watched") or cur_status.get("not_watching"):
+            return False
+        if not cur_status.get("watching") and not allow_unpromoted:
             return False
 
         kid = cur_status.get("kinorium_id")
@@ -2360,13 +5137,28 @@ class KinoriumService:
                 final_season = int(live_meta.get("latest_season") or 0)
                 final_episode = int(live_meta.get("latest_episode") or 0)
 
+        totals_from_client = False
         if (final_season <= 0 or final_episode <= 0) and total_seasons > 0 and total_episodes_in_season > 0:
             if int(season) == int(total_seasons):
                 final_season = int(total_seasons)
                 final_episode = int(total_episodes_in_season)
+                totals_from_client = True
 
         if final_season <= 0 or final_episode <= 0:
             return False
+
+        if totals_from_client:
+            if final_season == 1 and final_episode == 1:
+                # 1/1 is the client default when totals are unknown — never treat it as a finale
+                return False
+            # No server-side episode map: client-reported totals (which default to 1/1) alone must not
+            # complete a whole series. Require that most earlier episodes of the final season were watched.
+            we_map = cur_status.get("watched_episodes") if isinstance(cur_status.get("watched_episodes"), dict) else {}
+            watched_in_final = {
+                int(e) for e in (we_map.get(str(final_season)) or []) if str(e).isdigit() and int(e) < final_episode
+            }
+            if final_episode > 1 and len(watched_in_final) < max(1, (final_episode - 1) // 2):
+                return False
 
         remote_item = self._resolve_remote_item(item_id, title, orig_title)
         if remote_item:
@@ -2410,29 +5202,40 @@ class KinoriumService:
         total_seasons: int = 1,
         total_episodes_in_season: int = 1,
         is_series_completed: Optional[bool] = None,
+        force_watched: bool = False,
+        reason: str = "",
     ) -> Dict[str, Any]:
+        start_pid = self._profile_id
         progress = min(1.0, max(0.0, current_time / max(1.0, duration)))
-        threshold = float(self.state["account"].get("auto_scrobble_threshold", 0.85))
+        threshold = float(self.state["account"].get("auto_scrobble_threshold", 0.95))
+        watching_threshold = 0.10
+        should_mark_watched = bool(force_watched or progress >= threshold)
         nr = _norm_title(title)
         kid_hint = self._resolve_kinorium_id(item_id, title, orig_title, allow_network=False)
 
-        cw_list: List[Dict[str, Any]] = [
+        with self._state_lock:
+            cur_cw_snap = list(self.state.get("continue_watching", []))
+        prev_cw_entries = [
             x
-            for x in self.state.get("continue_watching", [])
-            if x.get("id") != item_id
-            and (not kid_hint or x.get("id") != f"kin_{kid_hint}")
-            and (not nr or _norm_title(x.get("title", "")) != nr)
+            for x in cur_cw_snap
+            if x.get("id") == item_id
+            or (kid_hint and x.get("id") == f"kin_{kid_hint}")
+            or (nr and _norm_title(x.get("title", "")) == nr)
         ]
+        prev_cw_item = prev_cw_entries[0] if prev_cw_entries else None
+        new_cw_head: Optional[Dict[str, Any]] = None
 
         just_scrobbled = False
         just_scrobbled_episode = False
         auto_completed_series = False
         promoted_to_watching = False
         remote_ep_synced = False
+        remote_movie_synced = False
+        remote_watching_synced = False
         cur_status = self.get_item_status(item_id, title=title, orig_title=orig_title)
         already_watched = bool(cur_status.get("watched"))
 
-        if progress >= threshold:
+        if should_mark_watched:
             if media_type == "series":
                 prev_season_eps = (cur_status.get("watched_episodes") or {}).get(str(int(season)), [])
                 already_ep_watched = int(episode) in prev_season_eps
@@ -2462,6 +5265,7 @@ class KinoriumService:
                     total_seasons=total_seasons,
                     total_episodes_in_season=total_episodes_in_season,
                     is_series_completed=is_series_completed,
+                    allow_unpromoted=True,
                     poster=poster,
                     backdrop=backdrop,
                     media_type="series",
@@ -2469,7 +5273,7 @@ class KinoriumService:
                 if auto_completed_series:
                     just_scrobbled = True
                 else:
-                    promoted_to_watching = self._promote_series_to_watching_if_needed(
+                    promoted_to_watching, remote_watching_synced = self._promote_to_watching_with_status(
                         item_id=item_id,
                         title=title,
                         orig_title=orig_title,
@@ -2496,22 +5300,50 @@ class KinoriumService:
                             "current_time": 0.0,
                             "duration": round(duration, 1),
                             "progress": 0.0,
-                            "is_new_episode": True,
+                            "is_new_episode": False,
+                            "is_auto_next": True,
                             "source": source,
                             "studio": studio,
                             "updated_at": int(time.time()),
                         }
-                        cw_list.insert(0, cw_entry)
-                if kid_resolved and (not already_ep_watched or not self._is_episode_cached_remote_done(kid_resolved, int(season), int(episode))):
-                    remote_ep_synced, _ = self._sync_episodes_map_to_kinorium_remote(
-                        kid=kid_resolved,
-                        item_id=item_id,
-                        target_by_season={int(season): [int(episode)]},
-                    )
+                        new_cw_head = cw_entry
+                if kid_resolved:
+                    target_by_season: Dict[int, List[int]] = {int(season): [int(episode)]}
+                    has_dirty_or_unsynced = False
+                    with self._state_lock:
+                        er_root = self.state.get("episode_ratings") or {}
+                        dirty_set = set(str(k) for k in (self.state.get("dirty_episode_series") or []) if k)
+                        for k_lookup in filter(None, [item_id, f"kin_{kid_resolved}"]):
+                            if k_lookup in dirty_set:
+                                has_dirty_or_unsynced = True
+                            er_sub = er_root.get(k_lookup)
+                            if isinstance(er_sub, dict):
+                                for ep_entry in er_sub.values():
+                                    if isinstance(ep_entry, dict) and ep_entry.get("remote_synced") is not True:
+                                        has_dirty_or_unsynced = True
+                                        break
+                    if (
+                        not already_ep_watched
+                        or not self._is_episode_cached_remote_done(kid_resolved, int(season), int(episode))
+                    ):
+                        remote_ep_synced, _ = self._sync_episodes_map_to_kinorium_remote(
+                            kid=kid_resolved,
+                            item_id=item_id,
+                            target_by_season=target_by_season,
+                        )
+                    if not remote_ep_synced or has_dirty_or_unsynced:
+                        self._run_remote_sync_bg(
+                            self.reconcile_series_episodes,
+                            item_id=item_id,
+                            title=title,
+                            orig_title=orig_title,
+                            kid=kid_resolved,
+                            force_refresh=not remote_ep_synced,
+                        )
             else:
-                # Finished movie -> mark watched and remove from Up Next
-                if not already_watched:
-                    self.mark_watched(
+                # Finished movie (95% or credits started) -> mark watched and move out of 'Смотрю' / Up Next
+                if not already_watched and not cur_status.get("not_watching"):
+                    watched_res = self.mark_watched(
                         item_id=item_id,
                         title=title,
                         orig_title=orig_title,
@@ -2520,47 +5352,139 @@ class KinoriumService:
                         backdrop=backdrop,
                         media_type="movie",
                     )
+                    remote_movie_synced = bool(watched_res.get("remote_synced"))
                     just_scrobbled = True
-        elif current_time >= 15.0 or progress >= 0.02:
-            cw_entry = {
-                "id": item_id,
-                "title": title,
-                "orig_title": orig_title,
-                "poster": poster,
-                "backdrop": backdrop,
-                "media_type": media_type,
-                "season": season,
-                "episode": episode,
-                "current_time": round(current_time, 1),
-                "duration": round(duration, 1),
-                "progress": round(progress, 3),
-                "is_new_episode": False,
-                "source": source,
-                "studio": studio,
-                "updated_at": int(time.time()),
-            }
-            cw_list.insert(0, cw_entry)
+        else:
+            if progress >= watching_threshold and not already_watched and not cur_status.get("watching") and not cur_status.get("not_watching"):
+                promoted_to_watching, remote_watching_synced = self._promote_to_watching_with_status(
+                    item_id=item_id,
+                    title=title,
+                    orig_title=orig_title,
+                    kid=kid_hint,
+                    poster=poster,
+                    backdrop=backdrop,
+                    media_type=media_type,
+                )
 
-        self.state["continue_watching"] = cw_list[:12]
-        if not auto_completed_series and (current_time >= 15.0 or progress >= 0.02):
-            dismissed = self.state.get("cw_dismissed") or []
-            if dismissed:
-                self.state["cw_dismissed"] = [
-                    d for d in dismissed if d != item_id and (not nr or d != f"title:{nr}")
-                ]
-        is_milestone = bool(just_scrobbled or just_scrobbled_episode or auto_completed_series or promoted_to_watching)
-        self._save_state(immediate=is_milestone, bump_version=is_milestone)
+            if current_time >= 15.0 or progress >= 0.02:
+                # If this series has unsynced local episodes or episode ratings from earlier playback,
+                # opportunistically reconcile them in the background while the user is watching.
+                if media_type == "series" and not self.is_ip_cooldown_active():
+                    needs_bg_ep_reconcile = False
+                    with self._state_lock:
+                        dirty_set = set(str(k) for k in (self.state.get("dirty_episode_series") or []) if k)
+                        er_root = self.state.get("episode_ratings") or {}
+                        for k_chk in filter(None, [item_id, f"kin_{kid_hint}" if kid_hint else ""]):
+                            if k_chk in dirty_set:
+                                needs_bg_ep_reconcile = True
+                                break
+                            er_sub = er_root.get(k_chk)
+                            if isinstance(er_sub, dict):
+                                for ep_entry in er_sub.values():
+                                    if isinstance(ep_entry, dict) and ep_entry.get("remote_synced") is not True:
+                                        needs_bg_ep_reconcile = True
+                                        break
+                            if needs_bg_ep_reconcile:
+                                break
+                    if needs_bg_ep_reconcile:
+                        now_reconcile_ts = time.time()
+                        reconcile_cache = getattr(self, "_live_ep_reconcile_ts", None)
+                        if not isinstance(reconcile_cache, dict):
+                            reconcile_cache = {}
+                            self._live_ep_reconcile_ts = reconcile_cache
+                        rec_key = str(kid_hint or item_id or title)
+                        if now_reconcile_ts - float(reconcile_cache.get(rec_key) or 0.0) >= 45.0:
+                            reconcile_cache[rec_key] = now_reconcile_ts
+                            self._run_remote_sync_bg(
+                                self.reconcile_series_episodes,
+                                item_id=item_id,
+                                title=title,
+                                orig_title=orig_title,
+                                kid=kid_hint,
+                            )
+                # Do not re-insert a movie that was already marked watched during credits (>=70%)
+                skip_cw_reinsert = False
+                if media_type != "series" and already_watched and progress >= 0.70:
+                    skip_cw_reinsert = True
+                elif media_type == "series":
+                    prev_season_eps = (cur_status.get("watched_episodes") or {}).get(str(int(season)), [])
+                    if int(episode) in prev_season_eps and progress >= 0.70 and isinstance(prev_cw_item, dict):
+                        prev_pair = (int(prev_cw_item.get("season") or 0), int(prev_cw_item.get("episode") or 0))
+                        if prev_pair > (int(season), int(episode)):
+                            new_cw_head = prev_cw_item
+                            skip_cw_reinsert = True
+                if not skip_cw_reinsert:
+                    cw_entry = {
+                        "id": item_id,
+                        "title": title,
+                        "orig_title": orig_title,
+                        "poster": poster,
+                        "backdrop": backdrop,
+                        "media_type": media_type,
+                        "season": season,
+                        "episode": episode,
+                        "current_time": round(current_time, 1),
+                        "duration": round(duration, 1),
+                        "progress": round(progress, 3),
+                        "is_new_episode": False,
+                        "source": source,
+                        "studio": studio,
+                        "updated_at": int(time.time()),
+                    }
+                    new_cw_head = cw_entry
+
+        if self._profile_id == start_pid:
+            with self._state_lock:
+                if self._profile_id == start_pid:
+                    live_cw = [
+                        x
+                        for x in self.state.get("continue_watching", [])
+                        if x.get("id") != item_id
+                        and (not kid_hint or x.get("id") != f"kin_{kid_hint}")
+                        and (not nr or _norm_title(x.get("title", "")) != nr)
+                    ]
+                    if new_cw_head is not None:
+                        live_cw.insert(0, new_cw_head)
+                    self.state["continue_watching"] = live_cw[:12]
+                    if not auto_completed_series and not (media_type != "series" and (just_scrobbled or (already_watched and progress >= 0.70))) and (current_time >= 15.0 or progress >= 0.02):
+                        dismissed = self.state.get("cw_dismissed") or []
+                        kin_prefixed = f"kin_{kid_hint}" if kid_hint else ""
+                        if dismissed:
+                            self.state["cw_dismissed"] = [
+                                d
+                                for d in dismissed
+                                if d != item_id
+                                and (not kin_prefixed or d != kin_prefixed)
+                                and (not nr or d != f"title:{nr}")
+                            ]
+                        stash = self.state.get("cw_dismissed_entries")
+                        if isinstance(stash, dict) and stash:
+                            stash.pop(item_id, None)
+                            if kin_prefixed:
+                                stash.pop(kin_prefixed, None)
+                            if nr:
+                                stash.pop(f"title:{nr}", None)
+            is_milestone = bool(just_scrobbled or just_scrobbled_episode or auto_completed_series or promoted_to_watching)
+            self._save_state(immediate=is_milestone, bump_version=is_milestone)
+        if should_mark_watched:
+            eff_remote_synced = remote_ep_synced if media_type == "series" else remote_movie_synced
+        elif promoted_to_watching:
+            eff_remote_synced = remote_watching_synced
+        else:
+            eff_remote_synced = False
         out: Dict[str, Any] = {
             "progress": round(progress, 3),
             "threshold": threshold,
+            "watching_threshold": watching_threshold,
+            "reason": reason or ("watched_threshold" if should_mark_watched else ""),
             "just_scrobbled": just_scrobbled,
             "just_scrobbled_episode": just_scrobbled_episode,
             "auto_completed_series": auto_completed_series,
             "promoted_to_watching": promoted_to_watching,
-            "remote_synced": remote_ep_synced if media_type == "series" else just_scrobbled,
+            "remote_synced": eff_remote_synced,
             "scrobbled_season": int(season),
             "scrobbled_episode": int(episode),
-            "continue_watching": self.state["continue_watching"],
+            "continue_watching": list(self.state["continue_watching"]),
             "kinorium_status": self.get_item_status(item_id, title=title, orig_title=orig_title),
         }
         if just_scrobbled or auto_completed_series or promoted_to_watching:
@@ -2569,18 +5493,89 @@ class KinoriumService:
 
     def dismiss_continue_watching(self, item_id: str, title: str = "") -> Dict[str, Any]:
         nr = _norm_title(title)
-        self.state["continue_watching"] = [
-            x
-            for x in self.state.get("continue_watching", [])
-            if x.get("id") != item_id and (not nr or _norm_title(x.get("title", "")) != nr)
-        ]
-        dismissed = self.state.setdefault("cw_dismissed", [])
-        if item_id and item_id not in dismissed:
-            dismissed.append(item_id)
-        if nr and f"title:{nr}" not in dismissed:
-            dismissed.append(f"title:{nr}")
-        self._save_state()
-        return {"ok": True, "dismissed_id": item_id}
+        kid_hint = self._resolve_kinorium_id(item_id, title, "", allow_network=False)
+        kin_pref = f"kin_{kid_hint}" if kid_hint and str(kid_hint).isdigit() else ""
+        target_ids = {str(x) for x in (item_id, kin_pref) if x}
+        with self._state_lock:
+            def _matches_cw(x: Dict[str, Any]) -> bool:
+                x_id = str(x.get("id") or "")
+                x_kid = str(x.get("kinorium_id") or "")
+                if x_id in target_ids or (x_kid and f"kin_{x_kid}" in target_ids):
+                    return True
+                if nr and (_norm_title(x.get("title", "")) == nr or _norm_title(x.get("orig_title", "")) == nr):
+                    return True
+                return False
+
+            removed_entries = [
+                x
+                for x in self.state.get("continue_watching", [])
+                if isinstance(x, dict) and _matches_cw(x)
+            ]
+            if removed_entries:
+                stash = self.state.setdefault("cw_dismissed_entries", {})
+                if isinstance(stash, dict):
+                    stash[item_id or kin_pref or f"title:{nr}"] = removed_entries[0]
+            self.state["continue_watching"] = [
+                x
+                for x in self.state.get("continue_watching", [])
+                if not (isinstance(x, dict) and _matches_cw(x))
+            ]
+            dismissed = self.state.setdefault("cw_dismissed", [])
+            for tid in target_ids:
+                if tid not in dismissed:
+                    dismissed.append(tid)
+            if nr and f"title:{nr}" not in dismissed:
+                dismissed.append(f"title:{nr}")
+            dismissed_cnt = self._count_dismissed_cw_items_locked()
+            self._save_state()
+        return {
+            "ok": True,
+            "dismissed_id": item_id,
+            "cw_dismissed_count": dismissed_cnt,
+        }
+
+    def restore_continue_watching(
+        self, item_id: str = "", title: str = "", restore_all: bool = False
+    ) -> Dict[str, Any]:
+        with self._state_lock:
+            dismissed = self.state.setdefault("cw_dismissed", [])
+            stash = self.state.setdefault("cw_dismissed_entries", {})
+            cw_arr = self.state.setdefault("continue_watching", [])
+            if restore_all:
+                if isinstance(stash, dict):
+                    existing_ids = {str(x.get("id") or "") for x in cw_arr}
+                    for stashed_entry in stash.values():
+                        if isinstance(stashed_entry, dict) and str(stashed_entry.get("id") or "") not in existing_ids:
+                            cw_arr.insert(0, stashed_entry)
+                            existing_ids.add(str(stashed_entry.get("id") or ""))
+                    stash.clear()
+                dismissed.clear()
+            else:
+                nr = _norm_title(title)
+                kid_hint = self._resolve_kinorium_id(item_id, title, "", allow_network=False)
+                kin_pref = f"kin_{kid_hint}" if kid_hint and str(kid_hint).isdigit() else ""
+                target_ids = {str(x) for x in (item_id, kin_pref) if x}
+                self.state["cw_dismissed"] = [
+                    d
+                    for d in dismissed
+                    if d not in target_ids and (not nr or d != f"title:{nr}")
+                ]
+                if isinstance(stash, dict):
+                    restored_entry = (
+                        stash.pop(item_id, None)
+                        or (stash.pop(kin_pref, None) if kin_pref else None)
+                        or (stash.pop(f"title:{nr}", None) if nr else None)
+                    )
+                    if isinstance(restored_entry, dict):
+                        if not any(x.get("id") == restored_entry.get("id") for x in cw_arr):
+                            cw_arr.insert(0, restored_entry)
+            dismissed_cnt = self._count_dismissed_cw_items_locked()
+            self._save_state()
+        return {
+            "ok": True,
+            "restored_id": item_id,
+            "cw_dismissed_count": dismissed_cnt,
+        }
 
     def _ensure_remote_entry_template(
         self,
@@ -2595,7 +5590,7 @@ class KinoriumService:
         else:
             ex = extra or {}
             mtype = str(ex.get("media_type") or "movie")
-            year_val = int(ex.get("year") or 2024)
+            year_val = _safe_year_int(ex.get("year"))
             default_poster = f"https://ru-images.kinorium.com/movie/600/{kid}.jpg" if str(kid).isdigit() else ""
             default_backdrop = f"https://ru-images.kinorium.com/movie/1080/{kid}.jpg" if str(kid).isdigit() else ""
             tpl = {
@@ -2604,10 +5599,10 @@ class KinoriumService:
                 "orig_title": orig_title or title,
                 "year": year_val,
                 "media_type": mtype,
-                "seasons_count": 2 if mtype == "series" else 1,
-                "episodes_per_season": 8 if mtype == "series" else 1,
+                "seasons_count": int(ex.get("seasons_count") or (0 if mtype == "series" else 1)),
+                "episodes_per_season": int(ex.get("episodes_per_season") or (0 if mtype == "series" else 1)),
                 "genres": ["Сериал"] if mtype == "series" else ["Фильм"],
-                "description": f"{title} ({orig_title or year_val})",
+                "description": f"{title} ({orig_title or year_val or ''})".replace(" ()", ""),
                 "kinorium_rating": 8.0,
                 "imdb_rating": 8.0,
                 "poster": str(ex.get("poster") or default_poster),
@@ -2649,14 +5644,51 @@ class KinoriumService:
         s_key = str(int(season))
         ep_num = int(episode)
         kid = resolved_kid or self._resolve_kinorium_id(item_id, title, orig_title, allow_network=False)
-        we_root = self.state.setdefault("watched_episodes", {})
-        keys = [k for k in (item_id, f"kin_{kid}" if (kid and str(kid).isdigit()) else "") if k]
-        for k_id in dict.fromkeys(keys):
-            item_map = we_root.setdefault(k_id, {})
-            cur_list = item_map.get(s_key) or []
-            if ep_num not in cur_list:
-                cur_list.append(ep_num)
-                item_map[s_key] = sorted(set(cur_list))
+        with self._state_lock:
+            we_root = self.state.setdefault("watched_episodes", {})
+            uw_root = self.state.setdefault("unwatched_episodes", {})
+            dirty_ep_series = self.state.setdefault("dirty_episode_series", [])
+            keys = [k for k in (item_id, f"kin_{kid}" if (kid and str(kid).isdigit()) else "") if k]
+            for k_id in dict.fromkeys(keys):
+                if k_id not in dirty_ep_series:
+                    dirty_ep_series.append(k_id)
+                item_map = we_root.setdefault(k_id, {})
+                cur_list = item_map.get(s_key) or []
+                if ep_num not in cur_list:
+                    cur_list.append(ep_num)
+                    item_map[s_key] = sorted(set(cur_list))
+                uw_map = uw_root.get(k_id)
+                if isinstance(uw_map, dict) and s_key in uw_map:
+                    rem_uw = [int(x) for x in (uw_map.get(s_key) or []) if str(x).isdigit() and int(x) != ep_num]
+                    if rem_uw:
+                        uw_map[s_key] = sorted(set(rem_uw))
+                    else:
+                        uw_map.pop(s_key, None)
+            nr_cw = _norm_title(title)
+            live_m = self.get_series_live_meta(item_id=item_id, title=title, orig_title=orig_title, kid=kid)
+            smap_cw = (live_m.get("seasons_map") or {}) if isinstance(live_m, dict) else {}
+            cur_s_eps = [int(x) for x in (smap_cw.get(str(int(season))) or []) if str(x).isdigit()]
+            next_s_num = int(season)
+            next_e_num = ep_num + 1
+            if cur_s_eps and ep_num >= max(cur_s_eps):
+                if str(int(season) + 1) in smap_cw or int((live_m or {}).get("latest_season") or 0) > int(season):
+                    next_s_num = int(season) + 1
+                    next_e_num = 1
+            for cw_it in self.state.get("continue_watching") or []:
+                if not isinstance(cw_it, dict) or cw_it.get("media_type") != "series":
+                    continue
+                if (
+                    cw_it.get("id") == item_id
+                    or (kid and cw_it.get("id") == f"kin_{kid}")
+                    or (nr_cw and _norm_title(cw_it.get("title", "")) == nr_cw)
+                ):
+                    if int(cw_it.get("season") or 1) == int(season) and int(cw_it.get("episode") or 1) == ep_num:
+                        cw_it["season"] = next_s_num
+                        cw_it["episode"] = next_e_num
+                        cw_it["current_time"] = 0.0
+                        cw_it["progress"] = 0.0
+                        cw_it["is_auto_next"] = True
+                        cw_it["updated_at"] = int(time.time())
 
     def _unrecord_episode_watched(
         self,
@@ -2666,22 +5698,83 @@ class KinoriumService:
         season: Optional[int],
         episode: Optional[int],
         resolved_kid: Optional[str] = None,
-    ):
+    ) -> bool:
         if not season or not episode:
-            return
+            return False
         s_key = str(int(season))
         ep_num = int(episode)
         kid = resolved_kid or self._resolve_kinorium_id(item_id, title, orig_title, allow_network=False)
-        we_root = self.state.setdefault("watched_episodes", {})
-        keys = [k for k in (item_id, f"kin_{kid}" if (kid and str(kid).isdigit()) else "") if k]
-        for k_id in dict.fromkeys(keys):
-            item_map = we_root.get(k_id)
-            if isinstance(item_map, dict) and s_key in item_map:
-                next_list = [int(x) for x in (item_map.get(s_key) or []) if str(x).isdigit() and int(x) != ep_num]
-                if next_list:
-                    item_map[s_key] = sorted(set(next_list))
-                else:
-                    item_map.pop(s_key, None)
+        with self._state_lock:
+            we_root = self.state.setdefault("watched_episodes", {})
+            uw_root = self.state.setdefault("unwatched_episodes", {})
+            keys = [k for k in (item_id, f"kin_{kid}" if (kid and str(kid).isdigit()) else "") if k]
+            for k_id in dict.fromkeys(keys):
+                item_map = we_root.get(k_id)
+                if isinstance(item_map, dict) and s_key in item_map:
+                    next_list = [int(x) for x in (item_map.get(s_key) or []) if str(x).isdigit() and int(x) != ep_num]
+                    if next_list:
+                        item_map[s_key] = sorted(set(next_list))
+                    else:
+                        item_map.pop(s_key, None)
+                uw_map = uw_root.setdefault(k_id, {})
+                uw_list = uw_map.get(s_key) or []
+                if ep_num not in uw_list:
+                    uw_list.append(ep_num)
+                    uw_map[s_key] = sorted(set(uw_list))
+
+            # If this series was auto-completed into watched when all episodes were watched,
+            # unmarking an episode reverts it back to 'Смотрю' (watching) so it isn't stuck in 'Просмотрено'.
+            watched_dict = self.state.setdefault("watched", {})
+            loc_w = self.state.setdefault("watching_local", [])
+            rem_w = self.state.setdefault("watching_removed", [])
+            reverted_auto = False
+            for k_id in dict.fromkeys(keys):
+                w_entry = watched_dict.get(k_id)
+                if isinstance(w_entry, dict) and w_entry.get("auto_scrobbled"):
+                    watched_dict.pop(k_id, None)
+                    reverted_auto = True
+            if kid and str(kid).isdigit():
+                k_str = str(kid)
+                rem_done = (self.state.get("remote_watched_items") or {}).get(k_str)
+                if isinstance(rem_done, dict) and rem_done.get("auto_scrobbled"):
+                    popped_done = self.state["remote_watched_items"].pop(k_str, None)
+                    if isinstance(popped_done, dict):
+                        popped_done["watched"] = False
+                        popped_done["watching"] = True
+                        popped_done["status"] = "now"
+                        popped_done.pop("auto_scrobbled", None)
+                        self.state.setdefault("remote_watching_items", {})[k_str] = popped_done
+                    reverted_auto = True
+            if reverted_auto:
+                for k_id in dict.fromkeys(keys):
+                    if k_id not in loc_w:
+                        loc_w.append(k_id)
+                    if k_id in rem_w:
+                        rem_w.remove(k_id)
+                self._build_lookup_indices()
+            return reverted_auto
+
+    def _run_remote_sync_bg(self, fn, *args, **kwargs) -> bool:
+        with self._state_lock:
+            user_cookie = (self.state.get("account", {}).get("session_cookie") or "").strip()
+            enqueue_profile_id = self._profile_id
+        if not user_cookie:
+            return False
+
+        def _worker():
+            if self._profile_id != enqueue_profile_id:
+                # Profile switched before the job ran: posting now would use another account's cookie
+                return
+            self._sync_cookie_tl.cookie = user_cookie
+            try:
+                fn(*args, **kwargs)
+            except Exception:
+                pass
+            finally:
+                self._sync_cookie_tl.cookie = None
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return True
 
     def mark_episodes_batch(
         self,
@@ -2697,20 +5790,21 @@ class KinoriumService:
         **kwargs,
     ) -> Dict[str, Any]:
         eps = sorted({int(x) for x in (episodes or []) if str(x).isdigit() and int(x) > 0})
+        yr_arg = int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None
         kid = self._resolve_kinorium_id(
             item_id,
             title,
             orig_title,
-            allow_network=True,
+            allow_network=False,
             media_type="series",
-            year=int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None,
+            year=yr_arg,
         )
         for ep_num in eps:
             self._record_episode_watched(item_id, title, orig_title, season, ep_num, resolved_kid=kid)
         auto_completed_series = False
         promoted_to_watching = False
         remote_synced = False
-        remote_synced_count = 0
+        remote_synced_count = len(eps) if eps else 0
         if eps:
             auto_completed_series = self._maybe_auto_complete_series(
                 item_id=item_id,
@@ -2731,13 +5825,24 @@ class KinoriumService:
                     kid=kid,
                     **kwargs,
                 )
-            if kid:
-                remote_synced, remote_synced_count = self._sync_episodes_map_to_kinorium_remote(
-                    kid=kid,
-                    item_id=item_id,
-                    target_by_season={int(season): eps},
-                    mark_season_complete=mark_season_complete,
+
+            enqueue_pid = self._profile_id
+
+            def _bg_batch_sync():
+                eff_k = kid or self._resolve_kinorium_id(
+                    item_id, title, orig_title, allow_network=True, media_type="series", year=yr_arg
                 )
+                if eff_k and self._profile_id == enqueue_pid:
+                    for ep_n in eps:
+                        self._record_episode_watched(item_id, title, orig_title, season, ep_n, resolved_kid=eff_k)
+                    self._sync_episodes_map_to_kinorium_remote(
+                        kid=eff_k,
+                        item_id=item_id,
+                        target_by_season={int(season): eps},
+                        mark_season_complete=mark_season_complete,
+                    )
+
+            remote_synced = self._run_remote_sync_bg(_bg_batch_sync)
         self._save_state()
         status = self.get_item_status(item_id, title=title, orig_title=orig_title)
         status["marked_episodes_count"] = len(eps)
@@ -2745,7 +5850,7 @@ class KinoriumService:
         status["auto_completed_series"] = auto_completed_series
         status["promoted_to_watching"] = promoted_to_watching
         status["remote_synced"] = remote_synced
-        status["remote_synced_count"] = remote_synced_count
+        status["remote_synced_count"] = remote_synced_count if remote_synced else 0
         status["kinorium_counts"] = self.get_sections_counts()
         return status
 
@@ -2768,13 +5873,14 @@ class KinoriumService:
         cur_eps = (cur_status.get("watched_episodes") or {}).get(str(s_num)) or []
         currently_watched = e_num in cur_eps
         next_watched = (not currently_watched) if watched is None else bool(watched)
+        yr_arg = int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None
         kid = self._resolve_kinorium_id(
             item_id,
             title,
             orig_title,
-            allow_network=True,
+            allow_network=False,
             media_type="series",
-            year=int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None,
+            year=yr_arg,
         )
         auto_completed_series = False
         promoted_to_watching = False
@@ -2800,31 +5906,87 @@ class KinoriumService:
                     kid=kid,
                     **kwargs,
                 )
-            if kid:
-                remote_synced, _ = self._sync_episodes_map_to_kinorium_remote(
-                    kid=kid,
-                    item_id=item_id,
-                    target_by_season={s_num: [e_num]},
+
+            enqueue_pid = self._profile_id
+
+            def _bg_ep_mark():
+                eff_k = kid or self._resolve_kinorium_id(
+                    item_id, title, orig_title, allow_network=True, media_type="series", year=yr_arg
                 )
-        else:
-            self._unrecord_episode_watched(item_id, title, orig_title, s_num, e_num, resolved_kid=kid)
-            if kid:
-                ep_state = self.fetch_series_episodes_state(kid, item_id=item_id)
-                ep_info = (ep_state.get("episodes") or {}).get((s_num, e_num))
-                if ep_info and ep_info.get("ep_id"):
-                    remote_synced = self._post_episode_status_remote(
-                        kid=kid,
-                        ep_id=str(ep_info["ep_id"]),
-                        watched=False,
+                if eff_k and self._profile_id == enqueue_pid:
+                    self._record_episode_watched(item_id, title, orig_title, s_num, e_num, resolved_kid=eff_k)
+                    self._sync_episodes_map_to_kinorium_remote(
+                        kid=eff_k,
+                        item_id=item_id,
+                        target_by_season={s_num: [e_num]},
                     )
-                    if remote_synced:
-                        ep_info["watched"] = False
-                        ep_info["rating"] = None
-            er_root = self.state.get("episode_ratings") or {}
+
+            remote_synced = self._run_remote_sync_bg(_bg_ep_mark)
+        else:
+            reverted_auto = self._unrecord_episode_watched(item_id, title, orig_title, s_num, e_num, resolved_kid=kid)
             ep_key = f"s{s_num}e{e_num}"
-            for k_id in filter(None, [item_id, f"kin_{kid}" if (kid and str(kid).isdigit()) else ""]):
-                if isinstance(er_root.get(k_id), dict):
-                    er_root[k_id].pop(ep_key, None)
+            with self._state_lock:
+                er_root = self.state.setdefault("episode_ratings", {})
+                cer_root = self.state.setdefault("cleared_episode_ratings", {})
+                for k_id in filter(None, [item_id, f"kin_{kid}" if (kid and str(kid).isdigit()) else ""]):
+                    if isinstance(er_root.get(k_id), dict) and ep_key in er_root[k_id]:
+                        er_root[k_id].pop(ep_key, None)
+                        cer_root.setdefault(k_id, {})[ep_key] = True
+
+            enqueue_pid = self._profile_id
+
+            def _bg_ep_unmark():
+                eff_k = kid or self._resolve_kinorium_id(
+                    item_id, title, orig_title, allow_network=True, media_type="series", year=yr_arg
+                )
+                if eff_k and self._profile_id == enqueue_pid:
+                    reverted_bg = self._unrecord_episode_watched(item_id, title, orig_title, s_num, e_num, resolved_kid=eff_k)
+                    with self._state_lock:
+                        er_bg = self.state.get("episode_ratings") or {}
+                        cer_bg = self.state.setdefault("cleared_episode_ratings", {})
+                        if isinstance(er_bg.get(f"kin_{eff_k}"), dict) and ep_key in er_bg[f"kin_{eff_k}"]:
+                            er_bg[f"kin_{eff_k}"].pop(ep_key, None)
+                            cer_bg.setdefault(f"kin_{eff_k}", {})[ep_key] = True
+                    if reverted_auto or reverted_bg:
+                        self._sync_to_kinorium_remote(
+                            action="watching_add",
+                            item_id=item_id,
+                            title=title,
+                            orig_title=orig_title,
+                            resolved_kid=eff_k,
+                        )
+                    # item_id="" → do NOT merge remote episodes into local state here: the remote still lists
+                    # this episode as watched, and merging would undo the user's un-mark before delStatus runs.
+                    ep_state = self.fetch_series_episodes_state(eff_k, item_id="")
+                    ep_info = (ep_state.get("episodes") or {}).get((s_num, e_num))
+                    if ep_info and ep_info.get("ep_id"):
+                        if self._post_episode_status_remote(
+                            kid=eff_k,
+                            ep_id=str(ep_info["ep_id"]),
+                            watched=False,
+                        ):
+                            ep_info["watched"] = False
+                            ep_info["rating"] = None
+                            with self._state_lock:
+                                uw_bg = self.state.get("unwatched_episodes") or {}
+                                cer_bg2 = self.state.get("cleared_episode_ratings") or {}
+                                for k_u in filter(None, [item_id, f"kin_{eff_k}"]):
+                                    uw_s = uw_bg.get(k_u)
+                                    if isinstance(uw_s, dict) and str(s_num) in uw_s:
+                                        rem_u = [
+                                            int(x)
+                                            for x in (uw_s.get(str(s_num)) or [])
+                                            if str(x).isdigit() and int(x) != e_num
+                                        ]
+                                        if rem_u:
+                                            uw_s[str(s_num)] = sorted(set(rem_u))
+                                        else:
+                                            uw_s.pop(str(s_num), None)
+                                    if isinstance(cer_bg2.get(k_u), dict):
+                                        cer_bg2[k_u].pop(ep_key, None)
+                    self._save_state(immediate=False, bump_version=True)
+
+            remote_synced = self._run_remote_sync_bg(_bg_ep_unmark)
 
         self._save_state()
         status = self.get_item_status(item_id, title=title, orig_title=orig_title)
@@ -2838,20 +6000,24 @@ class KinoriumService:
         return status
 
     def get_profile_stats(self) -> Dict[str, Any]:
-        watched_dict = self.state.get("remote_watched_items") or {}
-        watching_dict = self.state.get("remote_watching_items") or {}
-        watchlist_dict = self.state.get("remote_watchlist_items") or {}
-        never_dict = self.state.get("remote_never_items") or {}
-        local_ratings = self.state.get("ratings") or {}
-        friends_by_kid = self.state.get("friends_ratings_by_kid") or {}
+        with self._state_lock:
+            watched_dict = dict(self.state.get("remote_watched_items") or {})
+            watching_dict = dict(self.state.get("remote_watching_items") or {})
+            watchlist_dict = dict(self.state.get("remote_watchlist_items") or {})
+            never_dict = dict(self.state.get("remote_never_items") or {})
+            local_ratings = dict(self.state.get("ratings") or {})
+            friends_by_kid = dict(self.state.get("friends_ratings_by_kid") or {})
+            friends_list_snap = list(self.state.get("friends") or [])
+            acc_snap = dict(self.state.get("account") or {})
 
         watched_movies = 0
         watched_series = 0
         histogram = {str(s): 0 for s in range(10, 0, -1)}
         user_scores: List[int] = []
         kin_scores: List[float] = []
+        cur_decade_key = f"2020–{max(2026, time.localtime().tm_year)}"
         decades = {
-            "2020–2026": 0,
+            cur_decade_key: 0,
             "2010–2019": 0,
             "2000–2009": 0,
             "1990–1999": 0,
@@ -2861,33 +6027,51 @@ class KinoriumService:
         friend_stats: Dict[str, Dict[str, Any]] = {}
 
         for kid, entry in watched_dict.items():
+            if not isinstance(entry, dict):
+                continue
             mtype = entry.get("media_type", "movie")
             if mtype == "series":
                 watched_series += 1
             else:
                 watched_movies += 1
 
-            yr = int(entry.get("year") or 2020)
-            if yr >= 2020:
-                decades["2020–2026"] += 1
-            elif yr >= 2010:
+            yr_raw = _safe_year_int(entry.get("year"))
+            if yr_raw >= 2020:
+                decades[cur_decade_key] += 1
+            elif yr_raw >= 2010:
                 decades["2010–2019"] += 1
-            elif yr >= 2000:
+            elif yr_raw >= 2000:
                 decades["2000–2009"] += 1
-            elif yr >= 1990:
+            elif yr_raw >= 1990:
                 decades["1990–1999"] += 1
-            else:
+            elif yr_raw > 0:
                 decades["До 1990"] += 1
 
             kr = entry.get("kinorium_rating")
+            kr_float: Optional[float] = None
             if kr:
                 try:
-                    kin_scores.append(float(kr))
+                    kr_float = float(kr)
+                    kin_scores.append(kr_float)
                 except Exception:
-                    pass
+                    kr_float = None
+            im_raw = entry.get("imdb_rating")
+            im_float: Optional[float] = None
+            if im_raw:
+                try:
+                    im_float = float(im_raw)
+                except Exception:
+                    im_float = None
 
             loc_r = local_ratings.get(f"kin_{kid}") or local_ratings.get(str(kid))
-            sc = loc_r.get("score") if isinstance(loc_r, dict) else entry.get("score")
+            if isinstance(loc_r, dict):
+                sc = (
+                    None
+                    if loc_r.get("cleared")
+                    else (loc_r.get("score") if loc_r.get("score") is not None else entry.get("score"))
+                )
+            else:
+                sc = entry.get("score")
             if sc is not None:
                 try:
                     sc_int = max(1, min(10, int(sc)))
@@ -2897,11 +6081,14 @@ class KinoriumService:
                         favorites.append(
                             {
                                 "id": f"kin_{kid}" if str(kid).isdigit() else str(kid),
+                                "kinorium_id": str(kid) if str(kid).isdigit() else "",
                                 "title": entry.get("ru_title") or entry.get("orig_title") or "",
                                 "orig_title": entry.get("orig_title") or "",
-                                "year": yr,
+                                "year": yr_raw or "",
                                 "media_type": mtype,
                                 "score": sc_int,
+                                "kinorium_rating": kr_float,
+                                "imdb_rating": im_float,
                                 "poster": entry.get("poster")
                                 or (f"https://ru-images.kinorium.com/movie/600/{kid}.jpg" if str(kid).isdigit() else ""),
                             }
@@ -2929,10 +6116,10 @@ class KinoriumService:
                 except Exception:
                     pass
 
-        favorites.sort(key=lambda x: (x["score"], x["year"]), reverse=True)
+        favorites.sort(key=lambda x: (x["score"], _safe_year_int(x.get("year"))), reverse=True)
         friend_meta_by_name = {
             str(f.get("name") or "").strip(): f
-            for f in (self.state.get("friends") or [])
+            for f in friends_list_snap
             if isinstance(f, dict) and f.get("name")
         }
         friends_out = []
@@ -2991,30 +6178,29 @@ class KinoriumService:
         episode: Optional[int] = None,
         auto_scrobbled: bool = False,
         auto_scrobbled_alias: bool = False,
+        _skip_remote_sync: bool = False,
         **kwargs,
     ) -> Dict[str, Any]:
         now_str = time.strftime("%Y-%m-%d %H:%M")
         prev_status = self.get_item_status(item_id, title=title, orig_title=orig_title)
         was_watching = bool(prev_status.get("watching"))
+        yr_arg = int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None
+        mtype_arg = str(kwargs.get("media_type") or "")
         kid = self._resolve_kinorium_id(
             item_id,
             title,
             orig_title,
-            allow_network=True,
-            media_type=str(kwargs.get("media_type") or ""),
-            year=int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None,
+            allow_network=False,
+            media_type=mtype_arg,
+            year=yr_arg,
         )
         eff_kid = str(kid) if (kid and str(kid).isdigit()) else ""
+        eff_rkey = eff_kid or (str(item_id).strip() if str(item_id or "").strip() else f"local_{_norm_title(title or orig_title)}")
         nr = _norm_title(title)
+        remote_ok = False
         if watched:
             if season and episode:
                 self._record_episode_watched(item_id, title, orig_title, season, episode, resolved_kid=kid)
-                if eff_kid:
-                    self._sync_episodes_map_to_kinorium_remote(
-                        kid=eff_kid,
-                        item_id=item_id,
-                        target_by_season={int(season): [int(episode)]},
-                    )
             entry_val = {
                 "item_id": item_id,
                 "title": title,
@@ -3024,80 +6210,150 @@ class KinoriumService:
                 "season": season,
                 "episode": episode,
                 "auto_scrobbled": auto_scrobbled or auto_scrobbled_alias,
+                "remote_synced": False,
             }
-            self.state["watched"][item_id] = entry_val
-            # Remove from continue_watching since all episodes / movie are now marked watched
-            self.state["continue_watching"] = [
-                x
-                for x in self.state.get("continue_watching", [])
-                if x.get("id") != item_id
-                and (not eff_kid or x.get("id") != f"kin_{eff_kid}")
-                and (not nr or _norm_title(x.get("title", "")) != nr)
-            ]
-            # Clear 'Смотрю' locally so item moves cleanly from 'Смотрю' -> 'Просмотрено'
-            loc_w = self.state.setdefault("watching_local", [])
-            if item_id in loc_w:
-                loc_w.remove(item_id)
-            if eff_kid and f"kin_{eff_kid}" in loc_w:
-                loc_w.remove(f"kin_{eff_kid}")
-            rem_w = self.state.setdefault("watching_removed", [])
-            if item_id and item_id not in rem_w:
-                rem_w.append(item_id)
-            if eff_kid:
-                self.state["watched"][f"kin_{eff_kid}"] = entry_val
-                if f"kin_{eff_kid}" not in rem_w:
-                    rem_w.append(f"kin_{eff_kid}")
-                tpl = self._ensure_remote_entry_template(eff_kid, title, orig_title, extra=kwargs)
-                tpl["watched"] = True
-                tpl["watching"] = False
-                tpl["in_watchlist"] = False
-                tpl["status"] = "done"
-                tpl["watched_at"] = now_str
-                self.state.setdefault("remote_watched_items", {})[str(eff_kid)] = tpl
-                (self.state.get("remote_watchlist_items") or {}).pop(str(eff_kid), None)
-                (self.state.get("remote_watching_items") or {}).pop(str(eff_kid), None)
-            if item_id in self.state["watchlist"]:
-                self.state["watchlist"].remove(item_id)
-            rem_wl = self.state.setdefault("watchlist_removed", [])
-            if item_id not in rem_wl:
-                rem_wl.append(item_id)
-            if eff_kid and f"kin_{eff_kid}" not in rem_wl:
-                rem_wl.append(f"kin_{eff_kid}")
-            if was_watching:
-                self._sync_to_kinorium_remote(
-                    action="watching_remove",
+            with self._state_lock:
+                self.state.setdefault("watched", {})[item_id] = entry_val
+                # Remove from continue_watching since all episodes / movie are now marked watched
+                self.state["continue_watching"] = [
+                    x
+                    for x in self.state.get("continue_watching", [])
+                    if x.get("id") != item_id
+                    and (not eff_kid or x.get("id") != f"kin_{eff_kid}")
+                    and (not nr or _norm_title(x.get("title", "")) != nr)
+                ]
+                # Clear 'Смотрю' and 'Не буду смотреть' locally so item moves cleanly to 'Просмотрено'
+                loc_w = self.state.setdefault("watching_local", [])
+                if item_id in loc_w:
+                    loc_w.remove(item_id)
+                if eff_kid and f"kin_{eff_kid}" in loc_w:
+                    loc_w.remove(f"kin_{eff_kid}")
+                rem_w = self.state.setdefault("watching_removed", [])
+                if item_id and item_id not in rem_w:
+                    rem_w.append(item_id)
+                loc_n = self.state.setdefault("never_local", [])
+                if item_id in loc_n:
+                    loc_n.remove(item_id)
+                rem_n = self.state.setdefault("never_removed", [])
+                if item_id and item_id not in rem_n:
+                    rem_n.append(item_id)
+                if eff_kid:
+                    self.state["watched"][f"kin_{eff_kid}"] = entry_val
+                    if f"kin_{eff_kid}" not in rem_w:
+                        rem_w.append(f"kin_{eff_kid}")
+                    if f"kin_{eff_kid}" in loc_n:
+                        loc_n.remove(f"kin_{eff_kid}")
+                    if f"kin_{eff_kid}" not in rem_n:
+                        rem_n.append(f"kin_{eff_kid}")
+                if eff_rkey:
+                    tpl = self._ensure_remote_entry_template(eff_kid or eff_rkey, title, orig_title, extra=kwargs)
+                    tpl["watched"] = True
+                    tpl["watching"] = False
+                    tpl["in_watchlist"] = False
+                    tpl["not_watching"] = False
+                    tpl["status"] = "done"
+                    tpl["watched_at"] = now_str
+                    self.state.setdefault("remote_watched_items", {})[str(eff_rkey)] = tpl
+                    for k_pop in {str(eff_rkey), str(item_id or "").strip()} - {""}:
+                        if k_pop != str(eff_rkey):
+                            (self.state.get("remote_watched_items") or {}).pop(k_pop, None)
+                        (self.state.get("remote_watchlist_items") or {}).pop(k_pop, None)
+                        (self.state.get("remote_watching_items") or {}).pop(k_pop, None)
+                        (self.state.get("remote_never_items") or {}).pop(k_pop, None)
+                wl_list = self.state.setdefault("watchlist", [])
+                if item_id in wl_list:
+                    wl_list.remove(item_id)
+                if eff_kid and f"kin_{eff_kid}" in wl_list:
+                    wl_list.remove(f"kin_{eff_kid}")
+                rem_wl = self.state.setdefault("watchlist_removed", [])
+                if item_id and item_id not in rem_wl:
+                    rem_wl.append(item_id)
+                if eff_kid and f"kin_{eff_kid}" not in rem_wl:
+                    rem_wl.append(f"kin_{eff_kid}")
+            if not _skip_remote_sync:
+                enqueue_pid = self._profile_id
+
+                def _bg_watched_sync():
+                    eff_k = eff_kid or (
+                        self._resolve_kinorium_id(
+                            item_id, title, orig_title, allow_network=True, media_type=mtype_arg, year=yr_arg
+                        )
+                        or ""
+                    )
+                    if self._profile_id != enqueue_pid:
+                        return
+                    if eff_k and str(eff_k).isdigit() and eff_rkey != str(eff_k):
+                        with self._state_lock:
+                            if self._profile_id != enqueue_pid:
+                                return
+                            rw_d = self.state.setdefault("remote_watched_items", {})
+                            migrated = rw_d.pop(str(eff_rkey), None)
+                            if isinstance(migrated, dict):
+                                migrated["kinorium_id"] = str(eff_k)
+                                rw_d.setdefault(str(eff_k), migrated)
+                                self._build_lookup_indices()
+                    if season and episode and eff_k:
+                        self._sync_episodes_map_to_kinorium_remote(
+                            kid=eff_k,
+                            item_id=item_id,
+                            target_by_season={int(season): [int(episode)]},
+                        )
+                    if was_watching:
+                        self._sync_to_kinorium_remote(
+                            action="watching_remove",
+                            item_id=item_id,
+                            title=title,
+                            orig_title=orig_title,
+                            resolved_kid=eff_k or None,
+                        )
+                    pushed_ok = self._sync_to_kinorium_remote(
+                        action="watched",
+                        item_id=item_id,
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=eff_k or None,
+                    )
+                    if pushed_ok and self._profile_id == enqueue_pid:
+                        with self._state_lock:
+                            w_d = self.state.get("watched") or {}
+                            for k_w in filter(None, [item_id, f"kin_{eff_k}" if eff_k else ""]):
+                                if isinstance(w_d.get(k_w), dict):
+                                    w_d[k_w]["remote_synced"] = True
+                            self._save_state(immediate=False, bump_version=False)
+                    return pushed_ok
+
+                remote_ok = self._run_remote_sync_bg(_bg_watched_sync)
+        else:
+            unw_val = {
+                "item_id": item_id,
+                "title": title,
+                "orig_title": orig_title,
+                "watched": False,
+            }
+            cleared_r = {"score": None, "comment": "", "cleared": True, "updated_at": now_str}
+            with self._state_lock:
+                self.state.setdefault("watched", {})[item_id] = unw_val
+                if item_id in (self.state.get("ratings") or {}):
+                    self.state["ratings"][item_id] = cleared_r
+                if eff_kid:
+                    self.state["watched"][f"kin_{eff_kid}"] = unw_val
+                    if f"kin_{eff_kid}" in (self.state.get("ratings") or {}):
+                        self.state["ratings"][f"kin_{eff_kid}"] = cleared_r
+                for k_pop in {str(eff_rkey), str(eff_kid), str(item_id or "").strip()} - {""}:
+                    (self.state.get("remote_watched_items") or {}).pop(k_pop, None)
+            if not _skip_remote_sync:
+                remote_ok = self._run_remote_sync_bg(
+                    self._sync_to_kinorium_remote,
+                    action="unwatched",
                     item_id=item_id,
                     title=title,
                     orig_title=orig_title,
                     resolved_kid=eff_kid or None,
                 )
-            remote_ok = self._sync_to_kinorium_remote(
-                action="watched",
-                item_id=item_id,
-                title=title,
-                orig_title=orig_title,
-                resolved_kid=eff_kid or None,
-            )
-        else:
-            unw_val = {
-                "item_id": item_id,
-                "title": title,
-                "watched": False,
-            }
-            self.state["watched"][item_id] = unw_val
-            if eff_kid:
-                self.state["watched"][f"kin_{eff_kid}"] = unw_val
-                (self.state.get("remote_watched_items") or {}).pop(str(eff_kid), None)
-            remote_ok = self._sync_to_kinorium_remote(
-                action="unwatched",
-                item_id=item_id,
-                title=title,
-                orig_title=orig_title,
-                resolved_kid=eff_kid or None,
-            )
 
-        self._build_lookup_indices()
-        self._save_state()
+        with self._state_lock:
+            self._build_lookup_indices()
+            self._save_state()
         status = self.get_item_status(item_id, title=title, orig_title=orig_title)
         status["remote_synced"] = remote_ok
         status["kinorium_counts"] = self.get_sections_counts()
@@ -3115,27 +6371,31 @@ class KinoriumService:
     ) -> Dict[str, Any]:
         raw_score = int(score or 0)
         now_str = time.strftime("%Y-%m-%d %H:%M")
+        yr_arg = int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None
+        mtype_arg = str(kwargs.get("media_type") or "")
         kid = self._resolve_kinorium_id(
             item_id,
             title,
             orig_title,
-            allow_network=True,
-            media_type=str(kwargs.get("media_type") or ""),
-            year=int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None,
+            allow_network=False,
+            media_type=mtype_arg,
+            year=yr_arg,
         )
 
         if raw_score <= 0:
             cleared_val = {"score": None, "comment": "", "cleared": True, "updated_at": now_str}
-            self.state["ratings"][item_id] = cleared_val
-            if kid:
-                self.state["ratings"][f"kin_{kid}"] = cleared_val
-                for sec_k in ("remote_watched_items", "remote_watching_items", "remote_watchlist_items"):
-                    sec_d = self.state.get(sec_k) or {}
-                    if str(kid) in sec_d:
-                        sec_d[str(kid)]["score"] = None
-            self._build_lookup_indices()
-            self._save_state()
-            remote_ok = self._sync_to_kinorium_remote(
+            with self._state_lock:
+                self.state.setdefault("ratings", {})[item_id] = cleared_val
+                if kid:
+                    self.state["ratings"][f"kin_{kid}"] = cleared_val
+                    for sec_k in ("remote_watched_items", "remote_watching_items", "remote_watchlist_items"):
+                        sec_d = self.state.get(sec_k) or {}
+                        if str(kid) in sec_d:
+                            sec_d[str(kid)]["score"] = None
+                self._build_lookup_indices()
+                self._save_state()
+            remote_ok = self._run_remote_sync_bg(
+                self._sync_to_kinorium_remote,
                 action="rate_remove",
                 item_id=item_id,
                 title=title,
@@ -3149,6 +6409,7 @@ class KinoriumService:
 
         score = max(1, min(10, raw_score))
         prev_status = self.get_item_status(item_id, title=title, orig_title=orig_title)
+        was_watching = bool(prev_status.get("watching"))
         remote_item = self._resolve_remote_item(item_id, title, orig_title)
         meta_kw = kwargs.get("item_meta") if isinstance(kwargs.get("item_meta"), dict) else {}
         mtype = str(
@@ -3171,31 +6432,89 @@ class KinoriumService:
         r_val = {
             "score": score,
             "comment": comment.strip(),
+            "title": title,
+            "orig_title": orig_title,
+            "keep_in_watching": keep_in_watching,
             "updated_at": now_str,
+            "remote_synced": False,
         }
-        self.state["ratings"][item_id] = r_val
-        if kid:
-            self.state["ratings"][f"kin_{kid}"] = r_val
+        with self._state_lock:
+            self.state.setdefault("ratings", {})[item_id] = r_val
+            if kid:
+                self.state["ratings"][f"kin_{kid}"] = r_val
+
+            # Rating an item always clears 'Не буду смотреть' (`never`)
+            loc_n = self.state.setdefault("never_local", [])
+            if item_id in loc_n:
+                loc_n.remove(item_id)
+            rem_n = self.state.setdefault("never_removed", [])
+            if item_id and item_id not in rem_n:
+                rem_n.append(item_id)
+            if kid:
+                k_pref = f"kin_{kid}"
+                if k_pref in loc_n:
+                    loc_n.remove(k_pref)
+                if k_pref not in rem_n:
+                    rem_n.append(k_pref)
+                (self.state.get("remote_never_items") or {}).pop(str(kid), None)
 
         if not keep_in_watching:
-            self.mark_watched(item_id=item_id, title=title, orig_title=orig_title, watched=True, **kwargs)
+            self.mark_watched(
+                item_id=item_id,
+                title=title,
+                orig_title=orig_title,
+                watched=True,
+                _skip_remote_sync=True,
+                **kwargs,
+            )
 
-        if kid:
-            for sec_k in ("remote_watched_items", "remote_watching_items", "remote_watchlist_items"):
-                sec_d = self.state.get(sec_k) or {}
-                if str(kid) in sec_d:
-                    sec_d[str(kid)]["score"] = score
-        self._build_lookup_indices()
-        self._save_state()
-        remote_ok = self._sync_to_kinorium_remote(
-            action="rate",
-            item_id=item_id,
-            title=title,
-            orig_title=orig_title,
-            score=score,
-            comment=comment,
-            resolved_kid=kid,
-        )
+        with self._state_lock:
+            if kid:
+                for sec_k in ("remote_watched_items", "remote_watching_items", "remote_watchlist_items"):
+                    sec_d = self.state.get(sec_k) or {}
+                    if str(kid) in sec_d:
+                        sec_d[str(kid)]["score"] = score
+            self._build_lookup_indices()
+            self._save_state()
+
+        enqueue_pid = self._profile_id
+
+        def _bg_rate_sync():
+            eff_k = kid or self._resolve_kinorium_id(
+                item_id, title, orig_title, allow_network=True, media_type=mtype_arg, year=yr_arg
+            )
+            if self._profile_id != enqueue_pid:
+                return False
+            if not keep_in_watching and was_watching:
+                self._sync_to_kinorium_remote(
+                    action="watching_remove",
+                    item_id=item_id,
+                    title=title,
+                    orig_title=orig_title,
+                    resolved_kid=eff_k,
+                )
+            pushed_ok = self._sync_to_kinorium_remote(
+                action="rate",
+                item_id=item_id,
+                title=title,
+                orig_title=orig_title,
+                score=score,
+                comment=comment,
+                resolved_kid=eff_k,
+            )
+            if pushed_ok and self._profile_id == enqueue_pid:
+                with self._state_lock:
+                    r_d = self.state.get("ratings") or {}
+                    w_d = self.state.get("watched") or {}
+                    for k_r in filter(None, [item_id, f"kin_{eff_k}" if eff_k else ""]):
+                        if isinstance(r_d.get(k_r), dict):
+                            r_d[k_r]["remote_synced"] = True
+                        if not keep_in_watching and isinstance(w_d.get(k_r), dict):
+                            w_d[k_r]["remote_synced"] = True
+                    self._save_state(immediate=False, bump_version=False)
+            return pushed_ok
+
+        remote_ok = self._run_remote_sync_bg(_bg_rate_sync)
         status = self.get_item_status(item_id, title=title, orig_title=orig_title)
         status["remote_synced"] = remote_ok
         status["kinorium_counts"] = self.get_sections_counts()
@@ -3221,34 +6540,62 @@ class KinoriumService:
         e_num = max(1, int(episode or 1))
         ep_key = f"s{s_num}e{e_num}"
         now_str = time.strftime("%Y-%m-%d %H:%M")
+        yr_arg = int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None
         kid = self._resolve_kinorium_id(
             item_id,
             title,
             orig_title,
-            allow_network=True,
+            allow_network=False,
             media_type="series",
-            year=int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None,
+            year=yr_arg,
         )
-        er_root = self.state.setdefault("episode_ratings", {})
         remote_synced = False
 
         if raw_score <= 0:
-            for k_id in filter(None, [item_id, f"kin_{kid}" if (kid and str(kid).isdigit()) else ""]):
-                item_map = er_root.get(k_id)
-                if isinstance(item_map, dict):
-                    item_map.pop(ep_key, None)
-            if kid:
-                ep_state = self.fetch_series_episodes_state(kid, item_id=item_id)
-                ep_info = (ep_state.get("episodes") or {}).get((s_num, e_num))
-                if ep_info and ep_info.get("ep_id"):
-                    remote_synced = self._post_episode_status_remote(
-                        kid=kid,
-                        ep_id=str(ep_info["ep_id"]),
-                        watched=True,
-                        clear_rating_only=True,
-                    )
-                    if remote_synced:
-                        ep_info["rating"] = None
+            with self._state_lock:
+                er_root = self.state.setdefault("episode_ratings", {})
+                cer_root = self.state.setdefault("cleared_episode_ratings", {})
+                for k_id in filter(None, [item_id, f"kin_{kid}" if (kid and str(kid).isdigit()) else ""]):
+                    item_map = er_root.get(k_id)
+                    if isinstance(item_map, dict):
+                        item_map.pop(ep_key, None)
+                    cer_root.setdefault(k_id, {})[ep_key] = True
+
+            enqueue_pid = self._profile_id
+
+            def _bg_clear_ep_rate():
+                eff_k = kid or self._resolve_kinorium_id(
+                    item_id, title, orig_title, allow_network=True, media_type="series", year=yr_arg
+                )
+                if eff_k and self._profile_id == enqueue_pid:
+                    with self._state_lock:
+                        if self._profile_id != enqueue_pid:
+                            return
+                        er_bg = self.state.get("episode_ratings") or {}
+                        cer_bg = self.state.setdefault("cleared_episode_ratings", {})
+                        if isinstance(er_bg.get(f"kin_{eff_k}"), dict):
+                            er_bg[f"kin_{eff_k}"].pop(ep_key, None)
+                        cer_bg.setdefault(f"kin_{eff_k}", {})[ep_key] = True
+                    ep_state = self.fetch_series_episodes_state(eff_k, item_id="")  # no merge: keep the cleared rating
+                    ep_info = (ep_state.get("episodes") or {}).get((s_num, e_num))
+                    if ep_info and ep_info.get("ep_id") and self._profile_id == enqueue_pid:
+                        if self._post_episode_status_remote(
+                            kid=eff_k,
+                            ep_id=str(ep_info["ep_id"]),
+                            watched=True,
+                            clear_rating_only=True,
+                        ):
+                            ep_info["rating"] = None
+                            with self._state_lock:
+                                if self._profile_id == enqueue_pid:
+                                    cer_done = self.state.get("cleared_episode_ratings") or {}
+                                    for k_u in filter(None, [item_id, f"kin_{eff_k}"]):
+                                        if isinstance(cer_done.get(k_u), dict):
+                                            cer_done[k_u].pop(ep_key, None)
+                    if self._profile_id == enqueue_pid:
+                        self._save_state(immediate=False, bump_version=True)
+
+            remote_synced = self._run_remote_sync_bg(_bg_clear_ep_rate)
             self._save_state()
             status = self.get_item_status(item_id, title=title, orig_title=orig_title)
             status["rated_episode"] = None
@@ -3266,10 +6613,16 @@ class KinoriumService:
             "comment": clean_comment,
             "episode_title": (episode_title or "").strip(),
             "updated_at": now_str,
+            "remote_synced": False,
         }
-        for k_id in filter(None, [item_id, f"kin_{kid}" if (kid and str(kid).isdigit()) else ""]):
-            item_map = er_root.setdefault(k_id, {})
-            item_map[ep_key] = entry
+        with self._state_lock:
+            er_root = self.state.setdefault("episode_ratings", {})
+            cer_root = self.state.get("cleared_episode_ratings") or {}
+            for k_id in filter(None, [item_id, f"kin_{kid}" if (kid and str(kid).isdigit()) else ""]):
+                item_map = er_root.setdefault(k_id, {})
+                item_map[ep_key] = entry
+                if isinstance(cer_root.get(k_id), dict):
+                    cer_root[k_id].pop(ep_key, None)
         self._record_episode_watched(item_id, title, orig_title, s_num, e_num, resolved_kid=kid)
         auto_completed_series = self._maybe_auto_complete_series(
             item_id=item_id,
@@ -3291,20 +6644,38 @@ class KinoriumService:
                 kid=kid,
                 **kwargs,
             )
-        if kid:
-            ep_state = self.fetch_series_episodes_state(kid, item_id=item_id)
-            ep_info = (ep_state.get("episodes") or {}).get((s_num, e_num))
-            if ep_info and ep_info.get("ep_id") and not ep_info.get("is_future"):
-                remote_synced = self._post_episode_status_remote(
-                    kid=kid,
-                    ep_id=str(ep_info["ep_id"]),
-                    watched=True,
-                    score=score,
-                    comment=clean_comment,
-                )
-                if remote_synced:
-                    ep_info["watched"] = True
-                    ep_info["rating"] = score
+
+        enqueue_pid = self._profile_id
+
+        def _bg_ep_rate():
+            eff_k = kid or self._resolve_kinorium_id(
+                item_id, title, orig_title, allow_network=True, media_type="series", year=yr_arg
+            )
+            if eff_k and self._profile_id == enqueue_pid:
+                self._record_episode_watched(item_id, title, orig_title, s_num, e_num, resolved_kid=eff_k)
+                ep_state = self.fetch_series_episodes_state(eff_k, item_id=item_id)
+                ep_info = (ep_state.get("episodes") or {}).get((s_num, e_num))
+                if ep_info and ep_info.get("ep_id") and not ep_info.get("is_future") and self._profile_id == enqueue_pid:
+                    if self._post_episode_status_remote(
+                        kid=eff_k,
+                        ep_id=str(ep_info["ep_id"]),
+                        watched=True,
+                        score=score,
+                        comment=clean_comment,
+                    ):
+                        ep_info["watched"] = True
+                        ep_info["rating"] = score
+                        with self._state_lock:
+                            if self._profile_id == enqueue_pid:
+                                er_done = self.state.get("episode_ratings") or {}
+                                for k_u in filter(None, [item_id, f"kin_{eff_k}"]):
+                                    if isinstance(er_done.get(k_u), dict) and isinstance(er_done[k_u].get(ep_key), dict):
+                                        er_done[k_u][ep_key]["remote_synced"] = True
+                                self._save_state(immediate=False, bump_version=False)
+                        return True
+            return False
+
+        remote_synced = self._run_remote_sync_bg(_bg_ep_rate)
         self._save_state()
         status = self.get_item_status(item_id, title=title, orig_title=orig_title)
         status["rated_episode"] = entry
@@ -3316,26 +6687,105 @@ class KinoriumService:
 
     def toggle_watchlist(self, item_id: str, title: str = "", orig_title: str = "", **kwargs) -> Dict[str, Any]:
         cur = self.get_item_status(item_id, title=title, orig_title=orig_title)
+        was_watching = bool(cur.get("watching"))
+        was_watched = bool(cur.get("watched"))
+        was_never = bool(cur.get("not_watching"))
+        yr_arg = int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None
+        mtype_arg = str(kwargs.get("media_type") or "")
         kid = self._resolve_kinorium_id(
             item_id,
             title,
             orig_title,
-            allow_network=True,
-            media_type=str(kwargs.get("media_type") or ""),
-            year=int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None,
+            allow_network=False,
+            media_type=mtype_arg,
+            year=yr_arg,
         )
         eff_kid = str(kid) if (kid and str(kid).isdigit()) else ""
-        rem_wl = self.state.setdefault("watchlist_removed", [])
-        if cur.get("in_watchlist"):
-            if item_id in self.state["watchlist"]:
-                self.state["watchlist"].remove(item_id)
-            if item_id not in rem_wl:
-                rem_wl.append(item_id)
-            if eff_kid:
-                if f"kin_{eff_kid}" not in rem_wl:
+        eff_rkey = eff_kid or (str(item_id).strip() if str(item_id or "").strip() else f"local_{_norm_title(title or orig_title)}")
+        with self._state_lock:
+            wl_list = self.state.setdefault("watchlist", [])
+            rem_wl = self.state.setdefault("watchlist_removed", [])
+            loc_w = self.state.setdefault("watching_local", [])
+            rem_w = self.state.setdefault("watching_removed", [])
+            loc_n = self.state.setdefault("never_local", [])
+            rem_n = self.state.setdefault("never_removed", [])
+            if cur.get("in_watchlist"):
+                if item_id in wl_list:
+                    wl_list.remove(item_id)
+                if eff_kid and f"kin_{eff_kid}" in wl_list:
+                    wl_list.remove(f"kin_{eff_kid}")
+                if item_id and item_id not in rem_wl:
+                    rem_wl.append(item_id)
+                if eff_kid and f"kin_{eff_kid}" not in rem_wl:
                     rem_wl.append(f"kin_{eff_kid}")
-                (self.state.get("remote_watchlist_items") or {}).pop(str(eff_kid), None)
-            remote_ok = self._sync_to_kinorium_remote(
+                for k_pop in {str(eff_rkey), str(eff_kid), str(item_id or "").strip()} - {""}:
+                    (self.state.get("remote_watchlist_items") or {}).pop(k_pop, None)
+                if eff_kid and isinstance(self.state.get("remote_removals_pushed"), list):
+                    self.state["remote_removals_pushed"] = [
+                        x for x in self.state["remote_removals_pushed"] if x != f"watchlist_remove:{eff_kid}"
+                    ]
+                action_mode = "remove"
+            else:
+                if item_id and item_id not in wl_list:
+                    wl_list.append(item_id)
+                if item_id in rem_wl:
+                    rem_wl.remove(item_id)
+                # Clear mutually exclusive statuses ('Смотрю', 'Не буду смотреть', 'Просмотрено')
+                if item_id in loc_w:
+                    loc_w.remove(item_id)
+                if was_watching and item_id and item_id not in rem_w:
+                    rem_w.append(item_id)
+                if item_id in loc_n:
+                    loc_n.remove(item_id)
+                if was_never and item_id and item_id not in rem_n:
+                    rem_n.append(item_id)
+                if was_watched:
+                    self.state.setdefault("watched", {})[item_id] = {
+                        "item_id": item_id,
+                        "title": title,
+                        "orig_title": orig_title,
+                        "watched": False,
+                    }
+                if eff_kid:
+                    k_pref = f"kin_{eff_kid}"
+                    if k_pref in rem_wl:
+                        rem_wl.remove(k_pref)
+                    if k_pref in loc_w:
+                        loc_w.remove(k_pref)
+                    if was_watching and k_pref not in rem_w:
+                        rem_w.append(k_pref)
+                    if k_pref in loc_n:
+                        loc_n.remove(k_pref)
+                    if was_never and k_pref not in rem_n:
+                        rem_n.append(k_pref)
+                    if was_watched:
+                        self.state.setdefault("watched", {})[k_pref] = {
+                            "item_id": k_pref,
+                            "title": title,
+                            "orig_title": orig_title,
+                            "watched": False,
+                        }
+                if eff_rkey:
+                    for k_pop in {str(eff_rkey), str(item_id or "").strip()} - {""}:
+                        if k_pop != str(eff_rkey):
+                            (self.state.get("remote_watchlist_items") or {}).pop(k_pop, None)
+                        (self.state.get("remote_watching_items") or {}).pop(k_pop, None)
+                        (self.state.get("remote_never_items") or {}).pop(k_pop, None)
+                        (self.state.get("remote_watched_items") or {}).pop(k_pop, None)
+                    tpl = self._ensure_remote_entry_template(eff_kid or eff_rkey, title, orig_title, extra=kwargs)
+                    tpl["in_watchlist"] = True
+                    tpl["watching"] = False
+                    tpl["watched"] = False
+                    tpl["not_watching"] = False
+                    tpl["status"] = "future"
+                    self.state.setdefault("remote_watchlist_items", {})[str(eff_rkey)] = tpl
+                action_mode = "add"
+            self._build_lookup_indices()
+            self._save_state()
+
+        if action_mode == "remove":
+            remote_ok = self._run_remote_sync_bg(
+                self._sync_to_kinorium_remote,
                 action="watchlist_remove",
                 item_id=item_id,
                 title=title,
@@ -3343,26 +6793,60 @@ class KinoriumService:
                 resolved_kid=eff_kid or None,
             )
         else:
-            if item_id not in self.state["watchlist"]:
-                self.state["watchlist"].append(item_id)
-            if item_id in rem_wl:
-                rem_wl.remove(item_id)
-            if eff_kid:
-                if f"kin_{eff_kid}" in rem_wl:
-                    rem_wl.remove(f"kin_{eff_kid}")
-                tpl = self._ensure_remote_entry_template(eff_kid, title, orig_title, extra=kwargs)
-                tpl["in_watchlist"] = True
-                tpl["status"] = "future"
-                self.state.setdefault("remote_watchlist_items", {})[str(eff_kid)] = tpl
-            remote_ok = self._sync_to_kinorium_remote(
-                action="watchlist_add",
-                item_id=item_id,
-                title=title,
-                orig_title=orig_title,
-                resolved_kid=eff_kid or None,
-            )
-        self._build_lookup_indices()
-        self._save_state()
+            enqueue_pid = self._profile_id
+
+            def _bg_watchlist_add():
+                eff_k = eff_kid or (
+                    self._resolve_kinorium_id(
+                        item_id, title, orig_title, allow_network=True, media_type=mtype_arg, year=yr_arg
+                    )
+                    or ""
+                )
+                if self._profile_id != enqueue_pid:
+                    return
+                if eff_k and str(eff_k).isdigit() and eff_rkey != str(eff_k):
+                    with self._state_lock:
+                        if self._profile_id != enqueue_pid:
+                            return
+                        rwl_d = self.state.setdefault("remote_watchlist_items", {})
+                        migrated = rwl_d.pop(str(eff_rkey), None)
+                        if isinstance(migrated, dict):
+                            migrated["kinorium_id"] = str(eff_k)
+                            rwl_d.setdefault(str(eff_k), migrated)
+                            self._build_lookup_indices()
+                if was_watching:
+                    self._sync_to_kinorium_remote(
+                        action="watching_remove",
+                        item_id=item_id,
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=eff_k or None,
+                    )
+                if was_watched:
+                    self._sync_to_kinorium_remote(
+                        action="unwatched",
+                        item_id=item_id,
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=eff_k or None,
+                    )
+                if was_never:
+                    self._sync_to_kinorium_remote(
+                        action="never_remove",
+                        item_id=item_id,
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=eff_k or None,
+                    )
+                self._sync_to_kinorium_remote(
+                    action="watchlist_add",
+                    item_id=item_id,
+                    title=title,
+                    orig_title=orig_title,
+                    resolved_kid=eff_k or None,
+                )
+
+            remote_ok = self._run_remote_sync_bg(_bg_watchlist_add)
         status = self.get_item_status(item_id, title=title, orig_title=orig_title)
         status["remote_synced"] = remote_ok
         status["kinorium_counts"] = self.get_sections_counts()
@@ -3371,30 +6855,105 @@ class KinoriumService:
     def toggle_watching(self, item_id: str, title: str = "", orig_title: str = "", **kwargs) -> Dict[str, Any]:
         cur = self.get_item_status(item_id, title=title, orig_title=orig_title)
         was_in_watchlist = bool(cur.get("in_watchlist"))
+        was_watched = bool(cur.get("watched"))
+        was_never = bool(cur.get("not_watching"))
+        yr_arg = int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None
+        mtype_arg = str(kwargs.get("media_type") or "")
         kid = self._resolve_kinorium_id(
             item_id,
             title,
             orig_title,
-            allow_network=True,
-            media_type=str(kwargs.get("media_type") or ""),
-            year=int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None,
+            allow_network=False,
+            media_type=mtype_arg,
+            year=yr_arg,
         )
         eff_kid = str(kid) if (kid and str(kid).isdigit()) else ""
-        loc_w = self.state.setdefault("watching_local", [])
-        rem_w = self.state.setdefault("watching_removed", [])
-        rem_wl = self.state.setdefault("watchlist_removed", [])
-        if cur.get("watching"):
-            if item_id in loc_w:
-                loc_w.remove(item_id)
-            if eff_kid and f"kin_{eff_kid}" in loc_w:
-                loc_w.remove(f"kin_{eff_kid}")
-            if item_id not in rem_w:
-                rem_w.append(item_id)
-            if eff_kid:
-                if f"kin_{eff_kid}" not in rem_w:
+        eff_rkey = eff_kid or (str(item_id).strip() if str(item_id or "").strip() else f"local_{_norm_title(title or orig_title)}")
+        with self._state_lock:
+            loc_w = self.state.setdefault("watching_local", [])
+            rem_w = self.state.setdefault("watching_removed", [])
+            wl_list = self.state.setdefault("watchlist", [])
+            rem_wl = self.state.setdefault("watchlist_removed", [])
+            loc_n = self.state.setdefault("never_local", [])
+            rem_n = self.state.setdefault("never_removed", [])
+            if cur.get("watching"):
+                if item_id in loc_w:
+                    loc_w.remove(item_id)
+                if eff_kid and f"kin_{eff_kid}" in loc_w:
+                    loc_w.remove(f"kin_{eff_kid}")
+                if item_id and item_id not in rem_w:
+                    rem_w.append(item_id)
+                if eff_kid and f"kin_{eff_kid}" not in rem_w:
                     rem_w.append(f"kin_{eff_kid}")
-                (self.state.get("remote_watching_items") or {}).pop(str(eff_kid), None)
-            remote_ok = self._sync_to_kinorium_remote(
+                for k_pop in {str(eff_rkey), str(eff_kid), str(item_id or "").strip()} - {""}:
+                    (self.state.get("remote_watching_items") or {}).pop(k_pop, None)
+                if eff_kid and isinstance(self.state.get("remote_removals_pushed"), list):
+                    self.state["remote_removals_pushed"] = [
+                        x for x in self.state["remote_removals_pushed"] if x != f"watching_remove:{eff_kid}"
+                    ]
+                action_mode = "remove"
+            else:
+                if item_id and item_id not in loc_w:
+                    loc_w.append(item_id)
+                if eff_kid and f"kin_{eff_kid}" not in loc_w:
+                    loc_w.append(f"kin_{eff_kid}")
+                if item_id in rem_w:
+                    rem_w.remove(item_id)
+                if item_id in wl_list:
+                    wl_list.remove(item_id)
+                if was_in_watchlist and item_id and item_id not in rem_wl:
+                    rem_wl.append(item_id)
+                if item_id in loc_n:
+                    loc_n.remove(item_id)
+                if was_never and item_id and item_id not in rem_n:
+                    rem_n.append(item_id)
+                if was_watched:
+                    self.state.setdefault("watched", {})[item_id] = {
+                        "item_id": item_id,
+                        "title": title,
+                        "orig_title": orig_title,
+                        "watched": False,
+                    }
+                if eff_kid:
+                    k_pref = f"kin_{eff_kid}"
+                    if k_pref in rem_w:
+                        rem_w.remove(k_pref)
+                    if k_pref in wl_list:
+                        wl_list.remove(k_pref)
+                    if was_in_watchlist and k_pref not in rem_wl:
+                        rem_wl.append(k_pref)
+                    if k_pref in loc_n:
+                        loc_n.remove(k_pref)
+                    if was_never and k_pref not in rem_n:
+                        rem_n.append(k_pref)
+                    if was_watched:
+                        self.state.setdefault("watched", {})[k_pref] = {
+                            "item_id": k_pref,
+                            "title": title,
+                            "orig_title": orig_title,
+                            "watched": False,
+                        }
+                if eff_rkey:
+                    for k_pop in {str(eff_rkey), str(item_id or "").strip()} - {""}:
+                        if k_pop != str(eff_rkey):
+                            (self.state.get("remote_watching_items") or {}).pop(k_pop, None)
+                        (self.state.get("remote_watchlist_items") or {}).pop(k_pop, None)
+                        (self.state.get("remote_never_items") or {}).pop(k_pop, None)
+                        (self.state.get("remote_watched_items") or {}).pop(k_pop, None)
+                    tpl = self._ensure_remote_entry_template(eff_kid or eff_rkey, title, orig_title, extra=kwargs)
+                    tpl["watching"] = True
+                    tpl["watched"] = False
+                    tpl["in_watchlist"] = False
+                    tpl["not_watching"] = False
+                    tpl["status"] = "now"
+                    self.state.setdefault("remote_watching_items", {})[str(eff_rkey)] = tpl
+                action_mode = "add"
+            self._build_lookup_indices()
+            self._save_state()
+
+        if action_mode == "remove":
+            remote_ok = self._run_remote_sync_bg(
+                self._sync_to_kinorium_remote,
                 action="watching_remove",
                 item_id=item_id,
                 title=title,
@@ -3402,44 +6961,60 @@ class KinoriumService:
                 resolved_kid=eff_kid or None,
             )
         else:
-            if item_id not in loc_w:
-                loc_w.append(item_id)
-            if eff_kid and f"kin_{eff_kid}" not in loc_w:
-                loc_w.append(f"kin_{eff_kid}")
-            if item_id in rem_w:
-                rem_w.remove(item_id)
-            if item_id in self.state["watchlist"]:
-                self.state["watchlist"].remove(item_id)
-            if was_in_watchlist and item_id not in rem_wl:
-                rem_wl.append(item_id)
-            if eff_kid:
-                if f"kin_{eff_kid}" in rem_w:
-                    rem_w.remove(f"kin_{eff_kid}")
-                if was_in_watchlist and f"kin_{eff_kid}" not in rem_wl:
-                    rem_wl.append(f"kin_{eff_kid}")
-                (self.state.get("remote_watchlist_items") or {}).pop(str(eff_kid), None)
-                tpl = self._ensure_remote_entry_template(eff_kid, title, orig_title, extra=kwargs)
-                tpl["watching"] = True
-                tpl["in_watchlist"] = False
-                tpl["status"] = "now"
-                self.state.setdefault("remote_watching_items", {})[str(eff_kid)] = tpl
-            if was_in_watchlist:
+            enqueue_pid = self._profile_id
+
+            def _bg_watching_add():
+                eff_k = eff_kid or (
+                    self._resolve_kinorium_id(
+                        item_id, title, orig_title, allow_network=True, media_type=mtype_arg, year=yr_arg
+                    )
+                    or ""
+                )
+                if self._profile_id != enqueue_pid:
+                    return
+                if eff_k and str(eff_k).isdigit() and eff_rkey != str(eff_k):
+                    with self._state_lock:
+                        if self._profile_id != enqueue_pid:
+                            return
+                        rwg_d = self.state.setdefault("remote_watching_items", {})
+                        migrated = rwg_d.pop(str(eff_rkey), None)
+                        if isinstance(migrated, dict):
+                            migrated["kinorium_id"] = str(eff_k)
+                            rwg_d.setdefault(str(eff_k), migrated)
+                            self._build_lookup_indices()
+                if was_in_watchlist:
+                    self._sync_to_kinorium_remote(
+                        action="watchlist_remove",
+                        item_id=item_id,
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=eff_k or None,
+                    )
+                if was_watched:
+                    self._sync_to_kinorium_remote(
+                        action="unwatched",
+                        item_id=item_id,
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=eff_k or None,
+                    )
+                if was_never:
+                    self._sync_to_kinorium_remote(
+                        action="never_remove",
+                        item_id=item_id,
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=eff_k or None,
+                    )
                 self._sync_to_kinorium_remote(
-                    action="watchlist_remove",
+                    action="watching_add",
                     item_id=item_id,
                     title=title,
                     orig_title=orig_title,
-                    resolved_kid=eff_kid or None,
+                    resolved_kid=eff_k or None,
                 )
-            remote_ok = self._sync_to_kinorium_remote(
-                action="watching_add",
-                item_id=item_id,
-                title=title,
-                orig_title=orig_title,
-                resolved_kid=eff_kid or None,
-            )
-        self._build_lookup_indices()
-        self._save_state()
+
+            remote_ok = self._run_remote_sync_bg(_bg_watching_add)
         status = self.get_item_status(item_id, title=title, orig_title=orig_title)
         status["remote_synced"] = remote_ok
         status["kinorium_counts"] = self.get_sections_counts()
@@ -3447,27 +7022,108 @@ class KinoriumService:
 
     def toggle_not_watching(self, item_id: str, title: str = "", orig_title: str = "", **kwargs) -> Dict[str, Any]:
         cur = self.get_item_status(item_id, title=title, orig_title=orig_title)
+        was_watching = bool(cur.get("watching"))
+        was_in_watchlist = bool(cur.get("in_watchlist"))
+        was_watched = bool(cur.get("watched"))
+        had_user_rating = cur.get("user_rating") is not None
+        nr = _norm_title(title)
+        yr_arg = int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None
+        mtype_arg = str(kwargs.get("media_type") or "")
         kid = self._resolve_kinorium_id(
             item_id,
             title,
             orig_title,
-            allow_network=True,
-            media_type=str(kwargs.get("media_type") or ""),
-            year=int(kwargs["year"]) if str(kwargs.get("year") or "").isdigit() else None,
+            allow_network=False,
+            media_type=mtype_arg,
+            year=yr_arg,
         )
         eff_kid = str(kid) if (kid and str(kid).isdigit()) else ""
-        loc_n = self.state.setdefault("never_local", [])
-        rem_n = self.state.setdefault("never_removed", [])
-        if cur.get("not_watching"):
-            if item_id in loc_n:
-                loc_n.remove(item_id)
-            if item_id not in rem_n:
-                rem_n.append(item_id)
-            if eff_kid:
-                if f"kin_{eff_kid}" not in rem_n:
+        eff_rkey = eff_kid or (str(item_id).strip() if str(item_id or "").strip() else f"local_{_norm_title(title or orig_title)}")
+        with self._state_lock:
+            loc_n = self.state.setdefault("never_local", [])
+            rem_n = self.state.setdefault("never_removed", [])
+            loc_w = self.state.setdefault("watching_local", [])
+            rem_w = self.state.setdefault("watching_removed", [])
+            wl_list = self.state.setdefault("watchlist", [])
+            rem_wl = self.state.setdefault("watchlist_removed", [])
+            if cur.get("not_watching"):
+                if item_id in loc_n:
+                    loc_n.remove(item_id)
+                if eff_kid and f"kin_{eff_kid}" in loc_n:
+                    loc_n.remove(f"kin_{eff_kid}")
+                if item_id and item_id not in rem_n:
+                    rem_n.append(item_id)
+                if eff_kid and f"kin_{eff_kid}" not in rem_n:
                     rem_n.append(f"kin_{eff_kid}")
-                (self.state.get("remote_never_items") or {}).pop(str(eff_kid), None)
-            remote_ok = self._sync_to_kinorium_remote(
+                for k_pop in {str(eff_rkey), str(eff_kid), str(item_id or "").strip()} - {""}:
+                    (self.state.get("remote_never_items") or {}).pop(k_pop, None)
+                if eff_kid and isinstance(self.state.get("remote_removals_pushed"), list):
+                    self.state["remote_removals_pushed"] = [
+                        x for x in self.state["remote_removals_pushed"] if x != f"never_remove:{eff_kid}"
+                    ]
+                action_mode = "remove"
+            else:
+                if item_id and item_id not in loc_n:
+                    loc_n.append(item_id)
+                if item_id in rem_n:
+                    rem_n.remove(item_id)
+                if item_id in loc_w:
+                    loc_w.remove(item_id)
+                if was_watching and item_id and item_id not in rem_w:
+                    rem_w.append(item_id)
+                if item_id in wl_list:
+                    wl_list.remove(item_id)
+                if was_in_watchlist and item_id and item_id not in rem_wl:
+                    rem_wl.append(item_id)
+                # Remove from Continue Watching when user marks 'Не буду смотреть'
+                self.state["continue_watching"] = [
+                    x
+                    for x in self.state.get("continue_watching", [])
+                    if x.get("id") != item_id
+                    and (not eff_kid or x.get("id") != f"kin_{eff_kid}")
+                    and (not nr or _norm_title(x.get("title", "")) != nr)
+                ]
+                # Clear watched / rating locally if user explicitly marks 'Не буду смотреть'
+                if item_id in self.state.get("watched", {}):
+                    self.state["watched"][item_id] = {"item_id": item_id, "title": title, "watched": False}
+                if item_id in self.state.get("ratings", {}):
+                    self.state["ratings"][item_id] = {"score": None, "comment": "", "cleared": True}
+                if eff_kid:
+                    k_pref = f"kin_{eff_kid}"
+                    if k_pref in rem_n:
+                        rem_n.remove(k_pref)
+                    if k_pref in loc_w:
+                        loc_w.remove(k_pref)
+                    if was_watching and k_pref not in rem_w:
+                        rem_w.append(k_pref)
+                    if k_pref in wl_list:
+                        wl_list.remove(k_pref)
+                    if was_in_watchlist and k_pref not in rem_wl:
+                        rem_wl.append(k_pref)
+                    self.state.setdefault("watched", {})[k_pref] = {"item_id": k_pref, "title": title, "watched": False}
+                    self.state.setdefault("ratings", {})[k_pref] = {"score": None, "comment": "", "cleared": True}
+                if eff_rkey:
+                    for k_pop in {str(eff_rkey), str(item_id or "").strip()} - {""}:
+                        if k_pop != str(eff_rkey):
+                            (self.state.get("remote_never_items") or {}).pop(k_pop, None)
+                        (self.state.get("remote_watched_items") or {}).pop(k_pop, None)
+                        (self.state.get("remote_watching_items") or {}).pop(k_pop, None)
+                        (self.state.get("remote_watchlist_items") or {}).pop(k_pop, None)
+                    tpl = self._ensure_remote_entry_template(eff_kid or eff_rkey, title, orig_title, extra=kwargs)
+                    tpl["not_watching"] = True
+                    tpl["watched"] = False
+                    tpl["watching"] = False
+                    tpl["in_watchlist"] = False
+                    tpl["score"] = None
+                    tpl["status"] = "never"
+                    self.state.setdefault("remote_never_items", {})[str(eff_rkey)] = tpl
+                action_mode = "add"
+            self._build_lookup_indices()
+            self._save_state()
+
+        if action_mode == "remove":
+            remote_ok = self._run_remote_sync_bg(
+                self._sync_to_kinorium_remote,
                 action="never_remove",
                 item_id=item_id,
                 title=title,
@@ -3475,74 +7131,147 @@ class KinoriumService:
                 resolved_kid=eff_kid or None,
             )
         else:
-            if item_id not in loc_n:
-                loc_n.append(item_id)
-            if item_id in rem_n:
-                rem_n.remove(item_id)
-            if eff_kid:
-                if f"kin_{eff_kid}" in rem_n:
-                    rem_n.remove(f"kin_{eff_kid}")
-                tpl = self._ensure_remote_entry_template(eff_kid, title, orig_title, extra=kwargs)
-                tpl["not_watching"] = True
-                tpl["status"] = "never"
-                self.state.setdefault("remote_never_items", {})[str(eff_kid)] = tpl
-            remote_ok = self._sync_to_kinorium_remote(
-                action="never_add",
-                item_id=item_id,
-                title=title,
-                orig_title=orig_title,
-                resolved_kid=eff_kid or None,
-            )
-        self._build_lookup_indices()
-        self._save_state()
+            enqueue_pid = self._profile_id
+
+            def _bg_never_add():
+                eff_k = eff_kid or (
+                    self._resolve_kinorium_id(
+                        item_id, title, orig_title, allow_network=True, media_type=mtype_arg, year=yr_arg
+                    )
+                    or ""
+                )
+                if self._profile_id != enqueue_pid:
+                    return
+                if eff_k and str(eff_k).isdigit() and eff_rkey != str(eff_k):
+                    with self._state_lock:
+                        if self._profile_id != enqueue_pid:
+                            return
+                        rn_d = self.state.setdefault("remote_never_items", {})
+                        migrated = rn_d.pop(str(eff_rkey), None)
+                        if isinstance(migrated, dict):
+                            migrated["kinorium_id"] = str(eff_k)
+                            rn_d.setdefault(str(eff_k), migrated)
+                            self._build_lookup_indices()
+                if was_watching:
+                    self._sync_to_kinorium_remote(
+                        action="watching_remove",
+                        item_id=item_id,
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=eff_k or None,
+                    )
+                if was_in_watchlist:
+                    self._sync_to_kinorium_remote(
+                        action="watchlist_remove",
+                        item_id=item_id,
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=eff_k or None,
+                    )
+                if had_user_rating:
+                    self._sync_to_kinorium_remote(
+                        action="rate_remove",
+                        item_id=item_id,
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=eff_k or None,
+                    )
+                if was_watched:
+                    self._sync_to_kinorium_remote(
+                        action="unwatched",
+                        item_id=item_id,
+                        title=title,
+                        orig_title=orig_title,
+                        resolved_kid=eff_k or None,
+                    )
+                self._sync_to_kinorium_remote(
+                    action="never_add",
+                    item_id=item_id,
+                    title=title,
+                    orig_title=orig_title,
+                    resolved_kid=eff_k or None,
+                )
+
+            remote_ok = self._run_remote_sync_bg(_bg_never_add)
         status = self.get_item_status(item_id, title=title, orig_title=orig_title)
         status["remote_synced"] = remote_ok
         status["kinorium_counts"] = self.get_sections_counts()
         return status
 
-    def configure_account(self, username: str, session_cookie: str, threshold: float = 0.85) -> Dict[str, Any]:
+    def configure_account(self, username: str, session_cookie: str, threshold: float = 0.95) -> Dict[str, Any]:
         raw_user = (username or "").strip()
         cookie_updated = False
-        if session_cookie is not None and session_cookie.strip():
-            cleaned_cookie = self.sanitize_session_cookie(session_cookie)
-            if cleaned_cookie:
-                self.state["account"]["session_cookie"] = cleaned_cookie
-                self._kinorium_cookie_cache = ""
-                self._session_auth_verified = None
-                cookie_updated = True
-        self.state["account"]["auto_scrobble_threshold"] = max(0.5, min(0.99, float(threshold)))
+        new_cookie_uid = ""
+        with self._state_lock:
+            if session_cookie is not None and session_cookie.strip():
+                cleaned_cookie = self.sanitize_session_cookie(session_cookie)
+                if cleaned_cookie:
+                    self.state.setdefault("account", {})["session_cookie"] = cleaned_cookie
+                    with self._cookie_lock:
+                        self._kinorium_cookie_cache = ""
+                    with self._episodes_lock:
+                        self._series_episodes_cache.clear()
+                    self._session_auth_verified = None
+                    cookie_updated = True
+                    new_cookie_uid = self.extract_cookie_user_id(cleaned_cookie)
+            self.state.setdefault("account", {})["auto_scrobble_threshold"] = max(0.5, min(0.99, float(threshold)))
+
+        start_pid_cfg = self._profile_id
+
+        def _bg_two_way_reconcile() -> None:
+            if self._profile_id != start_pid_cfg:
+                return
+            try:
+                self.reconcile_local_statuses_to_remote()
+            except Exception:
+                pass
+            if self._profile_id != start_pid_cfg:
+                return
+            try:
+                self.reconcile_all_local_episodes()
+            except Exception:
+                pass
+
         if raw_user:
             new_path = self.extract_user_path(raw_user)
             cur_uid = str(self.state.get("account", {}).get("user_id") or "")
-            if not cur_uid or new_path != f"/user/{cur_uid}/":
-                self.sync_user_profile(raw_user)
+            if cookie_updated and new_cookie_uid and (not cur_uid or new_path == f"/user/{cur_uid}/") and new_cookie_uid != cur_uid:
+                self.sync_user_profile(new_cookie_uid, session_cookie=self.state["account"].get("session_cookie"))
+            elif not cur_uid or new_path != f"/user/{cur_uid}/":
+                self.sync_user_profile(raw_user, session_cookie=session_cookie if cookie_updated else None)
             else:
                 self._save_state()
                 if cookie_updated:
-                    threading.Thread(target=self.reconcile_all_local_episodes, daemon=True).start()
+                    threading.Thread(target=_bg_two_way_reconcile, daemon=True).start()
         else:
-            self._save_state()
-            if cookie_updated:
-                threading.Thread(target=self.reconcile_all_local_episodes, daemon=True).start()
+            if cookie_updated and new_cookie_uid and new_cookie_uid != str(self.state.get("account", {}).get("user_id") or ""):
+                self.sync_user_profile(new_cookie_uid, session_cookie=self.state["account"].get("session_cookie"))
+            else:
+                self._save_state()
+                if cookie_updated:
+                    threading.Thread(target=_bg_two_way_reconcile, daemon=True).start()
         return self.state["account"]
 
-    def _promote_series_to_watching_if_needed(
+    def _promote_to_watching_with_status(
         self,
         item_id: str,
         title: str = "",
         orig_title: str = "",
         kid: Optional[str] = None,
         **extra,
-    ) -> bool:
+    ) -> Tuple[bool, bool]:
         """
-        Automatically promotes an unfinished series to 'Смотрю' (`watching=True`, `isNow=1`)
-        when the user watches, batch-marks, or rates episodes while the series is still in
-        'Буду смотреть' (`future`) or has no status yet.
+        Automatically promotes an unfinished movie or series to 'Смотрю' (`watching=True`, `isNow=1`)
+        when the user reaches 10% playback progress, batch-marks, or rates episodes while the title
+        is still in 'Буду смотреть' (`future`) or has no status yet.
+        Returns `(promoted, remote_synced)`.
         """
+        remote_ok = False
         cur = self.get_item_status(item_id, title=title, orig_title=orig_title)
         if cur.get("watching") or cur.get("watched") or cur.get("not_watching"):
-            return False
+            return False, False
         was_in_watchlist = bool(cur.get("in_watchlist"))
+        mtype = str(extra.get("media_type") or "series")
         eff_kid = str(kid) if (kid and str(kid).isdigit()) else ""
         if not eff_kid:
             resolved = self._resolve_kinorium_id(
@@ -3550,39 +7279,40 @@ class KinoriumService:
                 title,
                 orig_title,
                 allow_network=True,
-                media_type="series",
+                media_type=mtype,
             )
             eff_kid = str(resolved) if (resolved and str(resolved).isdigit()) else ""
 
-        loc_w = self.state.setdefault("watching_local", [])
-        rem_w = self.state.setdefault("watching_removed", [])
-        rem_wl = self.state.setdefault("watchlist_removed", [])
-        if item_id and item_id not in loc_w:
-            loc_w.append(item_id)
-        if item_id in rem_w:
-            rem_w.remove(item_id)
-        if item_id in self.state["watchlist"]:
-            self.state["watchlist"].remove(item_id)
-        if was_in_watchlist and item_id and item_id not in rem_wl:
-            rem_wl.append(item_id)
+        with self._state_lock:
+            loc_w = self.state.setdefault("watching_local", [])
+            rem_w = self.state.setdefault("watching_removed", [])
+            rem_wl = self.state.setdefault("watchlist_removed", [])
+            if item_id and item_id not in loc_w:
+                loc_w.append(item_id)
+            if item_id in rem_w:
+                rem_w.remove(item_id)
+            if item_id in self.state["watchlist"]:
+                self.state["watchlist"].remove(item_id)
+            if was_in_watchlist and item_id and item_id not in rem_wl:
+                rem_wl.append(item_id)
 
-        if eff_kid:
-            k_pref = f"kin_{eff_kid}"
-            if k_pref not in loc_w:
-                loc_w.append(k_pref)
-            if k_pref in rem_w:
-                rem_w.remove(k_pref)
-            if was_in_watchlist and k_pref not in rem_wl:
-                rem_wl.append(k_pref)
-            (self.state.get("remote_watchlist_items") or {}).pop(eff_kid, None)
-            extra_kw = dict(extra)
-            extra_kw.setdefault("media_type", "series")
-            tpl = self._ensure_remote_entry_template(eff_kid, title, orig_title, extra=extra_kw)
-            tpl["watching"] = True
-            tpl["watched"] = False
-            tpl["in_watchlist"] = False
-            tpl["status"] = "now"
-            self.state.setdefault("remote_watching_items", {})[eff_kid] = tpl
+            if eff_kid:
+                k_pref = f"kin_{eff_kid}"
+                if k_pref not in loc_w:
+                    loc_w.append(k_pref)
+                if k_pref in rem_w:
+                    rem_w.remove(k_pref)
+                if was_in_watchlist and k_pref not in rem_wl:
+                    rem_wl.append(k_pref)
+                (self.state.get("remote_watchlist_items") or {}).pop(eff_kid, None)
+                extra_kw = dict(extra)
+                extra_kw.setdefault("media_type", mtype)
+                tpl = self._ensure_remote_entry_template(eff_kid, title, orig_title, extra=extra_kw)
+                tpl["watching"] = True
+                tpl["watched"] = False
+                tpl["in_watchlist"] = False
+                tpl["status"] = "now"
+                self.state.setdefault("remote_watching_items", {})[eff_kid] = tpl
 
         self._build_lookup_indices()
         if eff_kid:
@@ -3594,14 +7324,51 @@ class KinoriumService:
                     orig_title=orig_title,
                     resolved_kid=eff_kid,
                 )
-            self._sync_to_kinorium_remote(
-                action="watching_add",
-                item_id=item_id or f"kin_{eff_kid}",
-                title=title,
-                orig_title=orig_title,
-                resolved_kid=eff_kid,
+            remote_ok = bool(
+                self._sync_to_kinorium_remote(
+                    action="watching_add",
+                    item_id=item_id or f"kin_{eff_kid}",
+                    title=title,
+                    orig_title=orig_title,
+                    resolved_kid=eff_kid,
+                )
             )
-        return True
+        return True, remote_ok
+
+    def _promote_to_watching_if_needed(
+        self,
+        item_id: str,
+        title: str = "",
+        orig_title: str = "",
+        kid: Optional[str] = None,
+        **extra,
+    ) -> bool:
+        promoted, _ = self._promote_to_watching_with_status(
+            item_id=item_id,
+            title=title,
+            orig_title=orig_title,
+            kid=kid,
+            **extra,
+        )
+        return promoted
+
+    def _promote_series_to_watching_if_needed(
+        self,
+        item_id: str,
+        title: str = "",
+        orig_title: str = "",
+        kid: Optional[str] = None,
+        **extra,
+    ) -> bool:
+        extra_kw = dict(extra)
+        extra_kw.setdefault("media_type", "series")
+        return self._promote_to_watching_if_needed(
+            item_id=item_id,
+            title=title,
+            orig_title=orig_title,
+            kid=kid,
+            **extra_kw,
+        )
 
     @staticmethod
     def parse_series_episodes_html(ep_html: str) -> Dict[str, Any]:
@@ -3629,10 +7396,13 @@ class KinoriumService:
             if not m_ep_id:
                 continue
             ep_id = m_ep_id.group(1)
-            m_se = re.search(r"(\d+)\s*с:\s*(\d+)\s*э", blk) or re.search(
-                r"/episodes/s(\d+)e(\d+)/",
-                blk,
-                re.I,
+            m_se = (
+                re.search(r"(\d+)\s*(?:с|s|сезон|season)\s*:\s*(\d+)\s*(?:э|e|серия|эпизод|ep)", blk, re.I)
+                or re.search(
+                    r"/episodes/s(\d+)e(\d+)/",
+                    blk,
+                    re.I,
+                )
             )
             if not m_se:
                 continue
@@ -3656,13 +7426,23 @@ class KinoriumService:
                 if 1 <= r_int <= 10:
                     rating_val = r_int
 
-            is_future = bool(
-                "futureEpisode" in li_cls
-                or re.search(r"\bdisabled\b", widget_tag, re.I)
-                or re.search(r"data-future\s*=\s*['\"]1['\"]", widget_tag, re.I)
-            )
-            m_nm = re.search(r"data-movieName\s*=\s*['\"]([^'\"]+)['\"]", widget_tag)
-            ru_name = html.unescape(m_nm.group(1)).strip() if m_nm else ""
+            air_date_human, air_date_iso = _parse_episode_air_date_iso(blk)
+            today_iso = datetime.date.today().isoformat()
+            # Note: Do NOT treat `disabled` on `statusWidgetData` as `is_future` because Kinorium
+            # disables status widgets on ALL episodes when viewed without an authenticated session.
+            # Also, if the user already watched or rated an episode, it cannot be unreleased/future.
+            if watched or rating_val is not None:
+                is_future = False
+            else:
+                is_future = bool(
+                    "futureEpisode" in li_cls
+                    or "future_episode" in li_cls
+                    or re.search(r"data-future\s*=\s*['\"]1['\"]", widget_tag, re.I)
+                    or re.search(r"data-future\s*=\s*['\"]1['\"]", blk, re.I)
+                    or (air_date_iso and air_date_iso > today_iso)
+                )
+            m_nm = re.search(r"data-movieName\s*=\s*(['\"])(.*?)\1", widget_tag)
+            ru_name = html.unescape(m_nm.group(2)).strip() if m_nm else ""
             m_orig = re.search(r"<h3>\s*([^<\n]+)", blk)
             orig_name = html.unescape(m_orig.group(1)).strip() if m_orig else ""
 
@@ -3673,16 +7453,45 @@ class KinoriumService:
                 "watched": watched,
                 "rating": rating_val,
                 "is_future": is_future,
+                "air_date": air_date_human,
+                "air_date_iso": air_date_iso,
                 "ru_title": ru_name,
                 "orig_title": orig_name,
             }
+
+        stale_cutoff_iso = (datetime.date.today() - datetime.timedelta(days=180)).isoformat()
+        seasons_seen = sorted({sn for (sn, _en) in episodes.keys()})
+        max_season_seen = max(seasons_seen) if seasons_seen else 0
+        for sn in seasons_seen:
+            s_items = {en: ep_d for (s_k, en), ep_d in episodes.items() if s_k == sn}
+            known_dates = [str(ep_d.get("air_date_iso")) for ep_d in s_items.values() if ep_d.get("air_date_iso")]
+            if not known_dates:
+                continue
+            max_season_date_iso = max(known_dates)
+            has_explicit_future_in_season = any(bool(ep_d.get("is_future")) for ep_d in s_items.values())
+            if not has_explicit_future_in_season and (max_season_date_iso < stale_cutoff_iso or sn < max_season_seen):
+                continue
+            max_aired_ep = max(
+                (en for en, ep_d in s_items.items() if ep_d.get("air_date_iso") and not ep_d.get("is_future")),
+                default=0,
+            )
+            min_future_ep = min(
+                (en for en, ep_d in s_items.items() if ep_d.get("is_future")),
+                default=0,
+            )
+            for en, ep_d in s_items.items():
+                if ep_d.get("air_date_iso") or ep_d.get("is_future") or ep_d.get("watched") or ep_d.get("rating") is not None:
+                    continue
+                if (min_future_ep and en >= min_future_ep) or (max_aired_ep > 0 and en > max_aired_ep):
+                    ep_d["is_future"] = True
 
         return {"episodes": episodes, "season_buttons": season_buttons}
 
     def _is_episode_cached_remote_done(self, kid: str, season: int, episode: int) -> bool:
         if not kid or not str(kid).isdigit():
             return False
-        cached = self._series_episodes_cache.get(str(kid))
+        with self._episodes_lock:
+            cached = self._series_episodes_cache.get(str(kid))
         if not cached:
             return False
         ep_info = (cached.get("episodes") or {}).get((int(season), int(episode)))
@@ -3697,41 +7506,78 @@ class KinoriumService:
         if not kid or not str(kid).isdigit() or not episodes_map:
             return False
         changed = False
-        we_root = self.state.setdefault("watched_episodes", {})
-        er_root = self.state.setdefault("episode_ratings", {})
-        target_keys = [k for k in (f"kin_{kid}", item_id if (item_id and item_id != f"kin_{kid}") else "") if k]
-        now_str = time.strftime("%Y-%m-%d %H:%M")
+        with self._state_lock:
+            we_root = self.state.setdefault("watched_episodes", {})
+            uw_root = self.state.setdefault("unwatched_episodes", {})
+            er_root = self.state.setdefault("episode_ratings", {})
+            cer_root = self.state.setdefault("cleared_episode_ratings", {})
+            target_keys = [k for k in (f"kin_{kid}", item_id if (item_id and item_id != f"kin_{kid}") else "") if k]
+            now_str = time.strftime("%Y-%m-%d %H:%M")
 
-        for (s_num, e_num), ep_info in episodes_map.items():
-            s_key = str(s_num)
-            ep_key = f"s{s_num}e{e_num}"
-            if ep_info.get("watched") or ep_info.get("rating"):
-                for k_id in target_keys:
-                    s_map = we_root.setdefault(k_id, {})
-                    cur_list = s_map.get(s_key) or []
-                    if e_num not in cur_list:
-                        cur_list.append(e_num)
-                        s_map[s_key] = sorted(set(cur_list))
-                        changed = True
-            r_val = ep_info.get("rating")
-            if r_val and 1 <= int(r_val) <= 10:
-                for k_id in target_keys:
-                    r_map = er_root.setdefault(k_id, {})
-                    existing_r = r_map.get(ep_key)
-                    if not isinstance(existing_r, dict) or existing_r.get("score") != int(r_val):
-                        r_map[ep_key] = {
-                            "season": s_num,
-                            "episode": e_num,
-                            "score": int(r_val),
-                            "comment": str(existing_r.get("comment") or "") if isinstance(existing_r, dict) else "",
-                            "episode_title": str(
-                                (existing_r.get("episode_title") if isinstance(existing_r, dict) else "")
-                                or ep_info.get("ru_title")
-                                or ""
-                            ),
-                            "updated_at": now_str,
-                        }
-                        changed = True
+            for (s_num, e_num), ep_info in episodes_map.items():
+                s_key = str(s_num)
+                ep_key = f"s{s_num}e{e_num}"
+                locally_unwatched = any(
+                    e_num in ((uw_root.get(k_id) or {}).get(s_key) or [])
+                    for k_id in target_keys
+                )
+                locally_cleared_rating = any(
+                    bool((cer_root.get(k_id) or {}).get(ep_key))
+                    for k_id in target_keys
+                )
+                if ep_info.get("watched") or ep_info.get("rating"):
+                    if locally_unwatched:
+                        continue
+                    for k_id in target_keys:
+                        s_map = we_root.setdefault(k_id, {})
+                        cur_list = s_map.get(s_key) or []
+                        if e_num not in cur_list:
+                            cur_list.append(e_num)
+                            s_map[s_key] = sorted(set(cur_list))
+                            changed = True
+                elif locally_unwatched:
+                    # Remote now agrees episode is unwatched -> clear local tombstone
+                    for k_id in target_keys:
+                        uw_map = uw_root.get(k_id)
+                        if isinstance(uw_map, dict) and s_key in uw_map:
+                            rem_uw = [int(x) for x in (uw_map.get(s_key) or []) if str(x).isdigit() and int(x) != e_num]
+                            if rem_uw:
+                                uw_map[s_key] = sorted(set(rem_uw))
+                            else:
+                                uw_map.pop(s_key, None)
+                            changed = True
+                r_val = ep_info.get("rating")
+                if r_val and 1 <= int(r_val) <= 10 and not locally_unwatched and not locally_cleared_rating:
+                    for k_id in target_keys:
+                        r_map = er_root.setdefault(k_id, {})
+                        existing_r = r_map.get(ep_key)
+                        if isinstance(existing_r, dict) and existing_r.get("remote_synced") is False:
+                            continue
+                        if (
+                            not isinstance(existing_r, dict)
+                            or existing_r.get("score") != int(r_val)
+                            or existing_r.get("remote_synced") is not True
+                        ):
+                            r_map[ep_key] = {
+                                "season": s_num,
+                                "episode": e_num,
+                                "score": int(r_val),
+                                "comment": str(existing_r.get("comment") or "") if isinstance(existing_r, dict) else "",
+                                "episode_title": str(
+                                    (existing_r.get("episode_title") if isinstance(existing_r, dict) else "")
+                                    or ep_info.get("ru_title")
+                                    or ""
+                                ),
+                                "updated_at": now_str,
+                                "remote_synced": True,
+                            }
+                            changed = True
+                elif not r_val and locally_cleared_rating:
+                    # Remote now agrees episode rating is cleared -> drop tombstone
+                    for k_id in target_keys:
+                        if isinstance(cer_root.get(k_id), dict) and ep_key in cer_root[k_id]:
+                            cer_root[k_id].pop(ep_key, None)
+                            changed = True
         return changed
 
     def fetch_series_episodes_state(
@@ -3744,40 +7590,60 @@ class KinoriumService:
         if not kid_str.isdigit():
             return {"episodes": {}, "season_buttons": {}, "is_authed": False}
 
+        start_pid = self._profile_id
         now_ts = time.time()
+        with self._state_lock:
+            uid = str(self.state.get("account", {}).get("user_id") or "").strip()
+            has_cookie = bool((self.state.get("account", {}).get("session_cookie") or "").strip())
+        cached_hit: Optional[Dict[str, Any]] = None
         with self._episodes_lock:
             cached = self._series_episodes_cache.get(kid_str)
-            if cached and not force_refresh and (now_ts - float(cached.get("ts") or 0.0)) < 600.0:
-                if cached.get("is_authed") and item_id:
-                    if self._merge_remote_episodes_into_local(kid_str, cached.get("episodes") or {}, item_id=item_id):
-                        self._save_state(immediate=False, bump_version=True)
-                return cached
+            if (
+                cached
+                and not force_refresh
+                and (now_ts - float(cached.get("ts") or 0.0)) < 3600.0
+                and (not has_cookie or (cached.get("is_authed") and cached.get("user_id") == uid))
+            ):
+                cached_hit = cached
+        if cached_hit is not None:
+            if cached_hit.get("is_authed") and item_id and self._profile_id == start_pid:
+                if self._merge_remote_episodes_into_local(kid_str, cached_hit.get("episodes") or {}, item_id=item_id):
+                    self._save_state(immediate=False, bump_version=True)
+            return cached_hit
 
         try:
-            ep_html = self.fetch_kinorium_html(f"https://ru.kinorium.com/{kid_str}/episodes/")
-            uid = str(self.state.get("account", {}).get("user_id") or "").strip()
+            prev_ia_ep = getattr(self._sync_cookie_tl, "include_auth", False)
+            self._sync_cookie_tl.include_auth = bool(has_cookie)
+            try:
+                ep_html = self.fetch_kinorium_html(f"https://ru.kinorium.com/{kid_str}/episodes/")
+            finally:
+                self._sync_cookie_tl.include_auth = prev_ia_ep
             is_authed = bool(
-                uid
-                and (
-                    f"USER_ID = '{uid}'" in ep_html
-                    or f'USER_ID = "{uid}"' in ep_html
+                (
+                    uid
+                    and (
+                        re.search(rf"\bUSER_ID\s*=\s*['\"]?{re.escape(uid)}['\"]?", ep_html)
+                        or f"/user/{uid}/" in ep_html
+                    )
                 )
+                or (has_cookie and re.search(r"\bUSER_ID\s*=\s*['\"]?[1-9]\d*['\"]?", ep_html))
             )
-            if (self.state.get("account", {}).get("session_cookie") or "").strip():
+            if has_cookie and self._profile_id == start_pid:
                 self._session_auth_verified = is_authed
             parsed = self.parse_series_episodes_html(ep_html)
             if not parsed["episodes"] and cached and cached.get("episodes"):
                 return cached
             state_obj: Dict[str, Any] = {
                 "ts": now_ts,
+                "user_id": uid,
                 "is_authed": is_authed,
                 "episodes": parsed["episodes"],
                 "season_buttons": parsed["season_buttons"],
             }
-            if parsed["episodes"]:
+            if parsed["episodes"] and self._profile_id == start_pid and (is_authed or not has_cookie):
                 with self._episodes_lock:
                     self._series_episodes_cache[kid_str] = state_obj
-            if is_authed and parsed["episodes"]:
+            if is_authed and item_id and parsed["episodes"] and self._profile_id == start_pid:
                 if self._merge_remote_episodes_into_local(kid_str, parsed["episodes"], item_id=item_id):
                     self._save_state(immediate=False, bump_version=True)
             return state_obj
@@ -3795,7 +7661,7 @@ class KinoriumService:
         comment: str = "",
         clear_rating_only: bool = False,
     ) -> bool:
-        user_cookie = self.state["account"].get("session_cookie", "").strip()
+        user_cookie = self._get_active_sync_cookie()
         if not user_cookie or not str(kid).isdigit() or not str(ep_id).isdigit():
             return False
         try:
@@ -3818,12 +7684,13 @@ class KinoriumService:
                         "group_key": group_key,
                     }
                 )
-                req = urllib.request.Request(
-                    f"https://ru.kinorium.com/handlers/delStatus/?{qs}",
-                    headers=headers,
+                _, raw_txt, _ = self._kinorium_http_request(
+                    f"/handlers/delStatus/?{qs}",
                     method="GET",
+                    extra_headers=headers,
+                    timeout=8.0,
                 )
-                raw = urllib.request.urlopen(req, timeout=8).read().decode("utf-8", errors="ignore").strip()
+                raw = raw_txt.strip()
                 if not raw.startswith("{"):
                     return False
                 resp_json = json.loads(raw)
@@ -3842,13 +7709,15 @@ class KinoriumService:
                 "share": "",
             }
             payload = urllib.parse.urlencode(form).encode("utf-8")
-            req = urllib.request.Request(
-                "https://ru.kinorium.com/handlers/setStatus/",
-                data=payload,
-                headers=headers,
+            post_hdrs = {**headers, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
+            _, raw_txt, _ = self._kinorium_http_request(
+                "/handlers/setStatus/",
                 method="POST",
+                data=payload,
+                extra_headers=post_hdrs,
+                timeout=8.0,
             )
-            raw = urllib.request.urlopen(req, timeout=8).read().decode("utf-8", errors="ignore").strip()
+            raw = raw_txt.strip()
             if not raw.startswith("{"):
                 return False
             resp_json = json.loads(raw)
@@ -3863,16 +7732,21 @@ class KinoriumService:
         target_by_season: Dict[int, List[int]],
         mark_season_complete: bool = False,
     ) -> Tuple[bool, int]:
-        user_cookie = self.state["account"].get("session_cookie", "").strip()
+        user_cookie = self._get_active_sync_cookie()
         if not user_cookie or not str(kid).isdigit() or not target_by_season:
             return False, 0
 
         ep_state = self.fetch_series_episodes_state(kid, item_id=item_id)
-        if not ep_state.get("is_authed"):
-            return False, 0
         ep_map: Dict[Tuple[int, int], Dict[str, Any]] = ep_state.get("episodes") or {}
         if not ep_map:
             return False, 0
+
+        with self._state_lock:
+            er_root = self.state.get("episode_ratings") or {}
+            er_for_item: Dict[str, Any] = {}
+            for k_lookup in filter(None, [f"kin_{kid}", item_id]):
+                if isinstance(er_root.get(k_lookup), dict):
+                    er_for_item.update(er_root[k_lookup])
 
         to_mark: List[Dict[str, Any]] = []
         already_done_count = 0
@@ -3881,7 +7755,13 @@ class KinoriumService:
                 ep_info = ep_map.get((int(s_num), int(e_num)))
                 if not ep_info or ep_info.get("is_future"):
                     continue
-                if ep_info.get("watched"):
+                ep_k = f"s{int(s_num)}e{int(e_num)}"
+                loc_r = er_for_item.get(ep_k) if isinstance(er_for_item.get(ep_k), dict) else None
+                sc_val = int(loc_r["score"]) if (loc_r and str(loc_r.get("score") or "").isdigit()) else None
+                needs_rating_push = bool(
+                    sc_val and 1 <= sc_val <= 10 and (ep_info.get("rating") != sc_val or loc_r.get("remote_synced") is not True)
+                )
+                if ep_info.get("watched") and not needs_rating_push:
                     already_done_count += 1
                 else:
                     to_mark.append(ep_info)
@@ -3908,57 +7788,71 @@ class KinoriumService:
                     qs = urllib.parse.urlencode(
                         {"movie_id": str(kid), "season": str(only_s), "checked": "1"}
                     )
-                    req = urllib.request.Request(
-                        f"https://ru.kinorium.com/handlers/checkEpisode/?{qs}",
-                        headers={
+                    _, raw_txt, _ = self._kinorium_http_request(
+                        f"/handlers/checkEpisode/?{qs}",
+                        method="GET",
+                        extra_headers={
                             "User-Agent": self.UA,
                             "Cookie": full_cookie,
                             "X-Requested-With": "XMLHttpRequest",
                             "Referer": f"https://ru.kinorium.com/{kid}/episodes/",
                         },
-                        method="GET",
+                        timeout=8.0,
                     )
-                    raw = urllib.request.urlopen(req, timeout=8).read().decode("utf-8", errors="ignore").strip()
+                    raw = raw_txt.strip()
                     if raw.startswith("{"):
                         rj = json.loads(raw)
                         if isinstance(rj, dict) and not rj.get("error") and "result" in rj:
-                            for info in season_released_eps:
-                                info["watched"] = True
+                            with self._episodes_lock:
+                                for info in season_released_eps:
+                                    info["watched"] = True
                             return True, len(to_mark)
                 except Exception:
                     pass
 
-        er_root = self.state.get("episode_ratings") or {}
-        er_for_item: Dict[str, Any] = {}
-        for k_lookup in filter(None, [f"kin_{kid}", item_id]):
-            if isinstance(er_root.get(k_lookup), dict):
-                er_for_item.update(er_root[k_lookup])
-
         def _mark_one(info: Dict[str, Any]) -> bool:
-            ep_k = f"s{info['season']}e{info['episode']}"
-            loc_r = er_for_item.get(ep_k) if isinstance(er_for_item.get(ep_k), dict) else None
-            sc_val = int(loc_r["score"]) if (loc_r and str(loc_r.get("score") or "").isdigit()) else None
-            cm_val = str(loc_r.get("comment") or "") if loc_r else ""
-            ok = self._post_episode_status_remote(
-                kid=str(kid),
-                ep_id=str(info["ep_id"]),
-                watched=True,
-                score=sc_val,
-                comment=cm_val,
-            )
-            if ok:
-                info["watched"] = True
-                if sc_val:
-                    info["rating"] = sc_val
-            return ok
+            prev_tl = getattr(self._sync_cookie_tl, "cookie", None)
+            self._sync_cookie_tl.cookie = user_cookie
+            try:
+                ep_k = f"s{info['season']}e{info['episode']}"
+                loc_r = er_for_item.get(ep_k) if isinstance(er_for_item.get(ep_k), dict) else None
+                sc_val = int(loc_r["score"]) if (loc_r and str(loc_r.get("score") or "").isdigit()) else None
+                cm_val = str(loc_r.get("comment") or "") if loc_r else ""
+                ok = self._post_episode_status_remote(
+                    kid=str(kid),
+                    ep_id=str(info["ep_id"]),
+                    watched=True,
+                    score=sc_val,
+                    comment=cm_val,
+                )
+                if ok:
+                    with self._episodes_lock:
+                        info["watched"] = True
+                        if sc_val:
+                            info["rating"] = sc_val
+                    if sc_val:
+                        with self._state_lock:
+                            er_live = self.state.get("episode_ratings") or {}
+                            for k_u in filter(None, [item_id, f"kin_{kid}"]):
+                                if isinstance(er_live.get(k_u), dict) and isinstance(er_live[k_u].get(ep_k), dict):
+                                    er_live[k_u][ep_k]["remote_synced"] = True
+                return ok
+            finally:
+                self._sync_cookie_tl.cookie = prev_tl
 
-        if len(to_mark) == 1:
-            ok_single = _mark_one(to_mark[0])
-            return ok_single, (1 if ok_single else 0)
+        # Execute episode status updates sequentially to avoid burst anti-bot triggers on Kinorium
+        synced_cnt = 0
+        for info_item in to_mark:
+            if _mark_one(info_item):
+                synced_cnt += 1
 
-        with ThreadPoolExecutor(max_workers=min(4, len(to_mark))) as pool:
-            results = list(pool.map(_mark_one, to_mark))
-        synced_cnt = sum(1 for r in results if r)
+        if synced_cnt == len(to_mark):
+            with self._state_lock:
+                dirty_list = self.state.get("dirty_episode_series")
+                if isinstance(dirty_list, list):
+                    for k_clean in (item_id, f"kin_{kid}", str(kid)):
+                        if k_clean and k_clean in dirty_list:
+                            dirty_list.remove(k_clean)
         return synced_cnt > 0, synced_cnt
 
     def reconcile_series_episodes(
@@ -3976,6 +7870,7 @@ class KinoriumService:
         3. Automatically promotes the series from 'Буду смотреть' (`future`) to 'Смотрю' (`now`)
            if episodes have been watched in CineFlow while the series is still incomplete.
         """
+        start_pid = self._profile_id
         eff_kid = str(kid) if (kid and str(kid).isdigit()) else ""
         if not eff_kid:
             resolved = self._resolve_kinorium_id(
@@ -3987,100 +7882,534 @@ class KinoriumService:
             )
             eff_kid = str(resolved) if (resolved and str(resolved).isdigit()) else ""
         eff_item_id = item_id or (f"kin_{eff_kid}" if eff_kid else "")
-        if not eff_kid:
+        if not eff_kid or self._profile_id != start_pid:
             return self.get_item_status(eff_item_id, title=title, orig_title=orig_title)
 
+        user_cookie = self._get_active_sync_cookie()
         ep_state = self.fetch_series_episodes_state(eff_kid, item_id=eff_item_id, force_refresh=force_refresh)
+        if self._profile_id != start_pid:
+            return self.get_item_status(eff_item_id, title=title, orig_title=orig_title)
         ep_map: Dict[Tuple[int, int], Dict[str, Any]] = ep_state.get("episodes") or {}
+        can_push_remote = bool(user_cookie and ep_map)
 
-        we_root = self.state.setdefault("watched_episodes", {})
-        local_by_season: Dict[int, List[int]] = {}
-        for k_lookup in filter(None, [eff_item_id, f"kin_{eff_kid}"]):
-            sub_map = we_root.get(k_lookup)
-            if isinstance(sub_map, dict):
-                for s_k, ep_list in sub_map.items():
-                    if str(s_k).isdigit() and isinstance(ep_list, list):
-                        s_int = int(s_k)
-                        merged = sorted(
-                            set(local_by_season.get(s_int, []) + [int(x) for x in ep_list if str(x).isdigit() and int(x) > 0])
-                        )
-                        if merged:
-                            local_by_season[s_int] = merged
+        with self._state_lock:
+            we_root = self.state.setdefault("watched_episodes", {})
+            uw_root = self.state.get("unwatched_episodes") or {}
+            local_by_season: Dict[int, List[int]] = {}
+            unwatched_by_season: Dict[int, List[int]] = {}
+            for k_lookup in filter(None, [eff_item_id, f"kin_{eff_kid}"]):
+                sub_map = we_root.get(k_lookup)
+                if isinstance(sub_map, dict):
+                    for s_k, ep_list in sub_map.items():
+                        if str(s_k).isdigit() and isinstance(ep_list, list):
+                            s_int = int(s_k)
+                            merged = sorted(
+                                set(local_by_season.get(s_int, []) + [int(x) for x in ep_list if str(x).isdigit() and int(x) > 0])
+                            )
+                            if merged:
+                                local_by_season[s_int] = merged
+                uw_sub = uw_root.get(k_lookup)
+                if isinstance(uw_sub, dict):
+                    for s_k, uw_list in uw_sub.items():
+                        if str(s_k).isdigit() and isinstance(uw_list, list):
+                            s_int = int(s_k)
+                            merged_uw = sorted(
+                                set(unwatched_by_season.get(s_int, []) + [int(x) for x in uw_list if str(x).isdigit() and int(x) > 0])
+                            )
+                            if merged_uw:
+                                unwatched_by_season[s_int] = merged_uw
 
-        state_changed = False
-        if local_by_season:
-            # Ensure canonical 'kin_{eff_kid}' key also holds all merged episodes
-            kin_map = we_root.setdefault(f"kin_{eff_kid}", {})
-            for s_int, ep_list in local_by_season.items():
-                prev_l = kin_map.get(str(s_int)) or []
-                merged_l = sorted(set(prev_l + ep_list))
-                if merged_l != prev_l:
-                    kin_map[str(s_int)] = merged_l
-                    state_changed = True
-
-            if ep_state.get("is_authed"):
-                cur_st = self.get_item_status(eff_item_id, title=title, orig_title=orig_title)
-                if not cur_st.get("watching") and not cur_st.get("watched") and not cur_st.get("not_watching"):
-                    rem_entry = self._by_kid.get(eff_kid) or {}
-                    eff_title = title or str(rem_entry.get("ru_title") or "")
-                    eff_orig = orig_title or str(rem_entry.get("orig_title") or "")
-                    if self._promote_series_to_watching_if_needed(
-                        item_id=eff_item_id,
-                        title=eff_title,
-                        orig_title=eff_orig,
-                        kid=eff_kid,
-                    ):
+            state_changed = False
+            if local_by_season:
+                # Ensure canonical 'kin_{eff_kid}' key also holds all merged episodes
+                kin_map = we_root.setdefault(f"kin_{eff_kid}", {})
+                for s_int, ep_list in local_by_season.items():
+                    uw_for_s = set(unwatched_by_season.get(s_int, []))
+                    clean_eps = [ep for ep in ep_list if ep not in uw_for_s]
+                    local_by_season[s_int] = clean_eps
+                    prev_l = kin_map.get(str(s_int)) or []
+                    merged_l = sorted(set([x for x in prev_l if x not in uw_for_s] + clean_eps))
+                    if merged_l != prev_l:
+                        if merged_l:
+                            kin_map[str(s_int)] = merged_l
+                        else:
+                            kin_map.pop(str(s_int), None)
                         state_changed = True
 
-                _, pushed_cnt = self._sync_episodes_map_to_kinorium_remote(
-                    kid=eff_kid,
+        if any(local_by_season.values()) and can_push_remote and self._profile_id == start_pid:
+            cur_st = self.get_item_status(eff_item_id, title=title, orig_title=orig_title)
+            if not cur_st.get("watching") and not cur_st.get("watched") and not cur_st.get("not_watching"):
+                rem_entry = self._by_kid.get(eff_kid) or {}
+                eff_title = title or str(rem_entry.get("ru_title") or "")
+                eff_orig = orig_title or str(rem_entry.get("orig_title") or "")
+                if self._promote_series_to_watching_if_needed(
                     item_id=eff_item_id,
-                    target_by_season=local_by_season,
-                )
-                if pushed_cnt > 0:
+                    title=eff_title,
+                    orig_title=eff_orig,
+                    kid=eff_kid,
+                ):
                     state_changed = True
 
-        # Also push any local episode ratings not yet reflected on Kinorium
-        if ep_state.get("is_authed") and ep_map:
-            er_root = self.state.get("episode_ratings") or {}
-            merged_er: Dict[str, Dict[str, Any]] = {}
-            for k_lookup in filter(None, [f"kin_{eff_kid}", eff_item_id]):
-                if isinstance(er_root.get(k_lookup), dict):
-                    merged_er.update(er_root[k_lookup])
-            for ep_val in merged_er.values():
+            _, pushed_cnt = self._sync_episodes_map_to_kinorium_remote(
+                kid=eff_kid,
+                item_id=eff_item_id,
+                target_by_season={s: eps for s, eps in local_by_season.items() if eps},
+            )
+            if pushed_cnt > 0:
+                state_changed = True
+
+        # Push offline episode unmark tombstones (`unwatched_episodes`) if remote still shows watched
+        if can_push_remote and unwatched_by_season and self._profile_id == start_pid:
+            for sn_u, eps_u in unwatched_by_season.items():
+                for en_u in eps_u:
+                    ep_info = ep_map.get((sn_u, en_u))
+                    if ep_info and ep_info.get("ep_id") and (ep_info.get("watched") or ep_info.get("rating")):
+                        if self._post_episode_status_remote(
+                            kid=eff_kid,
+                            ep_id=str(ep_info["ep_id"]),
+                            watched=False,
+                        ):
+                            with self._episodes_lock:
+                                ep_info["watched"] = False
+                                ep_info["rating"] = None
+                            with self._state_lock:
+                                uw_bg = self.state.get("unwatched_episodes") or {}
+                                for k_u in filter(None, [eff_item_id, f"kin_{eff_kid}"]):
+                                    uw_s = uw_bg.get(k_u)
+                                    if isinstance(uw_s, dict) and str(sn_u) in uw_s:
+                                        rem_u = [int(x) for x in (uw_s.get(str(sn_u)) or []) if str(x).isdigit() and int(x) != en_u]
+                                        if rem_u:
+                                            uw_s[str(sn_u)] = sorted(set(rem_u))
+                                        else:
+                                            uw_s.pop(str(sn_u), None)
+                            state_changed = True
+
+        # Push local episode ratings & cleared episode rating tombstones
+        all_ratings_synced = True
+        if can_push_remote and self._profile_id == start_pid:
+            with self._state_lock:
+                er_root = self.state.get("episode_ratings") or {}
+                cer_root = self.state.get("cleared_episode_ratings") or {}
+                merged_er: Dict[str, Dict[str, Any]] = {}
+                cleared_ep_keys: set = set()
+                for k_lookup in filter(None, [f"kin_{eff_kid}", eff_item_id]):
+                    if isinstance(er_root.get(k_lookup), dict):
+                        merged_er.update(er_root[k_lookup])
+                    if isinstance(cer_root.get(k_lookup), dict):
+                        cleared_ep_keys.update(k for k, v in cer_root[k_lookup].items() if v)
+            for ep_k_str, ep_val in merged_er.items():
                 if not isinstance(ep_val, dict):
                     continue
                 sn = int(ep_val.get("season") or 0)
                 en = int(ep_val.get("episode") or 0)
                 sc = int(ep_val.get("score") or 0)
                 ep_info = ep_map.get((sn, en))
-                if ep_info and not ep_info.get("is_future") and 1 <= sc <= 10 and ep_info.get("rating") != sc:
-                    if self._post_episode_status_remote(
-                        kid=eff_kid,
-                        ep_id=str(ep_info["ep_id"]),
-                        watched=True,
-                        score=sc,
-                        comment=str(ep_val.get("comment") or ""),
-                    ):
-                        ep_info["watched"] = True
-                        ep_info["rating"] = sc
+                if ep_info and not ep_info.get("is_future") and 1 <= sc <= 10:
+                    if ep_info.get("rating") != sc:
+                        if self._post_episode_status_remote(
+                            kid=eff_kid,
+                            ep_id=str(ep_info["ep_id"]),
+                            watched=True,
+                            score=sc,
+                            comment=str(ep_val.get("comment") or ""),
+                        ):
+                            with self._episodes_lock:
+                                ep_info["watched"] = True
+                                ep_info["rating"] = sc
+                            with self._state_lock:
+                                er_live = self.state.get("episode_ratings") or {}
+                                for k_u in filter(None, [eff_item_id, f"kin_{eff_kid}"]):
+                                    if isinstance(er_live.get(k_u), dict) and isinstance(er_live[k_u].get(ep_k_str), dict):
+                                        er_live[k_u][ep_k_str]["remote_synced"] = True
+                            state_changed = True
+                        else:
+                            all_ratings_synced = False
+                    elif ep_val.get("remote_synced") is not True:
+                        with self._state_lock:
+                            er_live = self.state.get("episode_ratings") or {}
+                            for k_u in filter(None, [eff_item_id, f"kin_{eff_kid}"]):
+                                if isinstance(er_live.get(k_u), dict) and isinstance(er_live[k_u].get(ep_k_str), dict):
+                                    er_live[k_u][ep_k_str]["remote_synced"] = True
+                        state_changed = True
+            for ck_ep in cleared_ep_keys:
+                m_ce = re.fullmatch(r"s(\d+)e(\d+)", str(ck_ep))
+                if not m_ce:
+                    continue
+                sn_c, en_c = int(m_ce.group(1)), int(m_ce.group(2))
+                ep_info = ep_map.get((sn_c, en_c))
+                if ep_info and ep_info.get("ep_id"):
+                    if ep_info.get("rating") is not None:
+                        if self._post_episode_status_remote(
+                            kid=eff_kid,
+                            ep_id=str(ep_info["ep_id"]),
+                            watched=True,
+                            clear_rating_only=True,
+                        ):
+                            with self._episodes_lock:
+                                ep_info["rating"] = None
+                            with self._state_lock:
+                                cer_done = self.state.get("cleared_episode_ratings") or {}
+                                for k_u in filter(None, [eff_item_id, f"kin_{eff_kid}"]):
+                                    if isinstance(cer_done.get(k_u), dict):
+                                        cer_done[k_u].pop(ck_ep, None)
+                            state_changed = True
+                        else:
+                            all_ratings_synced = False
+                    else:
+                        with self._state_lock:
+                            cer_done = self.state.get("cleared_episode_ratings") or {}
+                            for k_u in filter(None, [eff_item_id, f"kin_{eff_kid}"]):
+                                if isinstance(cer_done.get(k_u), dict):
+                                    cer_done[k_u].pop(ck_ep, None)
                         state_changed = True
 
-        if state_changed:
+        all_watched_synced = True
+        for s_chk, eps_chk in local_by_season.items():
+            for e_chk in eps_chk:
+                ep_chk_info = ep_map.get((int(s_chk), int(e_chk)))
+                if ep_chk_info and not ep_chk_info.get("is_future") and not ep_chk_info.get("watched"):
+                    all_watched_synced = False
+                    break
+            if not all_watched_synced:
+                break
+
+        if can_push_remote and all_watched_synced and all_ratings_synced and self._profile_id == start_pid:
+            with self._state_lock:
+                dirty_list = self.state.get("dirty_episode_series")
+                if isinstance(dirty_list, list):
+                    for k_clean in (eff_item_id, f"kin_{eff_kid}", eff_kid):
+                        if k_clean and k_clean in dirty_list:
+                            dirty_list.remove(k_clean)
+                            state_changed = True
+
+        if state_changed and self._profile_id == start_pid:
             self._save_state()
         return self.get_item_status(eff_item_id, title=title, orig_title=orig_title)
 
-    def reconcile_all_local_episodes(self, pull_watching_limit: int = 8) -> Dict[str, Any]:
+    def reconcile_local_statuses_to_remote(self) -> int:
         """
-        Reconciles all locally recorded series episodes & active 'Смотрю' / 'Продолжить просмотр'
-        series bidirectionally with Kinorium.
+        Pushes local movie/series statuses (`ratings`, `watched`, `watching_local`, `watchlist`, `never_local`)
+        and offline removal tombstones from CineFlow to `kinorium.com` when an authenticated `session_cookie`
+        is present, completing bidirectional synchronization of movies and series in addition to episodes.
         """
-        user_cookie = (self.state.get("account", {}).get("session_cookie") or "").strip()
+        with self._state_lock:
+            start_pid = self._profile_id
+            user_cookie = (self.state.get("account", {}).get("session_cookie") or "").strip()
+        if not user_cookie:
+            return 0
+
+        pushed = 0
+        with self._state_lock:
+            rem_watched = self.state.setdefault("remote_watched_items", {})
+            rem_watching = self.state.setdefault("remote_watching_items", {})
+            rem_watchlist = self.state.setdefault("remote_watchlist_items", {})
+            rem_never = self.state.setdefault("remote_never_items", {})
+            ratings_map = dict(self.state.get("ratings") or {})
+            watched_map = dict(self.state.get("watched") or {})
+            watching_local_list = list(self.state.get("watching_local") or [])
+            watchlist_list = list(self.state.get("watchlist") or [])
+            never_local_list = list(self.state.get("never_local") or [])
+            watching_removed = set(str(x) for x in (self.state.get("watching_removed") or []))
+            watchlist_removed = set(str(x) for x in (self.state.get("watchlist_removed") or []))
+            never_removed = set(str(x) for x in (self.state.get("never_removed") or []))
+
+        def _extract_kid_and_titles(raw_id: str, meta_dict: Optional[Dict[str, Any]] = None) -> Tuple[str, str, str]:
+            s_id = str(raw_id or "").strip()
+            t_ru = str((meta_dict or {}).get("title") or (meta_dict or {}).get("ru_title") or "")
+            t_orig = str((meta_dict or {}).get("orig_title") or "")
+            kid_c = s_id[4:] if (s_id.startswith("kin_") and s_id[4:].isdigit()) else ""
+            if not kid_c and s_id.isdigit():
+                kid_c = s_id
+            if not kid_c:
+                resolved = self._resolve_kinorium_id(s_id, t_ru, t_orig, allow_network=True)
+                if resolved and str(resolved).isdigit():
+                    kid_c = str(resolved)
+            if kid_c and kid_c in self._by_kid:
+                t_ru = t_ru or str(self._by_kid[kid_c].get("ru_title") or "")
+                t_orig = t_orig or str(self._by_kid[kid_c].get("orig_title") or "")
+            return kid_c, t_ru, t_orig
+
+        # 0. Push offline removal tombstones even when the item was already popped from in-memory remote_*_items
+        seen_unwatched_kids: set = set()
+        for raw_id, w_entry in watched_map.items():
+            if self._profile_id != start_pid:
+                return pushed
+            if not isinstance(w_entry, dict) or w_entry.get("watched") is not False:
+                continue
+            kid_c, t_ru, t_orig = _extract_kid_and_titles(raw_id, w_entry)
+            if not kid_c or kid_c in seen_unwatched_kids:
+                continue
+            if kid_c not in rem_watched and w_entry.get("remote_unwatched_pushed"):
+                continue
+            seen_unwatched_kids.add(kid_c)
+            if self._sync_to_kinorium_remote(action="unwatched", item_id=str(raw_id), title=t_ru, orig_title=t_orig, resolved_kid=kid_c):
+                with self._state_lock:
+                    if self._profile_id == start_pid:
+                        rem_watched.pop(kid_c, None)
+                        live_w = (self.state.get("watched") or {}).get(raw_id)
+                        if isinstance(live_w, dict):
+                            live_w["remote_unwatched_pushed"] = True
+                        live_wk = (self.state.get("watched") or {}).get(f"kin_{kid_c}")
+                        if isinstance(live_wk, dict):
+                            live_wk["remote_unwatched_pushed"] = True
+                        self._save_dirty = True
+                pushed += 1
+
+        seen_rate_clear_kids: set = set()
+        for raw_id, r_entry in ratings_map.items():
+            if self._profile_id != start_pid:
+                return pushed
+            if not isinstance(r_entry, dict) or not r_entry.get("cleared"):
+                continue
+            kid_c, t_ru, t_orig = _extract_kid_and_titles(raw_id, r_entry)
+            if not kid_c or kid_c in seen_rate_clear_kids:
+                continue
+            has_remote_score = any(
+                isinstance(sec.get(kid_c), dict) and sec[kid_c].get("score") is not None
+                for sec in (rem_watched, rem_watching, rem_watchlist)
+            )
+            if not has_remote_score and r_entry.get("remote_cleared_pushed"):
+                continue
+            seen_rate_clear_kids.add(kid_c)
+            if self._sync_to_kinorium_remote(action="rate_remove", item_id=str(raw_id), title=t_ru, orig_title=t_orig, resolved_kid=kid_c):
+                with self._state_lock:
+                    if self._profile_id == start_pid:
+                        for sec in (rem_watched, rem_watching, rem_watchlist):
+                            if isinstance(sec.get(kid_c), dict):
+                                sec[kid_c]["score"] = None
+                        live_r = (self.state.get("ratings") or {}).get(raw_id)
+                        if isinstance(live_r, dict):
+                            live_r["remote_cleared_pushed"] = True
+                        live_rk = (self.state.get("ratings") or {}).get(f"kin_{kid_c}")
+                        if isinstance(live_rk, dict):
+                            live_rk["remote_cleared_pushed"] = True
+                        self._save_dirty = True
+                pushed += 1
+
+        pushed_rem_tombstones = set(str(x) for x in (self.state.get("remote_removals_pushed") or []))
+        for rem_ids, rem_dict, rem_action, state_rem_key in (
+            (watching_removed, rem_watching, "watching_remove", "watching_removed"),
+            (watchlist_removed, rem_watchlist, "watchlist_remove", "watchlist_removed"),
+            (never_removed, rem_never, "never_remove", "never_removed"),
+        ):
+            seen_rem_kids: set = set()
+            for raw_id in rem_ids:
+                if self._profile_id != start_pid:
+                    return pushed
+                kid_c, t_ru, t_orig = _extract_kid_and_titles(raw_id)
+                if not kid_c or kid_c in seen_rem_kids:
+                    continue
+                tomb_token = f"{rem_action}:{kid_c}"
+                if kid_c not in rem_dict and tomb_token in pushed_rem_tombstones:
+                    continue
+                seen_rem_kids.add(kid_c)
+                if self._sync_to_kinorium_remote(action=rem_action, item_id=str(raw_id), title=t_ru, orig_title=t_orig, resolved_kid=kid_c):
+                    with self._state_lock:
+                        if self._profile_id == start_pid:
+                            rem_dict.pop(kid_c, None)
+                            pushed_rem_tombstones.add(tomb_token)
+                            self.state["remote_removals_pushed"] = list(pushed_rem_tombstones)[-1000:]
+                            rem_list_live = self.state.get(state_rem_key)
+                            if isinstance(rem_list_live, list):
+                                self.state[state_rem_key] = [
+                                    x for x in rem_list_live if str(x) not in (str(raw_id), str(kid_c), f"kin_{kid_c}")
+                                ]
+                            self._save_dirty = True
+                    pushed += 1
+
+        # 1. Local ratings & watched items
+        all_done_keys = list(dict.fromkeys(list(ratings_map.keys()) + list(watched_map.keys())))
+        never_local_ids = set(str(x) for x in never_local_list)
+        seen_done_kids = set()
+        for raw_id in all_done_keys:
+            if self._profile_id != start_pid:
+                return pushed
+            r_entry = ratings_map.get(raw_id) if isinstance(ratings_map.get(raw_id), dict) else None
+            w_entry = watched_map.get(raw_id) if isinstance(watched_map.get(raw_id), dict) else None
+            # Tombstones (un-watched, cleared rating, "never") must never be pushed back as "watched"
+            is_watched_local = bool(w_entry and w_entry.get("watched") is True)
+            has_live_rating = bool(
+                r_entry
+                and not r_entry.get("cleared")
+                and str(r_entry.get("score") or "").isdigit()
+                and 1 <= int(r_entry["score"]) <= 10
+            )
+            if not (is_watched_local or has_live_rating):
+                continue
+            if str(raw_id) in never_local_ids:
+                continue
+            meta_src = {**(w_entry or {}), **(r_entry or {})}
+            kid_c, t_ru, t_orig = _extract_kid_and_titles(raw_id, meta_src)
+            if not kid_c or kid_c in seen_done_kids or kid_c in rem_never or f"kin_{kid_c}" in never_local_ids:
+                continue
+            w_kid_entry = watched_map.get(f"kin_{kid_c}") if isinstance(watched_map.get(f"kin_{kid_c}"), dict) else None
+            if (w_entry and w_entry.get("watched") is False) or (w_kid_entry and w_kid_entry.get("watched") is False):
+                continue
+            seen_done_kids.add(kid_c)
+            sc_val: Optional[int] = None
+            if has_live_rating and r_entry and str(r_entry.get("score") or "").isdigit():
+                s_int = int(r_entry["score"])
+                if 1 <= s_int <= 10:
+                    sc_val = s_int
+            cm_val = str((r_entry or {}).get("comment") or "")
+            keep_watching = bool(
+                (kid_c in rem_watching or (r_entry and r_entry.get("keep_in_watching")))
+                and not is_watched_local
+            )
+            rem_existing = rem_watching.get(kid_c) if keep_watching else rem_watched.get(kid_c)
+            rem_score = rem_existing.get("score") if isinstance(rem_existing, dict) else None
+            unsynced_w = bool(is_watched_local and isinstance(w_entry, dict) and w_entry.get("remote_synced") is False)
+            unsynced_r = bool(has_live_rating and isinstance(r_entry, dict) and r_entry.get("remote_synced") is False)
+            if rem_existing is None or (sc_val is not None and rem_score != sc_val) or unsynced_w or unsynced_r:
+                action = "rate" if sc_val is not None else "watched"
+                if self._sync_to_kinorium_remote(
+                    action=action,
+                    item_id=str(raw_id),
+                    title=t_ru,
+                    orig_title=t_orig,
+                    score=sc_val,
+                    comment=cm_val,
+                    resolved_kid=kid_c,
+                ):
+                    with self._state_lock:
+                        if self._profile_id == start_pid:
+                            w_live = self.state.get("watched") or {}
+                            r_live = self.state.get("ratings") or {}
+                            for k_sync in {str(raw_id), f"kin_{kid_c}"}:
+                                if isinstance(w_live.get(k_sync), dict):
+                                    w_live[k_sync]["remote_synced"] = True
+                                if isinstance(r_live.get(k_sync), dict):
+                                    r_live[k_sync]["remote_synced"] = True
+                            if keep_watching and kid_c in rem_watching:
+                                if sc_val is not None:
+                                    rem_watching[kid_c]["score"] = sc_val
+                            else:
+                                tpl = self._ensure_remote_entry_template(kid_c, t_ru, t_orig, extra=meta_src)
+                                tpl["watched"] = True
+                                tpl["status"] = "done"
+                                if sc_val is not None:
+                                    tpl["score"] = sc_val
+                                rem_watched[kid_c] = tpl
+                            self._save_dirty = True
+                    pushed += 1
+
+        # 2. Local 'Смотрю' (`watching_local`)
+        for raw_id in watching_local_list:
+            if self._profile_id != start_pid:
+                return pushed
+            if str(raw_id) in watching_removed:
+                continue
+            kid_c, t_ru, t_orig = _extract_kid_and_titles(str(raw_id))
+            if not kid_c or kid_c in rem_watching or kid_c in rem_watched or f"kin_{kid_c}" in watching_removed:
+                continue
+            if self._sync_to_kinorium_remote(
+                action="watching_add",
+                item_id=str(raw_id),
+                title=t_ru,
+                orig_title=t_orig,
+                resolved_kid=kid_c,
+            ):
+                with self._state_lock:
+                    if self._profile_id == start_pid:
+                        tpl = self._ensure_remote_entry_template(kid_c, t_ru, t_orig)
+                        tpl["watching"] = True
+                        tpl["status"] = "now"
+                        rem_watching[kid_c] = tpl
+                        self._save_dirty = True
+                pushed += 1
+
+        # 3. Local 'Буду смотреть' (`watchlist`)
+        for raw_id in watchlist_list:
+            if self._profile_id != start_pid:
+                return pushed
+            if str(raw_id) in watchlist_removed:
+                continue
+            kid_c, t_ru, t_orig = _extract_kid_and_titles(str(raw_id))
+            if not kid_c or kid_c in rem_watchlist or kid_c in rem_watching or kid_c in rem_watched or f"kin_{kid_c}" in watchlist_removed:
+                continue
+            if self._sync_to_kinorium_remote(
+                action="watchlist_add",
+                item_id=str(raw_id),
+                title=t_ru,
+                orig_title=t_orig,
+                resolved_kid=kid_c,
+            ):
+                with self._state_lock:
+                    if self._profile_id == start_pid:
+                        tpl = self._ensure_remote_entry_template(kid_c, t_ru, t_orig)
+                        tpl["in_watchlist"] = True
+                        tpl["status"] = "future"
+                        rem_watchlist[kid_c] = tpl
+                        self._save_dirty = True
+                pushed += 1
+
+        # 4. Local 'Не буду смотреть' (`never_local`)
+        for raw_id in never_local_list:
+            if self._profile_id != start_pid:
+                return pushed
+            if str(raw_id) in never_removed:
+                continue
+            kid_c, t_ru, t_orig = _extract_kid_and_titles(str(raw_id))
+            if not kid_c or kid_c in rem_never or f"kin_{kid_c}" in never_removed:
+                continue
+            if self._sync_to_kinorium_remote(
+                action="never_add",
+                item_id=str(raw_id),
+                title=t_ru,
+                orig_title=t_orig,
+                resolved_kid=kid_c,
+            ):
+                with self._state_lock:
+                    if self._profile_id == start_pid:
+                        tpl = self._ensure_remote_entry_template(kid_c, t_ru, t_orig)
+                        tpl["not_watching"] = True
+                        tpl["status"] = "never"
+                        rem_never[kid_c] = tpl
+                        self._save_dirty = True
+                pushed += 1
+
+        if pushed > 0 and self._profile_id == start_pid:
+            with self._state_lock:
+                self._build_lookup_indices()
+                self._save_state()
+        return pushed
+
+    def reconcile_all_local_episodes(self, pull_watching_limit: int = 0) -> Dict[str, Any]:
+        """
+        Reconciles locally modified series episodes & active 'Продолжить просмотр' / 'Смотрю'
+        series bidirectionally with Kinorium without flooding Kinorium with historical series requests.
+        """
+        if self.is_ip_cooldown_active():
+            return {"ok": False, "reason": "ip_cooldown", "reconciled": 0}
+        with self._state_lock:
+            start_pid = self._profile_id
+            user_cookie = (self.state.get("account", {}).get("session_cookie") or "").strip()
+            cw_snap = list(self.state.get("continue_watching") or [])
+            rem_watching_snap = dict(self.state.get("remote_watching_items") or {})
+            dirty_ep_keys = set(str(k) for k in (self.state.get("dirty_episode_series") or []) if k)
+            uw_ep_keys = {
+                str(k)
+                for k, v in (self.state.get("unwatched_episodes") or {}).items()
+                if isinstance(v, dict) and any(v.values())
+            }
+            cer_ep_keys = {
+                str(k)
+                for k, v in (self.state.get("cleared_episode_ratings") or {}).items()
+                if isinstance(v, dict) and any(v.values())
+            }
+            unsynced_er_keys = set()
+            for k_er, er_map in (self.state.get("episode_ratings") or {}).items():
+                if isinstance(er_map, dict):
+                    for ep_entry in er_map.values():
+                        if isinstance(ep_entry, dict) and ep_entry.get("remote_synced") is not True:
+                            unsynced_er_keys.add(str(k_er))
+                            break
+            local_keys = dirty_ep_keys | uw_ep_keys | cer_ep_keys | unsynced_er_keys
         if not user_cookie:
             return {"ok": False, "reason": "no_session_cookie", "reconciled": 0}
 
         cw_meta_by_id: Dict[str, Dict[str, str]] = {}
-        for cw in self.state.get("continue_watching") or []:
+        for cw in cw_snap:
             cid = str(cw.get("id") or "").strip()
             if cid:
                 cw_meta_by_id[cid] = {
@@ -4092,10 +8421,7 @@ class KinoriumService:
         tasks: List[Tuple[str, str, str, Optional[str]]] = []
         seen_targets: set = set()
 
-        # 1. All series with local watched_episodes or episode_ratings (push + pull)
-        local_keys = set((self.state.get("watched_episodes") or {}).keys()) | set(
-            (self.state.get("episode_ratings") or {}).keys()
-        )
+        # 1. All series with local watched/unwatched/rated episodes (push + pull)
         for raw_k in local_keys:
             k_str = str(raw_k).strip()
             if not k_str:
@@ -4125,7 +8451,7 @@ class KinoriumService:
 
         # 2. Active series in Continue Watching & 'Смотрю' (pull remote Kinorium checkmarks into CineFlow)
         pulled_extra = 0
-        for cw in self.state.get("continue_watching") or []:
+        for cw in cw_snap:
             if pulled_extra >= pull_watching_limit:
                 break
             if cw.get("media_type") != "series":
@@ -4138,7 +8464,7 @@ class KinoriumService:
                 tasks.append((cid, str(cw.get("title") or ""), str(cw.get("orig_title") or ""), kid_c))
                 pulled_extra += 1
 
-        for kid_w, w_entry in (self.state.get("remote_watching_items") or {}).items():
+        for kid_w, w_entry in rem_watching_snap.items():
             if pulled_extra >= pull_watching_limit:
                 break
             if w_entry.get("media_type") != "series":
@@ -4157,6 +8483,10 @@ class KinoriumService:
                 pulled_extra += 1
 
         def _run_one(t_args: Tuple[str, str, str, Optional[str]]) -> bool:
+            if self._profile_id != start_pid:
+                return False
+            prev_tl = getattr(self._sync_cookie_tl, "cookie", None)
+            self._sync_cookie_tl.cookie = user_cookie
             try:
                 self.reconcile_series_episodes(
                     item_id=t_args[0],
@@ -4168,12 +8498,16 @@ class KinoriumService:
                 return True
             except Exception:
                 return False
+            finally:
+                self._sync_cookie_tl.cookie = prev_tl
 
         reconciled_cnt = 0
-        if tasks:
-            with ThreadPoolExecutor(max_workers=min(2, len(tasks))) as pool:
-                reconciled_cnt = sum(1 for ok in pool.map(_run_one, tasks) if ok)
-            self._save_state()
+        if tasks and self._profile_id == start_pid:
+            for t_item in tasks:
+                if _run_one(t_item):
+                    reconciled_cnt += 1
+            if self._profile_id == start_pid:
+                self._save_state()
         return {
             "ok": True,
             "reconciled": reconciled_cnt,
@@ -4190,7 +8524,7 @@ class KinoriumService:
         comment: str = "",
         resolved_kid: Optional[str] = None,
     ) -> bool:
-        user_cookie = self.state["account"].get("session_cookie", "").strip()
+        user_cookie = self._get_active_sync_cookie()
         if not user_cookie:
             return False
         kid = (
@@ -4236,13 +8570,15 @@ class KinoriumService:
                 if comment:
                     form["comment"] = comment
                 payload = urllib.parse.urlencode(form).encode("utf-8")
-                req = urllib.request.Request(
-                    "https://ru.kinorium.com/handlers/setStatus/",
-                    data=payload,
-                    headers=headers,
+                post_hdrs = {**headers, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"}
+                _, raw_txt, _ = self._kinorium_http_request(
+                    "/handlers/setStatus/",
                     method="POST",
+                    data=payload,
+                    extra_headers=post_hdrs,
+                    timeout=7.0,
                 )
-                raw = urllib.request.urlopen(req, timeout=6).read().decode("utf-8", errors="ignore").strip()
+                raw = raw_txt.strip()
                 if not raw.startswith("{"):
                     return False
                 resp_json = json.loads(raw)
@@ -4263,12 +8599,13 @@ class KinoriumService:
                         "group_key": group_key,
                     }
                 )
-                req = urllib.request.Request(
-                    f"https://ru.kinorium.com/handlers/delStatus/?{qs}",
-                    headers=headers,
+                _, raw_txt, _ = self._kinorium_http_request(
+                    f"/handlers/delStatus/?{qs}",
                     method="GET",
+                    extra_headers=headers,
+                    timeout=7.0,
                 )
-                raw = urllib.request.urlopen(req, timeout=6).read().decode("utf-8", errors="ignore").strip()
+                raw = raw_txt.strip()
                 if not raw.startswith("{"):
                     return False
                 resp_json = json.loads(raw)

@@ -29,17 +29,20 @@
 ## 🚀 Как запустить
 
 ### На Windows 10 / 11:
-1. **Быстрый запуск в режиме приложения (Edge WebView2 App Mode с поддержкой Widevine L1 DRM):**
-   Дважды кликните по файлу:
+1. **Установка через официальный мастер установки (`CineFlow-Setup-2.6.6-x64.exe`, разработчик Atoma):**
+   Запустите готовый установщик `dist\CineFlow-Setup-2.6.6-x64.exe` — в начале установки выберите язык мастера установки (`Русский` или `English`), затем язык интерфейса самого приложения CineFlow и нужные компоненты (включая встроенную среду Python 3.11, TorrServer MatriX и FFmpeg 9).
+2. **Быстрый запуск в режиме приложения (Edge WebView2 App Mode с поддержкой Widevine L1 DRM):**
+   Дважды кликните по `CineFlow.exe` или по файлу:
    ```
    windows\Start-Cinema-Windows.bat
    ```
-2. **Сборка в единый автономный `CineFlow.exe`:**
-   Запустите:
+3. **Повторная сборка установщика `CineFlow-Setup-2.6.6-x64.exe` и лаунчера `CineFlow.exe`:**
+   Запустите на Windows или macOS:
+   ```bash
+   python3 windows/build_windows_installer.py
    ```
-   windows\build-windows-exe.bat
-   ```
-   Готовый `CineFlow.exe` появится в папке `dist\CineFlow.exe`.
+   Или на Windows через пакетный сценарий `windows\build-windows-exe.bat`.
+   Готовый установщик и лаунчер появятся в папке `dist\`.
 
 ### Локальный запуск (Windows / macOS / Linux):
 ```bash

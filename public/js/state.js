@@ -1,4 +1,18 @@
+const _initialSetupCompleted = (() => {
+  try {
+    return document.documentElement?.getAttribute("data-setup-completed") !== "false";
+  } catch (_) {
+    return true;
+  }
+})();
+
 const _initialAppLang = (() => {
+  try {
+    const bootLang = document.documentElement?.getAttribute("data-boot-lang");
+    if (!_initialSetupCompleted && (bootLang === "en" || bootLang === "ru")) {
+      return bootLang;
+    }
+  } catch (_) {}
   try {
     const raw = localStorage.getItem("cineflow_ui_prefs");
     const parsed = raw ? JSON.parse(raw) : null;
@@ -6,11 +20,19 @@ const _initialAppLang = (() => {
       return parsed.appLang;
     }
   } catch (_) {}
+  try {
+    const bootLang = document.documentElement?.getAttribute("data-boot-lang");
+    if (bootLang === "en" || bootLang === "ru") {
+      return bootLang;
+    }
+  } catch (_) {}
   return "ru";
 })();
 
 export const state = {
   appLang: _initialAppLang,
+  appVersion: "2.7.0",
+  launchSeed: Math.floor(Math.random() * 0x7fffffff) || 1,
   providerFilter: "all",
   mediaTypeFilter: "all",
   kinoriumSection: "all",
@@ -25,18 +47,28 @@ export const state = {
   kinoriumFriends: [],
   similarPool: [],
   searchSimilarItems: [],
+  searchPersons: [],
   kinoriumAccount: {
-    user_id: "51670",
-    display_name: "Andrei Crustillio",
-    profile_url: "https://en.kinorium.com/user/51670/",
-    connected: true,
+    user_id: "",
+    display_name: "",
+    profile_url: "https://kinorium.com/",
+    connected: false,
     has_session_cookie: false,
   },
+  userCountry: "PL",
+  setupCompleted: _initialSetupCompleted,
+  countryProfile: null,
+  euCountries: [],
+  onboardingDraftServices: null,
+  onboardingCountrySearch: "",
+  onboardingUserTouchedPlayerPl: false,
+  backup4kReleasesCache: {},
   searchQuery: "",
   providersMeta: {},
   integrations: {},
   catalogItems: [],
   continueWatching: [],
+  cwExpanded: false,
   activeItem: null,
   activeSourceTab: "hdrezka",
   activeSeason: 1,
@@ -59,23 +91,9 @@ export const state = {
   remuxDurationReprobeTimer: null,
   skipSegments: null,
   autoSkipIntro: true,
-  autoSkipAds: true,
-  adStreamKey: "",
-  adScanMp4Url: "",
-  adSegments: [],
-  adScannedUntil: 0,
-  adScanComplete: false,
-  adSkippedIds: {},
-  adPollTimerId: null,
-  adPollStartDelayId: null,
-  adLiveCheckTimerId: null,
-  adLiveCheckBusy: false,
-  adSteppingActive: false,
-  adCaptureCanvas: null,
-  adCaptureCtx: null,
-  activeManualAdSeg: null,
   internalMuteOverride: false,
   userMutedThisSession: false,
+  userPaused: false,
   lastVcSyncTs: 0,
   autoNextEpisode: true,
   audioBoost: 1.0,
@@ -137,6 +155,18 @@ export const state = {
   trailerAbortController: null,
   videoLoadAbort: null,
   videoLoadToken: 0,
+  stallWatchdogTimerId: null,
+  waitingSpinnerTimerId: null,
+  lastPlaybackAdvanceTs: 0,
+  lastPlaybackMediaTime: -1,
+  lastObservedVideoFrames: null,
+  lastVideoFramesAdvanceTs: 0,
+  lastFreezeCheckMediaTime: null,
+  lastVideoFreezeRecoverTs: 0,
+  videoFreezeCount: 0,
+  recentStallTimestamps: [],
+  autoReconnectTimestamps: [],
+  adPollScanStarted: false,
   torrserverConnected: false,
   remuxAvailable: false,
   hwAccelSummary: "",
@@ -162,14 +192,20 @@ export const state = {
   personModalReqId: 0,
   personProfileData: null,
   personActiveRole: "all",
+  personFilmographyLimit: 24,
   catalogDirty: false,
   scrobbledEpisodesThisSession: {},
+  promotedWatchingThisSession: {},
+  probeCreditsStartSec: 0,
   ratingPromptShownThisSession: {},
   postwatchHovered: false,
   postwatchManual: false,
   postwatchScope: "movie",
   postwatchSeason: 1,
   postwatchEpisode: 1,
+  postwatchSelectedScore: 0,
+  onboardingStep: 1,
+  onboardingReturnToSettings: false,
   pipWasPlayingRecently: false,
   isRestoringFromPip: false,
   episodesStripExpanded: true,
@@ -191,11 +227,93 @@ export const state = {
   lastBgDigestTs: 0,
   kinoriumFormExpanded: false,
   isAppWindowActive: typeof document !== "undefined" && typeof document.hasFocus === "function" ? document.hasFocus() : true,
+  profiles: [],
+  activeProfileId: (() => {
+    try {
+      const savedPid = String(localStorage.getItem("cineflow_active_profile_id") || "").trim();
+      return savedPid || "main";
+    } catch (_) {
+      return "main";
+    }
+  })(),
+  activeProfile: null,
+  downloadsItems: [],
+  downloadsActiveCount: 0,
+  downloadsTotalBytes: 0,
+  downloadsPollTimerId: null,
+  tvMode: false,
+  tvDevices: [],
+  tvActiveCast: null,
+  tvQrSvg: "",
+  tvUrl: "",
+  tvLanEnabled: false,
+  tvIsLocalClient: true,
+  kinoriumOneClickPolling: false,
+  isPlayingOfflineDownload: false,
+  activeOfflineDownloadId: "",
+  lastNativeNowPlayingTs: 0,
+  pendingTvDeepLink: null,
+  verifiedKidsAdminPin: "",
+  backupQualities: {},
+  hlsQualities: {},
+  streamMintedAt: 0,
+  usedBackupUrls: null,
+  tokenRefreshTimestamps: [],
+  subtitleOffsetSec: 0,
+  audioOffsetSec: 0,
+  audioOffsetReloadTimerId: null,
+  preferred4kReleaseKey: "",
+  active4kVideoFiles: [],
+  active4kFileIndex: 0,
+  lastDirect4kSourceUrl: "",
+  customExternalSubtitles: [],
+  subOnlineSearching: false,
+  downloadsPrefs: {
+    auto_cleanup_watched: false,
+    auto_download_next: false,
+  },
+  notifTab: "updates",
+  calendarData: null,
+  calendarLoading: false,
+  remoteMode: false,
+  remoteCastTab: "phone",
+  remotePairInfo: null,
+  remoteConnectedCount: 0,
+  bookmarks: [],
+  rouletteType: "all",
+  rouletteMood: "all",
+  rouletteMinRating: 0,
+  pausedBySubWord: false,
+  subDictOpen: false,
+  updaterStatus: null,
+  updaterPollTimerId: null,
+  updaterAutoChecked: false,
+  showCuratedShelves: (() => {
+    try {
+      return localStorage.getItem("cineflow_curated_shelves") !== "false";
+    } catch (_) {
+      return true;
+    }
+  })(),
 };
+export const ACTIVE_PROFILE_STORAGE_KEY = "cineflow_active_profile_id";
 export const PREFERRED_STUDIOS_STORAGE_KEY = "cineflow_preferred_studios";
+export const BOOKMARKS_STORAGE_KEY = "cineflow_moments_v1";
 export const PLAYER_PREFS_STORAGE_KEY = "cineflow_player_prefs";
 export const SEEN_NOTIFICATIONS_STORAGE_KEY = "cineflow_seen_notifications";
+export const NOTIF_DESKTOP_ALERTED_STORAGE_KEY = "cineflow_desktop_alerted_episodes_v1";
 export const UI_PREFS_STORAGE_KEY = "cineflow_ui_prefs";
 export const EPISODE_PROGRESS_STORAGE_KEY = "cineflow_episode_progress_v1";
 export const WATCH_HISTORY_STORAGE_KEY = "cineflow_watch_history_v1";
 export const EP_VIEW_MODE_STORAGE_KEY = "cineflow_ep_view_mode";
+export const RECENT_SEARCHES_STORAGE_KEY = "cineflow_recent_searches_v1";
+export const CURATED_SHELVES_STORAGE_KEY = "cineflow_curated_shelves";
+
+export function profileStorageKeyFor(baseKey, profileId = "main") {
+  const pid = String(profileId || "main").trim();
+  return !pid || pid === "main" ? baseKey : `${baseKey}__${pid}`;
+}
+
+export function profileStorageKey(baseKey) {
+  return profileStorageKeyFor(baseKey, state.activeProfileId);
+}

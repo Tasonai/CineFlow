@@ -6,6 +6,11 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PORT="${PORT:-8765}"
 URL="http://127.0.0.1:${PORT}"
 
+if [ -d "${PROJECT_DIR}/dist/CineFlow.app" ]; then
+  open "${PROJECT_DIR}/dist/CineFlow.app"
+  exit 0
+fi
+
 if curl -fsS "${URL}/api/system/status" >/dev/null 2>&1 || lsof -iTCP:"${PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; then
   open "${URL}"
   exit 0

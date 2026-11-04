@@ -29,6 +29,38 @@ class TestLiveHttpServerEndpoints(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, e.headers.get("Content-Type", ""), e.read()
 
+    def _req_full(self, path: str, method: str = "GET", headers: dict = None):
+        r = urllib.request.Request(self.base_url + path, method=method, headers=headers or {})
+        try:
+            with urllib.request.urlopen(r, timeout=15) as resp:
+                return resp.status, resp.headers, resp.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers, e.read()
+
+    def test_static_asset_etag_and_304_caching(self):
+        st, headers, body = self._req_full("/css/base-and-hero.css?v=20261101v99")
+        self.assertEqual(st, 200)
+        etag = headers.get("ETag")
+        self.assertTrue(etag, "Static asset should provide an ETag header")
+        self.assertGreater(len(body), 0)
+
+        # Conditional GET with matching If-None-Match should return 304 with 0 body
+        st_304, headers_304, body_304 = self._req_full(
+            "/css/base-and-hero.css?v=20261101v99",
+            headers={"If-None-Match": etag},
+        )
+        self.assertEqual(st_304, 304)
+        self.assertEqual(len(body_304), 0)
+
+        # Conditional HEAD with matching If-None-Match should return 304
+        st_head, headers_head, body_head = self._req_full(
+            "/css/base-and-hero.css?v=20261101v99",
+            method="HEAD",
+            headers={"If-None-Match": etag},
+        )
+        self.assertEqual(st_head, 304)
+        self.assertEqual(len(body_head), 0)
+
     def test_root_and_pwa_manifest(self):
         st, ct, body = self._req("/")
         self.assertEqual(st, 200)

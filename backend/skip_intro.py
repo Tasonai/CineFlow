@@ -1,8 +1,68 @@
+import copy
 import json
+import math
+import re
+import threading
+import time
+import unicodedata
 import urllib.parse
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .doh import DoHSplitNetworkClient
+
+
+_LATIN_DIGRAPH_FOLD = str.maketrans(
+    {
+        "ł": "l",
+        "ø": "o",
+        "ß": "ss",
+        "æ": "ae",
+        "œ": "oe",
+        "đ": "d",
+        "ð": "d",
+        "þ": "th",
+        "ı": "i",
+    }
+)
+
+
+_STRICT_IMDB_RE = re.compile(r"^tt\d{5,10}$")
+
+
+def _safe_int(val: Any, default: int = 0) -> int:
+    if isinstance(val, bool) or val is None:
+        return default
+    if isinstance(val, int):
+        return val
+    try:
+        return int(val)
+    except Exception:
+        m = re.search(r"-?\d+", str(val))
+        return int(m.group(0)) if m else default
+
+
+def _parse_conf_and_votes(entry: Dict[str, Any]) -> Optional[Tuple[float, int]]:
+    raw_conf = entry.get("confidence")
+    if raw_conf is not None and not isinstance(raw_conf, bool):
+        try:
+            conf_f = float(raw_conf)
+        except (TypeError, ValueError):
+            conf_f = 0.5
+        if not math.isfinite(conf_f) or conf_f <= 0.0:
+            return None
+        conf_score = min(1.0, conf_f)
+    else:
+        conf_score = 0.5
+    sub_cnt = max(0, _safe_int(entry.get("submission_count"), 0))
+    return (conf_score, sub_cnt)
+
+
+def _as_dict_list(val: Any) -> List[Dict[str, Any]]:
+    if isinstance(val, dict):
+        return [val]
+    if isinstance(val, list):
+        return [item for item in val if isinstance(item, dict)]
+    return []
 
 
 class SkipIntroEngine:
@@ -56,7 +116,34 @@ class SkipIntroEngine:
     def __init__(self, net_client: DoHSplitNetworkClient):
         self.net = net_client
         self.cache: Dict[str, Dict[str, Any]] = {}
+        self._cache_meta: Dict[str, Tuple[float, float]] = {}
         self.imdb_id_cache: Dict[str, str] = {}
+        self._imdb_cache_meta: Dict[str, Tuple[float, float]] = {}
+        self._lock = threading.Lock()
+
+    def _get_cached_segment(self, key: str) -> Optional[Dict[str, Any]]:
+        now = time.time()
+        with self._lock:
+            entry = self.cache.get(key)
+            if entry is None:
+                return None
+            meta = self._cache_meta.get(key)
+            if meta is not None and (now - meta[0]) > meta[1]:
+                self.cache.pop(key, None)
+                self._cache_meta.pop(key, None)
+                return None
+            return copy.deepcopy(entry)
+
+    def _set_cached_segment(self, key: str, result: Dict[str, Any], positive: bool) -> None:
+        ttl = 21600.0 if positive else 900.0
+        now = time.time()
+        with self._lock:
+            if len(self.cache) > 512:
+                for k_old in list(self.cache.keys())[:128]:
+                    self.cache.pop(k_old, None)
+                    self._cache_meta.pop(k_old, None)
+            self.cache[key] = result
+            self._cache_meta[key] = (now, ttl)
 
     def resolve_imdb_id(
         self,
@@ -64,51 +151,131 @@ class SkipIntroEngine:
         title: str = "",
         orig_title: str = "",
         year: int = 0,
+        media_type: str = "series",
     ) -> str:
         s_id = (raw_id or "").strip()
-        if s_id.startswith("tt"):
-            return s_id
-        cache_k = f"{s_id}|{(orig_title or title).strip().lower()}|{year}"
-        if cache_k in self.imdb_id_cache:
-            return self.imdb_id_cache[cache_k]
+        m_tt = re.match(r"^(?:stremio_|imdb_)?(tt\d{5,10})\b", s_id, re.I)
+        if m_tt:
+            return m_tt.group(1).lower()
+        mtype_norm = "movie" if str(media_type or "").lower() == "movie" else "series"
+        req_year = _safe_int(year, 0)
+        cache_k = f"{s_id}|{mtype_norm}|{(orig_title or title).strip().lower()}|{req_year}"
+        now = time.time()
+        with self._lock:
+            if cache_k in self.imdb_id_cache:
+                meta = self._imdb_cache_meta.get(cache_k)
+                if meta is None or (now - meta[0]) <= meta[1]:
+                    return self.imdb_id_cache[cache_k]
+                self.imdb_id_cache.pop(cache_k, None)
+                self._imdb_cache_meta.pop(cache_k, None)
 
         q_str = (orig_title or title or "").strip()
         if not q_str:
             return s_id
 
+        should_cache_miss = False
         try:
-            q_enc = urllib.parse.quote(q_str)
-            sug_url = f"https://v3.sg.media-imdb.com/suggestion/x/{q_enc}.json"
+            def _fold_diacritics(val: str) -> str:
+                pre = (val or "").strip().lower().translate(_LATIN_DIGRAPH_FOLD)
+                nfkd = unicodedata.normalize("NFKD", pre)
+                return "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+
+            def _norm_title(val: str) -> str:
+                return re.sub(r"[^a-z0-9а-яё]+", " ", _fold_diacritics(val)).strip()
+
+            q_folded = _fold_diacritics(q_str)
+            ascii_slug = re.sub(r"[^a-z0-9]+", "_", q_folded).strip("_")[:60]
+            has_latin = bool(re.search(r"[a-z]", q_folded))
+            has_non_ascii_alpha = bool(re.search(r"[^\x00-\x7f]", q_folded))
+            if ascii_slug and (has_latin or not has_non_ascii_alpha):
+                first_char = ascii_slug[0]
+                q_enc = ascii_slug
+            else:
+                first_char = "x"
+                # Slice plain text BEFORE percent-encoding so multi-byte UTF-8 %XX sequences are never cut mid-byte
+                q_enc = urllib.parse.quote(q_str.lower()[:28], safe="")
+            sug_url = f"https://v3.sg.media-imdb.com/suggestion/{first_char}/{q_enc}.json"
             status, body, _ = self.net.request(sug_url, spoof_geo_country="DIRECT", timeout=3)
+            if status in (200, 404):
+                should_cache_miss = True
             if status == 200 and body:
                 payload = json.loads(body)
+                raw_items = payload.get("d") if isinstance(payload, dict) else []
                 candidates = [
                     it
-                    for it in (payload.get("d") or [])
-                    if str(it.get("id") or "").startswith("tt")
+                    for it in (raw_items if isinstance(raw_items, list) else [])
+                    if isinstance(it, dict) and _STRICT_IMDB_RE.fullmatch(str(it.get("id") or "").lower())
                 ]
                 if candidates:
-                    q_low = q_str.lower()
-                    best = None
-                    for c in candidates:
-                        c_title = str(c.get("l") or "").strip().lower()
+                    q_norm = _norm_title(q_str)
+                    alt_norm = _norm_title(title) if title and title != q_str else ""
+                    ranked_matches: List[Tuple[int, Dict[str, Any]]] = []
+                    for idx, c in enumerate(candidates):
+                        c_title_norm = _norm_title(str(c.get("l") or ""))
+                        if not c_title_norm:
+                            continue
+                        title_matches = c_title_norm == q_norm or (alt_norm and c_title_norm == alt_norm)
+                        if not title_matches:
+                            continue
                         c_qid = str(c.get("qid") or "").lower()
-                        if c_title == q_low and ("series" in c_qid or "tv" in c_qid):
-                            best = c
-                            break
-                    if not best:
-                        best = next(
-                            (c for c in candidates if "series" in str(c.get("qid") or "").lower()),
-                            candidates[0],
-                        )
-                    resolved = str(best.get("id") or s_id)
-                    self.imdb_id_cache[cache_k] = resolved
-                    return resolved
+                        if mtype_norm == "movie":
+                            if c_qid and any(
+                                k in c_qid
+                                for k in (
+                                    "series",
+                                    "tvseries",
+                                    "tvminiseries",
+                                    "tvepisode",
+                                    "videogame",
+                                    "podcast",
+                                    "musicvideo",
+                                )
+                            ):
+                                continue
+                        else:
+                            if c_qid and (
+                                "tvmovie" in c_qid
+                                or "videogame" in c_qid
+                                or not any(k in c_qid for k in ("series", "tvminiseries", "tvshort", "tv"))
+                            ):
+                                continue
+                        c_year = _safe_int(c.get("y"), 0)
+                        if req_year > 1900 and c_year > 1900 and abs(c_year - req_year) > 1:
+                            continue
+                        # Rank exact year match highest, then +-1 year, then unknown year, preserving IMDb popularity order
+                        if req_year > 1900 and c_year == req_year:
+                            score = 300 - idx
+                        elif req_year > 1900 and c_year > 1900:
+                            score = 200 - idx
+                        else:
+                            score = 100 - idx
+                        ranked_matches.append((score, c))
+                    if ranked_matches:
+                        ranked_matches.sort(key=lambda pair: pair[0], reverse=True)
+                        best = ranked_matches[0][1]
+                        resolved = str(best.get("id") or "").lower()
+                        if _STRICT_IMDB_RE.fullmatch(resolved):
+                            with self._lock:
+                                if len(self.imdb_id_cache) > 512:
+                                    for k_old in list(self.imdb_id_cache.keys())[:128]:
+                                        self.imdb_id_cache.pop(k_old, None)
+                                        self._imdb_cache_meta.pop(k_old, None)
+                                self.imdb_id_cache[cache_k] = resolved
+                                self._imdb_cache_meta[cache_k] = (time.time(), 86400.0)
+                            return resolved
         except Exception:
-            pass
+            should_cache_miss = False
 
-        self.imdb_id_cache[cache_k] = s_id
-        return s_id
+        fallback_out = s_id
+        if should_cache_miss:
+            with self._lock:
+                if len(self.imdb_id_cache) > 512:
+                    for k_old in list(self.imdb_id_cache.keys())[:128]:
+                        self.imdb_id_cache.pop(k_old, None)
+                        self._imdb_cache_meta.pop(k_old, None)
+                self.imdb_id_cache[cache_k] = fallback_out
+                self._imdb_cache_meta[cache_k] = (time.time(), 900.0)
+        return fallback_out
 
     def get_skip_segments(
         self,
@@ -119,95 +286,236 @@ class SkipIntroEngine:
         title: str = "",
         orig_title: str = "",
         year: int = 0,
+        lang: str = "ru",
     ) -> Dict[str, Any]:
-        # Feature movies do not have recurring TV opening credits
-        if media_type == "movie":
-            return {
-                "imdb_id": imdb_id,
-                "media_type": "movie",
-                "source": "Movie (No TV Intro)",
-                "intro": None,
-                "outro": {
-                    "start_ratio": 0.92,
-                    "label": "Финальные титры",
-                },
-            }
+        ui_en = str(lang or "").strip().lower().startswith("en")
+        lbl_intro = "Skip Intro" if ui_en else "Пропустить заставку"
+        lbl_next_ep = "Next Episode" if ui_en else "Следующая серия"
+        lbl_credits = "End Credits" if ui_en else "Финальные титры"
 
-        resolved_imdb_id = self.resolve_imdb_id(imdb_id, title=title, orig_title=orig_title, year=year)
-        s_num = int(season or 1)
-        e_num = int(episode or 1)
-        cache_key = f"{resolved_imdb_id}_s{s_num}_e{e_num}"
-        if cache_key in self.cache:
-            return self.cache[cache_key]
+        def _localize_seg_result(res_obj: Dict[str, Any]) -> Dict[str, Any]:
+            copied = copy.deepcopy(res_obj)
+            if isinstance(copied.get("intro"), dict):
+                copied["intro"]["label"] = lbl_intro
+            if isinstance(copied.get("outro"), dict):
+                is_mov = str(copied.get("media_type") or media_type or "").lower() == "movie"
+                copied["outro"]["label"] = lbl_credits if is_mov else lbl_next_ep
+            return copied
+
+        # Feature movies do not have recurring TV opening credits, but CAN have exact end-credits timestamps
+        if str(media_type or "").lower() == "movie":
+            resolved_movie_imdb = self.resolve_imdb_id(
+                imdb_id,
+                title=title,
+                orig_title=orig_title,
+                year=year,
+                media_type="movie",
+            )
+            movie_cache_key = f"{resolved_movie_imdb or imdb_id}_movie"
+            cached_movie = self._get_cached_segment(movie_cache_key)
+            if cached_movie is not None:
+                return _localize_seg_result(cached_movie)
+            movie_outro: Dict[str, Any] = {
+                "start_ratio": 0.95,
+                "label": lbl_credits,
+            }
+            movie_source = "Movie (No TV Intro)"
+            cacheable_movie = True
+            has_exact_movie_credits = False
+            if resolved_movie_imdb and _STRICT_IMDB_RE.fullmatch(resolved_movie_imdb):
+                api_url = f"https://api.theintrodb.org/v3/media?imdb_id={resolved_movie_imdb}"
+                status, body, _ = self.net.request(api_url, spoof_geo_country="DIRECT", timeout=3)
+                if status not in (200, 404):
+                    cacheable_movie = False
+                if status == 200 and body:
+                    try:
+                        data = json.loads(body)
+                        credits_list = _as_dict_list(data.get("credits") if isinstance(data, dict) else None)
+                        ranked_movie_credits: List[Tuple[float, int, float]] = []
+                        for cred in credits_list:
+                            cv = _parse_conf_and_votes(cred)
+                            if cv is None:
+                                continue
+                            c_start_ms = cred.get("start_ms")
+                            c_end_ms = cred.get("end_ms")
+                            if c_start_ms is None:
+                                continue
+                            st_f = float(c_start_ms)
+                            if not math.isfinite(st_f):
+                                continue
+                            if c_end_ms is not None:
+                                en_f = float(c_end_ms)
+                                if not math.isfinite(en_f) or en_f <= st_f or (en_f - st_f) < 60000.0:
+                                    continue
+                            st_sec = round(st_f / 1000.0, 1)
+                            if st_sec < 1800.0:
+                                # Ignore opening credits (< 30 min) on feature films unless long late credits
+                                if st_sec < 900.0 or (
+                                    c_end_ms is not None and (float(c_end_ms) - st_f) <= 240000.0
+                                ):
+                                    continue
+                            ranked_movie_credits.append((cv[0], cv[1], st_sec))
+                        if ranked_movie_credits:
+                            ranked_movie_credits.sort(reverse=True)
+                            movie_outro["start_sec"] = ranked_movie_credits[0][2]
+                            movie_source = "TheIntroDB v3 (Movie Credits)"
+                            has_exact_movie_credits = True
+                    except Exception:
+                        pass
+            movie_res = {
+                "imdb_id": resolved_movie_imdb or imdb_id,
+                "media_type": "movie",
+                "source": movie_source,
+                "intro": None,
+                "outro": movie_outro,
+            }
+            if cacheable_movie:
+                self._set_cached_segment(movie_cache_key, movie_res, positive=has_exact_movie_credits)
+            return copy.deepcopy(movie_res)
+
+        resolved_imdb_id = self.resolve_imdb_id(
+            imdb_id,
+            title=title,
+            orig_title=orig_title,
+            year=year,
+            media_type="series",
+        )
+        s_num = max(1, _safe_int(season, 1))
+        e_num = max(1, _safe_int(episode, 1))
+        cache_key = f"{resolved_imdb_id or imdb_id}_s{s_num}_e{e_num}"
+        cached_ep = self._get_cached_segment(cache_key)
+        if cached_ep is not None:
+            return _localize_seg_result(cached_ep)
 
         outro_data: Dict[str, Any] = {
             "start_ratio": 0.92,
-            "label": "Следующая серия",
+            "label": lbl_next_ep,
         }
+        cacheable_ep = True
+        recap_bounds: Optional[Tuple[float, float]] = None
 
         # 1. Query live TheIntroDB v3 API for exact episode millisecond timestamps
-        if resolved_imdb_id and resolved_imdb_id.startswith("tt"):
+        if resolved_imdb_id and _STRICT_IMDB_RE.fullmatch(resolved_imdb_id):
             api_url = (
                 f"https://api.theintrodb.org/v3/media?imdb_id={resolved_imdb_id}"
                 f"&season={s_num}&episode={e_num}"
             )
             status, body, _ = self.net.request(api_url, spoof_geo_country="DIRECT", timeout=3)
+            if status not in (200, 404):
+                cacheable_ep = False
             if status == 200 and body:
                 try:
-                    data = json.loads(body)
+                    data = json.loads(body) if isinstance(body, (str, bytes, bytearray)) else {}
+                    if not isinstance(data, dict):
+                        data = {}
 
-                    # Extract exact credits timestamp if valid (> 10 minutes into episode)
-                    credits_list = data.get("credits") or []
-                    opening_credits_fallback = None
-                    if credits_list and isinstance(credits_list, list):
-                        for cred in credits_list:
-                            c_start_ms = cred.get("start_ms")
-                            c_end_ms = cred.get("end_ms")
-                            if c_start_ms and float(c_start_ms) >= 600000:
-                                outro_data["start_sec"] = round(float(c_start_ms) / 1000.0, 1)
-                            elif (
-                                c_start_ms is not None
-                                and c_end_ms is not None
-                                and float(c_start_ms) < 600000
-                            ):
-                                st_s = round(float(c_start_ms) / 1000.0, 1)
-                                en_s = round(float(c_end_ms) / 1000.0, 1)
-                                if 15.0 <= (en_s - st_s) <= 160.0:
-                                    opening_credits_fallback = (st_s, en_s)
+                    recap_list = _as_dict_list(data.get("recap"))
+                    ranked_recaps: List[Tuple[float, int, float, float, float]] = []
+                    for cand_rec in recap_list:
+                        rcv = _parse_conf_and_votes(cand_rec)
+                        if rcv is None or cand_rec.get("end_ms") is None:
+                            continue
+                        r_st = max(0.0, round(float(cand_rec.get("start_ms") or 0.0) / 1000.0, 1))
+                        r_en = round(float(cand_rec["end_ms"]) / 1000.0, 1)
+                        if math.isfinite(r_st) and math.isfinite(r_en) and 5.0 <= (r_en - r_st) <= 180.0 and r_st < 120.0:
+                            ranked_recaps.append((rcv[0], rcv[1], r_en - r_st, r_st, r_en))
+                    if ranked_recaps:
+                        ranked_recaps.sort(reverse=True)
+                        recap_bounds = (ranked_recaps[0][3], ranked_recaps[0][4])
 
-                    intro_list = data.get("intro") or []
-                    if intro_list and isinstance(intro_list, list):
-                        first_intro = intro_list[0]
-                        raw_start_ms = first_intro.get("start_ms")
-                        raw_end_ms = first_intro.get("end_ms")
+                    # Parse intro candidates first so credits overlapping a cold-open intro are never mistaken for outro
+                    intro_list = _as_dict_list(data.get("intro"))
+                    ranked_intros: List[Tuple[float, int, float, float, float]] = []
+                    for cand_intro in intro_list:
+                        cv = _parse_conf_and_votes(cand_intro)
+                        if cv is None:
+                            continue
+                        raw_start_ms = cand_intro.get("start_ms")
+                        raw_end_ms = cand_intro.get("end_ms")
+                        if raw_end_ms is None:
+                            continue
+                        start_s = max(0.0, round(float(raw_start_ms) / 1000.0, 1)) if raw_start_ms is not None else 0.0
+                        end_s = round(float(raw_end_ms) / 1000.0, 1)
+                        if not math.isfinite(start_s) or not math.isfinite(end_s):
+                            continue
+                        dur_s = end_s - start_s
+                        if dur_s <= 0.0 or dur_s > 160.0:
+                            continue
+                        # Reject 0-14s studio bumpers near 00:00; allow short title cards (>=4.5s) after a cold open (>=25s)
+                        is_real_intro = (
+                            (start_s < 25.0 and dur_s >= 15.0)
+                            or (start_s >= 25.0 and dur_s >= 4.5)
+                        )
+                        if is_real_intro:
+                            ranked_intros.append((cv[0], cv[1], dur_s, start_s, end_s))
+                    ranked_intros.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+                    best_intro = (ranked_intros[0][3], ranked_intros[0][4]) if ranked_intros else None
+                    raw_intro_start = best_intro[0] if best_intro else None
+                    if (
+                        best_intro is not None
+                        and recap_bounds is not None
+                        and recap_bounds[0] < 30.0
+                        and 0.0 <= (best_intro[0] - recap_bounds[1]) <= 3.0
+                        and (best_intro[1] - recap_bounds[0]) <= 210.0
+                    ):
+                        best_intro = (recap_bounds[0], best_intro[1])
 
-                        if raw_end_ms is not None:
-                            start_s = round(float(raw_start_ms) / 1000.0, 1) if raw_start_ms is not None else 2.0
-                            end_s = round(float(raw_end_ms) / 1000.0, 1)
-                            # Ignore 0-16s studio bumper unless it's a real >25s intro sequence
-                            is_real_intro = (end_s > start_s) and ((end_s - start_s) <= 160) and (
-                                raw_start_ms is not None or (end_s - start_s) >= 25.0
-                            )
-                            if is_real_intro:
-                                result = {
-                                    "imdb_id": resolved_imdb_id,
-                                    "season": s_num,
-                                    "episode": e_num,
-                                    "source": "TheIntroDB v3",
-                                    "cold_open_safe": True,
-                                    "intro": {
-                                        "start": start_s,
-                                        "end": end_s,
-                                        "label": "Пропустить заставку",
-                                    },
-                                    "outro": outro_data,
-                                }
-                                self.cache[cache_key] = result
-                                return result
+                    credits_list = _as_dict_list(data.get("credits"))
+                    opening_credits_fallback: Optional[Tuple[float, float]] = None
+                    ranked_outros: List[Tuple[float, int, float]] = []
+                    for cred in credits_list:
+                        cv = _parse_conf_and_votes(cred)
+                        if cv is None:
+                            continue
+                        c_start_ms = cred.get("start_ms")
+                        c_end_ms = cred.get("end_ms")
+                        if c_start_ms is None:
+                            continue
+                        st_f = float(c_start_ms)
+                        if not math.isfinite(st_f):
+                            continue
+                        st_s = max(0.0, round(st_f / 1000.0, 1))
+                        en_s: Optional[float] = None
+                        if c_end_ms is not None:
+                            en_f = float(c_end_ms)
+                            if not math.isfinite(en_f) or en_f <= st_f:
+                                continue
+                            en_s = round(en_f / 1000.0, 1)
+                        if raw_intro_start is not None and abs(st_s - raw_intro_start) < 30.0:
+                            continue
+                        is_bounded_short = en_s is not None and 0.0 < (en_s - st_s) <= 180.0
+                        if is_bounded_short and st_s < 1200.0:
+                            if 15.0 <= (en_s - st_s) <= 160.0 and opening_credits_fallback is None:
+                                opening_credits_fallback = (st_s, en_s)
+                            continue
+                        if st_s >= 600.0:
+                            ranked_outros.append((cv[0], cv[1], st_s))
+                    if ranked_outros:
+                        ranked_outros.sort(reverse=True)
+                        outro_data["start_sec"] = ranked_outros[0][2]
+
+                    if best_intro is not None:
+                        result = {
+                            "imdb_id": resolved_imdb_id or imdb_id,
+                            "season": s_num,
+                            "episode": e_num,
+                            "source": "TheIntroDB v3",
+                            "cold_open_safe": True,
+                            "intro": {
+                                "start": best_intro[0],
+                                "end": best_intro[1],
+                                "label": lbl_intro,
+                            },
+                            "outro": outro_data,
+                        }
+                        if recap_bounds is not None:
+                            result["recap"] = {"start": recap_bounds[0], "end": recap_bounds[1]}
+                        self._set_cached_segment(cache_key, result, positive=True)
+                        return _localize_seg_result(result)
 
                     if opening_credits_fallback:
                         result = {
-                            "imdb_id": resolved_imdb_id,
+                            "imdb_id": resolved_imdb_id or imdb_id,
                             "season": s_num,
                             "episode": e_num,
                             "source": "TheIntroDB v3 (Opening Credits)",
@@ -215,12 +523,14 @@ class SkipIntroEngine:
                             "intro": {
                                 "start": opening_credits_fallback[0],
                                 "end": opening_credits_fallback[1],
-                                "label": "Пропустить заставку",
+                                "label": lbl_intro,
                             },
                             "outro": outro_data,
                         }
-                        self.cache[cache_key] = result
-                        return result
+                        if recap_bounds is not None:
+                            result["recap"] = {"start": recap_bounds[0], "end": recap_bounds[1]}
+                        self._set_cached_segment(cache_key, result, positive=True)
+                        return _localize_seg_result(result)
                 except Exception:
                     pass
 
@@ -230,7 +540,7 @@ class SkipIntroEngine:
             bounds = self.VERIFIED_EPISODE_INTROS[ep_key]
             if bounds is None:
                 result = {
-                    "imdb_id": imdb_id,
+                    "imdb_id": resolved_imdb_id or imdb_id,
                     "season": s_num,
                     "episode": e_num,
                     "source": "Verified (No Intro in Pilot)",
@@ -240,7 +550,7 @@ class SkipIntroEngine:
                 }
             else:
                 result = {
-                    "imdb_id": imdb_id,
+                    "imdb_id": resolved_imdb_id or imdb_id,
                     "season": s_num,
                     "episode": e_num,
                     "source": "Verified Episode Intro",
@@ -248,17 +558,20 @@ class SkipIntroEngine:
                     "intro": {
                         "start": bounds[0],
                         "end": bounds[1],
-                        "label": "Пропустить заставку",
+                        "label": lbl_intro,
                     },
                     "outro": outro_data,
                 }
-            self.cache[cache_key] = result
-            return result
+            if recap_bounds is not None:
+                result["recap"] = {"start": recap_bounds[0], "end": recap_bounds[1]}
+            if cacheable_ep:
+                self._set_cached_segment(cache_key, result, positive=True)
+            return _localize_seg_result(result)
 
         # 3. Cold-Open Protection: NEVER blindly skip static seconds at the beginning of an episode
         # if the exact timestamp for this specific episode is unknown!
         result = {
-            "imdb_id": imdb_id,
+            "imdb_id": resolved_imdb_id or imdb_id,
             "season": s_num,
             "episode": e_num,
             "source": "Cold-Open Protected (No Blind Skip)",
@@ -266,8 +579,11 @@ class SkipIntroEngine:
             "intro": None,
             "outro": outro_data,
         }
-        self.cache[cache_key] = result
-        return result
+        if recap_bounds is not None:
+            result["recap"] = {"start": recap_bounds[0], "end": recap_bounds[1]}
+        if cacheable_ep:
+            self._set_cached_segment(cache_key, result, positive=bool("start_sec" in outro_data or recap_bounds))
+        return copy.deepcopy(result)
 
     @staticmethod
     def get_webview_cinema_userscript() -> str:
@@ -285,7 +601,7 @@ class SkipIntroEngine:
             setInterval(() => {
                 for (const sel of SKIP_SELECTORS) {
                     const btn = document.querySelector(sel);
-                    if (btn && btn.offsetParent !== null) {
+                    if (btn && (btn.offsetParent !== null || btn.getClientRects().length > 0)) {
                         btn.click();
                     }
                 }

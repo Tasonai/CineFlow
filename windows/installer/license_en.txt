@@ -1,0 +1,42 @@
+﻿==========================================================
+CINEFLOW — UNIFIED LOCAL CINEMA HUB FOR WINDOWS
+Product Passport, Local Privacy & License Agreement
+==========================================================
+
+PRODUCT INFORMATION
+  Product Name:    CineFlow
+  Release Version: 2.7.0 (64-bit x64 Edition)
+  Developer:       Atoma
+  Release Year:    2026
+  Target Platform: Microsoft Windows 10 & Windows 11 (x64)
+
+0. RELEASE NOTES (CHANGELOG)
+What's new in CineFlow 2.7.0:
+• Complete Modular Backend Architecture: the monolithic server has been restructured into 20+ decoupled services and route modules (backend/routes/, backend/app_factory.py, backend/bootstrap.py, backend/server_lifecycle.py), reducing server.py by 87% while preserving 100% API compatibility.
+• Frontend Acyclic Dependency Graph: circular import cycles across catalog and player modules have been completely resolved, allowing components to communicate directly with specialized subsystems and accelerating SPA startup.
+• Hardened Data Security & Vault Isolation: encryption keys and local databases are strictly excluded from source control, strengthening runtime credential protection.
+• Streaming Stability & A/V Sync: improved live remuxing pipeline reliability with zero-jitter PTS alignment and automated recovery against frozen hardware video decoders.
+
+1. OVERVIEW & CORE CAPABILITIES
+CineFlow unifies your personal movie tracking library, high-bitrate streaming, and regional streaming availability inside a single matte-dark desktop interface:
+
+• Two-way Kinorium synchronization with one-click built-in sign-in (zero manual cookie copying): Watchlist, Currently Watching, Watched history, episode progress, personal ratings, and friends' activity.
+• Household Profiles ("Personal", "Family", safe "Kids" mode, and custom profiles) with isolated watch history, default audio preferences, and independent Kinorium accounts.
+• Offline Downloads manager ("Download to Go"): batch season and episode downloads in 1080p and 4K with selected audio, WebVTT subtitles, and safe auto-cleanup.
+• Instant 1080p, 2K, and 4K HDR playback with zero external codec packs or third-party media players required.
+• Built-in FFmpeg 9 live container and audio remux engine: zero-lag A/V sync, live Audio Sync stepper, seamless MKV audio track switching, 5.1 / 7.1 dialogue downmixing, and Smart Subtitles (external search + SRT/ASS to WebVTT).
+• Integrated TorrServer MatriX engine for RAM-buffered 4K HDR P2P streaming with exact multi-file episode selection and zero SSD write wear.
+• Smartphone Wi-Fi Remote Control (instant QR pairing with zero mobile app install), Release Calendar, TV Mode (D-pad / Gamepad), and direct DLNA Smart TV casting.
+• Crash-safe SQLite WAL local storage, community Stremio addons, and Intro Skip.
+
+2. LOCAL PRIVACY & SECURITY ARCHITECTURE
+• CineFlow runs strictly locally on your computer (127.0.0.1:8765) by default. LAN access is disabled until explicitly enabled by you in Settings.
+• Atoma collects zero telemetry, zero analytics, and never transmits your viewing history or session credentials to any external server.
+• All personal preferences, backups, and sync caches remain exclusively inside the local "data" directory on your machine.
+
+3. LICENSE TERMS
+• CineFlow 2.7.0 is provided by Atoma for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
+• CineFlow operates solely as a local client-side media interface and metadata aggregator and does not host or distribute media content on any server.
+• Bundled open-source runtime components (Python 3.11 Embeddable Runtime, FFmpeg 9 GPL, TorrServer MatriX) remain covered by their respective licenses.
+
+Copyright (C) 2026 Atoma. All rights reserved.

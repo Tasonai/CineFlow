@@ -1,11 +1,53 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
 import time
+import urllib.parse
 from typing import Any, Dict, List, Optional
+
+
+_SUBPROC_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_FFMPEG_NET_WHITELIST = "http,https,tcp,tls,crypto,data,httpproxy"
+_CTRL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+_WS_CHAR_RE = re.compile(r"\s")
+
+
+def _is_valid_ffmpeg_http_url(url: str) -> bool:
+    s = str(url or "").strip()
+    if not s or _CTRL_CHAR_RE.search(s) or _WS_CHAR_RE.search(s):
+        return False
+    try:
+        parsed = urllib.parse.urlparse(s)
+        if parsed.username or parsed.password:
+            return False
+        _ = parsed.port
+    except ValueError:
+        return False
+    return bool(parsed.scheme in ("http", "https") and parsed.hostname)
+
+
+def build_ffmpeg_env(source_url: str = "") -> Dict[str, str]:
+    """Builds a subprocess environment that prevents corporate/VPN HTTP_PROXY from hijacking loopback streams."""
+    env = dict(os.environ)
+    no_proxy_items = [x.strip() for x in (env.get("NO_PROXY") or env.get("no_proxy") or "").split(",") if x.strip()]
+    for loop_h in ("127.0.0.1", "localhost", "::1"):
+        if loop_h not in no_proxy_items:
+            no_proxy_items.append(loop_h)
+    merged_np = ",".join(no_proxy_items)
+    env["NO_PROXY"] = merged_np
+    env["no_proxy"] = merged_np
+    try:
+        host = (urllib.parse.urlparse(str(source_url or "").strip()).hostname or "").strip().lower().strip("[]")
+    except ValueError:
+        host = ""
+    if host in ("127.0.0.1", "localhost", "::1"):
+        for pk in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"):
+            env.pop(pk, None)
+    return env
 
 
 _LANG_NAMES_RU = {
@@ -54,6 +96,8 @@ _RU_DUB_MARKERS = ("рус", "дубляж", "rezka", "rhs", "lostfilm", "tvshow
 
 _BROWSER_SAFE_AUDIO_CODECS = {"aac", "mp3", "opus", "vorbis", "flac"}
 _TEXT_SUBTITLE_CODECS = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"}
+_HW_CAPS_PROCESS_CACHE: Dict[str, Dict[str, Any]] = {}
+_HW_CAPS_CACHE_LOCK = threading.Lock()
 
 
 class RemuxStreamEngine:
@@ -73,17 +117,88 @@ class RemuxStreamEngine:
         self._probe_cache: Dict[str, Dict[str, Any]] = {}
         self._sub_cache: Dict[str, str] = {}
         self._lock = threading.Lock()
-        self._hw_caps: Dict[str, Any] = self._probe_hw_capabilities()
+        self._hw_caps: Dict[str, Any] = self._init_hw_capabilities()
 
-    def _probe_hw_capabilities(self) -> Dict[str, Any]:
-        caps = {
+    @staticmethod
+    def build_ffmpeg_env(source_url: str = "") -> Dict[str, str]:
+        return build_ffmpeg_env(source_url)
+
+    def _test_hw_encoder(self, encoder_name: str) -> bool:
+        if not self.ffmpeg_path or not encoder_name:
+            return False
+        try:
+            proc = subprocess.run(
+                [
+                    self.ffmpeg_path,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "nullsrc=s=128x128:d=0.04",
+                    "-frames:v",
+                    "1",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:v",
+                    encoder_name,
+                    "-f",
+                    "null",
+                    "-",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                creationflags=_SUBPROC_NO_WINDOW,
+            )
+            return proc.returncode == 0
+        except Exception:
+            return False
+
+    def _default_hw_capabilities(self) -> Dict[str, Any]:
+        is_win = os.name == "nt"
+        return {
             "videotoolbox_hwaccel": False,
+            "d3d11va_hwaccel": is_win,
+            "cuda_hwaccel": False,
             "h264_videotoolbox": False,
             "hevc_videotoolbox": False,
+            "h264_nvenc": False,
+            "h264_qsv": False,
+            "h264_amf": False,
             "aac_at": False,
             "audio_encoder": "aac",
             "video_encoder": "libx264",
         }
+
+    def _init_hw_capabilities(self) -> Dict[str, Any]:
+        if not self.ffmpeg_path:
+            return self._default_hw_capabilities()
+        with _HW_CAPS_CACHE_LOCK:
+            cached = _HW_CAPS_PROCESS_CACHE.get(self.ffmpeg_path)
+            if cached is not None:
+                return dict(cached)
+        if os.name == "nt":
+            initial_caps = self._default_hw_capabilities()
+
+            def _bg_probe():
+                probed = self._probe_hw_capabilities()
+                with _HW_CAPS_CACHE_LOCK:
+                    _HW_CAPS_PROCESS_CACHE[self.ffmpeg_path] = dict(probed)
+                    if self._hw_caps is initial_caps:
+                        self._hw_caps = probed
+
+            threading.Thread(target=_bg_probe, name="CineFlowFFmpegHwProbe", daemon=True).start()
+            return initial_caps
+
+        probed = self._probe_hw_capabilities()
+        with _HW_CAPS_CACHE_LOCK:
+            _HW_CAPS_PROCESS_CACHE[self.ffmpeg_path] = dict(probed)
+        return probed
+
+    def _probe_hw_capabilities(self) -> Dict[str, Any]:
+        caps = self._default_hw_capabilities()
         if not self.ffmpeg_path:
             return caps
         try:
@@ -92,10 +207,15 @@ class RemuxStreamEngine:
                 capture_output=True,
                 text=True,
                 timeout=3.0,
+                creationflags=_SUBPROC_NO_WINDOW,
             )
             hw_out = (hw_proc.stdout or "") + "\n" + (hw_proc.stderr or "")
             if "videotoolbox" in hw_out:
                 caps["videotoolbox_hwaccel"] = True
+            if "d3d11va" in hw_out:
+                caps["d3d11va_hwaccel"] = True
+            if "cuda" in hw_out:
+                caps["cuda_hwaccel"] = True
         except Exception:
             pass
         try:
@@ -104,11 +224,18 @@ class RemuxStreamEngine:
                 capture_output=True,
                 text=True,
                 timeout=3.5,
+                creationflags=_SUBPROC_NO_WINDOW,
             )
             enc_out = enc_proc.stdout or ""
             if "h264_videotoolbox" in enc_out:
                 caps["h264_videotoolbox"] = True
                 caps["video_encoder"] = "h264_videotoolbox"
+            else:
+                for hw_enc in ("h264_nvenc", "h264_qsv", "h264_amf"):
+                    if hw_enc in enc_out and self._test_hw_encoder(hw_enc):
+                        caps[hw_enc] = True
+                        caps["video_encoder"] = hw_enc
+                        break
             if "hevc_videotoolbox" in enc_out:
                 caps["hevc_videotoolbox"] = True
             if "aac_at" in enc_out:
@@ -121,7 +248,12 @@ class RemuxStreamEngine:
     def get_hw_capabilities(self) -> Dict[str, Any]:
         active = bool(
             self._hw_caps.get("videotoolbox_hwaccel")
+            or self._hw_caps.get("d3d11va_hwaccel")
+            or self._hw_caps.get("cuda_hwaccel")
             or self._hw_caps.get("h264_videotoolbox")
+            or self._hw_caps.get("h264_nvenc")
+            or self._hw_caps.get("h264_qsv")
+            or self._hw_caps.get("h264_amf")
             or self._hw_caps.get("aac_at")
         )
         parts: List[str] = []
@@ -129,6 +261,14 @@ class RemuxStreamEngine:
             parts.append("VideoToolbox")
         if self._hw_caps.get("aac_at"):
             parts.append("AudioToolbox")
+        if self._hw_caps.get("h264_nvenc") or self._hw_caps.get("cuda_hwaccel"):
+            parts.append("NVIDIA NVENC")
+        elif self._hw_caps.get("h264_qsv"):
+            parts.append("Intel QuickSync")
+        elif self._hw_caps.get("h264_amf"):
+            parts.append("AMD AMF")
+        elif self._hw_caps.get("d3d11va_hwaccel"):
+            parts.append("Direct3D 11")
         return {
             **self._hw_caps,
             "active": active,
@@ -136,7 +276,21 @@ class RemuxStreamEngine:
         }
 
     @staticmethod
-    def _find_binary(name: str, bin_dir: str) -> str:
+    def _find_binary(name: str, bin_dir: str, is_windows: Optional[bool] = None) -> str:
+        win_mode = (os.name == "nt") if is_windows is None else bool(is_windows)
+        if win_mode:
+            exe_name = name if name.lower().endswith(".exe") else f"{name}.exe"
+            candidates = [os.path.join(bin_dir, exe_name), os.path.join(bin_dir, name)]
+            local_app_data = os.environ.get("LOCALAPPDATA", "")
+            if local_app_data:
+                candidates.append(os.path.join(local_app_data, "Microsoft", "WinGet", "Links", exe_name))
+                candidates.append(os.path.join(local_app_data, "Programs", "CineFlow", "backend", "bin", exe_name))
+            candidates.append(os.path.join("C:\\ffmpeg\\bin", exe_name))
+            for cand in candidates:
+                if os.path.isfile(cand):
+                    return cand
+            return shutil.which(exe_name) or shutil.which(name) or ""
+
         bundled = os.path.join(bin_dir, name)
         if os.path.isfile(bundled) and os.access(bundled, os.X_OK):
             return bundled
@@ -230,9 +384,17 @@ class RemuxStreamEngine:
                     return int(tr["audio_index"])
             return 0
 
+        # Pass 1: explicit Russian language tag or Russian studio/dubbing marker
         for tr in audio_tracks:
             lbl_low = str(tr.get("label") or "").lower()
-            if tr.get("lang") in ("rus", "ru") or any(k in lbl_low for k in (*_RU_DUB_MARKERS, "dub")):
+            tr_lang = str(tr.get("lang") or "").lower()
+            if tr_lang in ("rus", "ru") or any(k in lbl_low for k in _RU_DUB_MARKERS):
+                return int(tr["audio_index"])
+        # Pass 2: generic "dub" label only when language tag is absent/undetermined (never match "English Dub")
+        for tr in audio_tracks:
+            lbl_low = str(tr.get("label") or "").lower()
+            tr_lang = str(tr.get("lang") or "").lower()
+            if tr_lang in ("", "und") and re.search(r"\bdub(?:bed|bing)?\b", lbl_low):
                 return int(tr["audio_index"])
         return 0
 
@@ -300,6 +462,27 @@ class RemuxStreamEngine:
                             best = cand_t
         return best
 
+    @classmethod
+    def _extract_credits_chapter_sec(cls, chapters: List[Dict[str, Any]], duration: float) -> float:
+        if not chapters or duration < 120.0:
+            return 0.0
+        credits_re = re.compile(
+            r"\b(end\s*credits?|closing\s*credits?|credits|outro|ending|титры|финальные\s*титры|конечные\s*титры|эндинг)\b",
+            re.IGNORECASE,
+        )
+        min_sec = duration * 0.70
+        for ch in chapters:
+            if not isinstance(ch, dict):
+                continue
+            tags = ch.get("tags") or {}
+            title = str(tags.get("title") or tags.get("TITLE") or "").strip()
+            if not title or not credits_re.search(title):
+                continue
+            start_s = cls._parse_tag_hms_seconds(ch.get("start_time"))
+            if min_sec <= start_s < duration - 2.0:
+                return round(start_s, 1)
+        return 0.0
+
     def probe_media(
         self,
         source_url: str,
@@ -308,12 +491,13 @@ class RemuxStreamEngine:
         lang: str = "ru",
     ) -> Dict[str, Any]:
         ui_lang = "en" if str(lang or "").strip().lower().startswith("en") else "ru"
-        if not source_url or not source_url.startswith(("http://", "https://")):
+        clean_src = str(source_url or "").strip()
+        if not _is_valid_ffmpeg_http_url(clean_src):
             return {"ok": False, "error": "Invalid source URL"}
         if not self.is_available():
             return {"ok": False, "error": "FFprobe not available", "remux_available": False}
 
-        cache_key = hashlib.sha1(source_url.encode("utf-8")).hexdigest()
+        cache_key = hashlib.sha1(clean_src.encode("utf-8")).hexdigest()
         now = time.time()
         with self._lock:
             cached = self._probe_cache.get(cache_key)
@@ -325,11 +509,16 @@ class RemuxStreamEngine:
 
         analyze_us = "500000" if fast_probe else "1500000"
         probe_bytes = "500000" if fast_probe else "1200000"
-        eff_timeout = timeout_sec if fast_probe else max(timeout_sec, 16.0)
+        eff_timeout = min(timeout_sec, 8.5) if fast_probe else max(timeout_sec, 16.0)
+        rw_timeout_us = str(int(max(5.0, eff_timeout) * 1_000_000))
         cmd = [
             self.ffprobe_path,
             "-v",
             "quiet",
+            "-rw_timeout",
+            rw_timeout_us,
+            "-protocol_whitelist",
+            _FFMPEG_NET_WHITELIST,
             "-analyzeduration",
             analyze_us,
             "-probesize",
@@ -338,14 +527,20 @@ class RemuxStreamEngine:
             "json",
             "-show_format",
             "-show_streams",
-            source_url,
+            "-show_chapters",
+            "-i",
+            clean_src,
         ]
         try:
             proc = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=eff_timeout,
+                env=build_ffmpeg_env(clean_src),
+                creationflags=_SUBPROC_NO_WINDOW,
             )
             if proc.returncode != 0 or not proc.stdout.strip():
                 err_msg = (proc.stderr or "").strip()[:240] or "FFprobe failed to read container header"
@@ -359,7 +554,9 @@ class RemuxStreamEngine:
         fmt = parsed.get("format") or {}
         fmt_name = str(fmt.get("format_name") or "").lower()
         streams = parsed.get("streams") or []
+        chapters = parsed.get("chapters") or []
         duration = self._extract_best_duration(fmt, streams)
+        credits_start_sec = self._extract_credits_chapter_sec(chapters, duration)
         video_codec = ""
         video_width = 0
         video_height = 0
@@ -397,17 +594,34 @@ class RemuxStreamEngine:
                 audio_ord += 1
             elif ctype == "subtitle" and cname in _TEXT_SUBTITLE_CODECS:
                 s_idx = int(st.get("index") or 0)
+                s_tags = st.get("tags") or {}
+                s_lang = str(s_tags.get("language") or s_tags.get("LANGUAGE") or "").strip().lower()
                 subtitle_tracks.append(
                     {
                         "stream_index": s_idx,
                         "codec": cname,
+                        "lang": s_lang,
                         "label": self._build_sub_label(len(subtitle_tracks), st, ui_lang=ui_lang),
                         "_raw_stream": {
-                            "tags": st.get("tags") or {},
+                            "tags": s_tags,
                             "disposition": st.get("disposition") or {},
                         },
                     }
                 )
+
+        priority_subs: List[Dict[str, Any]] = []
+        other_subs: List[Dict[str, Any]] = []
+        _prio_langs = {"rus", "ru", "eng", "en", "ukr", "uk", "pol", "pl"}
+        for st_item in subtitle_tracks:
+            st_lang = str(st_item.get("lang") or "").lower()
+            st_lbl = str(st_item.get("label") or "").lower()
+            if st_lang in _prio_langs or any(
+                m in st_lbl for m in ("рус", "russian", "англ", "english", "укр", "ukrain", "polsk", "polish")
+            ):
+                priority_subs.append(st_item)
+            else:
+                other_subs.append(st_item)
+        ordered_subtitles = (priority_subs + other_subs)[:40]
 
         default_audio_idx = self._select_default_audio_index(audio_tracks, ui_lang=ui_lang)
 
@@ -425,17 +639,19 @@ class RemuxStreamEngine:
             "remux_available": True,
             "format_name": fmt_name,
             "duration": round(duration, 2),
+            "credits_start_sec": credits_start_sec,
             "video_codec": video_codec,
             "width": video_width,
             "height": video_height,
             "needs_remux": needs_remux,
             "default_audio_index": default_audio_idx,
             "audio_tracks": audio_tracks,
-            "subtitle_tracks": subtitle_tracks[:12],
+            "subtitle_tracks": ordered_subtitles,
         }
         with self._lock:
             if len(self._probe_cache) > 120:
-                self._probe_cache.clear()
+                for k_old in list(self._probe_cache.keys())[:30]:
+                    self._probe_cache.pop(k_old, None)
             self._probe_cache[cache_key] = {**raw_result, "_ts": now}
         return self._localize_probe_payload(raw_result, ui_lang=ui_lang)
 
@@ -447,18 +663,20 @@ class RemuxStreamEngine:
         window_sec: float = 420.0,
         timeout_sec: float = 8.0,
     ) -> str:
-        if not self.is_available() or not source_url.startswith(("http://", "https://")):
+        clean_src = str(source_url or "").strip()
+        if not self.is_available() or not _is_valid_ffmpeg_http_url(clean_src):
             return "WEBVTT\n\n"
         norm_start = max(0.0, round(float(start_sec or 0.0), 1))
         norm_win = max(120.0, min(900.0, round(float(window_sec or 420.0), 0)))
         cache_key = (
-            f"{hashlib.sha1(source_url.encode('utf-8')).hexdigest()}"
+            f"{hashlib.sha1(clean_src.encode('utf-8')).hexdigest()}"
             f":s{int(stream_index)}:ss{norm_start:.1f}:w{int(norm_win)}"
         )
         with self._lock:
             if cache_key in self._sub_cache:
                 return self._sub_cache[cache_key]
 
+        rw_timeout_us = str(int(max(5.0, float(timeout_sec or 8.0)) * 1_000_000))
         cmd: List[str] = [
             self.ffmpeg_path,
             "-hide_banner",
@@ -474,6 +692,10 @@ class RemuxStreamEngine:
             "1",
             "-reconnect_delay_max",
             "3",
+            "-rw_timeout",
+            rw_timeout_us,
+            "-protocol_whitelist",
+            _FFMPEG_NET_WHITELIST,
         ]
         # Place -ss BEFORE -i so FFmpeg performs an instant HTTP Range seek on TorrServer/Debrid
         # AND shifts output WEBVTT cue timestamps to 00:00:00.000 — matching build_remux_command 1:1!
@@ -482,7 +704,7 @@ class RemuxStreamEngine:
         cmd.extend(
             [
                 "-i",
-                source_url,
+                clean_src,
                 "-t",
                 f"{int(norm_win)}",
                 "-map",
@@ -493,13 +715,20 @@ class RemuxStreamEngine:
             ]
         )
         try:
-            proc = subprocess.run(cmd, capture_output=True, timeout=timeout_sec)
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=timeout_sec,
+                env=build_ffmpeg_env(clean_src),
+                creationflags=_SUBPROC_NO_WINDOW,
+            )
             raw_out = (proc.stdout or b"").decode("utf-8", errors="replace")
             vtt = raw_out if "WEBVTT" in raw_out else "WEBVTT\n\n"
             if len(vtt) > 16:
                 with self._lock:
                     if len(self._sub_cache) > 80:
-                        self._sub_cache.clear()
+                        for k_old in list(self._sub_cache.keys())[:20]:
+                            self._sub_cache.pop(k_old, None)
                     self._sub_cache[cache_key] = vtt
             return vtt
         except subprocess.TimeoutExpired as exc:
@@ -530,10 +759,16 @@ class RemuxStreamEngine:
         channels: int = 2,
         audio_codec: str = "",
         force_h264: bool = False,
+        audio_offset_sec: float = 0.0,
     ) -> List[str]:
+        clean_src = str(source_url or "").strip()
+        if not _is_valid_ffmpeg_http_url(clean_src):
+            raise ValueError("Invalid remux source URL")
         v_low = (video_codec or "").strip().lower()
         a_low = (audio_codec or "").strip().lower()
         ch_count = max(1, int(channels or 2))
+        a_shift = max(-5.0, min(5.0, float(audio_offset_sec or 0.0)))
+        has_audio_shift = abs(a_shift) >= 0.005
 
         need_video_transcode = bool(
             (force_h264 and v_low not in ("h264", "avc", "avc1"))
@@ -546,27 +781,46 @@ class RemuxStreamEngine:
             "-loglevel",
             "error",
         ]
-        if need_video_transcode and self._hw_caps.get("videotoolbox_hwaccel"):
-            cmd.extend(["-hwaccel", "videotoolbox"])
+        if need_video_transcode:
+            if self._hw_caps.get("videotoolbox_hwaccel"):
+                cmd.extend(["-hwaccel", "videotoolbox"])
+            elif self._hw_caps.get("d3d11va_hwaccel"):
+                cmd.extend(["-hwaccel", "d3d11va"])
 
-        if source_url.startswith(("http://", "https://")):
+        if clean_src.startswith(("http://", "https://")):
             cmd.extend(
                 [
+                    "-probesize",
+                    "1500000",
+                    "-analyzeduration",
+                    "1500000",
                     "-reconnect",
                     "1",
                     "-reconnect_streamed",
                     "1",
                     "-reconnect_delay_max",
                     "5",
+                    # Fail a dead torrent / CDN after 60 s instead of hanging the remux session forever
+                    "-rw_timeout",
+                    "60000000",
+                    "-protocol_whitelist",
+                    _FFMPEG_NET_WHITELIST,
                 ]
             )
         if start_sec > 0.5:
+            if not need_video_transcode:
+                # Keep copied video and transcoded audio locked to the exact same keyframe cluster on seek/resume
+                cmd.extend(["-noaccurate_seek"])
             cmd.extend(["-ss", f"{start_sec:.2f}"])
 
         cmd.extend(
             [
+                "-fflags",
+                "+discardcorrupt",
+                "-thread_queue_size",
+                "1024",
                 "-i",
-                source_url,
+                clean_src,
                 "-map",
                 "0:v:0",
                 "-map",
@@ -582,6 +836,53 @@ class RemuxStreamEngine:
                         "h264_videotoolbox",
                         "-realtime",
                         "1",
+                        "-b:v",
+                        "12M",
+                        "-maxrate",
+                        "16M",
+                        "-bufsize",
+                        "24M",
+                        "-pix_fmt",
+                        "yuv420p",
+                    ]
+                )
+            elif self._hw_caps.get("h264_nvenc"):
+                cmd.extend(
+                    [
+                        "-c:v",
+                        "h264_nvenc",
+                        "-preset",
+                        "p3",
+                        "-b:v",
+                        "12M",
+                        "-maxrate",
+                        "16M",
+                        "-bufsize",
+                        "24M",
+                        "-pix_fmt",
+                        "yuv420p",
+                    ]
+                )
+            elif self._hw_caps.get("h264_qsv"):
+                cmd.extend(
+                    [
+                        "-c:v",
+                        "h264_qsv",
+                        "-b:v",
+                        "12M",
+                        "-maxrate",
+                        "16M",
+                        "-bufsize",
+                        "24M",
+                        "-pix_fmt",
+                        "yuv420p",
+                    ]
+                )
+            elif self._hw_caps.get("h264_amf"):
+                cmd.extend(
+                    [
+                        "-c:v",
+                        "h264_amf",
                         "-b:v",
                         "12M",
                         "-maxrate",
@@ -611,17 +912,22 @@ class RemuxStreamEngine:
                 # Tag HEVC as hvc1 so Apple VideoToolbox / Safari / Chrome hardware decoder plays 4K HDR smoothly
                 cmd.extend(["-tag:v", "hvc1"])
 
-        # Zero-loss passthrough if source audio is already 1ch/2ch AAC; otherwise use AudioToolbox / stereo downmix
-        if a_low in ("aac", "mp4a") and ch_count <= 2:
+        # Zero-loss passthrough if source audio is already 1ch/2ch AAC without custom audio sync shift;
+        # otherwise transcode via AudioToolbox / AAC with async PTS alignment and optional sample-accurate offset
+        if a_low in ("aac", "mp4a") and ch_count <= 2 and not has_audio_shift:
             cmd.extend(["-c:a", "copy"])
         else:
+            af_parts: List[str] = ["aresample=async=1"]
             if ch_count >= 6:
-                cmd.extend(
-                    [
-                        "-af",
-                        "pan=stereo|FL<0.75*FC+0.60*FL+0.40*BL+0.40*SL+0.25*LFE|FR<0.75*FC+0.60*FR+0.40*BR+0.40*SR+0.25*LFE",
-                    ]
+                af_parts.append(
+                    "pan=stereo|FL<0.75*FC+0.60*FL+0.40*BL+0.40*SL+0.25*LFE|FR<0.75*FC+0.60*FR+0.40*BR+0.40*SR+0.25*LFE"
                 )
+            if a_shift < -0.005:
+                af_parts.append(f"atrim=start={abs(a_shift):.3f},asetpts=PTS-STARTPTS")
+            elif a_shift > 0.005:
+                delay_ms = max(1, int(round(a_shift * 1000.0)))
+                af_parts.append(f"adelay={delay_ms}:all=1")
+            cmd.extend(["-af", ",".join(af_parts)])
             audio_enc = "aac_at" if self._hw_caps.get("aac_at") else "aac"
             cmd.extend(
                 [
@@ -642,8 +948,16 @@ class RemuxStreamEngine:
                 "-dn",
                 "-max_muxing_queue_size",
                 "2048",
+                "-muxdelay",
+                "0",
+                "-muxpreload",
+                "0",
+                "-avoid_negative_ts",
+                "make_zero",
+                "-frag_duration",
+                "200000",
                 "-movflags",
-                "frag_keyframe+empty_moov+default_base_moof",
+                "delay_moov+default_base_moof",
                 "-f",
                 "mp4",
                 "pipe:1",
@@ -651,10 +965,20 @@ class RemuxStreamEngine:
         )
         return cmd
 
-    def capture_frame_png(self, source_url: str, timestamp_sec: float = 0.0, timeout_sec: float = 9.0) -> bytes:
-        if not self.is_available() or not source_url.startswith(("http://", "https://")):
+    def capture_frame_png(
+        self,
+        source_url: str,
+        timestamp_sec: float = 0.0,
+        timeout_sec: float = 9.0,
+        local_file_path: str = "",
+    ) -> bytes:
+        clean_local = str(local_file_path or "").strip()
+        is_local_file = bool(clean_local and os.path.isfile(clean_local))
+        clean_src = clean_local if is_local_file else str(source_url or "").strip()
+        if not self.is_available() or (not is_local_file and not _is_valid_ffmpeg_http_url(clean_src)):
             return b""
         ts = max(0.0, round(float(timestamp_sec or 0.0), 2))
+        rw_timeout_us = str(int(max(5.0, float(timeout_sec or 9.0)) * 1_000_000))
         cmd: List[str] = [
             self.ffmpeg_path,
             "-hide_banner",
@@ -663,20 +987,25 @@ class RemuxStreamEngine:
         ]
         if self._hw_caps.get("videotoolbox_hwaccel"):
             cmd.extend(["-hwaccel", "videotoolbox"])
-        cmd.extend(
-            [
-                "-reconnect",
-                "1",
-                "-reconnect_streamed",
-                "1",
-            ]
-        )
+        if not is_local_file:
+            cmd.extend(
+                [
+                    "-reconnect",
+                    "1",
+                    "-reconnect_streamed",
+                    "1",
+                    "-rw_timeout",
+                    rw_timeout_us,
+                    "-protocol_whitelist",
+                    _FFMPEG_NET_WHITELIST,
+                ]
+            )
         if ts > 0.1:
             cmd.extend(["-ss", f"{ts:.2f}"])
         cmd.extend(
             [
                 "-i",
-                source_url,
+                clean_src,
                 "-frames:v",
                 "1",
                 "-f",
@@ -687,7 +1016,13 @@ class RemuxStreamEngine:
             ]
         )
         try:
-            proc = subprocess.run(cmd, capture_output=True, timeout=timeout_sec)
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=timeout_sec,
+                env=None if is_local_file else build_ffmpeg_env(clean_src),
+                creationflags=_SUBPROC_NO_WINDOW,
+            )
             out = proc.stdout or b""
             return out if out[:8] == b"\x89PNG\r\n\x1a\n" else b""
         except Exception:

@@ -1,19 +1,26 @@
 @echo off
 chcp 65001 >nul
-title CineFlow — Unified Cinema (Poland PL Edition)
-
-echo ============================================================
-echo 🎬 Запуск CineFlow Unified Cinema для Windows (WebView2 DRM)
-echo ============================================================
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
+title CineFlow 2.7.0 — Atoma
 
 cd /d "%~dp0\.."
 
-:: Запускаем локальный бэкенд (Split-Proxy HDRezka + JustWatch PL + Kinorium Scrobbler)
-start "CineFlow Backend" /min python server.py
+if exist "%CD%\CineFlow.exe" (
+    start "" "%CD%\CineFlow.exe"
+    exit /b 0
+)
 
-:: Ждем инициализации сервера
-timeout /t 2 /nobreak >nul
+echo ============================================================
+echo Запуск CineFlow 2.7.0 для Windows (Разработчик: Atoma)
+echo ============================================================
 
-:: Открываем приложение в нативном безрамочном окне Microsoft Edge (App Mode с поддержкой Widevine L1 и PlayReady 4K HDR)
-start "" msedge.exe --app=http://127.0.0.1:8765 --window-size=1440,900
-exit
+if exist "%CD%\runtime\pythonw.exe" (
+    start "" "%CD%\runtime\pythonw.exe" -X utf8 "%CD%\server.py" --launchd
+) else (
+    start "CineFlow Backend" /min python -X utf8 server.py
+)
+
+timeout /t 1 /nobreak >nul
+start "" msedge.exe --app=http://127.0.0.1:8765 --window-size=1280,780 --enable-gpu-rasterization --enable-oop-rasterization --ignore-gpu-blocklist --enable-features=CanvasOopRasterization,D3D11VideoDecoder,DirectComposition --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --disable-features=CalculateNativeWinOcclusion,Translate --no-first-run --no-default-browser-check --proxy-bypass-list=<-loopback> --disable-extensions --disable-component-update --disable-sync --disable-default-apps --disable-domain-reliability --disk-cache-size=268435456 --autoplay-policy=no-user-gesture-required
+exit /b 0
