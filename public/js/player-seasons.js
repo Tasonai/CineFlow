@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261104v26";
-import { t, isEn, displayTitle, hasCyrillicText } from "./i18n.js?v=20261104v26";
+import { state } from "./state.js?v=20261104v27";
+import { t, isEn, displayTitle, hasCyrillicText } from "./i18n.js?v=20261104v27";
 import {
   escapeHtml,
   iconSvg,
@@ -12,26 +12,26 @@ import {
   getEpisodeProgress,
   saveEpisodeProgress,
   syncCustomSelect,
-} from "./utils.js?v=20261104v26";
+} from "./utils.js?v=20261104v27";
 import {
   isEpisodeWatched,
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261104v26";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261104v26";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v26";
-import { sweepPendingDownloadCleanups } from "./features.js?v=20261104v26";
-import { syncCustomVideoControlsUI } from "./player-ui-controls.js?v=20261104v26";
-import { closeSubtitleDictPopover, syncSubtitleOffsetUI } from "./subtitles.js?v=20261104v26";
+} from "./catalog.js?v=20261104v27";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261104v27";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v27";
+import { sweepPendingDownloadCleanups } from "./features.js?v=20261104v27";
+import { syncCustomVideoControlsUI } from "./player-ui-controls.js?v=20261104v27";
+import { closeSubtitleDictPopover, syncSubtitleOffsetUI } from "./subtitles.js?v=20261104v27";
 import {
   getNextEpisodeCoords,
   clearAutoplayNextTimer,
   dismissPlayerNextEpisodeToast,
-} from "./player-autoplay.js?v=20261104v26";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261104v26";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v26";
-import { reportScrobbleProgress } from "./player-scrobble.js?v=20261104v26";
+} from "./player-autoplay.js?v=20261104v27";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261104v27";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v27";
+import { reportScrobbleProgress } from "./player-scrobble.js?v=20261104v27";
 import {
   loadBackup4KReleases,
   loadHDRezkaStream,
@@ -39,13 +39,13 @@ import {
   loadStremioStreams,
   resetVideoElementForStreamChange,
   switchSourceTab,
-} from "./player-streams.js?v=20261104v26";
-import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261104v26";
+} from "./player-streams.js?v=20261104v27";
+import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261104v27";
 import {
   syncMediaSessionMetadata,
   updateModalKinoriumHeader,
-} from "./player-meta.js?v=20261104v26";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261104v26";
+} from "./player-meta.js?v=20261104v27";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261104v27";
 
 export function hasStartedWatchingCurrentEpisode(item, seasonNum, epNum) {
   if (state.creditsOverlayShownThisEpisode) return true;
@@ -859,22 +859,30 @@ export async function stepEpisode(delta) {
     !isEpisodeWatched(state.activeItem, state.activeSeason, state.activeEpisode)
       ? savedEpProg.current_time
       : 0;
-  if (state.activeSourceTab === "stremio" || state.activeSourceTab === "backup4k" || state.activeSourceTab === "offline") {
+  const hasPreloadedNext =
+    delta > 0 &&
+    state.preloadedNextEpisode &&
+    state.preloadedNextEpisode.key &&
+    (state.activeSourceTab === "hdrezka" ||
+      state.activeSourceTab === "stremio" ||
+      state.activeSourceTab === "backup4k");
+
+  if (!hasPreloadedNext && (state.activeSourceTab === "stremio" || state.activeSourceTab === "backup4k" || state.activeSourceTab === "offline")) {
     resetVideoElementForStreamChange();
   }
   if (state.activeSourceTab === "offline") {
     await loadOfflineStreamForActiveTitle(startSec);
   } else if (state.activeSourceTab === "stremio") {
-    await loadStremioStreams(startSec);
+    await loadStremioStreams(startSec, { isInstantSwap: Boolean(hasPreloadedNext) });
   } else if (state.activeSourceTab === "backup4k") {
-    await loadBackup4KReleases(startSec);
+    await loadBackup4KReleases(startSec, false, { isInstantSwap: Boolean(hasPreloadedNext) });
   } else {
     const offlineEp = findOfflineDownloadForTitle(state.activeItem, state.activeSeason, state.activeEpisode);
     if (offlineEp && typeof navigator !== "undefined" && navigator.onLine === false) {
       await switchSourceTab("offline", startSec);
       return;
     }
-    await loadHDRezkaStream(startSec);
+    await loadHDRezkaStream(startSec, { isInstantSwap: Boolean(hasPreloadedNext) });
   }
   if (state.activeSourceTab !== "offline" && (typeof navigator === "undefined" || navigator.onLine !== false)) {
     await loadSkipIntroSegments();

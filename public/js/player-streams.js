@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261104v26";
+import { state } from "./state.js?v=20261104v27";
 import {
   displayBackdrop,
   displayDescription,
@@ -11,7 +11,7 @@ import {
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261104v26";
+} from "./i18n.js?v=20261104v27";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -27,7 +27,7 @@ import {
   showVideoOsd,
   supportsNativePiP,
   syncCustomSelect,
-} from "./utils.js?v=20261104v26";
+} from "./utils.js?v=20261104v27";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
@@ -37,7 +37,7 @@ import {
   savePlayerPrefs,
   startAmbilightLoop,
   stopAmbilightLoop,
-} from "./audio-dsp.js?v=20261104v26";
+} from "./audio-dsp.js?v=20261104v27";
 import {
   getDefaultPlayableSourceTab,
   getPreferredStudioForItem,
@@ -45,8 +45,8 @@ import {
   isServiceEnabled,
   loadCatalog,
   savePreferredStudioForItem,
-} from "./catalog.js?v=20261104v26";
-import { renderModalCastSection } from "./modals.js?v=20261104v26";
+} from "./catalog.js?v=20261104v27";
+import { renderModalCastSection } from "./modals.js?v=20261104v27";
 import {
   activateSelectedSubtitleTrack,
   buildRemuxSubtitlesList,
@@ -54,31 +54,31 @@ import {
   mergeCustomExternalSubtitles,
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
-} from "./subtitles.js?v=20261104v26";
+} from "./subtitles.js?v=20261104v27";
 import {
   clearVideoStallWatchdog,
   getVideoForwardBufferSec,
-} from "./player-watchdog.js?v=20261104v26";
+} from "./player-watchdog.js?v=20261104v27";
 import {
   buildRemuxStreamEndpoint,
   formatAudioOffsetLabel,
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261104v26";
+} from "./player-remux.js?v=20261104v27";
 import {
   closeAllVcPopovers,
   isStageFullscreen,
   syncCustomVideoControlsUI,
   syncVcPopoverOpenClass,
   toggleStageFullscreen,
-} from "./player-ui-controls.js?v=20261104v26";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261104v26";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261104v26";
+} from "./player-ui-controls.js?v=20261104v27";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261104v27";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261104v27";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261104v26";
+} from "./player-seasons.js?v=20261104v27";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -86,13 +86,16 @@ import {
   renderModalGenresAndSubheader,
   renderModalProvidersSidebar,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261104v26";
-import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261104v26";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261104v26";
+} from "./player-meta.js?v=20261104v27";
+import {
+  getDetectedCreditsStartSec,
+  loadSkipIntroSegments,
+} from "./player-intro-credits.js?v=20261104v27";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261104v27";
 import {
   playVideoUrl,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261104v26";
+} from "./player.js?v=20261104v27";
 
 export function isHdRezkaStreamDeadOrExpired(video) {
   if (!video || state.activeSourceTab !== "hdrezka" || state.remuxMeta?.active) {
@@ -995,6 +998,43 @@ export async function toggleErrorStudiosPanel() {
   panel.classList.remove("hidden");
   await renderErrorStudiosPanel();
 }
+export async function warmUpStreamBuffer(url) {
+  if (!url || typeof fetch !== "function") return;
+  try {
+    const isM3u8OrProxy = url.includes(".m3u8") || url.startsWith("/api/proxy-stream");
+    if (isM3u8OrProxy) {
+      const res = await fetch(url, { priority: "low" });
+      if (!res.ok) return;
+      const text = await res.text();
+      const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+      const subUrls = lines.filter((l) => !l.startsWith("#"));
+      if (subUrls.length > 0) {
+        const firstSub = subUrls[0];
+        const absSubUrl = firstSub.startsWith("http") || firstSub.startsWith("/")
+          ? firstSub
+          : new URL(firstSub, url).href;
+        const subRes = await fetch(absSubUrl, { priority: "low" });
+        if (subRes.ok && absSubUrl.includes(".m3u8")) {
+          const subText = await subRes.text();
+          const chunkLines = subText.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+          if (chunkLines.length > 0) {
+            const firstChunk = chunkLines[0];
+            const absChunkUrl = firstChunk.startsWith("http") || firstChunk.startsWith("/")
+              ? firstChunk
+              : new URL(firstChunk, absSubUrl).href;
+            fetch(absChunkUrl, { priority: "low" }).catch(() => {});
+          }
+        }
+      }
+    } else {
+      fetch(url, {
+        headers: { Range: "bytes=0-524287" },
+        priority: "low",
+      }).catch(() => {});
+    }
+  } catch (_) {}
+}
+
 export function buildNextEpisodePreloadKey(item, season, episode, studioId) {
   return `${item?.id || ""}:s${season}e${episode}:tr${studioId || "auto"}:${state.appLang || "ru"}`;
 }
@@ -1007,11 +1047,15 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
   ) {
     return;
   }
+  const creditsStartSec = getDetectedCreditsStartSec(durSec) || 0;
+  const creditsActive = Boolean(creditsStartSec && curSec >= creditsStartSec - 5);
   const remain = durSec - curSec;
   const ratio = curSec / durSec;
-  if (ratio < 0.84 && remain > 95) return;
+  const shouldPreload = creditsActive || ratio >= 0.82 || remain <= 150;
+  if (!shouldPreload) return;
+
   const activeVid = document.getElementById("native-video");
-  if (activeVid && activeVid.readyState < 4 && getVideoForwardBufferSec(activeVid) < 18) return;
+  if (activeVid && activeVid.readyState < 3 && getVideoForwardBufferSec(activeVid) < 6) return;
 
   const nextCoords = getNextEpisodeCoords();
   if (!nextCoords) return;
@@ -1266,11 +1310,63 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
       }
     }
 
-    const skipOutroBtn = document.getElementById("skip-outro-btn");
-    if (skipOutroBtn && state.preloadedNextEpisode) {
-      skipOutroBtn.innerHTML = `${t("Следующая серия", "Next episode")} <span class="atv-preload-ready-dot" title="${escapeAttr(
-        t("Поток следующей серии предзагружен", "Next episode stream preloaded")
-      )}"></span>`;
+    if (state.preloadedNextEpisode) {
+      if (state.preloadedNextEpisode.streamUrl) {
+        warmUpStreamBuffer(state.preloadedNextEpisode.streamUrl);
+      }
+      try {
+        const skipParams = new URLSearchParams({
+          id: String(item.id || ""),
+          title: item.title || "",
+          season: String(nextCoords.season),
+          episode: String(nextCoords.episode),
+        });
+        fetch(`/api/skip-intro?${skipParams.toString()}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((skipData) => {
+            if (state.preloadedNextEpisode && state.preloadedNextEpisode.key === preloadKey) {
+              state.preloadedNextEpisode.skipIntroSegments = skipData;
+              state.preloadedSkipSegments = skipData;
+            }
+          })
+          .catch(() => {});
+      } catch (_) {}
+
+      try {
+        const subParams = new URLSearchParams({
+          id: String(item.id || ""),
+          title: item.title || "",
+          orig_title: item.orig_title || "",
+          season: String(nextCoords.season),
+          episode: String(nextCoords.episode),
+        });
+        fetch(`/api/subtitles/list?${subParams.toString()}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((subData) => {
+            if (state.preloadedNextEpisode && state.preloadedNextEpisode.key === preloadKey) {
+              state.preloadedNextEpisode.subtitles = subData?.subtitles || [];
+              state.preloadedNextSubtitles = subData?.subtitles || [];
+            }
+          })
+          .catch(() => {});
+      } catch (_) {}
+
+      const skipOutroBtn = document.getElementById("skip-outro-btn");
+      if (skipOutroBtn) {
+        skipOutroBtn.classList.add("is-preloaded");
+        skipOutroBtn.setAttribute(
+          "title",
+          t("Следующая серия готова к мгновенному воспроизведению", "Next episode ready for instant playback")
+        );
+        if (!skipOutroBtn.querySelector(".atv-preload-ready-dot")) {
+          skipOutroBtn.insertAdjacentHTML(
+            "beforeend",
+            ` <span class="atv-preload-ready-dot" title="${escapeAttr(
+              t("Поток следующей серии предзагружен", "Next episode stream preloaded")
+            )}"></span>`
+          );
+        }
+      }
     }
   } catch (_) {
   } finally {
@@ -2110,7 +2206,10 @@ export async function probeAndPlay4KStream(
     populateSubtitlesSelector(state.subtitles);
     syncCustomControlPopovers();
     const remuxUrl = buildRemuxStreamEndpoint(state.remuxMeta, state.remuxMeta.offsetSec);
-    playVideoUrl(remuxUrl, 0, sessionId, { keepRemuxMeta: true });
+    playVideoUrl(remuxUrl, 0, sessionId, {
+      keepRemuxMeta: true,
+      isInstantSwap: Boolean(options?.isInstantSwap),
+    });
     return;
   }
 
@@ -2133,7 +2232,9 @@ export async function probeAndPlay4KStream(
     populateSubtitlesSelector(state.subtitles);
   }
   syncCustomControlPopovers();
-  playVideoUrl(rawStreamUrl, startSec, sessionId);
+  playVideoUrl(rawStreamUrl, startSec, sessionId, {
+    isInstantSwap: Boolean(options?.isInstantSwap),
+  });
 }
 export function renderStremioStreamsList(resumeTime = 0, autoLaunchFirst = false) {
   const data = state.stremioStreamsData;
@@ -2491,7 +2592,7 @@ export function renderStremioStreamsList(resumeTime = 0, autoLaunchFirst = false
     syncActiveStremioRows();
   }
 }
-export async function loadStremioStreams(resumeTime = 0) {
+export async function loadStremioStreams(resumeTime = 0, options = {}) {
   if (!state.activeItem || !state.isPlayerOpen) return;
   const sessionId = state.playerSessionId;
   const item = state.activeItem;
@@ -2612,7 +2713,7 @@ export async function loadStremioStreams(resumeTime = 0) {
     }
   }
 }
-export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false) {
+export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false, options = {}) {
   if (!state.activeItem || !state.isPlayerOpen) return;
   const sessionId = state.playerSessionId;
   const item = state.activeItem;
@@ -2661,6 +2762,7 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false)
     warmDirectPlayed = true;
     probeAndPlay4KStream(preloaded.streamUrl, resumeTime, preloaded.quality || "4K", sessionId, {
       extraSubtitles: state.external4kSubs || [],
+      isInstantSwap: Boolean(options?.isInstantSwap),
     });
   }
 

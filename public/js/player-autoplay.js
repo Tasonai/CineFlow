@@ -1,12 +1,12 @@
-import { state } from "./state.js?v=20261104v26";
-import { t, isEn } from "./i18n.js?v=20261104v26";
-import { showToast, pluralRu } from "./utils.js?v=20261104v26";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261104v26";
+import { state } from "./state.js?v=20261104v27";
+import { t, isEn } from "./i18n.js?v=20261104v27";
+import { showToast, pluralRu } from "./utils.js?v=20261104v27";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261104v27";
 import {
   resolveEffectiveSeasonsMap,
   getEpisodeDisplayMeta,
   stepEpisode,
-} from "./player-seasons.js?v=20261104v26";
+} from "./player-seasons.js?v=20261104v27";
 
 let _nextEpTimer = null;
 let _nextEpSecondsLeft = 10;

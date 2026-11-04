@@ -1,7 +1,7 @@
-import { state } from "./state.js?v=20261104v26";
-import { t } from "./i18n.js?v=20261104v26";
-import { formatTime } from "./utils.js?v=20261104v26";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v26";
+import { state } from "./state.js?v=20261104v27";
+import { t } from "./i18n.js?v=20261104v27";
+import { formatTime } from "./utils.js?v=20261104v27";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v27";
 
 export function getDetectedCreditsStartSec(dur) {
   if (!dur || dur < 120) return null;
@@ -66,6 +66,26 @@ export async function loadSkipIntroSegments() {
   try {
     const reqSeason = Number(state.activeSeason) || 1;
     const reqEpisode = Number(state.activeEpisode) || 1;
+
+    if (state.preloadedSkipSegments && state.preloadedSkipSegments.ok) {
+      const pData = state.preloadedSkipSegments;
+      if (
+        (pData.season === undefined || Number(pData.season) === reqSeason) &&
+        (pData.episode === undefined || Number(pData.episode) === reqEpisode)
+      ) {
+        state.skipSegments = pData;
+        if (pData.intro_start !== undefined && pData.intro_end !== undefined) {
+          const s = Math.round(pData.intro_start);
+          const e = Math.round(pData.intro_end);
+          if (infoEl) {
+            infoEl.textContent = `${t("Заставка", "Intro")}: ${formatTime(s)} – ${formatTime(e)}`;
+          }
+        }
+        state.preloadedSkipSegments = null;
+        return;
+      }
+    }
+
     const rawImdbCandidate = String(item.imdb_id || item.id || "").trim();
     const safeImdbId = /^tt\d+$/i.test(rawImdbCandidate) ? rawImdbCandidate : "";
     const params = new URLSearchParams({

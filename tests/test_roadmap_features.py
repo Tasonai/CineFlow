@@ -2101,6 +2101,46 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertIn("export function appendPosterCardsProgressive", cards_js)
         self.assertIn("export function cancelPendingCardBatch", cards_js)
 
+    def test_seamless_next_episode_transition(self):
+        """Test seamless next-episode pre-buffering, skip-intro preloading, and instant swap."""
+        # 1. State and preloading keys
+        with open(os.path.join(BASE_DIR, "public", "js", "state.js"), "r", encoding="utf-8") as fh:
+            state_src = fh.read()
+        self.assertIn("preloadedSkipSegments: null,", state_src)
+        self.assertIn("preloadedNextSubtitles: null,", state_src)
+
+        # 2. Player streams preload & warm up buffer
+        with open(os.path.join(BASE_DIR, "public", "js", "player-streams.js"), "r", encoding="utf-8") as fh:
+            streams_src = fh.read()
+        self.assertIn("export async function warmUpStreamBuffer(url)", streams_src)
+        self.assertIn("shouldPreload = creditsActive || ratio >= 0.82 || remain <= 150", streams_src)
+        self.assertIn("warmUpStreamBuffer(state.preloadedNextEpisode.streamUrl)", streams_src)
+        self.assertIn("state.preloadedSkipSegments = skipData", streams_src)
+        self.assertIn("state.preloadedNextSubtitles = subData", streams_src)
+        self.assertIn('skipOutroBtn.classList.add("is-preloaded")', streams_src)
+
+        # 3. Intro credits instant preloaded segments usage
+        with open(os.path.join(BASE_DIR, "public", "js", "player-intro-credits.js"), "r", encoding="utf-8") as fh:
+            intro_src = fh.read()
+        self.assertIn("if (state.preloadedSkipSegments && state.preloadedSkipSegments.ok)", intro_src)
+
+        # 4. Instant swap in player.js and player-seasons.js
+        with open(os.path.join(BASE_DIR, "public", "js", "player.js"), "r", encoding="utf-8") as fh:
+            player_src = fh.read()
+        self.assertIn("isInstantSwap = false", player_src)
+        self.assertIn("state.instantSwapLoaderTimer", player_src)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "player-seasons.js"), "r", encoding="utf-8") as fh:
+            seasons_src = fh.read()
+        self.assertIn("isInstantSwap: Boolean(hasPreloadedNext)", seasons_src)
+        self.assertIn("!hasPreloadedNext && (state.activeSourceTab === \"stremio\"", seasons_src)
+
+        # 5. CSS readiness dot & animation
+        with open(os.path.join(BASE_DIR, "public", "css", "video-controls-and-person.css"), "r", encoding="utf-8") as fh:
+            css_src = fh.read()
+        self.assertIn(".atv-preload-ready-dot", css_src)
+        self.assertIn("@keyframes atvPreloadPulse", css_src)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -224,6 +224,8 @@ export const state = {
   forceEnableRuSubtitlesOnce: false,
   preloadedNextEpisode: null,
   preloadingNextKey: "",
+  preloadedSkipSegments: null,
+  preloadedNextSubtitles: null,
   bgDigestTimerId: null,
   lastBgDigestTs: 0,
   kinoriumFormExpanded: false,

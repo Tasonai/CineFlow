@@ -177,6 +177,39 @@ html.is-stage-pseudo-fullscreen #video-stage video,
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
   transform: none;
   transition: opacity 0.16s ease, transform 0.12s ease-out, left 0.24s var(--ease-apple), right 0.24s var(--ease-apple), bottom 0.24s var(--ease-apple);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  #skip-outro-btn:hover {
+    background: #ffffff;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+    transform: translateY(-1px);
+  }
+}
+
+.atv-preload-ready-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
+  animation: atvPreloadPulse 2s ease-in-out infinite;
+}
+
+@keyframes atvPreloadPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 1;
+    box-shadow: 0 0 9px rgba(16, 185, 129, 0.95);
+  }
 }
 
 .atv-video-stage.has-postwatch-open #skip-outro-btn,

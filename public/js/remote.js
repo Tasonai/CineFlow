@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261104v26";
-import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261104v26";
+import { state } from "./state.js?v=20261104v27";
+import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261104v27";
 import {
   escapeAttr,
   escapeHtml,
@@ -10,13 +10,13 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261104v26";
-import { isVideoInPiP, savePlayerPrefs, togglePictureInPicture } from "./audio-dsp.js?v=20261104v26";
+} from "./utils.js?v=20261104v27";
+import { isVideoInPiP, savePlayerPrefs, togglePictureInPicture } from "./audio-dsp.js?v=20261104v27";
 import {
   adjustSubtitleOffset,
   formatSubtitleOffsetLabel,
   resetSubtitleOffset,
-} from "./subtitles.js?v=20261104v26";
+} from "./subtitles.js?v=20261104v27";
 import {
   closePlayerModal,
   getEffectivePlaybackTiming,
@@ -33,15 +33,15 @@ import {
   toggleActivePlayerWatched,
   toggleStageFullscreen,
   toggleVideoPlayPause,
-} from "./player.js?v=20261104v26";
-import { attachSmartPosterFallback, isEpisodeWatched } from "./catalog.js?v=20261104v26";
+} from "./player.js?v=20261104v27";
+import { attachSmartPosterFallback, isEpisodeWatched } from "./catalog.js?v=20261104v27";
 import {
   closeTvCastModal,
   executeRemoteDpadCommand,
   isItemSafeForKidsClient,
   requestKidsPinVerification,
   setTvMode,
-} from "./features.js?v=20261104v26";
+} from "./features.js?v=20261104v27";
 
 export function isMobileRemoteUrl() {
   if (typeof window === "undefined") return false;
