@@ -55,6 +55,46 @@ def _safe_sub_int(val: Any, default: int = 0) -> int:
         return default
 
 
+def convert_vtt_to_srt(vtt_text: str) -> str:
+    """Converts WebVTT subtitle text to SubRip format for FFmpeg video filtering."""
+    if not vtt_text:
+        return ""
+    lines = vtt_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    out: List[str] = []
+    cue_idx = 1
+    started = False
+    for line in lines:
+        stripped = line.strip()
+        if not started:
+            if not stripped or stripped.startswith("WEBVTT") or stripped.startswith("NOTE") or stripped.startswith("STYLE"):
+                continue
+            if "-->" in stripped:
+                started = True
+                out.append(str(cue_idx))
+                cue_idx += 1
+                clean_ts = re.sub(r"(\d{2}:\d{2}:\d{2})\.(\d{3})", r"\1,\2", stripped)
+                parts = clean_ts.split(" --> ")
+                if len(parts) == 2:
+                    out.append(f"{parts[0].strip().split(' ')[0]} --> {parts[1].strip().split(' ')[0]}")
+                else:
+                    out.append(clean_ts)
+                continue
+        else:
+            if "-->" in stripped:
+                out.append("")
+                out.append(str(cue_idx))
+                cue_idx += 1
+                clean_ts = re.sub(r"(\d{2}:\d{2}:\d{2})\.(\d{3})", r"\1,\2", stripped)
+                parts = clean_ts.split(" --> ")
+                if len(parts) == 2:
+                    out.append(f"{parts[0].strip().split(' ')[0]} --> {parts[1].strip().split(' ')[0]}")
+                else:
+                    out.append(clean_ts)
+            else:
+                out.append(stripped)
+    return "\n".join(out).strip()
+
+
 def decode_subtitle_bytes(raw_bytes: bytes) -> str:
     """
     Auto-decompresses gzipped or ZIP subtitle payloads and decodes UTF-8, UTF-16 (LE/BE),

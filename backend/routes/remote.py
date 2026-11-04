@@ -18,6 +18,7 @@ Modular route handlers for DLNA / Smart TV and Mobile Remote Control endpoints:
 from __future__ import annotations
 
 import re
+import urllib.parse
 from typing import Any, Dict
 
 
@@ -317,10 +318,24 @@ def handle_tv_cast(handler: Any, qs: Dict[str, Any], parsed: Any, body: Dict[str
         if ctx.server_runtime.get("running"):
             ctx.sync_lan_listener(True)
 
+    burn_subs = bool(body.get("burn_subtitles") or body.get("burn_subs"))
     lan_ip = ctx.detect_lan_ipv4()
     port_num = int(ctx.server_runtime.get("port") or 8765)
-    lan_stream = ctx.dlna_manager.build_lan_stream_url(raw_stream, lan_ip, port_num, start_sec=start_pos)
-    lan_sub = ctx.dlna_manager.build_lan_stream_url(raw_sub, lan_ip, port_num) if raw_sub else ""
+    if raw_sub and burn_subs:
+        remux_params = {
+            "src": raw_stream,
+            "sub": raw_sub,
+            "burn_sub": "1",
+            "compat": "1",
+        }
+        if start_pos > 5.0:
+            remux_params["start"] = f"{start_pos:.1f}"
+        remux_qs = urllib.parse.urlencode(remux_params)
+        lan_stream = f"http://{lan_ip}:{port_num}/api/remux-stream?{remux_qs}"
+        lan_sub = ""
+    else:
+        lan_stream = ctx.dlna_manager.build_lan_stream_url(raw_stream, lan_ip, port_num, start_sec=start_pos)
+        lan_sub = ctx.dlna_manager.build_lan_stream_url(raw_sub, lan_ip, port_num) if raw_sub else ""
 
     res = ctx.dlna_manager.cast_stream(
         control_url=control_url,

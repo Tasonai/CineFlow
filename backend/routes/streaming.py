@@ -1067,10 +1067,58 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
     acodec = qs.get("acodec", [""])[0].strip().lower()
     compat_h264 = qs.get("compat", [""])[0].strip().lower() in ("h264", "1", "true")
     channels = max(1, ctx.qs_int(qs, "ch", 2))
+    sub_param = qs.get("sub", [""])[0].strip()
+    sub_idx = ctx.qs_int(qs, "sub_idx", -1)
+    burn_sub = qs.get("burn_sub", [""])[0].strip().lower() in ("1", "true", "yes") or bool(sub_param or sub_idx >= 0)
     remux_engine = ctx.remux_engine
     if not _check_allowed_media_source_url(src_url, allow_torrserver_loopback=True) or not remux_engine.is_available():
         handler._send_json({"error": "Remux source unavailable"}, status=400)
         return True
+
+    temp_sub_path = ""
+    if burn_sub and sub_param:
+        try:
+            if os.path.isabs(sub_param) and os.path.isfile(sub_param):
+                temp_sub_path = sub_param
+            elif sub_param.startswith("/api/downloads/sub/"):
+                parts = sub_param.strip("/").split("/")
+                if len(parts) >= 4:
+                    dl_id = parts[3]
+                    sub_fn = parts[4] if len(parts) > 4 else "sub.vtt"
+                    dl_sub_file = ctx.download_manager.get_subtitle_file_path(dl_id, sub_fn)
+                    if dl_sub_file and os.path.isfile(dl_sub_file):
+                        with open(dl_sub_file, "rb") as sf:
+                            s_bytes = sf.read(8 * 1024 * 1024)
+                        from backend.subtitles import decode_subtitle_bytes, convert_vtt_to_srt
+                        s_text = decode_subtitle_bytes(s_bytes)
+                        if "WEBVTT" in s_text[:128]:
+                            s_text = convert_vtt_to_srt(s_text)
+                        sub_hash = hashlib.sha256(s_bytes).hexdigest()[:12]
+                        tmp_f = os.path.join(tempfile.gettempdir(), f"cineflow_sub_{sub_hash}.srt")
+                        with open(tmp_f, "w", encoding="utf-8") as tf:
+                            tf.write(s_text)
+                        temp_sub_path = tmp_f
+            elif sub_param.startswith(("http://", "https://")) or sub_param.startswith("/api/proxy-vtt"):
+                real_sub_url = sub_param
+                if "/api/proxy-vtt" in real_sub_url:
+                    parsed_sub = urllib.parse.urlparse(real_sub_url)
+                    sub_qs = urllib.parse.parse_qs(parsed_sub.query)
+                    real_sub_url = (sub_qs.get("url") or [real_sub_url])[0]
+                if _check_allowed_media_source_url(real_sub_url, allow_torrserver_loopback=True):
+                    from backend.subtitles import decode_subtitle_bytes, convert_vtt_to_srt
+                    req_sub = urllib.request.Request(real_sub_url, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req_sub, timeout=4.0) as s_resp:
+                        s_bytes = s_resp.read(8 * 1024 * 1024)
+                    s_text = decode_subtitle_bytes(s_bytes)
+                    if "WEBVTT" in s_text[:128]:
+                        s_text = convert_vtt_to_srt(s_text)
+                    sub_hash = hashlib.sha256(s_bytes).hexdigest()[:12]
+                    tmp_f = os.path.join(tempfile.gettempdir(), f"cineflow_sub_{sub_hash}.srt")
+                    with open(tmp_f, "w", encoding="utf-8") as tf:
+                        tf.write(s_text)
+                    temp_sub_path = tmp_f
+        except Exception:
+            pass
 
     proc = None
     headers_sent = False
@@ -1102,8 +1150,10 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                 video_codec=attempt_vcodec,
                 channels=channels,
                 audio_codec=acodec,
-                force_h264=compat_h264,
+                force_h264=compat_h264 or burn_sub,
                 audio_offset_sec=audio_offset_sec,
+                subtitles_file=temp_sub_path,
+                subtitle_index=sub_idx if sub_idx >= 0 else None,
             )
             attempt_t0 = time.time()
             ff_env_rmx = (

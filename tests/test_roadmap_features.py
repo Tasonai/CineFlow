@@ -1417,6 +1417,102 @@ class TestRoadmapFeatures(unittest.TestCase):
             self.assertIn("index=2", res.get("stream_url", ""))
             self.assertEqual(len(res.get("video_files", [])), 3)
 
+    def test_dlna_cast_stream_with_burned_in_subtitles(self):
+        # 1. WebVTT to SRT conversion for FFmpeg subtitle filter
+        from backend.subtitles import convert_vtt_to_srt
+        vtt_sample = "WEBVTT\n\n00:01:23.456 --> 00:01:25.789\nHello Smart TV\n\n00:01:26.100 --> 00:01:28.200\nSubtitles burned in"
+        srt_res = convert_vtt_to_srt(vtt_sample)
+        self.assertIn("1\n00:01:23,456 --> 00:01:25,789\nHello Smart TV", srt_res)
+        self.assertIn("2\n00:01:26,100 --> 00:01:28,200\nSubtitles burned in", srt_res)
+
+        # 2. FFmpeg remux command generation includes subtitle filter
+        from backend.remuxer import RemuxStreamEngine
+        remux = RemuxStreamEngine(base_dir=BASE_DIR)
+        cmd = remux.build_remux_command(
+            source_url="http://127.0.0.1:8090/stream/video.mkv",
+            subtitles_file="/tmp/test_sub.srt",
+        )
+        self.assertIn("-vf", cmd)
+        vf_idx = cmd.index("-vf")
+        self.assertIn("subtitles='/tmp/test_sub.srt'", cmd[vf_idx + 1])
+        self.assertIn("FontSize=22", cmd[vf_idx + 1])
+        self.assertNotIn("-hwaccel", cmd)
+
+        # 3. TV cast route passes burn_subtitles and wraps into remux-stream
+        from backend.routes.remote import handle_tv_cast
+
+        class _MockCastHandler:
+            def __init__(self):
+                self.resp_data = None
+                self.resp_status = 200
+
+            def _require_authorized_client_if_lan(self, body, lang="ru"):
+                return True
+
+            def _is_loopback_client(self):
+                return True
+
+            def _send_json(self, data, status=200):
+                self.resp_data = data
+                self.resp_status = status
+
+        class _MockDlnaManager:
+            def cast_stream(self, **kwargs):
+                return {"ok": True, "cast": kwargs}
+
+            def build_lan_stream_url(self, raw, lan_ip, port, start_sec=0.0):
+                return f"http://{lan_ip}:{port}{raw}"
+
+        class _MockCastCtx:
+            app_prefs = {"lan_access": True}
+            server_runtime = {"port": 8765, "running": True}
+            dlna_manager = _MockDlnaManager()
+
+            @staticmethod
+            def msg(ru, en):
+                return ru
+
+            @staticmethod
+            def safe_float(val, default=0.0):
+                try:
+                    return float(val)
+                except Exception:
+                    return default
+
+            @staticmethod
+            def detect_lan_ipv4():
+                return "192.168.1.100"
+
+            @staticmethod
+            def unwrap_local_proxy_media_url(u):
+                return u
+
+            @staticmethod
+            def is_allowed_media_source_url(u, allow_torrserver_loopback=True):
+                return True
+
+            class profile_manager:
+                @staticmethod
+                def is_kids_mode_active():
+                    return False
+
+        h = _MockCastHandler()
+        body = {
+            "control_url": "http://192.168.1.50:7676/smp_4_",
+            "stream_url": "http://127.0.0.1:8090/stream/movie.mkv",
+            "subtitle_url": "/api/proxy-vtt?url=https%3A%2F%2Fsub.example.com%2Fsub.vtt",
+            "burn_subtitles": True,
+            "title": "Интерстеллар",
+            "start_sec": 30.0,
+        }
+        ok = handle_tv_cast(h, {}, None, body, _MockCastCtx)
+        self.assertTrue(ok)
+        self.assertTrue(h.resp_data.get("ok"))
+        cast_info = h.resp_data.get("cast", {})
+        self.assertIn("/api/remux-stream", cast_info.get("stream_url", ""))
+        self.assertIn("burn_sub=1", cast_info.get("stream_url", ""))
+        self.assertEqual(cast_info.get("subtitle_url"), "")
+
 
 if __name__ == "__main__":
     unittest.main()

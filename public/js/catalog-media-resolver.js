@@ -2,24 +2,24 @@ import {
   PREFERRED_STUDIOS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261104v20";
-import { isEn, t } from "./i18n.js?v=20261104v20";
+} from "./state.js?v=20261104v21";
+import { isEn, t } from "./i18n.js?v=20261104v21";
 import {
   findOfflineDownloadForTitle,
   formatTime,
   getEpisodeProgress,
   pluralRu,
-} from "./utils.js?v=20261104v20";
-import { switchSourceTab } from "./player.js?v=20261104v20";
-import { renderHero } from "./catalog-hero.js?v=20261104v20";
+} from "./utils.js?v=20261104v21";
+import { switchSourceTab } from "./player.js?v=20261104v21";
+import { renderHero } from "./catalog-hero.js?v=20261104v21";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261104v20";
+} from "./catalog-shelves.js?v=20261104v21";
 import {
   clearCatalogFrontendCache,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261104v20";
+} from "./catalog.js?v=20261104v21";
 
 export function isEpisodeWatched(item, seasonNum, epNum) {
   if (!item || item.media_type !== "series") return false;

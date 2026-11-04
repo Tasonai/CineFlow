@@ -2,8 +2,8 @@
 // 6. TV CAST & AIRPLAY / DLNA / REMOTE LINK
 // ============================================================================
 
-import { state } from "./state.js?v=20261104v20";
-import { displayTitle, t } from "./i18n.js?v=20261104v20";
+import { state } from "./state.js?v=20261104v21";
+import { displayTitle, t } from "./i18n.js?v=20261104v21";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -13,17 +13,17 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261104v20";
-import { resolvePreferredPlayTab } from "./catalog.js?v=20261104v20";
-import { openQuickPeekModal } from "./modals.js?v=20261104v20";
+} from "./utils.js?v=20261104v21";
+import { resolvePreferredPlayTab } from "./catalog.js?v=20261104v21";
+import { openQuickPeekModal } from "./modals.js?v=20261104v21";
 import {
   getEffectivePlaybackTiming,
   openPlayerModal,
-} from "./player.js?v=20261104v20";
-import { switchCastModalTab } from "./remote.js?v=20261104v20";
-import { toggleLanAccess } from "./settings.js?v=20261104v20";
-import { toggleTvMode } from "./features-tv-mode.js?v=20261104v20";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v20";
+} from "./player.js?v=20261104v21";
+import { switchCastModalTab } from "./remote.js?v=20261104v21";
+import { toggleLanAccess } from "./settings.js?v=20261104v21";
+import { toggleTvMode } from "./features-tv-mode.js?v=20261104v21";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v21";
 
 
 export function supportsWebkitAirPlay() {
@@ -300,6 +300,7 @@ export async function castCurrentStreamToDlna(device, btn = null) {
       ? `${displayTitle(state.activeItem)} · S${state.activeSeason}E${state.activeEpisode}`
       : displayTitle(state.activeItem);
 
+  const wantBurnSubs = Boolean(subUrl && state.tvBurnSubtitles !== false);
   if (btn) btn.disabled = true;
   try {
     const res = await fetch("/api/tv/cast", {
@@ -315,6 +316,7 @@ export async function castCurrentStreamToDlna(device, btn = null) {
         device_name: device.name || "Smart TV",
         stream_url: streamUrl,
         subtitle_url: subUrl,
+        burn_subtitles: wantBurnSubs,
         title: titleLabel,
         start_sec: cur > 5 ? cur : 0,
       }),

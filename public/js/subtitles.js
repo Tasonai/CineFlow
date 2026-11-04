@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261104v20";
-import { isEn, t } from "./i18n.js?v=20261104v20";
+import { state } from "./state.js?v=20261104v21";
+import { isEn, t } from "./i18n.js?v=20261104v21";
 import {
   clampStagePopover,
   escapeAttr,
@@ -7,13 +7,13 @@ import {
   iconSvg,
   showToast,
   showVideoOsd,
-} from "./utils.js?v=20261104v20";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261104v20";
+} from "./utils.js?v=20261104v21";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261104v21";
 import {
   closeAllVcPopovers,
   getEffectivePlaybackTiming,
   syncCustomControlPopovers,
-} from "./player.js?v=20261104v20";
+} from "./player.js?v=20261104v21";
 
 export function formatSubtitleOffsetLabel(sec = state.subtitleOffsetSec) {
   const num = Math.round((Number(sec) || 0) * 100) / 100;

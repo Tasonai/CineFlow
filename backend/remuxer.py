@@ -760,6 +760,8 @@ class RemuxStreamEngine:
         audio_codec: str = "",
         force_h264: bool = False,
         audio_offset_sec: float = 0.0,
+        subtitles_file: str = "",
+        subtitle_index: Optional[int] = None,
     ) -> List[str]:
         clean_src = str(source_url or "").strip()
         if not _is_valid_ffmpeg_http_url(clean_src):
@@ -770,8 +772,18 @@ class RemuxStreamEngine:
         a_shift = max(-5.0, min(5.0, float(audio_offset_sec or 0.0)))
         has_audio_shift = abs(a_shift) >= 0.005
 
+        sub_filter = ""
+        clean_sub_file = str(subtitles_file or "").strip()
+        if clean_sub_file:
+            esc_path = clean_sub_file.replace("\\", "/").replace("'", "'\\''").replace(":", "\\:")
+            sub_filter = f"subtitles='{esc_path}':force_style='FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,MarginV=25'"
+        elif subtitle_index is not None and int(subtitle_index) >= 0:
+            esc_src = clean_src.replace("\\", "/").replace("'", "'\\''").replace(":", "\\:")
+            sub_filter = f"subtitles='{esc_src}':si={int(subtitle_index)}:force_style='FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,MarginV=25'"
+
         need_video_transcode = bool(
-            (force_h264 and v_low not in ("h264", "avc", "avc1"))
+            bool(sub_filter)
+            or (force_h264 and v_low not in ("h264", "avc", "avc1"))
             or (v_low and v_low not in self._MP4_COPY_SAFE_VCODECS)
         )
 
@@ -781,7 +793,7 @@ class RemuxStreamEngine:
             "-loglevel",
             "error",
         ]
-        if need_video_transcode:
+        if need_video_transcode and not sub_filter:
             if self._hw_caps.get("videotoolbox_hwaccel"):
                 cmd.extend(["-hwaccel", "videotoolbox"])
             elif self._hw_caps.get("d3d11va_hwaccel"):
@@ -829,6 +841,8 @@ class RemuxStreamEngine:
         )
 
         if need_video_transcode:
+            if sub_filter:
+                cmd.extend(["-vf", sub_filter])
             if self._hw_caps.get("h264_videotoolbox"):
                 cmd.extend(
                     [
