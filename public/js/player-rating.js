@@ -1,19 +1,19 @@
-import { state } from "./state.js?v=20261104v19";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261104v19";
+import { state } from "./state.js?v=20261104v20";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261104v20";
 import {
   clampFloatingPopover,
   closeFloatingPopovers,
   showToast,
-} from "./utils.js?v=20261104v19";
+} from "./utils.js?v=20261104v20";
 import {
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261104v19";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261104v19";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v19";
-import { isStageFullscreen } from "./player-ui-controls.js?v=20261104v19";
-import { updateModalKinoriumHeader } from "./player-meta.js?v=20261104v19";
+} from "./catalog.js?v=20261104v20";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261104v20";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v20";
+import { isStageFullscreen } from "./player-ui-controls.js?v=20261104v20";
+import { updateModalKinoriumHeader } from "./player-meta.js?v=20261104v20";
 import {
   getEpisodeDisplayMeta,
   getEpisodeRatingEntry,
@@ -22,7 +22,7 @@ import {
   resolveSeriesCompletedFlag,
   toggleCurrentEpisodeWatched,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261104v19";
+} from "./player-seasons.js?v=20261104v20";
 
 export function syncPostwatchOverlayMount() {
   const overlay = document.getElementById("kinorium-postwatch-overlay");

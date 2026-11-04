@@ -1380,6 +1380,43 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertIn("remuxTransientRetried", player_combined_code)
         self.assertNotIn("/icons/avatar-placeholder.png", player_combined_code)
 
+    def test_zero_wait_binge_watching_preload_for_4k_and_stremio(self):
+        # 1. State preservation of active 4K release
+        with open(os.path.join(BASE_DIR, "public", "js", "state.js"), "r", encoding="utf-8") as fh:
+            state_js = fh.read()
+        self.assertIn("active4kRelease: null,", state_js)
+
+        # 2. Player streams preload integration for backup4k and stremio
+        with open(os.path.join(BASE_DIR, "public", "js", "player-streams.js"), "r", encoding="utf-8") as fh:
+            ps_code = fh.read()
+        self.assertIn('["hdrezka", "backup4k", "stremio"].includes(state.activeSourceTab)', ps_code)
+        self.assertIn('tab: "backup4k"', ps_code)
+        self.assertIn('tab: "stremio"', ps_code)
+        self.assertIn('&preload', ps_code)
+        self.assertIn("warmDirectPlayed = true", ps_code)
+        self.assertIn("hasWarmPreload", ps_code)
+
+        # 3. Backend TorrServer stream resolution supports series episode file matching
+        from backend.backup_stream import BackupStreamingEngine
+        engine = BackupStreamingEngine(DoHSplitNetworkClient(), None, base_dir=BASE_DIR)
+        with patch.object(engine, "ensure_local_torrserver", return_value=True), \
+             patch.object(engine, "_is_torrserver_alive", return_value=True), \
+             patch.object(engine, "_fetch_torrserver_file_stats", return_value=[
+                 {"id": 1, "path": "Severance.S01E01.mkv", "length": 2500000000},
+                 {"id": 2, "path": "Severance.S01E02.mkv", "length": 2600000000},
+                 {"id": 3, "path": "Severance.S01E03.mkv", "length": 2400000000},
+             ]):
+            res = engine.resolve_torrserver_stream(
+                magnet="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Severance.S01.4K",
+                media_type="series",
+                season=1,
+                episode=2,
+            )
+            self.assertTrue(res.get("ok"))
+            self.assertEqual(res.get("file_index"), 2)
+            self.assertIn("index=2", res.get("stream_url", ""))
+            self.assertEqual(len(res.get("video_files", [])), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

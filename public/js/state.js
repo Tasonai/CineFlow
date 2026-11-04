@@ -175,6 +175,7 @@ export const state = {
   confirmReturnFocusEl: null,
   active4kReleaseUrl: "",
   active4kReleaseKey: "",
+  active4kRelease: null,
   stremioAddons: [],
   stremioFilter: "all",
   stremioStreamsData: null,

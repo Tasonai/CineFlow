@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261104v19";
+import { state } from "./state.js?v=20261104v20";
 import {
   displayBackdrop,
   displayDescription,
@@ -11,7 +11,7 @@ import {
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261104v19";
+} from "./i18n.js?v=20261104v20";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -27,7 +27,7 @@ import {
   showVideoOsd,
   supportsNativePiP,
   syncCustomSelect,
-} from "./utils.js?v=20261104v19";
+} from "./utils.js?v=20261104v20";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
@@ -37,7 +37,7 @@ import {
   savePlayerPrefs,
   startAmbilightLoop,
   stopAmbilightLoop,
-} from "./audio-dsp.js?v=20261104v19";
+} from "./audio-dsp.js?v=20261104v20";
 import {
   getDefaultPlayableSourceTab,
   getPreferredStudioForItem,
@@ -45,8 +45,8 @@ import {
   isServiceEnabled,
   loadCatalog,
   savePreferredStudioForItem,
-} from "./catalog.js?v=20261104v19";
-import { renderModalCastSection } from "./modals.js?v=20261104v19";
+} from "./catalog.js?v=20261104v20";
+import { renderModalCastSection } from "./modals.js?v=20261104v20";
 import {
   activateSelectedSubtitleTrack,
   buildRemuxSubtitlesList,
@@ -54,31 +54,31 @@ import {
   mergeCustomExternalSubtitles,
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
-} from "./subtitles.js?v=20261104v19";
+} from "./subtitles.js?v=20261104v20";
 import {
   clearVideoStallWatchdog,
   getVideoForwardBufferSec,
-} from "./player-watchdog.js?v=20261104v19";
+} from "./player-watchdog.js?v=20261104v20";
 import {
   buildRemuxStreamEndpoint,
   formatAudioOffsetLabel,
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261104v19";
+} from "./player-remux.js?v=20261104v20";
 import {
   closeAllVcPopovers,
   isStageFullscreen,
   syncCustomVideoControlsUI,
   syncVcPopoverOpenClass,
   toggleStageFullscreen,
-} from "./player-ui-controls.js?v=20261104v19";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261104v19";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261104v19";
+} from "./player-ui-controls.js?v=20261104v20";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261104v20";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261104v20";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261104v19";
+} from "./player-seasons.js?v=20261104v20";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -86,13 +86,13 @@ import {
   renderModalGenresAndSubheader,
   renderModalProvidersSidebar,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261104v19";
-import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261104v19";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261104v19";
+} from "./player-meta.js?v=20261104v20";
+import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261104v20";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261104v20";
 import {
   playVideoUrl,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261104v19";
+} from "./player.js?v=20261104v20";
 
 export function isHdRezkaStreamDeadOrExpired(video) {
   if (!video || state.activeSourceTab !== "hdrezka" || state.remuxMeta?.active) {
@@ -364,6 +364,7 @@ export async function switchSourceTab(tabName, resumeTime = null, options = {}) 
     state.activeStremioStreamKey = "";
     state.active4kReleaseKey = "";
     state.active4kReleaseUrl = "";
+    state.active4kRelease = null;
     abortActiveVideoListeners();
     [
       "streamAbortController",
@@ -613,6 +614,7 @@ export function resetVideoElementForStreamChange() {
   state.activeStremioStreamKey = "";
   state.active4kReleaseKey = "";
   state.active4kReleaseUrl = "";
+  state.active4kRelease = null;
   state.forceAutoLaunchNextStream = true;
   if (state.hlsInstance) {
     try {
@@ -999,9 +1001,9 @@ export function buildNextEpisodePreloadKey(item, season, episode, studioId) {
 export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
   if (
     !state.isPlayerOpen ||
-    state.activeSourceTab !== "hdrezka" ||
+    !["hdrezka", "backup4k", "stremio"].includes(state.activeSourceTab) ||
     state.activeItem?.media_type !== "series" ||
-    !(durSec >= 180)
+    !(durSec >= 120)
   ) {
     return;
   }
@@ -1015,11 +1017,16 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
   if (!nextCoords) return;
 
   const item = state.activeItem;
+  const sourceTab = state.activeSourceTab;
+  const preloadStudioOrTab =
+    sourceTab === "hdrezka"
+      ? state.activeStudioId || "auto"
+      : `${sourceTab}:${state.active4kReleaseKey || state.preferred4kReleaseKey || "auto"}`;
   const preloadKey = buildNextEpisodePreloadKey(
     item,
     nextCoords.season,
     nextCoords.episode,
-    state.activeStudioId
+    preloadStudioOrTab
   );
   if (
     state.preloadingNextKey === preloadKey ||
@@ -1029,52 +1036,238 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
   }
   state.preloadingNextKey = preloadKey;
   try {
-    const savedPrefForNext = getPreferredStudioForItem(item);
-    const nextProfAudio = state.activeProfile?.default_audio_pref || "auto";
-    const wantOrigNext = nextProfAudio === "original" || (nextProfAudio === "auto" && isEn());
-    const params = new URLSearchParams({
-      id: String(item.id || ""),
-      rezka_id: String(item.rezka_id || ""),
-      rezka_url: item.rezka_url || "",
-      title: item.title,
-      orig_title: item.orig_title || "",
-      year: String(item.year || ""),
-      media_type: "series",
-      translator_id: state.activeStudioId || "",
-      season: String(nextCoords.season),
-      episode: String(nextCoords.episode),
-      lang: state.appLang || "ru",
-      prefer_original: !state.activeStudioId && !savedPrefForNext && wantOrigNext ? "1" : "0",
-    });
-    const res = await fetch(`/api/hdrezka/streams?${params.toString()}`);
-    if (!res.ok) return;
-    const data = await res.json();
-    const prefs = getPlayerPrefs();
-    const qKey = pickBestQualityKey(
-      data.qualities || {},
-      prefs.preferredQuality,
-      data.default_quality
-    );
-    const nextUrl = (data.qualities || {})[qKey] || data.default_stream_url || "";
-    if (!nextUrl) return;
+    if (sourceTab === "hdrezka") {
+      const savedPrefForNext = getPreferredStudioForItem(item);
+      const nextProfAudio = state.activeProfile?.default_audio_pref || "auto";
+      const wantOrigNext = nextProfAudio === "original" || (nextProfAudio === "auto" && isEn());
+      const params = new URLSearchParams({
+        id: String(item.id || ""),
+        rezka_id: String(item.rezka_id || ""),
+        rezka_url: item.rezka_url || "",
+        title: item.title,
+        orig_title: item.orig_title || "",
+        year: String(item.year || ""),
+        media_type: "series",
+        translator_id: state.activeStudioId || "",
+        season: String(nextCoords.season),
+        episode: String(nextCoords.episode),
+        lang: state.appLang || "ru",
+        prefer_original: !state.activeStudioId && !savedPrefForNext && wantOrigNext ? "1" : "0",
+      });
+      const res = await fetch(`/api/hdrezka/streams?${params.toString()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const prefs = getPlayerPrefs();
+      const qKey = pickBestQualityKey(
+        data.qualities || {},
+        prefs.preferredQuality,
+        data.default_quality
+      );
+      const nextUrl = (data.qualities || {})[qKey] || data.default_stream_url || "";
+      if (!nextUrl) return;
 
-    state.preloadedNextEpisode = {
-      key: preloadKey,
-      data,
-      streamUrl: nextUrl,
-      qualityKey: qKey,
-      fetchedAt: Date.now(),
-    };
+      state.preloadedNextEpisode = {
+        key: preloadKey,
+        tab: "hdrezka",
+        data,
+        streamUrl: nextUrl,
+        qualityKey: qKey,
+        fetchedAt: Date.now(),
+      };
 
-    // Warm up CDN edge cache via lightweight HEAD (2 bytes on router hop, zero video bandwidth stolen)
-    if (String(nextUrl).startsWith("/api/proxy-stream")) {
-      fetch(nextUrl, { method: "HEAD" }).catch(() => {});
-    } else if (nextUrl.includes(".m3u8")) {
-      fetch(nextUrl, { mode: "cors" }).catch(() => {});
+      if (String(nextUrl).startsWith("/api/proxy-stream")) {
+        fetch(nextUrl, { method: "HEAD" }).catch(() => {});
+      } else if (nextUrl.includes(".m3u8")) {
+        fetch(nextUrl, { mode: "cors" }).catch(() => {});
+      }
+    } else if (sourceTab === "backup4k") {
+      const currentFiles = Array.isArray(state.active4kVideoFiles) ? state.active4kVideoFiles : [];
+      const nextFile = currentFiles.find((vf) => Number(vf.episode) === nextCoords.episode);
+      const activeRel = state.active4kRelease;
+      const torrOnline = Boolean(state.torrserverConnected);
+
+      if (nextFile && activeRel) {
+        if (activeRel.stream_kind === "torrserver" && activeRel.magnet && torrOnline) {
+          const tres = await fetch("/api/backup-streams/resolve", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: item.id || "",
+              title: item.title || "",
+              orig_title: item.orig_title || "",
+              genres: item.genres || state.activeMeta?.genres || [],
+              age_rating: item.age_rating || state.activeMeta?.age_rating || "",
+              magnet: activeRel.magnet,
+              media_type: "series",
+              season: nextCoords.season,
+              episode: nextCoords.episode,
+              file_index: nextFile.id,
+              filename_hint: nextFile.name || activeRel.title || "",
+              lang: state.appLang || "ru",
+            }),
+          });
+          const tjson = await tres.json();
+          if (tjson && tjson.ok && tjson.stream_url) {
+            const warmUrl = tjson.stream_url.includes("&play")
+              ? tjson.stream_url.replace("&play", "&preload")
+              : `${tjson.stream_url}&preload`;
+            fetch(warmUrl, { method: "HEAD" }).catch(() => {});
+            state.preloadedNextEpisode = {
+              key: preloadKey,
+              tab: "backup4k",
+              data: null,
+              streamUrl: tjson.stream_url,
+              fileIndex: Number(tjson.file_index) || nextFile.id,
+              videoFiles: Array.isArray(tjson.video_files) && tjson.video_files.length ? tjson.video_files : currentFiles,
+              release: activeRel,
+              releaseKey: state.active4kReleaseKey || String(activeRel.info_hash || ""),
+              quality: activeRel.quality || "4K",
+              fetchedAt: Date.now(),
+            };
+          }
+        } else if (activeRel.stream_kind === "debrid" && activeRel.magnet) {
+          const dres = await fetch("/api/debrid/resolve", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: item.id || "",
+              title: item.title || "",
+              orig_title: item.orig_title || "",
+              genres: item.genres || state.activeMeta?.genres || [],
+              age_rating: item.age_rating || state.activeMeta?.age_rating || "",
+              magnet: activeRel.magnet,
+              media_type: "series",
+              season: nextCoords.season,
+              episode: nextCoords.episode,
+            }),
+          });
+          const djson = await dres.json();
+          if (djson && djson.ok && djson.stream_url) {
+            fetch(djson.stream_url, { method: "HEAD" }).catch(() => {});
+            state.preloadedNextEpisode = {
+              key: preloadKey,
+              tab: "backup4k",
+              data: null,
+              streamUrl: djson.stream_url,
+              fileIndex: null,
+              videoFiles: [],
+              release: activeRel,
+              releaseKey: state.active4kReleaseKey || String(activeRel.info_hash || ""),
+              quality: activeRel.quality || "4K",
+              fetchedAt: Date.now(),
+            };
+          }
+        }
+      } else {
+        const params = new URLSearchParams({
+          id: String(item.id || ""),
+          imdb_id: String(item.imdb_id || ""),
+          rezka_id: String(item.rezka_id || ""),
+          rezka_url: item.rezka_url || "",
+          title: item.title,
+          orig_title: item.orig_title || "",
+          year: String(item.year || ""),
+          media_type: "series",
+          season: String(nextCoords.season),
+          episode: String(nextCoords.episode),
+          lang: state.appLang || "ru",
+        });
+        const res = await fetch(`/api/backup-streams?${params.toString()}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data || data.ok === false) return;
+        const nextCacheKey = `${item?.id || ""}:s${nextCoords.season}e${nextCoords.episode}:${state.appLang || "ru"}`;
+        if (!state.backup4kReleasesCache) state.backup4kReleasesCache = {};
+        if (Array.isArray(data?.releases)) {
+          state.backup4kReleasesCache[nextCacheKey] = { ts: Date.now(), data };
+        }
+        const releases = data.releases || [];
+        const preferredIdx = state.preferred4kReleaseKey
+          ? releases.findIndex(
+              (r, i) => String(r.info_hash || `rel_${i}_${r.title || ""}`) === state.preferred4kReleaseKey
+            )
+          : -1;
+        const autoIdx = preferredIdx >= 0 ? preferredIdx : 0;
+        const autoRel = releases[autoIdx] || null;
+        if (autoRel) {
+          let warmStreamUrl = autoRel.stream_url || "";
+          let preFileIdx = 1;
+          let preFiles = [];
+          if (autoRel.stream_kind === "torrserver" && autoRel.magnet && data.torrserver_connected) {
+            const tres = await fetch("/api/backup-streams/resolve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: item.id || "",
+                title: item.title || "",
+                orig_title: item.orig_title || "",
+                genres: item.genres || state.activeMeta?.genres || [],
+                age_rating: item.age_rating || state.activeMeta?.age_rating || "",
+                magnet: autoRel.magnet,
+                media_type: "series",
+                season: nextCoords.season,
+                episode: nextCoords.episode,
+                filename_hint: autoRel.title || "",
+                lang: state.appLang || "ru",
+              }),
+            });
+            const tjson = await tres.json();
+            if (tjson && tjson.ok && tjson.stream_url) {
+              warmStreamUrl = tjson.stream_url;
+              preFileIdx = Number(tjson.file_index) || 1;
+              preFiles = Array.isArray(tjson.video_files) ? tjson.video_files : [];
+              const warmUrl = tjson.stream_url.includes("&play")
+                ? tjson.stream_url.replace("&play", "&preload")
+                : `${tjson.stream_url}&preload`;
+              fetch(warmUrl, { method: "HEAD" }).catch(() => {});
+            }
+          }
+          if (warmStreamUrl) {
+            state.preloadedNextEpisode = {
+              key: preloadKey,
+              tab: "backup4k",
+              data,
+              streamUrl: warmStreamUrl,
+              fileIndex: preFileIdx,
+              videoFiles: preFiles,
+              release: autoRel,
+              releaseKey: String(autoRel.info_hash || `rel_${autoIdx}_${autoRel.title || ""}`),
+              quality: autoRel.quality || "4K",
+              fetchedAt: Date.now(),
+            };
+          }
+        }
+      }
+    } else if (sourceTab === "stremio") {
+      const params = new URLSearchParams({
+        id: item.id || "",
+        title: item.title || "",
+        orig_title: item.orig_title || "",
+        imdb_id: item.imdb_id || "",
+        year: String(item.year || ""),
+        media_type: "series",
+        season: String(nextCoords.season),
+        episode: String(nextCoords.episode),
+        lang: state.appLang || "ru",
+      });
+      const res = await fetch(`/api/stremio/streams?${params.toString()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data || data.ok === false) return;
+      state.preloadedNextEpisode = {
+        key: preloadKey,
+        tab: "stremio",
+        data,
+        fetchedAt: Date.now(),
+      };
+      const firstStream = (data.streams || [])[0];
+      if (firstStream?.url && !firstStream.url.startsWith("magnet:")) {
+        fetch(firstStream.url, { method: "HEAD" }).catch(() => {});
+      }
     }
 
     const skipOutroBtn = document.getElementById("skip-outro-btn");
-    if (skipOutroBtn) {
+    if (skipOutroBtn && state.preloadedNextEpisode) {
       skipOutroBtn.innerHTML = `${t("Следующая серия", "Next episode")} <span class="atv-preload-ready-dot" title="${escapeAttr(
         t("Поток следующей серии предзагружен", "Next episode stream preloaded")
       )}"></span>`;
@@ -2329,24 +2522,43 @@ export async function loadStremioStreams(resumeTime = 0) {
   const abortController = new AbortController();
   state.streamAbortController = abortController;
 
+  const preloadCandidateKey =
+    item.media_type === "series"
+      ? buildNextEpisodePreloadKey(item, state.activeSeason, state.activeEpisode, "stremio")
+      : "";
+  const hasWarmPreload = Boolean(
+    preloadCandidateKey &&
+      state.preloadedNextEpisode &&
+      state.preloadedNextEpisode.tab === "stremio" &&
+      state.preloadedNextEpisode.key === preloadCandidateKey &&
+      state.preloadedNextEpisode.data &&
+      Date.now() - (state.preloadedNextEpisode.fetchedAt || 0) < 900000
+  );
+
   try {
-    const params = new URLSearchParams({
-      id: item.id || "",
-      title: item.title || "",
-      orig_title: item.orig_title || "",
-      imdb_id: item.imdb_id || "",
-      year: String(item.year || ""),
-      media_type: item.media_type || "movie",
-      season: String(state.activeSeason || 1),
-      episode: String(state.activeEpisode || 1),
-      lang: state.appLang || "ru",
-    });
-    const res = await fetch(`/api/stremio/streams?${params.toString()}`, {
-      signal: abortController.signal,
-    });
-    const data = await res.json();
-    if (!res.ok || data?.ok === false || data?.error) {
-      throw new Error(data?.error || `HTTP ${res.status}`);
+    let data;
+    if (hasWarmPreload) {
+      data = state.preloadedNextEpisode.data;
+      state.preloadedNextEpisode = null;
+    } else {
+      const params = new URLSearchParams({
+        id: item.id || "",
+        title: item.title || "",
+        orig_title: item.orig_title || "",
+        imdb_id: item.imdb_id || "",
+        year: String(item.year || ""),
+        media_type: item.media_type || "movie",
+        season: String(state.activeSeason || 1),
+        episode: String(state.activeEpisode || 1),
+        lang: state.appLang || "ru",
+      });
+      const res = await fetch(`/api/stremio/streams?${params.toString()}`, {
+        signal: abortController.signal,
+      });
+      data = await res.json();
+      if (!res.ok || data?.ok === false || data?.error) {
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
     }
     if (!state.isPlayerOpen || sessionId !== state.playerSessionId || state.activeSourceTab !== "stremio") {
       return;
@@ -2415,7 +2627,44 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false)
     cachedEntry && cachedEntry.data && Date.now() - Number(cachedEntry.ts || 0) < 300000
   );
 
-  if (!hasFreshCache) {
+  const preloadCandidateKey =
+    item.media_type === "series"
+      ? buildNextEpisodePreloadKey(
+          item,
+          state.activeSeason,
+          state.activeEpisode,
+          `backup4k:${state.active4kReleaseKey || state.preferred4kReleaseKey || "auto"}`
+        )
+      : "";
+  const hasWarmPreload = Boolean(
+    !forceRefresh &&
+      preloadCandidateKey &&
+      state.preloadedNextEpisode &&
+      state.preloadedNextEpisode.tab === "backup4k" &&
+      state.preloadedNextEpisode.key === preloadCandidateKey &&
+      state.preloadedNextEpisode.streamUrl &&
+      Date.now() - (state.preloadedNextEpisode.fetchedAt || 0) < 900000
+  );
+
+  let warmDirectPlayed = false;
+  if (hasWarmPreload) {
+    const preloaded = state.preloadedNextEpisode;
+    state.preloadedNextEpisode = null;
+    state.active4kReleaseUrl = preloaded.streamUrl;
+    state.active4kReleaseKey = preloaded.releaseKey;
+    state.active4kRelease = preloaded.release;
+    if (Array.isArray(preloaded.videoFiles) && preloaded.videoFiles.length > 0) {
+      state.active4kVideoFiles = preloaded.videoFiles;
+      state.active4kFileIndex = preloaded.fileIndex || 1;
+    }
+    state.activeStudioName = `4K Remux (${preloaded.quality || "4K"})`;
+    warmDirectPlayed = true;
+    probeAndPlay4KStream(preloaded.streamUrl, resumeTime, preloaded.quality || "4K", sessionId, {
+      extraSubtitles: state.external4kSubs || [],
+    });
+  }
+
+  if (!hasFreshCache && !warmDirectPlayed) {
     listEl.innerHTML = `<div class="atv-stream-empty-note atv-stream-loading-row"><div class="atv-spinner atv-spinner-inline"></div><span>${escapeHtml(
       t(
         `Поиск 4K UHD / BDRemux раздач для «${displayTitle(item)}»...`,
@@ -2793,6 +3042,7 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false)
       if (!rawUrl) return;
       state.active4kReleaseUrl = rawUrl;
       state.active4kReleaseKey = relKey;
+      state.active4kRelease = rel;
       state.activeStudioName = `4K Remux (${rel.quality})`;
       syncActiveReleaseRows();
       renderTorrentFilesBar(rel, relKey);
@@ -2887,6 +3137,7 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false)
         (preferredIdx >= 0 && debridReady && autoRel.stream_kind === "debrid" && Boolean(autoRel.magnet)));
 
     if (
+      !warmDirectPlayed &&
       state.activeSourceTab === "backup4k" &&
       canAutoLaunch &&
       video &&
