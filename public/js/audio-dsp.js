@@ -1,6 +1,6 @@
-import { PLAYER_PREFS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261104v27";
-import { t } from "./i18n.js?v=20261104v27";
-import { isIosOrIpadOs, showToast } from "./utils.js?v=20261104v27";
+import { PLAYER_PREFS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261104v28";
+import { t } from "./i18n.js?v=20261104v28";
+import { isIosOrIpadOs, showToast } from "./utils.js?v=20261104v28";
 import {
   closePlayerModal,
   isStageFullscreen,
@@ -8,7 +8,7 @@ import {
   setPipBackgroundMode,
   syncCustomVideoControlsUI,
   syncPipDockUI,
-} from "./player.js?v=20261104v27";
+} from "./player.js?v=20261104v28";
 
 export function getAudioPresetLabel(preset) {
   const map = {
@@ -33,7 +33,7 @@ export function getPlayerPrefs() {
           storageKey,
           JSON.stringify({ ...parsed, volume: vol, muted: false })
         );
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("AudioDsp", err); }
     }
     const rate =
       typeof parsed.playbackRate === "number" && parsed.playbackRate >= 0.5 && parsed.playbackRate <= 3
@@ -107,7 +107,7 @@ export function savePlayerPrefs(patch) {
     const cur = getPlayerPrefs();
     const updated = { ...cur, ...patch };
     localStorage.setItem(profileStorageKey(PLAYER_PREFS_STORAGE_KEY), JSON.stringify(updated));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("AudioDsp", err); }
 }
 export function buildSoftClipLimiterCurve() {
   if (state.audioLimiterCurve) return state.audioLimiterCurve;
@@ -254,7 +254,7 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
           video._cfSourceNode.disconnect();
           video._cfSourceNode.connect(ctx.destination);
           video._cfDirectBypass = true;
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("AudioDsp", err); }
       }
       if (isAudioContextSuspendedLike(ctx)) {
         resumeAudioContextIfNeeded(ctx);
@@ -273,7 +273,7 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
       try {
         isCrossOriginStream =
           new URL(video.currentSrc, window.location.origin).origin !== window.location.origin;
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("AudioDsp", err); }
       if (isCrossOriginStream) {
         if (
           !video._cfCorsBlocked &&
@@ -395,7 +395,7 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
         video._cfSourceNode.disconnect();
         video._cfSourceNode.connect(n.prePadGain);
         video._cfDirectBypass = false;
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("AudioDsp", err); }
     }
     if (isAudioContextSuspendedLike(ctx)) {
       resumeAudioContextIfNeeded(ctx);
@@ -725,7 +725,7 @@ export function ensurePreservesPitch(video) {
     if ("preservesPitch" in video) video.preservesPitch = true;
     if ("webkitPreservesPitch" in video) video.webkitPreservesPitch = true;
     if ("mozPreservesPitch" in video) video.mozPreservesPitch = true;
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("AudioDsp", err); }
 }
 
 export function applySavedPlayerPrefsToVideo(video) {
@@ -737,7 +737,7 @@ export function applySavedPlayerPrefsToVideo(video) {
     video.muted = Boolean(state.userMutedThisSession);
     ensurePreservesPitch(video);
     video.playbackRate = prefs.playbackRate;
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("AudioDsp", err); }
   state.internalMuteOverride = false;
   const speedSel = document.getElementById("select-speed");
   if (speedSel) {
@@ -799,7 +799,7 @@ export function isVideoInPiP(videoEl = document.getElementById("native-video")) 
     if (typeof videoEl.matches === "function" && videoEl.matches(":picture-in-picture")) {
       return true;
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("AudioDsp", err); }
   return false;
 }
 export async function togglePictureInPicture(options = {}) {
@@ -821,14 +821,14 @@ export async function togglePictureInPicture(options = {}) {
         video.tabIndex = -1;
         try {
           video.focus({ preventScroll: true });
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("AudioDsp", err); }
         await fetch("/api/remote/native-pip", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ engine: "gecko" }),
         }).catch(() => {});
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("AudioDsp", err); }
     setPipBackgroundMode(false);
     showToast(t("Выход из режима «Картинка в картинке»", "Exited Picture-in-Picture"));
     syncPipDockUI();
@@ -854,18 +854,18 @@ export async function togglePictureInPicture(options = {}) {
   if (document.fullscreenElement && typeof document.exitFullscreen === "function") {
     try {
       await document.exitFullscreen();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("AudioDsp", err); }
   } else if (document.webkitFullscreenElement && typeof document.webkitExitFullscreen === "function") {
     try {
       document.webkitExitFullscreen();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("AudioDsp", err); }
   }
 
   const triggerNativeMacPip = async (engineHint) => {
     video.tabIndex = -1;
     try {
       video.focus({ preventScroll: true });
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("AudioDsp", err); }
     try {
       const r = await fetch("/api/remote/native-pip", {
         method: "POST",
@@ -876,7 +876,7 @@ export async function togglePictureInPicture(options = {}) {
         const d = await r.json();
         return Boolean(d && d.ok);
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("AudioDsp", err); }
     return false;
   };
 

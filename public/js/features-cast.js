@@ -2,8 +2,8 @@
 // 6. TV CAST & AIRPLAY / DLNA / REMOTE LINK
 // ============================================================================
 
-import { state } from "./state.js?v=20261104v27";
-import { displayTitle, t } from "./i18n.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
+import { displayTitle, t } from "./i18n.js?v=20261104v28";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -13,17 +13,17 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261104v27";
-import { resolvePreferredPlayTab } from "./catalog.js?v=20261104v27";
-import { openQuickPeekModal } from "./modals.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
+import { resolvePreferredPlayTab } from "./catalog.js?v=20261104v28";
+import { openQuickPeekModal } from "./modals.js?v=20261104v28";
 import {
   getEffectivePlaybackTiming,
   openPlayerModal,
-} from "./player.js?v=20261104v27";
-import { switchCastModalTab } from "./remote.js?v=20261104v27";
-import { toggleLanAccess } from "./settings.js?v=20261104v27";
-import { toggleTvMode } from "./features-tv-mode.js?v=20261104v27";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v27";
+} from "./player.js?v=20261104v28";
+import { switchCastModalTab } from "./remote.js?v=20261104v28";
+import { toggleLanAccess } from "./settings.js?v=20261104v28";
+import { toggleTvMode } from "./features-tv-mode.js?v=20261104v28";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v28";
 
 
 export function supportsWebkitAirPlay() {
@@ -37,7 +37,7 @@ export function triggerNativeAirPlayPicker() {
     try {
       video.webkitShowPlaybackTargetPicker();
       return true;
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("FeaturesCast", err); }
   }
   showToast(
     t(
@@ -363,7 +363,7 @@ export async function stopActiveDlnaCast() {
     state.tvActiveCast = null;
     renderTvCastModalUI(false);
     showToast(t("Воспроизведение на телевизоре остановлено", "TV playback stopped"));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("FeaturesCast", err); }
 }
 
 export function parseInitialTvUrlParams() {
@@ -374,7 +374,7 @@ export function parseInitialTvUrlParams() {
     if (pairKey) {
       try {
         window.sessionStorage.setItem("cineflow_remote_key", pairKey);
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("FeaturesCast", err); }
     }
     if (qs.get("tv") === "1") {
       toggleTvMode(true, true);
@@ -398,7 +398,7 @@ export function parseInitialTvUrlParams() {
       const cleanUrl = window.location.pathname + (qs.get("tv") === "1" ? "?tv=1" : "");
       window.history.replaceState({}, "", cleanUrl);
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("FeaturesCast", err); }
 }
 
 export async function applyPendingTvDeepLinkIfReady() {
@@ -438,7 +438,7 @@ export async function applyPendingTvDeepLinkIfReady() {
           target = data.item;
         }
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("FeaturesCast", err); }
   }
 
   if (target) {
@@ -475,7 +475,7 @@ export async function openPlayerHandoffModal() {
   if (video && !video.paused) {
     try {
       video.pause();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("FeaturesCast", err); }
   }
   const { cur } = getEffectivePlaybackTiming(video);
   const curTime = Math.max(0, Math.floor(cur || (video ? video.currentTime : 0) || 0));

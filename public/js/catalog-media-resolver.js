@@ -2,24 +2,24 @@ import {
   PREFERRED_STUDIOS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261104v27";
-import { isEn, t } from "./i18n.js?v=20261104v27";
+} from "./state.js?v=20261104v28";
+import { isEn, t } from "./i18n.js?v=20261104v28";
 import {
   findOfflineDownloadForTitle,
   formatTime,
   getEpisodeProgress,
   pluralRu,
-} from "./utils.js?v=20261104v27";
-import { switchSourceTab } from "./player.js?v=20261104v27";
-import { renderHero } from "./catalog-hero.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
+import { switchSourceTab } from "./player.js?v=20261104v28";
+import { renderHero } from "./catalog-hero.js?v=20261104v28";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261104v27";
+} from "./catalog-shelves.js?v=20261104v28";
 import {
   clearCatalogFrontendCache,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261104v27";
+} from "./catalog.js?v=20261104v28";
 
 export function isEpisodeWatched(item, seasonNum, epNum) {
   if (!item || item.media_type !== "series") return false;
@@ -76,7 +76,7 @@ export function savePreferredStudioForItem(item, studioId, studioName) {
     if (idKey) map[idKey] = entry;
     if (titleKey) map[titleKey] = entry;
     localStorage.setItem(storageKey, JSON.stringify(map));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("CatalogMediaResolver", err); }
 }
 let _cwIndexRef = null;
 let _cwById = new Map();

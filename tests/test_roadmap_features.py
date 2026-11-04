@@ -2141,6 +2141,54 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertIn(".atv-preload-ready-dot", css_src)
         self.assertIn("@keyframes atvPreloadPulse", css_src)
 
+    def test_codebase_decomposition_and_debug_logging(self):
+        """Verifies decomposition of kinorium parsers, catalog live search module, and logDebug instrumentation."""
+        # 1. backend.kinorium_parsers exports
+        from backend.kinorium_parsers import (
+            parse_movie_list_html,
+            parse_premieres_list_html,
+            parse_series_episodes_html,
+            extract_similar_items_html,
+            _safe_year_int,
+            _sanitize_kinorium_genres,
+        )
+        self.assertEqual(_safe_year_int("2024 (Series)"), 2024)
+        self.assertEqual(_sanitize_kinorium_genres(["Драма", "Боевик"]), ["Драма", "Боевик"])
+
+        # 2. KinoriumService static method delegation
+        from backend.kinorium import KinoriumService
+        self.assertTrue(callable(KinoriumService.parse_movie_list_html))
+        self.assertTrue(callable(KinoriumService.parse_premieres_list_html))
+        self.assertTrue(callable(KinoriumService.parse_series_episodes_html))
+        self.assertTrue(callable(KinoriumService.extract_similar_items_html))
+
+        # Sample parse verification
+        sample_html = '<div class="user-status-list" data-movieId="12345" data-movieName="Тестовый фильм"></div>'
+        parsed = KinoriumService.parse_movie_list_html(sample_html)
+        self.assertIn("12345", parsed)
+        self.assertEqual(parsed["12345"]["ru_title"], "Тестовый фильм")
+
+        # 3. public/js/catalog-live-search.js presence and exports
+        live_search_path = os.path.join(BASE_DIR, "public", "js", "catalog-live-search.js")
+        self.assertTrue(os.path.isfile(live_search_path))
+        with open(live_search_path, "r", encoding="utf-8") as fh:
+            live_src = fh.read()
+        self.assertIn("export function initCatalogLiveSearch", live_src)
+        self.assertIn("export const closeLiveSearchPopover", live_src)
+        self.assertIn("export function resetCatalogFiltersForGlobalSearch", live_src)
+
+        # 4. app.js invokes initCatalogLiveSearch
+        with open(os.path.join(BASE_DIR, "public", "app.js"), "r", encoding="utf-8") as fh:
+            app_src = fh.read()
+        self.assertIn("initCatalogLiveSearch()", app_src)
+        self.assertIn('from "./js/catalog-live-search.js?v=', app_src)
+
+        # 5. logDebug in utils.js
+        with open(os.path.join(BASE_DIR, "public", "js", "utils.js"), "r", encoding="utf-8") as fh:
+            utils_src = fh.read()
+        self.assertIn("export function logDebug(", utils_src)
+        self.assertIn("window.logDebug = logDebug", utils_src)
+
 
 if __name__ == "__main__":
     unittest.main()

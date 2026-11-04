@@ -1,5 +1,5 @@
-import { profileStorageKey, state } from "./state.js?v=20261104v27";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261104v27";
+import { profileStorageKey, state } from "./state.js?v=20261104v28";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261104v28";
 import {
   clampStagePopover,
   escapeAttr,
@@ -7,13 +7,13 @@ import {
   iconSvg,
   showToast,
   showVideoOsd,
-} from "./utils.js?v=20261104v27";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261104v28";
 import {
   closeAllVcPopovers,
   getEffectivePlaybackTiming,
   syncCustomControlPopovers,
-} from "./player.js?v=20261104v27";
+} from "./player.js?v=20261104v28";
 
 export function formatSubtitleOffsetLabel(sec = state.subtitleOffsetSec) {
   const num = Math.round((Number(sec) || 0) * 100) / 100;
@@ -255,7 +255,7 @@ export function clearCustomSubtitleOverlay(keepLoadedCache = false) {
     if (state.subFetchAbortController) {
       try {
         state.subFetchAbortController.abort();
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Subtitles", err); }
       state.subFetchAbortController = null;
     }
     state.subFetchReqId = (state.subFetchReqId || 0) + 1;
@@ -418,7 +418,7 @@ export async function openSubtitleDictPopover(rawWord, contextText = "", wordEl 
           _subDictClientCache.set(cacheKey, result);
         }
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Subtitles", err); }
   }
 
   if (
@@ -473,7 +473,7 @@ export function getSavedVocabulary() {
         raw = legacyRaw;
         try {
           localStorage.setItem(key, legacyRaw);
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("Subtitles", err); }
       }
     }
     const parsed = raw ? JSON.parse(raw) : [];
@@ -489,7 +489,7 @@ export function saveVocabularyList(list) {
       const key = profileStorageKey(VOCAB_STORAGE_KEY);
       localStorage.setItem(key, JSON.stringify(list || []));
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Subtitles", err); }
 }
 
 export function isWordSavedInVocabulary(word) {
@@ -768,7 +768,7 @@ export function syncIosFullscreenNativeSubtitles(videoEl = null) {
       for (let i = 0; i < video.textTracks.length; i++) {
         try {
           video.textTracks[i].mode = "disabled";
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("Subtitles", err); }
       }
     }
     updateCustomSubtitleOverlay(video);
@@ -783,7 +783,7 @@ export function syncIosFullscreenNativeSubtitles(videoEl = null) {
       for (let i = 0; i < video.textTracks.length; i++) {
         try {
           video.textTracks[i].mode = "disabled";
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("Subtitles", err); }
       }
     }
     return;
@@ -804,7 +804,7 @@ export function syncIosFullscreenNativeSubtitles(videoEl = null) {
       } else {
         try {
           video.textTracks[i].mode = "disabled";
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("Subtitles", err); }
       }
     }
   }
@@ -817,7 +817,7 @@ export function syncIosFullscreenNativeSubtitles(videoEl = null) {
     while (targetTrack.cues && targetTrack.cues.length > 0) {
       targetTrack.removeCue(targetTrack.cues[0]);
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Subtitles", err); }
 
   for (let i = 0; i < cues.length; i++) {
     const c = cues[i];
@@ -826,11 +826,11 @@ export function syncIosFullscreenNativeSubtitles(videoEl = null) {
     if (e <= 0 || e <= s) continue;
     try {
       targetTrack.addCue(new window.VTTCue(Math.max(0, s), e, c.text));
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Subtitles", err); }
   }
   try {
     targetTrack.mode = "showing";
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Subtitles", err); }
   document.getElementById("atv-subtitle-overlay")?.classList.add("hidden");
 }
 
@@ -843,7 +843,7 @@ export function activateSelectedSubtitleTrack() {
       for (let i = 0; i < video.textTracks.length; i++) {
         try {
           video.textTracks[i].mode = "disabled";
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("Subtitles", err); }
       }
     }
   }
@@ -853,7 +853,7 @@ export function activateSelectedSubtitleTrack() {
   if (state.subFetchAbortController) {
     try {
       state.subFetchAbortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Subtitles", err); }
     state.subFetchAbortController = null;
   }
   state.subFetchReqId = (state.subFetchReqId || 0) + 1;
@@ -1492,7 +1492,7 @@ export function bindSubtitleFileAndDropListeners() {
           if (video._cfLocalBlobUrl) {
             try {
               URL.revokeObjectURL(video._cfLocalBlobUrl);
-            } catch (_) {}
+            } catch (err) { window.logDebug?.("Subtitles", err); }
             video._cfLocalBlobUrl = null;
           }
           const cleanName = videoFile.name.replace(/\.[^/.]+$/, "");
@@ -1503,19 +1503,19 @@ export function bindSubtitleFileAndDropListeners() {
           if (state.videoLoadAbort) {
             try {
               state.videoLoadAbort.abort();
-            } catch (_) {}
+            } catch (err) { window.logDebug?.("Subtitles", err); }
             state.videoLoadAbort = null;
           }
           if (state.videoLoadAbortController) {
             try {
               state.videoLoadAbortController.abort();
-            } catch (_) {}
+            } catch (err) { window.logDebug?.("Subtitles", err); }
             state.videoLoadAbortController = null;
           }
           if (state.hlsInstance) {
             try {
               state.hlsInstance.destroy();
-            } catch (_) {}
+            } catch (err) { window.logDebug?.("Subtitles", err); }
             state.hlsInstance = null;
           }
           state.remuxMeta = {

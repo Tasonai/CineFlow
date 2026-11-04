@@ -1,7 +1,7 @@
-import { state } from "./state.js?v=20261104v27";
-import { t } from "./i18n.js?v=20261104v27";
-import { formatTime } from "./utils.js?v=20261104v27";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
+import { t } from "./i18n.js?v=20261104v28";
+import { formatTime } from "./utils.js?v=20261104v28";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v28";
 
 export function getDetectedCreditsStartSec(dur) {
   if (!dur || dur < 120) return null;
@@ -58,7 +58,7 @@ export async function loadSkipIntroSegments() {
   if (state.skipIntroAbortController) {
     try {
       state.skipIntroAbortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerIntroCredits", err); }
   }
   const skipAbort = new AbortController();
   state.skipIntroAbortController = skipAbort;

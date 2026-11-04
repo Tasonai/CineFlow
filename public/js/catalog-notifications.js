@@ -2,14 +2,14 @@ import {
   NOTIF_DESKTOP_ALERTED_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261104v27";
+} from "./state.js?v=20261104v28";
 import {
   displayPoster,
   displayTitle,
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261104v27";
+} from "./i18n.js?v=20261104v28";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -19,16 +19,16 @@ import {
   iconSvg,
   matchCatalogItemSafe,
   saveSeenNotificationsSet,
-} from "./utils.js?v=20261104v27";
-import { openQuickPeekModal } from "./modals.js?v=20261104v27";
-import { openPlayerModal } from "./player.js?v=20261104v27";
-import { openSettingsModal } from "./settings.js?v=20261104v27";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
+import { openQuickPeekModal } from "./modals.js?v=20261104v28";
+import { openPlayerModal } from "./player.js?v=20261104v28";
+import { openSettingsModal } from "./settings.js?v=20261104v28";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261104v28";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261104v27";
+} from "./catalog-media-resolver.js?v=20261104v28";
 
 export function collectNewEpisodeNotifications() {
   if (!isServiceEnabled("kinorium") || (!isServiceEnabled("hdrezka") && !isServiceEnabled("stremio"))) {
@@ -86,7 +86,7 @@ function maybeSendDesktopEpisodeAlerts(notifs = []) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) alertedArr = parsed;
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("CatalogNotifications", err); }
 
   // First boot for this profile: record baseline without spamming existing items
   if (alertedArr === null) {
@@ -95,7 +95,7 @@ function maybeSendDesktopEpisodeAlerts(notifs = []) {
         storageKey,
         JSON.stringify(newOnes.map((n) => String(n.notifKey)).slice(-200))
       );
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("CatalogNotifications", err); }
     return;
   }
 
@@ -106,7 +106,7 @@ function maybeSendDesktopEpisodeAlerts(notifs = []) {
   freshToAlert.forEach((n) => alertedSet.add(String(n.notifKey)));
   try {
     localStorage.setItem(storageKey, JSON.stringify(Array.from(alertedSet).slice(-200)));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("CatalogNotifications", err); }
 
   freshToAlert.slice(0, 3).forEach((n) => {
     const titleStr = displayTitle(n) || n.title || "CineFlow";
@@ -128,7 +128,7 @@ function maybeSendDesktopEpisodeAlerts(notifs = []) {
           episode: Number(n.episode) || 1,
         });
         return;
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("CatalogNotifications", err); }
     }
 
     if (typeof Notification !== "undefined" && Notification.permission === "granted") {
@@ -141,7 +141,7 @@ function maybeSendDesktopEpisodeAlerts(notifs = []) {
         webNotif.onclick = () => {
           try {
             window.focus();
-          } catch (_) {}
+          } catch (err) { window.logDebug?.("CatalogNotifications", err); }
           const found = matchCatalogItemSafe(state.catalogItems, n) || n.rawItem;
           if (found) {
             openPlayerModal(
@@ -153,7 +153,7 @@ function maybeSendDesktopEpisodeAlerts(notifs = []) {
             );
           }
         };
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("CatalogNotifications", err); }
     }
   });
 }
@@ -232,7 +232,7 @@ export function switchNotificationsTab(tabKey = "updates") {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
       try {
         Notification.requestPermission().catch(() => {});
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("CatalogNotifications", err); }
     }
     loadAndRenderReleaseCalendar(false);
   }
@@ -403,7 +403,7 @@ export async function renderReleaseCalendarShelf(forceRefresh = false) {
           state.calendarData = data;
         }
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("CatalogNotifications", err); }
   }
 
   const calData = state.calendarData;

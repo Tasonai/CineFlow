@@ -1,5 +1,5 @@
-import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261104v27";
-import { isEn, t } from "./i18n.js?v=20261104v27";
+import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261104v28";
+import { isEn, t } from "./i18n.js?v=20261104v28";
 import {
   clampFloatingPopover,
   closeCustomSelectMenu,
@@ -16,14 +16,14 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
   applyVideoCropToVideo,
   getPlayerPrefs,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261104v27";
+} from "./audio-dsp.js?v=20261104v28";
 import {
   applyEnabledServicesVisibility,
   clearCatalogFrontendCache,
@@ -32,23 +32,23 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261104v27";
+} from "./catalog.js?v=20261104v28";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261104v27";
-import { closePlayerModal } from "./player.js?v=20261104v27";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v27";
+} from "./modals.js?v=20261104v28";
+import { closePlayerModal } from "./player.js?v=20261104v28";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v28";
 import {
   renderIntegrationsList,
   updateBackupSummaryStat,
-} from "./settings.js?v=20261104v27";
+} from "./settings.js?v=20261104v28";
 import {
   refreshDownloadsState,
   syncDownloadsHeaderBadge,
-} from "./features-downloads.js?v=20261104v27";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v27";
+} from "./features-downloads.js?v=20261104v28";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261104v28";
 
 export const PROFILE_COLOR_SWATCHES = [
   "#0A84FF",
@@ -225,7 +225,7 @@ export function applyProfilesPayload(payload) {
     if (typeof localStorage !== "undefined" && state.activeProfileId) {
       localStorage.setItem(ACTIVE_PROFILE_STORAGE_KEY, state.activeProfileId);
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("FeaturesProfiles", err); }
   if (typeof document !== "undefined" && document.documentElement) {
     document.documentElement.setAttribute("data-profile", state.activeProfileId || "main");
     document.documentElement.classList.toggle("is-kids-profile", Boolean(activeObj?.kids_mode));
@@ -418,7 +418,7 @@ export function reloadProfileLocalPlayerPrefs() {
   if (video) {
     try {
       video.playbackRate = prefs.playbackRate || 1;
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("FeaturesProfiles", err); }
     applyAudioBoostToVideo(video, state.audioBoost, state.audioPreset);
   }
   applyVideoCropToVideo(video, state.videoCrop);
@@ -460,7 +460,7 @@ export function closeKidsPinModal(resultPin = null) {
             profModal.querySelector("[data-prof-card]");
           activeCard?.focus({ preventScroll: true });
         }
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("FeaturesProfiles", err); }
     });
   }
   if (typeof resolver === "function") {
@@ -549,7 +549,7 @@ export function promptKidsPinModal({ desc = "", profileId = "" } = {}) {
           input.select();
           return;
         }
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("FeaturesProfiles", err); }
       closeKidsPinModal(code);
     };
 
@@ -577,7 +577,7 @@ export function promptKidsPinModal({ desc = "", profileId = "" } = {}) {
     requestAnimationFrame(() => {
       try {
         input.focus({ preventScroll: true });
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("FeaturesProfiles", err); }
     });
   });
 }
@@ -735,7 +735,7 @@ export async function openProfilesModal(editProfileId = "") {
       const data = await res.json();
       applyProfilesPayload(data);
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("FeaturesProfiles", err); }
 
   _editingProfileId = editProfileId || state.activeProfileId || "main";
   renderProfilesModalUI(_editingProfileId);

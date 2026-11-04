@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
 import {
   displayDescription,
   displayPoster,
@@ -8,7 +8,7 @@ import {
   t,
   translateGenre,
   transliterateRuToEn,
-} from "./i18n.js?v=20261104v27";
+} from "./i18n.js?v=20261104v28";
 import {
   escapeAttr,
   escapeHtml,
@@ -16,23 +16,23 @@ import {
   rememberModalTriggerFocus,
   restoreModalTriggerFocus,
   syncScrollTopButton,
-} from "./utils.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
 import {
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261104v27";
-import { openPlayerModal } from "./player.js?v=20261104v27";
+} from "./modals.js?v=20261104v28";
+import { openPlayerModal } from "./player.js?v=20261104v28";
 import {
   getPrimaryRating,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261104v27";
+} from "./catalog-media-resolver.js?v=20261104v28";
 import {
   scheduleHeroAmbientTeaser,
   stopHeroAmbientTeaser,
-} from "./catalog-hero.js?v=20261104v27";
+} from "./catalog-hero.js?v=20261104v28";
 
 export function openMovieRouletteModal() {
   const modal = document.getElementById("movie-roulette-modal");
@@ -564,7 +564,7 @@ async function searchCommandPalette(query) {
         networkPersons = personsArr.slice(0, 4);
       }
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("CatalogDiscovery", err); }
 
   const allTitles = localMatched.concat(networkTitles).slice(0, 10);
 

@@ -2,7 +2,7 @@
 // Manages "Continue Watching", "Curated Collections" (Friends' picks, In your taste,
 // Short movies tonight, Top Kinorium/IMDb), and separated/unified catalog shelves.
 
-import { state } from "./state.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
 import {
   displayBackdrop,
   displayPoster,
@@ -10,7 +10,7 @@ import {
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261104v27";
+} from "./i18n.js?v=20261104v28";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -21,36 +21,36 @@ import {
   matchCatalogItemSafe,
   showToast,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
 import {
   buildPersonPhotoCard,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261104v27";
+} from "./modals.js?v=20261104v28";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
   renderPosterCardsInto,
-} from "./catalog-cards.js?v=20261104v27";
+} from "./catalog-cards.js?v=20261104v28";
 import {
   filterCatalogItemsByGenreAndYear,
   sortCatalogItems,
-} from "./catalog-filters.js?v=20261104v27";
+} from "./catalog-filters.js?v=20261104v28";
 import {
   formatRemainingTime,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261104v27";
-import { renderHero } from "./catalog-hero.js?v=20261104v27";
-import { renderNotificationsBell, renderReleaseCalendarShelf } from "./catalog-notifications.js?v=20261104v27";
+} from "./catalog-media-resolver.js?v=20261104v28";
+import { renderHero } from "./catalog-hero.js?v=20261104v28";
+import { renderNotificationsBell, renderReleaseCalendarShelf } from "./catalog-notifications.js?v=20261104v28";
 import {
   clearCatalogFrontendCache,
   loadCatalog,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261104v27";
-import { getOfflineCatalogItems } from "./features-downloads.js?v=20261104v27";
+} from "./catalog.js?v=20261104v28";
+import { getOfflineCatalogItems } from "./features-downloads.js?v=20261104v28";
 
 export function renderContinueWatching() {
   renderNotificationsBell();

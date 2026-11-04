@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
 import {
   displayBackdrop,
   displayCountries,
@@ -15,7 +15,7 @@ import {
   translateGenre,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261104v27";
+} from "./i18n.js?v=20261104v28";
 import {
   clampFloatingPopover,
   clampStagePopover,
@@ -50,7 +50,7 @@ import {
   syncSearchInputHasQueryUI,
   syncToastContainerMount,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
 import {
   applyAudioBoostToVideo,
   applySavedPlayerPrefsToVideo,
@@ -67,7 +67,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261104v27";
+} from "./audio-dsp.js?v=20261104v28";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -85,7 +85,7 @@ import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261104v27";
+} from "./catalog.js?v=20261104v28";
 import {
   closePersonModal,
   closeQuickPeekModal,
@@ -93,13 +93,13 @@ import {
   openQuickPeekModal,
   refreshOpenPersonModalUI,
   renderModalCastSection,
-} from "./modals.js?v=20261104v27";
-import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261104v27";
+} from "./modals.js?v=20261104v28";
+import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261104v28";
 import {
   refreshDownloadsState,
   sweepPendingDownloadCleanups,
   syncNativeNowPlaying,
-} from "./features.js?v=20261104v27";
+} from "./features.js?v=20261104v28";
 import {
   activateSelectedSubtitleTrack,
   adjustSubtitleOffset,
@@ -122,8 +122,8 @@ import {
   syncSubtitleOffsetUI,
   triggerLocalSubtitleFilePicker,
   updateCustomSubtitleOverlay,
-} from "./subtitles.js?v=20261104v27";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v27";
+} from "./subtitles.js?v=20261104v28";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v28";
 import {
   clearVideoStallWatchdog,
   getRenderedVideoFrameCount,
@@ -131,7 +131,7 @@ import {
   recoverFrozenVideoPlayback,
   getVideoForwardBufferSec,
   checkVideoPlaybackFreeze,
-} from "./player-watchdog.js?v=20261104v27";
+} from "./player-watchdog.js?v=20261104v28";
 import {
   estimateItemDurationSec,
   buildRemuxStreamEndpoint,
@@ -140,7 +140,7 @@ import {
   syncAudioOffsetUI,
   scheduleRemuxFullDurationProbe,
   prepareRemuxAudioSwitch,
-} from "./player-remux.js?v=20261104v27";
+} from "./player-remux.js?v=20261104v28";
 import {
   hasOpenVcPopover,
   closeAllVcPopovers,
@@ -157,7 +157,7 @@ import {
   positionStagePopover,
   toggleQuickOriginalAudio,
   syncCustomControlPopovers,
-} from "./player-ui-controls.js?v=20261104v27";
+} from "./player-ui-controls.js?v=20261104v28";
 import {
   getNextEpisodeCoords,
   showPlayerNextEpisodeToast,
@@ -166,14 +166,14 @@ import {
   clearAutoplayNextTimer,
   isPostwatchCardPausingAutoplay,
   startAutoplayNextCountdown,
-} from "./player-autoplay.js?v=20261104v27";
+} from "./player-autoplay.js?v=20261104v28";
 import {
   syncPipDockUI,
   setPipBackgroundMode,
   restoreFullPlayerFromPip,
   updateMiniPlayerTitle,
   setMiniPlayerMode,
-} from "./player-pip-dock.js?v=20261104v27";
+} from "./player-pip-dock.js?v=20261104v28";
 import {
   escapeEpisodeHtml,
   getEpisodeDisplayMeta,
@@ -189,7 +189,7 @@ import {
   toggleCurrentEpisodeWatched,
   hasStartedWatchingCurrentEpisode,
   markOutgoingEpisodeWatched,
-} from "./player-seasons.js?v=20261104v27";
+} from "./player-seasons.js?v=20261104v28";
 import {
   isHdRezkaStreamDeadOrExpired as _isHdRezkaStreamDeadOrExpired,
   _localizeOfflineSubLabel,
@@ -218,7 +218,7 @@ import {
   loadStremioStreams,
   loadBackup4KReleases,
   _tryRecoverHdRezkaPlayback as _tryRecoverHdRezkaPlaybackImpl,
-} from "./player-streams.js?v=20261104v27";
+} from "./player-streams.js?v=20261104v28";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -233,7 +233,7 @@ import {
   renderModalSimilarItems,
   captureVideoScreenshot,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261104v27";
+} from "./player-meta.js?v=20261104v28";
 import {
   hideXRayPauseShelf,
   showXRayPauseShelf,
@@ -241,7 +241,7 @@ import {
   saveMoments,
   toggleBookmarkCurrentMoment,
   renderTimelineBookmarks,
-} from "./player-bookmarks.js?v=20261104v27";
+} from "./player-bookmarks.js?v=20261104v28";
 import {
   syncPostwatchOverlayMount,
   renderPostWatchRatingState,
@@ -249,7 +249,7 @@ import {
   openPostWatchRatingOverlay,
   rateActivePlayerTitle as _rateActivePlayerTitle,
   toggleActivePlayerWatched as _toggleActivePlayerWatched,
-} from "./player-rating.js?v=20261104v27";
+} from "./player-rating.js?v=20261104v28";
 
 export {
   syncPostwatchOverlayMount,
@@ -270,7 +270,7 @@ import {
   getDetectedCreditsStartSec,
   renderTimelineChapterMarkers,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261104v27";
+} from "./player-intro-credits.js?v=20261104v28";
 
 export {
   getDetectedCreditsStartSec,
@@ -278,7 +278,7 @@ export {
   loadSkipIntroSegments,
 };
 
-import { reportScrobbleProgress } from "./player-scrobble.js?v=20261104v27";
+import { reportScrobbleProgress } from "./player-scrobble.js?v=20261104v28";
 
 export { reportScrobbleProgress };
 
@@ -609,7 +609,7 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
     try {
       window.history.pushState({ cineflowPlayerModal: true }, "");
       state.hasPlayerHistoryEntry = true;
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Player", err); }
   }
   syncScrollTopButton();
   if (resumeTime <= 0) {
@@ -661,21 +661,21 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
   if (state.hlsInstance) {
     try {
       state.hlsInstance.destroy();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Player", err); }
     state.hlsInstance = null;
   }
   if (video) {
     video.onloadedmetadata = null;
     try {
       video.pause();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Player", err); }
     video.removeAttribute("src");
     try {
       video.load();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Player", err); }
     try {
       video.currentTime = 0;
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Player", err); }
     // Synchronously unlock audible state & AudioContext inside the user's click gesture
     // so async stream playback 1-2s later never gets muted by browser autoplay policies.
     const savedPrefs = getPlayerPrefs();
@@ -683,7 +683,7 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
     try {
       video.muted = false;
       video.volume = savedPrefs.volume > 0.02 ? savedPrefs.volume : 0.85;
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Player", err); }
     state.internalMuteOverride = false;
     if ((savedPrefs.audioBoost > 1.01 || savedPrefs.audioPreset !== "flat" || video._cfSourceNode)) {
       ensureUnlockedAudioContext();
@@ -748,15 +748,15 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
   // Hide Skip Intro controls on feature movies
   document.getElementById("skip-intro-footer-controls")?.classList.toggle("hidden", item.media_type === "movie");
 
-  try { updateModalKinoriumHeader(item.kinorium || {}); } catch (_) {}
-  try { applyEnabledServicesVisibility(item); } catch (_) {}
-  try { renderModalProvidersSidebar(item); } catch (_) {}
+  try { updateModalKinoriumHeader(item.kinorium || {}); } catch (err) { window.logDebug?.("Player", err); }
+  try { applyEnabledServicesVisibility(item); } catch (err) { window.logDebug?.("Player", err); }
+  try { renderModalProvidersSidebar(item); } catch (err) { window.logDebug?.("Player", err); }
   try { renderModalGenresAndSubheader(item); } catch (e) { console.warn("[Player] Subheader error:", e); }
   try { renderModalCastSection(item); } catch (e) { console.warn("[Player] Cast error:", e); }
   try { renderModalSimilarItems(item); } catch (e) { console.warn("[Player] Similar error:", e); }
   try { populateSeasonEpisodeSelectors(item); } catch (e) { console.warn("[Player] Season selector error:", e); }
-  try { syncMediaSessionMetadata(); } catch (_) {}
-  try { startAmbilightLoop(); } catch (_) {}
+  try { syncMediaSessionMetadata(); } catch (err) { window.logDebug?.("Player", err); }
+  try { startAmbilightLoop(); } catch (err) { window.logDebug?.("Player", err); }
 
   const canFetchOnlineMeta = typeof navigator === "undefined" || navigator.onLine !== false;
   if (canFetchOnlineMeta) {
@@ -795,7 +795,7 @@ export function toggleVideoPlayPause(showCenterPulse = false) {
           }),
           "*"
         );
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Player", err); }
       const miniBtn = document.getElementById("btn-mini-play-pause");
       if (miniBtn) {
         miniBtn.innerHTML = iconSvg(nextPlaying ? "pause" : "play", 12);
@@ -984,18 +984,18 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
   if (state.hlsInstance) {
     try {
       state.hlsInstance.destroy();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Player", err); }
     state.hlsInstance = null;
   }
   video.onloadedmetadata = null;
   try {
     video.pause();
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Player", err); }
   video.querySelectorAll("track").forEach((tr) => tr.remove());
   if (keepRemuxMeta && state.remuxMeta?.active && typeof newRemuxOffsetSec === "number") {
     try {
       video.currentTime = 0;
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Player", err); }
     state.remuxMeta.offsetSec = newRemuxOffsetSec;
   }
 
@@ -1132,7 +1132,7 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
       if (video._cfSourceNode) {
         try {
           video._cfSourceNode.disconnect();
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("Player", err); }
         const freshVideo = video.cloneNode(false);
         freshVideo.removeAttribute("crossorigin");
         freshVideo.removeAttribute("src");
@@ -1274,7 +1274,7 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
       try {
         video.currentTime = curT + 0.06;
         video.play().catch(() => {});
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Player", err); }
       state.lastPlaybackAdvanceTs = nowMs;
       return;
     }
@@ -1341,7 +1341,7 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
           const cur = video.currentTime;
           video.currentTime = cur + 0.04;
           video.play().catch(() => {});
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("Player", err); }
         return;
       }
       if (errData.fatal) {
@@ -1351,12 +1351,12 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
             try {
               hls.startLoad();
               return;
-            } catch (_) {}
+            } catch (err) { window.logDebug?.("Player", err); }
           } else if (errData.type === window.Hls.ErrorTypes.MEDIA_ERROR) {
             try {
               hls.recoverMediaError();
               return;
-            } catch (_) {}
+            } catch (err) { window.logDebug?.("Player", err); }
           }
         }
         onVideoError();
@@ -1425,7 +1425,7 @@ export function bindNativeVideoElementListeners(video) {
         if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
           try {
             navigator.mediaSession.playbackState = "playing";
-          } catch (_) {}
+          } catch (err) { window.logDebug?.("Player", err); }
         }
       } else {
         if (evName === "pause") {
@@ -1441,7 +1441,7 @@ export function bindNativeVideoElementListeners(video) {
         if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
           try {
             navigator.mediaSession.playbackState = "paused";
-          } catch (_) {}
+          } catch (err) { window.logDebug?.("Player", err); }
         }
         if (evName === "pause" && state.isPlayerOpen && state.activeItem) {
           const { cur, dur } = getEffectivePlaybackTiming(video);
@@ -1870,7 +1870,7 @@ export function setupVideoListeners() {
     const safeBindMediaAction = (action, handler) => {
       try {
         navigator.mediaSession.setActionHandler(action, handler);
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Player", err); }
     };
     safeBindMediaAction("play", () => {
       const v = getVideoEl();
@@ -2131,7 +2131,7 @@ export function closePlayerModal(skipCatalogReload = false, forceStop = false, f
     if (state[ctrlKey]) {
       try {
         state[ctrlKey].abort();
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Player", err); }
       state[ctrlKey] = null;
     }
   });
@@ -2145,7 +2145,7 @@ export function closePlayerModal(skipCatalogReload = false, forceStop = false, f
   if (state.hlsInstance) {
     try {
       state.hlsInstance.destroy();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Player", err); }
     state.hlsInstance = null;
   }
 
@@ -2153,25 +2153,25 @@ export function closePlayerModal(skipCatalogReload = false, forceStop = false, f
     if (document.pictureInPictureElement) {
       try {
         document.exitPictureInPicture();
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Player", err); }
     } else if (
       typeof video.webkitSetPresentationMode === "function" &&
       video.webkitPresentationMode === "picture-in-picture"
     ) {
       try {
         video.webkitSetPresentationMode("inline");
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Player", err); }
     }
     video.onloadedmetadata = null;
     try {
       video.pause();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Player", err); }
     video.querySelectorAll("track").forEach((tr) => tr.remove());
     video.removeAttribute("src");
     video.srcObject = null;
     try {
       video.load();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Player", err); }
   }
 
   if (modal && !modal.classList.contains("hidden")) {

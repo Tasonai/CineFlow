@@ -1,21 +1,21 @@
-import { state } from "./state.js?v=20261104v27";
-import { t } from "./i18n.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
+import { t } from "./i18n.js?v=20261104v28";
 import {
   closeCustomSelectMenu,
   isCustomSelectMenuOpen,
   showToast,
   showVideoOsd,
-} from "./utils.js?v=20261104v27";
-import { savePlayerPrefs } from "./audio-dsp.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
+import { savePlayerPrefs } from "./audio-dsp.js?v=20261104v28";
 import {
   closeCommandPalette,
   closeMovieRouletteModal,
-} from "./catalog.js?v=20261104v27";
+} from "./catalog.js?v=20261104v28";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261104v27";
+} from "./modals.js?v=20261104v28";
 import {
   closeAllVcPopovers,
   closePlayerModal,
@@ -28,15 +28,15 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261104v27";
-import { closeOnboardingModal } from "./settings.js?v=20261104v27";
-import { closeDownloadsModal } from "./features-downloads.js?v=20261104v27";
-import { closeTvCastModal } from "./features-cast.js?v=20261104v27";
+} from "./player.js?v=20261104v28";
+import { closeOnboardingModal } from "./settings.js?v=20261104v28";
+import { closeDownloadsModal } from "./features-downloads.js?v=20261104v28";
+import { closeTvCastModal } from "./features-cast.js?v=20261104v28";
 import {
   closeKidsPinModal,
   closeProfilePopover,
   closeProfilesModal,
-} from "./features.js?v=20261104v27";
+} from "./features.js?v=20261104v28";
 
 // ============================================================================
 // 5. TV MODE (D-Pad / Gamepad Spatial Navigation + AirPlay / DLNA / QR)
@@ -52,10 +52,10 @@ export function setTvFocusedElement(el) {
   el.classList.add("tv-focused");
   try {
     el.focus({ preventScroll: true });
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("FeaturesTvMode", err); }
   try {
     el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("FeaturesTvMode", err); }
 }
 
 export function collectTvNavigableElements() {
@@ -424,7 +424,7 @@ export function executeRemoteDpadCommand(rawDir) {
   ) {
     try {
       document.activeElement.blur();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("FeaturesTvMode", err); }
   }
 
   const hasOpenOverlayAbovePlayer =

@@ -2,14 +2,14 @@
 // Manages interactive player timeline, scrubber, volume slider, stage idle states,
 // fullscreen toggling, control popovers, and responsive layout synchronization.
 
-import { state } from "./state.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
 import {
   displayTitle,
   getItemGenreEntries,
   isEn,
   secondaryTitle,
   t,
-} from "./i18n.js?v=20261104v27";
+} from "./i18n.js?v=20261104v28";
 import {
   escapeAttr,
   escapeHtml,
@@ -22,36 +22,36 @@ import {
   showToast,
   syncToastContainerMount,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261104v27";
-import { isEpisodeWatched, isServiceEnabled } from "./catalog.js?v=20261104v27";
-import { closeSubtitleDictPopover, renderVcSubtitlesPopover } from "./subtitles.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
+import { isEpisodeWatched, isServiceEnabled } from "./catalog.js?v=20261104v28";
+import { closeSubtitleDictPopover, renderVcSubtitlesPopover } from "./subtitles.js?v=20261104v28";
 import {
   resumeAudioContextIfNeeded,
   sampleAmbilightFrame,
   savePlayerPrefs,
   togglePictureInPicture,
-} from "./audio-dsp.js?v=20261104v27";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v27";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v27";
+} from "./audio-dsp.js?v=20261104v28";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261104v28";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v28";
 import {
   resolveEffectiveSeasonsMap,
   switchToSeriesSeasonEpisode,
   getEpisodeDisplayMeta,
-} from "./player-seasons.js?v=20261104v27";
-import { syncPostwatchOverlayMount } from "./player-rating.js?v=20261104v27";
-import { dismissPlayerNextEpisodeToast } from "./player-autoplay.js?v=20261104v27";
-import { stepEpisode } from "./player-seasons.js?v=20261104v27";
+} from "./player-seasons.js?v=20261104v28";
+import { syncPostwatchOverlayMount } from "./player-rating.js?v=20261104v28";
+import { dismissPlayerNextEpisodeToast } from "./player-autoplay.js?v=20261104v28";
+import { stepEpisode } from "./player-seasons.js?v=20261104v28";
 import {
   seekEffectivePlayback,
   switchSourceTab,
-} from "./player-streams.js?v=20261104v27";
-import { getDetectedCreditsStartSec } from "./player-intro-credits.js?v=20261104v27";
-import { toggleBookmarkCurrentMoment } from "./player-bookmarks.js?v=20261104v27";
+} from "./player-streams.js?v=20261104v28";
+import { getDetectedCreditsStartSec } from "./player-intro-credits.js?v=20261104v28";
+import { toggleBookmarkCurrentMoment } from "./player-bookmarks.js?v=20261104v28";
 import {
   setMiniPlayerMode,
   setPipBackgroundMode,
-} from "./player-pip-dock.js?v=20261104v27";
-import { toggleVideoPlayPause } from "./player.js?v=20261104v27";
+} from "./player-pip-dock.js?v=20261104v28";
+import { toggleVideoPlayPause } from "./player.js?v=20261104v28";
 
 export function hasOpenVcPopover() {
   return [
@@ -740,7 +740,7 @@ export function toggleStageFullscreen() {
         action: "setWindowFullscreen",
         fullscreen: false,
       });
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerUiControls", err); }
     if (document.fullscreenElement || document.webkitFullscreenElement) {
       if (document.exitFullscreen) {
         document.exitFullscreen().catch(() => {});
@@ -762,7 +762,7 @@ export function toggleStageFullscreen() {
       action: "setWindowFullscreen",
       fullscreen: true,
     });
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("PlayerUiControls", err); }
 
   if (stage.requestFullscreen) {
     try {
@@ -1007,7 +1007,7 @@ export function initCustomVideoControls() {
       timeline.classList.add("scrubbing");
       try {
         timeline.setPointerCapture(e.pointerId);
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("PlayerUiControls", err); }
       const rawRatio = computeRatio(e.clientX);
       const { ratio } = getSnappingRatio(rawRatio, dur);
       const pct = ratio * 100;

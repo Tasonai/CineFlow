@@ -1,5 +1,5 @@
-import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261104v27";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261104v27";
+import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261104v28";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261104v28";
 import {
   escapeAttr,
   escapeHtml,
@@ -7,9 +7,9 @@ import {
   rememberModalTriggerFocus,
   restoreModalTriggerFocus,
   showToast,
-} from "./utils.js?v=20261104v27";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v27";
-import { seekEffectivePlayback } from "./player-streams.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261104v28";
+import { seekEffectivePlayback } from "./player-streams.js?v=20261104v28";
 
 let _bookmarkDialogWasPlaying = false;
 let _activeEditingMoment = null;
@@ -38,7 +38,7 @@ export function saveMoments(moments) {
   try {
     const key = profileStorageKey(BOOKMARKS_STORAGE_KEY);
     localStorage.setItem(key, JSON.stringify(moments || []));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("PlayerBookmarks", err); }
 }
 
 export function toggleBookmarkCurrentMoment() {
@@ -100,7 +100,7 @@ export function openBookmarkNoteDialog(moment = null, targetSec = null) {
   if (_bookmarkDialogWasPlaying) {
     try {
       video.pause();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerBookmarks", err); }
   }
 
   const { cur, dur } = getEffectivePlaybackTiming(video);
@@ -141,7 +141,7 @@ export function closeBookmarkNoteDialog(resume = true) {
   if (resume && _bookmarkDialogWasPlaying && video && video.paused) {
     try {
       video.play();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerBookmarks", err); }
   }
   _activeEditingMoment = null;
   _activeEditingTimeSec = null;
@@ -503,7 +503,7 @@ export function renderBookmarksModalList(filterQuery = "") {
         media_type: m.media_type || "movie",
         poster: m.poster,
       };
-      const { openPlayerModal } = await import("./player.js?v=20261104v27");
+      const { openPlayerModal } = await import("./player.js?v=20261104v28");
       openPlayerModal(
         targetItem,
         "hdrezka",

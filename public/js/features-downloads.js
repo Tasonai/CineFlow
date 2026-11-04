@@ -1,10 +1,10 @@
-import { state } from "./state.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
 import {
   displayTitle,
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261104v27";
+} from "./i18n.js?v=20261104v28";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -19,12 +19,12 @@ import {
   showToast,
   showVideoOsd,
   syncScrollTopButton,
-} from "./utils.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
 import {
   getDefaultPlayableSourceTab,
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog.js?v=20261104v27";
+} from "./catalog.js?v=20261104v28";
 import {
   closePlayerModal,
   getEffectivePlaybackTiming,
@@ -32,12 +32,12 @@ import {
   openPlayerModal,
   switchSourceTab,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261104v27";
+} from "./player.js?v=20261104v28";
 import {
   ensureKidsPinVerifiedForAdminAction,
   exitBrowserFullscreenIfNeeded,
   formatBytesHuman,
-} from "./features.js?v=20261104v27";
+} from "./features.js?v=20261104v28";
 
 // ============================================================================
 // 4. OFFLINE DOWNLOADS MANAGER ("Скачать в дорогу" — MP4 + Audio + RU/EN VTT)
@@ -268,7 +268,7 @@ export async function sweepPendingDownloadCleanups() {
     if (Array.isArray(data.deleted_ids) && data.deleted_ids.length > 0) {
       await refreshDownloadsState();
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("FeaturesDownloads", err); }
 }
 
 export async function enqueueBatchSeriesDownload(mode = "next3") {
@@ -441,7 +441,7 @@ export async function refreshDownloadsState() {
       clearInterval(state.downloadsPollTimerId);
       state.downloadsPollTimerId = null;
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("FeaturesDownloads", err); }
 }
 
 export function startDownloadsPollingIfNeeded() {
@@ -883,7 +883,7 @@ export async function cancelOfflineDownload(downloadId) {
       _syncOfflineSurfacesAfterDownloadsChange(prevCompletedSig);
     }
     showToast(t("Загрузка остановлена", "Download cancelled"));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("FeaturesDownloads", err); }
 }
 
 export async function retryOfflineDownload(downloadId) {
@@ -901,7 +901,7 @@ export async function retryOfflineDownload(downloadId) {
     }
     await refreshDownloadsState();
     showToast(t("Загрузка возвращена в очередь", "Download returned to queue"));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("FeaturesDownloads", err); }
 }
 
 export async function deleteOfflineDownload(downloadId) {
@@ -944,7 +944,7 @@ export async function deleteOfflineDownload(downloadId) {
       }
     }
     showToast(t("Офлайн-файл удалён с диска", "Offline file deleted from disk"));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("FeaturesDownloads", err); }
 }
 
 export async function openDownloadsFolder(downloadId = "") {
@@ -971,6 +971,6 @@ export async function openDownloadsFolder(downloadId = "") {
     if (!res.ok || !data.ok) {
       showToast(data.error || t("Не удалось открыть папку загрузок", "Could not open downloads folder"));
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("FeaturesDownloads", err); }
 }
 

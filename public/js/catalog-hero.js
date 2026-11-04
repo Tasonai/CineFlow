@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
 import {
   displayBackdrop,
   displayCountries,
@@ -8,26 +8,26 @@ import {
   isEn,
   t,
   translateGenre,
-} from "./i18n.js?v=20261104v27";
+} from "./i18n.js?v=20261104v28";
 import {
   cssUrl,
   escapeHtml,
   iconSvg,
   setAmbientColor,
-} from "./utils.js?v=20261104v27";
-import { openQuickPeekModal } from "./modals.js?v=20261104v27";
-import { openPlayerModal } from "./player.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
+import { openQuickPeekModal } from "./modals.js?v=20261104v28";
+import { openPlayerModal } from "./player.js?v=20261104v28";
 import {
   _hashItemKey,
   filterCatalogItemsByGenreAndYear,
   seededShuffle,
-} from "./catalog-filters.js?v=20261104v27";
+} from "./catalog-filters.js?v=20261104v28";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261104v27";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261104v27";
+} from "./catalog-media-resolver.js?v=20261104v28";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261104v28";
 
 const LAST_HERO_ID_STORAGE_KEY = "cineflow_last_hero_id";
 let _heroRecordedThisLaunch = false;
@@ -53,7 +53,7 @@ export function stopHeroAmbientTeaser() {
   if (_heroTeaserAbort) {
     try {
       _heroTeaserAbort.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("CatalogHero", err); }
     _heroTeaserAbort = null;
   }
   if (_heroTeaserMsgHandler && typeof window !== "undefined") {
@@ -157,7 +157,7 @@ export function scheduleHeroAmbientTeaser(featured) {
         if (!ifr || !ifr.contentWindow) return;
         try {
           ifr.contentWindow.postMessage(JSON.stringify({ event: "command", func, args }), "*");
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("CatalogHero", err); }
       };
 
       const revealWhenClean = (delayMs = 1400) => {
@@ -188,7 +188,7 @@ export function scheduleHeroAmbientTeaser(featured) {
             postYtCmd("addEventListener", ["onStateChange"]);
             postYtCmd("mute");
             postYtCmd("playVideo");
-          } catch (_) {}
+          } catch (err) { window.logDebug?.("CatalogHero", err); }
           // Fallback reveal if postMessage state event is delayed
           revealWhenClean(1950);
         });
@@ -233,7 +233,7 @@ export function scheduleHeroAmbientTeaser(featured) {
               postYtCmd("playVideo");
             }
           }
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("CatalogHero", err); }
       };
       window.addEventListener("message", _heroTeaserMsgHandler);
 
@@ -248,7 +248,7 @@ export function scheduleHeroAmbientTeaser(featured) {
         soundBtn.setAttribute("aria-label", soundBtn.title);
         soundBtn.setAttribute("aria-pressed", isMuted ? "false" : "true");
       };
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("CatalogHero", err); }
   }, 2400);
 }
 
@@ -558,7 +558,7 @@ export function renderHero() {
         localStorage.setItem(LAST_HERO_ID_STORAGE_KEY, String(picked[0].id));
         _heroRecordedThisLaunch = true;
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("CatalogHero", err); }
   }
 
   state.heroItems = picked.slice(0, 6);

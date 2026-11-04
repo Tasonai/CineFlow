@@ -3,7 +3,7 @@ import {
   PREFERRED_STUDIOS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261104v27";
+} from "./state.js?v=20261104v28";
 import {
   displayBackdrop,
   displayCountries,
@@ -18,7 +18,7 @@ import {
   translateGenre,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261104v27";
+} from "./i18n.js?v=20261104v28";
 import {
   attachHorizontalWheelScroll,
   copyTextToClipboard,
@@ -43,25 +43,25 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261104v27";
-import { getPlayerPrefs } from "./audio-dsp.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
+import { getPlayerPrefs } from "./audio-dsp.js?v=20261104v28";
 import {
   buildPersonPhotoCard,
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261104v27";
-import { openPlayerModal, renderModalProvidersSidebar, switchSourceTab } from "./player.js?v=20261104v27";
-import { confirmServiceLogin, openSettingsModal, triggerServiceLoginFlow } from "./settings.js?v=20261104v27";
-import { openTvCastModal, renderHeaderProfileSwitcher } from "./features.js?v=20261104v27";
-import { getOfflineCatalogItems, setOfflineMode } from "./features-downloads.js?v=20261104v27";
+} from "./modals.js?v=20261104v28";
+import { openPlayerModal, renderModalProvidersSidebar, switchSourceTab } from "./player.js?v=20261104v28";
+import { confirmServiceLogin, openSettingsModal, triggerServiceLoginFlow } from "./settings.js?v=20261104v28";
+import { openTvCastModal, renderHeaderProfileSwitcher } from "./features.js?v=20261104v28";
+import { getOfflineCatalogItems, setOfflineMode } from "./features-downloads.js?v=20261104v28";
 import {
   renderContinueWatching,
   parseItemDurationMinutes,
   renderCuratedShelves,
   renderCatalogShelves,
-} from "./catalog-shelves.js?v=20261104v27";
+} from "./catalog-shelves.js?v=20261104v28";
 import {
   buildPosterBadgesHtml,
   buildFallbackPosterSvg,
@@ -73,7 +73,7 @@ import {
   renderPosterCardsInto,
   cancelPendingCardBatch,
   appendPosterCardsProgressive,
-} from "./catalog-cards.js?v=20261104v27";
+} from "./catalog-cards.js?v=20261104v28";
 import {
   stopHeroAmbientTeaser,
   scheduleHeroAmbientTeaser,
@@ -83,13 +83,13 @@ import {
   renderHeroSlide,
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261104v27";
+} from "./catalog-hero.js?v=20261104v28";
 import {
   collectNewEpisodeNotifications,
   switchNotificationsTab,
   loadAndRenderReleaseCalendar,
   renderNotificationsBell,
-} from "./catalog-notifications.js?v=20261104v27";
+} from "./catalog-notifications.js?v=20261104v28";
 import {
   openMovieRouletteModal,
   closeMovieRouletteModal,
@@ -98,7 +98,7 @@ import {
   openCommandPalette,
   closeCommandPalette,
   initCommandPalette,
-} from "./catalog-discovery.js?v=20261104v27";
+} from "./catalog-discovery.js?v=20261104v28";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
@@ -109,7 +109,7 @@ import {
   rerollCatalogLaunchSeed,
   getCurrentlyFilteredItems,
   sortCatalogItems,
-} from "./catalog-filters.js?v=20261104v27";
+} from "./catalog-filters.js?v=20261104v28";
 import {
   isEpisodeWatched,
   getPreferredStudioForItem,
@@ -127,7 +127,7 @@ import {
   getFriendsAverageScore,
   patchCatalogItemKinoriumInPlace,
   getPrimaryRating,
-} from "./catalog-media-resolver.js?v=20261104v27";
+} from "./catalog-media-resolver.js?v=20261104v28";
 
 export {
   renderContinueWatching,
@@ -254,7 +254,7 @@ export function clearCatalogFrontendCache() {
       }
     }
     keysToRemove.forEach((k) => sessionStorage.removeItem(k));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Catalog", err); }
 }
 
 function _applyCatalogResponsePayload(data, q = "") {
@@ -307,7 +307,7 @@ export async function loadCatalog(options = {}) {
   if (state.catalogAbortController) {
     try {
       state.catalogAbortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Catalog", err); }
   }
   const abortController = new AbortController();
   state.catalogAbortController = abortController;
@@ -373,7 +373,7 @@ export async function loadCatalog(options = {}) {
           warmHit = parsedWarm;
         }
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Catalog", err); }
   }
 
   if (warmHit && (!state.catalogItems || state.catalogItems.length === 0 || !options?.showLoading)) {
@@ -403,7 +403,7 @@ export async function loadCatalog(options = {}) {
     if (!q && state.kinoriumSection === "all" && state.providerFilter === "all") {
       try {
         sessionStorage.setItem(`${WARM_CATALOG_STORAGE_KEY}_${activeProfId}`, JSON.stringify(data));
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Catalog", err); }
     }
     _applyCatalogResponsePayload(data, q);
     if (typeof navigator !== "undefined" && navigator.onLine) {
@@ -554,7 +554,7 @@ export async function pollLiveKinoriumDigest() {
         renderCatalogShelves();
       }
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Catalog", err); }
 }
 export function startBackgroundDigestPolling() {
   if (state.bgDigestTimerId) {

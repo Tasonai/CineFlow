@@ -1,7 +1,7 @@
 // CineFlow Player Watchdog & Anti-Freeze Subsystem
 // Monitors frame progression, detects hardware video decoder stalls (A/V desync), and performs automated recovery.
 
-import { state } from "./state.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
 
 export function clearVideoStallWatchdog() {
   if (state.stallWatchdogTimerId) {
@@ -27,7 +27,7 @@ export function getRenderedVideoFrameCount(v) {
       if (q && typeof q.totalVideoFrames === "number") {
         return q.totalVideoFrames;
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerWatchdog", err); }
   }
   // 2. WebKit legacy decoded frame counter
   if (typeof v.webkitDecodedFrameCount === "number") {
@@ -51,12 +51,12 @@ export function initVideoFrameCounter(v) {
       if (typeof v.requestVideoFrameCallback === "function") {
         try {
           v.requestVideoFrameCallback(onFrame);
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("PlayerWatchdog", err); }
       }
     };
     try {
       v.requestVideoFrameCallback(onFrame);
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerWatchdog", err); }
   }
 }
 
@@ -70,7 +70,7 @@ export function recoverFrozenVideoPlayback(video, curT, attemptCount = 1) {
   if (state.hlsInstance && typeof state.hlsInstance.recoverMediaError === "function") {
     try {
       state.hlsInstance.recoverMediaError();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerWatchdog", err); }
   }
 
   // Perform targeted seek to flush hardware video decoder queue and force keyframe resync

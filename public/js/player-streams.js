@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
 import {
   displayBackdrop,
   displayDescription,
@@ -11,7 +11,7 @@ import {
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261104v27";
+} from "./i18n.js?v=20261104v28";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -27,7 +27,7 @@ import {
   showVideoOsd,
   supportsNativePiP,
   syncCustomSelect,
-} from "./utils.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
@@ -37,7 +37,7 @@ import {
   savePlayerPrefs,
   startAmbilightLoop,
   stopAmbilightLoop,
-} from "./audio-dsp.js?v=20261104v27";
+} from "./audio-dsp.js?v=20261104v28";
 import {
   getDefaultPlayableSourceTab,
   getPreferredStudioForItem,
@@ -45,8 +45,8 @@ import {
   isServiceEnabled,
   loadCatalog,
   savePreferredStudioForItem,
-} from "./catalog.js?v=20261104v27";
-import { renderModalCastSection } from "./modals.js?v=20261104v27";
+} from "./catalog.js?v=20261104v28";
+import { renderModalCastSection } from "./modals.js?v=20261104v28";
 import {
   activateSelectedSubtitleTrack,
   buildRemuxSubtitlesList,
@@ -54,31 +54,31 @@ import {
   mergeCustomExternalSubtitles,
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
-} from "./subtitles.js?v=20261104v27";
+} from "./subtitles.js?v=20261104v28";
 import {
   clearVideoStallWatchdog,
   getVideoForwardBufferSec,
-} from "./player-watchdog.js?v=20261104v27";
+} from "./player-watchdog.js?v=20261104v28";
 import {
   buildRemuxStreamEndpoint,
   formatAudioOffsetLabel,
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261104v27";
+} from "./player-remux.js?v=20261104v28";
 import {
   closeAllVcPopovers,
   isStageFullscreen,
   syncCustomVideoControlsUI,
   syncVcPopoverOpenClass,
   toggleStageFullscreen,
-} from "./player-ui-controls.js?v=20261104v27";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261104v27";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261104v27";
+} from "./player-ui-controls.js?v=20261104v28";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261104v28";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261104v28";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261104v27";
+} from "./player-seasons.js?v=20261104v28";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -86,16 +86,16 @@ import {
   renderModalGenresAndSubheader,
   renderModalProvidersSidebar,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261104v27";
+} from "./player-meta.js?v=20261104v28";
 import {
   getDetectedCreditsStartSec,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261104v27";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261104v27";
+} from "./player-intro-credits.js?v=20261104v28";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261104v28";
 import {
   playVideoUrl,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261104v27";
+} from "./player.js?v=20261104v28";
 
 export function isHdRezkaStreamDeadOrExpired(video) {
   if (!video || state.activeSourceTab !== "hdrezka" || state.remuxMeta?.active) {
@@ -255,7 +255,7 @@ export function abortActiveVideoListeners() {
   if (state.videoLoadAbort) {
     try {
       state.videoLoadAbort.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
     state.videoLoadAbort = null;
   }
 }
@@ -379,27 +379,27 @@ export async function switchSourceTab(tabName, resumeTime = null, options = {}) 
       if (state[ctrlKey]) {
         try {
           state[ctrlKey].abort();
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("PlayerStreams", err); }
         state[ctrlKey] = null;
       }
     });
     if (state.hlsInstance) {
       try {
         state.hlsInstance.destroy();
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("PlayerStreams", err); }
       state.hlsInstance = null;
     }
     if (video) {
       video.onloadedmetadata = null;
       try {
         video.pause();
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("PlayerStreams", err); }
       video.querySelectorAll("track").forEach((tr) => tr.remove());
       if (!isVideoInPiP(video)) {
         video.removeAttribute("src");
         try {
           video.load();
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("PlayerStreams", err); }
       }
     }
     clearCustomSubtitleOverlay(true);
@@ -591,25 +591,25 @@ export function resetVideoElementForStreamChange() {
   if (state.videoListenerAbortController) {
     try {
       state.videoListenerAbortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
     state.videoListenerAbortController = null;
   }
   if (state.remuxProbeAbortController) {
     try {
       state.remuxProbeAbortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
     state.remuxProbeAbortController = null;
   }
   if (state.stremioResolveAbortController) {
     try {
       state.stremioResolveAbortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
     state.stremioResolveAbortController = null;
   }
   if (state.skipIntroAbortController) {
     try {
       state.skipIntroAbortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
     state.skipIntroAbortController = null;
   }
   state.remuxMeta = null;
@@ -622,20 +622,20 @@ export function resetVideoElementForStreamChange() {
   if (state.hlsInstance) {
     try {
       state.hlsInstance.destroy();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
     state.hlsInstance = null;
   }
   if (video) {
     video.onloadedmetadata = null;
     try {
       video.pause();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
     video.querySelectorAll("track").forEach((tr) => tr.remove());
     if (!isVideoInPiP(video)) {
       video.removeAttribute("src");
       try {
         video.load();
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("PlayerStreams", err); }
     }
   }
   clearCustomSubtitleOverlay(true);
@@ -723,7 +723,7 @@ export async function loadTrailerTab() {
   if (state.trailerAbortController) {
     try {
       state.trailerAbortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
   }
   const abortController = new AbortController();
   state.trailerAbortController = abortController;
@@ -940,7 +940,7 @@ export async function renderErrorStudiosPanel() {
           }
         }
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
   }
 
   if (studios.length === 0) {
@@ -1032,7 +1032,7 @@ export async function warmUpStreamBuffer(url) {
         priority: "low",
       }).catch(() => {});
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("PlayerStreams", err); }
 }
 
 export function buildNextEpisodePreloadKey(item, season, episode, studioId) {
@@ -1330,7 +1330,7 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
             }
           })
           .catch(() => {});
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("PlayerStreams", err); }
 
       try {
         const subParams = new URLSearchParams({
@@ -1349,7 +1349,7 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
             }
           })
           .catch(() => {});
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("PlayerStreams", err); }
 
       const skipOutroBtn = document.getElementById("skip-outro-btn");
       if (skipOutroBtn) {
@@ -1368,8 +1368,7 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
         }
       }
     }
-  } catch (_) {
-  } finally {
+  } catch (err) { window.logDebug?.("PlayerStreams", err); } finally {
     if (state.preloadingNextKey === preloadKey) {
       state.preloadingNextKey = "";
     }
@@ -1418,7 +1417,7 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
   if (state.streamAbortController) {
     try {
       state.streamAbortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
   }
   const abortController = new AbortController();
   state.streamAbortController = abortController;
@@ -1427,7 +1426,7 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
     requestTimedOut = true;
     try {
       abortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
   }, 45000);
 
   const savedPrefForReq = getPreferredStudioForItem(item);
@@ -1837,7 +1836,7 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
               item.studios = mData.studios;
             }
           }
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("PlayerStreams", err); }
       }
       const freeAlternative = candStudios.find(
         (st) =>
@@ -1883,7 +1882,7 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
       try {
         populateSeasonEpisodeSelectors(item, state.seasonsMap);
         updateCurrentEpisodeBar(item, state.activeSeason, state.activeEpisode, false);
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("PlayerStreams", err); }
     }
     showVideoStreamError(
       t("Не удалось подключиться к потоку HDRezka", "Could not connect to HDRezka stream"),
@@ -2093,7 +2092,7 @@ export async function probeAndPlay4KStream(
   if (state.remuxProbeAbortController) {
     try {
       state.remuxProbeAbortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
   }
   const probeAbort = new AbortController();
   state.remuxProbeAbortController = probeAbort;
@@ -2398,7 +2397,7 @@ export function renderStremioStreamsList(resumeTime = 0, autoLaunchFirst = false
     if (state.stremioResolveAbortController) {
       try {
         state.stremioResolveAbortController.abort();
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("PlayerStreams", err); }
     }
     const resolveAbort = new AbortController();
     state.stremioResolveAbortController = resolveAbort;
@@ -2618,7 +2617,7 @@ export async function loadStremioStreams(resumeTime = 0, options = {}) {
   if (state.streamAbortController) {
     try {
       state.streamAbortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
   }
   const abortController = new AbortController();
   state.streamAbortController = abortController;
@@ -2793,7 +2792,7 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
   if (state.backup4kAbortController) {
     try {
       state.backup4kAbortController.abort();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerStreams", err); }
   }
   const b4kAbort = new AbortController();
   state.backup4kAbortController = b4kAbort;
@@ -3005,7 +3004,7 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
         if (state.stremioResolveAbortController) {
           try {
             state.stremioResolveAbortController.abort();
-          } catch (_) {}
+          } catch (err) { window.logDebug?.("PlayerStreams", err); }
         }
         const torrAbort = new AbortController();
         state.stremioResolveAbortController = torrAbort;
@@ -3092,7 +3091,7 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
         if (state.stremioResolveAbortController) {
           try {
             state.stremioResolveAbortController.abort();
-          } catch (_) {}
+          } catch (err) { window.logDebug?.("PlayerStreams", err); }
         }
         const debridAbort = new AbortController();
         state.stremioResolveAbortController = debridAbort;

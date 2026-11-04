@@ -12,20 +12,20 @@ const _initialAppLang = (() => {
     if (!_initialSetupCompleted && (bootLang === "en" || bootLang === "ru")) {
       return bootLang;
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("State", err); }
   try {
     const raw = localStorage.getItem("cineflow_ui_prefs");
     const parsed = raw ? JSON.parse(raw) : null;
     if (parsed && (parsed.appLang === "en" || parsed.appLang === "ru")) {
       return parsed.appLang;
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("State", err); }
   try {
     const bootLang = document.documentElement?.getAttribute("data-boot-lang");
     if (bootLang === "en" || bootLang === "ru") {
       return bootLang;
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("State", err); }
   return "ru";
 })();
 

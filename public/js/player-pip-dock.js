@@ -1,10 +1,10 @@
-import { state } from "./state.js?v=20261104v27";
-import { t, displayTitle } from "./i18n.js?v=20261104v27";
-import { supportsNativePiP, syncScrollTopButton, iconSvg } from "./utils.js?v=20261104v27";
-import { isVideoInPiP, startAmbilightLoop } from "./audio-dsp.js?v=20261104v27";
-import { closeAllVcPopovers } from "./player-ui-controls.js?v=20261104v27";
-import { loadCatalog } from "./catalog.js?v=20261104v27";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
+import { t, displayTitle } from "./i18n.js?v=20261104v28";
+import { supportsNativePiP, syncScrollTopButton, iconSvg } from "./utils.js?v=20261104v28";
+import { isVideoInPiP, startAmbilightLoop } from "./audio-dsp.js?v=20261104v28";
+import { closeAllVcPopovers } from "./player-ui-controls.js?v=20261104v28";
+import { loadCatalog } from "./catalog.js?v=20261104v28";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261104v28";
 
 export function syncPipDockUI() {
   const video = document.getElementById("native-video");
@@ -86,7 +86,7 @@ export function setPipBackgroundMode(active) {
       try {
         window.history.pushState({ cineflowPlayerModal: true }, "");
         state.hasPlayerHistoryEntry = true;
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("PlayerPipDock", err); }
     }
     if (state.isPlayerOpen && state.ambilightEnabled) {
       startAmbilightLoop();
@@ -115,14 +115,14 @@ export async function restoreFullPlayerFromPip() {
         video.tabIndex = -1;
         try {
           video.focus({ preventScroll: true });
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("PlayerPipDock", err); }
         await fetch("/api/remote/native-pip", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ engine: "gecko" }),
         }).catch(() => {});
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("PlayerPipDock", err); }
   }
   syncPipDockUI();
   if (video && shouldKeepPlaying && video.paused) {
@@ -178,7 +178,7 @@ export function setMiniPlayerMode(isMini) {
       ) {
         try {
           video.webkitSetPresentationMode("inline");
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("PlayerPipDock", err); }
       }
     }
   }

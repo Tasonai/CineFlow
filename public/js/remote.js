@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261104v27";
-import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261104v27";
+import { state } from "./state.js?v=20261104v28";
+import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261104v28";
 import {
   escapeAttr,
   escapeHtml,
@@ -10,13 +10,13 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261104v27";
-import { isVideoInPiP, savePlayerPrefs, togglePictureInPicture } from "./audio-dsp.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
+import { isVideoInPiP, savePlayerPrefs, togglePictureInPicture } from "./audio-dsp.js?v=20261104v28";
 import {
   adjustSubtitleOffset,
   formatSubtitleOffsetLabel,
   resetSubtitleOffset,
-} from "./subtitles.js?v=20261104v27";
+} from "./subtitles.js?v=20261104v28";
 import {
   closePlayerModal,
   getEffectivePlaybackTiming,
@@ -33,15 +33,15 @@ import {
   toggleActivePlayerWatched,
   toggleStageFullscreen,
   toggleVideoPlayPause,
-} from "./player.js?v=20261104v27";
-import { attachSmartPosterFallback, isEpisodeWatched } from "./catalog.js?v=20261104v27";
+} from "./player.js?v=20261104v28";
+import { attachSmartPosterFallback, isEpisodeWatched } from "./catalog.js?v=20261104v28";
 import {
   closeTvCastModal,
   executeRemoteDpadCommand,
   isItemSafeForKidsClient,
   requestKidsPinVerification,
   setTvMode,
-} from "./features.js?v=20261104v27";
+} from "./features.js?v=20261104v28";
 
 export function isMobileRemoteUrl() {
   if (typeof window === "undefined") return false;
@@ -248,7 +248,7 @@ export async function pushDesktopRemoteStateNow() {
         syncDesktopConnectedRemotesUI(data.connected_remotes);
       }
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Remote", err); }
 }
 
 export function scheduleDesktopRemoteStatePush(minIntervalMs = 950) {
@@ -433,7 +433,7 @@ async function _executeRemoteCommandOnDesktop(cmdObj) {
             video.tabIndex = -1;
             try {
               video.focus({ preventScroll: true });
-            } catch (_) {}
+            } catch (err) { window.logDebug?.("Remote", err); }
           }
           let triggeredNative = false;
           try {
@@ -442,7 +442,7 @@ async function _executeRemoteCommandOnDesktop(cmdObj) {
               const d = await r.json();
               triggeredNative = Boolean(d && d.ok);
             }
-          } catch (_) {}
+          } catch (err) { window.logDebug?.("Remote", err); }
           if (triggeredNative) {
             setTimeout(() => {
               if (state.isPlayerOpen && !isStageFullscreen()) {
@@ -701,7 +701,7 @@ export function switchCastModalTab(tabKey = "phone", { focusTab = false } = {}) 
     const activeBtn = norm === "tv" ? tvBtn : phoneBtn;
     try {
       activeBtn?.focus({ preventScroll: true });
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Remote", err); }
   }
   if (norm === "phone") {
     loadAndRenderRemotePairingPanel(false);
@@ -862,7 +862,7 @@ export function initMobileRemoteController() {
       if (navigator.vibrate) {
         try {
           navigator.vibrate(10);
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("Remote", err); }
       }
       const res = await fetch("/api/remote/command", {
         method: "POST",
@@ -879,7 +879,7 @@ export function initMobileRemoteController() {
         rState.authFailed = true;
         renderAuthState();
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Remote", err); }
   };
 
   shell.innerHTML = `
@@ -1493,7 +1493,7 @@ export function initMobileRemoteController() {
         rState.catalogItems = Array.isArray(data.items) ? data.items : [];
       }
       renderRemoteCatalog();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Remote", err); }
   };
 
   const switchTab = (tabName) => {
@@ -1692,7 +1692,7 @@ export function initMobileRemoteController() {
       if (surface.setPointerCapture && e.pointerId != null) {
         try {
           surface.setPointerCapture(e.pointerId);
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("Remote", err); }
       }
     };
 

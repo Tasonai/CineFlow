@@ -1,5 +1,5 @@
-import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261104v27";
-import { displayTitle, isEn, t, translateStudioName } from "./i18n.js?v=20261104v27";
+import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261104v28";
+import { displayTitle, isEn, t, translateStudioName } from "./i18n.js?v=20261104v28";
 import {
   clampFloatingPopover,
   closeCustomSelectMenu,
@@ -23,7 +23,7 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -31,7 +31,7 @@ import {
   getPlayerPrefs,
   savePlayerPrefs,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261104v27";
+} from "./audio-dsp.js?v=20261104v28";
 import {
   applyEnabledServicesVisibility,
   clearCatalogFrontendCache,
@@ -46,13 +46,13 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261104v27";
+} from "./catalog.js?v=20261104v28";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261104v27";
+} from "./modals.js?v=20261104v28";
 import {
   closeAllVcPopovers,
   closePlayerModal,
@@ -70,19 +70,19 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261104v27";
+} from "./player.js?v=20261104v28";
 import {
   closeOnboardingModal,
   openSettingsModal,
   renderIntegrationsList,
   toggleLanAccess,
   updateBackupSummaryStat,
-} from "./settings.js?v=20261104v27";
+} from "./settings.js?v=20261104v28";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   switchCastModalTab,
-} from "./remote.js?v=20261104v27";
+} from "./remote.js?v=20261104v28";
 
 export function exitBrowserFullscreenIfNeeded() {
   if (typeof document === "undefined") return;
@@ -95,7 +95,7 @@ export function exitBrowserFullscreenIfNeeded() {
       } else if (typeof document.webkitExitFullscreen === "function") {
         document.webkitExitFullscreen();
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Features", err); }
   }
 }
 
@@ -152,7 +152,7 @@ export function syncNativeNowPlaying(force = false) {
         playbackRate: Number(video.playbackRate) || 1.0,
         position: Math.min(dur, Math.max(0, cur)),
       });
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Features", err); }
   }
 
   const handler = window.webkit?.messageHandlers?.cineflowNative;
@@ -161,7 +161,7 @@ export function syncNativeNowPlaying(force = false) {
   if (!active) {
     try {
       handler.postMessage({ action: "nowPlaying", active: false });
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Features", err); }
     return;
   }
 
@@ -192,7 +192,7 @@ export function syncNativeNowPlaying(force = false) {
       playbackRate: Number(video?.playbackRate) || 1.0,
       poster: posterUrl,
     });
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Features", err); }
 }
 
 function registerNativeBridgeCallbacks() {
@@ -264,7 +264,7 @@ import {
   _editingProfileId,
   _editingProfileColor,
   _clearKidsPinRequested,
-} from "./features-profiles.js?v=20261104v27";
+} from "./features-profiles.js?v=20261104v28";
 
 export {
   PROFILE_COLOR_SWATCHES,
@@ -330,7 +330,7 @@ async function finalizeKinoriumOneClickSuccess(resultPayload) {
     if (profRes.ok) {
       applyProfilesPayload(await profRes.json());
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Features", err); }
 
   applyEnabledServicesVisibility();
   updateKinoriumUserBadge();
@@ -503,7 +503,7 @@ export async function startOneClickKinoriumLogin(triggerBtn = null) {
         } else if (stData.status === "error") {
           showToast(stData.error || t("Не удалось выполнить вход в Kinorium", "Kinorium sign-in failed"));
         }
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Features", err); }
     }, 1200);
     state.kinoriumOneClickPollTimer = pollTimer;
   } catch (_) {
@@ -536,7 +536,7 @@ import {
   retryOfflineDownload,
   deleteOfflineDownload,
   openDownloadsFolder,
-} from "./features-downloads.js?v=20261104v27";
+} from "./features-downloads.js?v=20261104v28";
 
 export {
   syncDownloadsHeaderBadge,
@@ -576,7 +576,7 @@ import {
   executeRemoteDpadCommand as _executeRemoteDpadCommand,
   handleTvSpatialKeydown,
   startGamepadPollingLoop,
-} from "./features-tv-mode.js?v=20261104v27";
+} from "./features-tv-mode.js?v=20261104v28";
 
 export {
   clearTvFocusClass,
@@ -616,7 +616,7 @@ import {
   applyPendingTvDeepLinkIfReady,
   openPlayerHandoffModal,
   closePlayerHandoffModal,
-} from "./features-cast.js?v=20261104v27";
+} from "./features-cast.js?v=20261104v28";
 
 export {
   supportsWebkitAirPlay,

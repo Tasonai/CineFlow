@@ -5,9 +5,9 @@ import {
   WATCH_HISTORY_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261104v27";
-import { isEn, t } from "./i18n.js?v=20261104v27";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261104v27";
+} from "./state.js?v=20261104v28";
+import { isEn, t } from "./i18n.js?v=20261104v28";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261104v28";
 
 export function escapeAttr(val) {
   return String(val ?? "")
@@ -48,7 +48,7 @@ export async function copyTextToClipboard(text) {
     try {
       await navigator.clipboard.writeText(str);
       return true;
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Utils", err); }
   }
   if (typeof document === "undefined") return false;
   const prevActive = document.activeElement;
@@ -72,7 +72,7 @@ export async function copyTextToClipboard(text) {
     if (prevActive && typeof prevActive.focus === "function") {
       try {
         prevActive.focus({ preventScroll: true });
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Utils", err); }
     }
   }
   return copied;
@@ -97,7 +97,7 @@ export function restoreModalTriggerFocus(modalId) {
   requestAnimationFrame(() => {
     try {
       target.focus({ preventScroll: true });
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Utils", err); }
   });
 }
 
@@ -333,7 +333,7 @@ export function recordWatchHistoryEntry(item, season = 1, episode = 1, currentTi
     const filtered = list.filter((x) => x && x.key !== entryKey);
     filtered.unshift(newEntry);
     localStorage.setItem(profileStorageKey(WATCH_HISTORY_STORAGE_KEY), JSON.stringify(filtered.slice(0, 150)));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Utils", err); }
 }
 let _episodeProgressCache = null;
 let _seenNotificationsCache = null;
@@ -399,7 +399,7 @@ export function saveEpisodeProgress(item, season = 1, episode = 1, currentTime =
     }
     _episodeProgressCache = map;
     localStorage.setItem(profileStorageKey(EPISODE_PROGRESS_STORAGE_KEY), JSON.stringify(map));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Utils", err); }
 }
 export function getUiPrefs() {
   try {
@@ -417,7 +417,7 @@ export function saveUiPrefs(patch) {
   try {
     const cur = getUiPrefs();
     localStorage.setItem(UI_PREFS_STORAGE_KEY, JSON.stringify({ ...cur, ...patch }));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Utils", err); }
 }
 export function getSeenNotificationsSet() {
   if (_seenNotificationsCache) return _seenNotificationsCache;
@@ -435,7 +435,7 @@ export function saveSeenNotificationsSet(seenSet) {
   _seenNotificationsCache = seenSet instanceof Set ? seenSet : new Set(seenSet || []);
   try {
     localStorage.setItem(profileStorageKey(SEEN_NOTIFICATIONS_STORAGE_KEY), JSON.stringify(Array.from(_seenNotificationsCache)));
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Utils", err); }
 }
 export function pluralRu(n, one, few, many) {
   const abs = Math.abs(Math.trunc(Number(n) || 0));
@@ -588,7 +588,7 @@ export function showToast(message, options = {}) {
     setTimeout(() => {
       try {
         toast.remove();
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Utils", err); }
     }, 160);
   };
 
@@ -653,7 +653,7 @@ export function closeConfirmModal(result = false) {
   ) {
     try {
       prevFocus.focus({ preventScroll: true });
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Utils", err); }
   }
   if (typeof resolver === "function") {
     resolver(Boolean(result));
@@ -701,7 +701,7 @@ export function showConfirmModal({
     requestAnimationFrame(() => {
       try {
         acceptBtn.focus({ preventScroll: true });
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Utils", err); }
     });
   });
 }
@@ -1170,7 +1170,7 @@ export function closeCustomSelectMenu({ restoreFocus = false } = {}) {
     requestAnimationFrame(() => {
       try {
         prevBtn.focus({ preventScroll: true });
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Utils", err); }
     });
   }
 }
@@ -1685,7 +1685,7 @@ function _renderOpenCustomSelectPortal() {
         } else if (activeItem) {
           activeItem.focus({ preventScroll: true });
         }
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Utils", err); }
     }
   });
 }
@@ -1807,7 +1807,7 @@ export function upgradeCustomSelect(selectEl) {
               syncCustomSelect(this);
             },
           });
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("Utils", err); }
       }
     });
   }
@@ -1979,7 +1979,7 @@ export function initCustomSelects() {
           if (document.activeElement?.tagName !== "INPUT") {
             try {
               nextEl.focus({ preventScroll: true });
-            } catch (_) {}
+            } catch (err) { window.logDebug?.("Utils", err); }
           }
         }
         return;
@@ -2056,4 +2056,22 @@ export function findAllOfflineDownloadsForTitle(item, season = null, episode = n
 export function findOfflineDownloadForTitle(item, season = null, episode = null, statuses = ["completed"]) {
   const hits = findAllOfflineDownloadsForTitle(item, season, episode, statuses);
   return hits.length > 0 ? hits[0] : null;
+}
+
+export function logDebug(scope, ...args) {
+  try {
+    if (
+      typeof window !== "undefined" &&
+      (window.__CINEFLOW_DEBUG__ || (typeof localStorage !== "undefined" && localStorage.getItem("cineflow_debug") === "1"))
+    ) {
+      console.debug(`[CineFlow:${scope}]`, ...args);
+    }
+  } catch (err) { window.logDebug?.("Utils", err); }
+}
+
+if (typeof globalThis !== "undefined") {
+  globalThis.logDebug = logDebug;
+}
+if (typeof window !== "undefined") {
+  window.logDebug = logDebug;
 }

@@ -1,4 +1,4 @@
-import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261104v27";
+import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261104v28";
 import {
   displayBackdrop,
   displayCountries,
@@ -15,7 +15,7 @@ import {
   translateCareer,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261104v27";
+} from "./i18n.js?v=20261104v28";
 import {
   attachHorizontalWheelScroll,
   closeCustomSelectMenu,
@@ -38,11 +38,11 @@ import {
   showToast,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
-} from "./catalog-cards.js?v=20261104v27";
+} from "./catalog-cards.js?v=20261104v28";
 import {
   applyEnabledServicesVisibility,
   getDefaultPlayableSourceTab,
@@ -51,20 +51,20 @@ import {
   patchCatalogItemKinoriumInPlace,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261104v27";
+} from "./catalog-media-resolver.js?v=20261104v28";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261104v27";
-import { renderHero } from "./catalog-hero.js?v=20261104v27";
-import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261104v27";
-import { loadCatalog } from "./catalog.js?v=20261104v27";
-import { escapeEpisodeHtml } from "./player-seasons.js?v=20261104v27";
+} from "./catalog-shelves.js?v=20261104v28";
+import { renderHero } from "./catalog-hero.js?v=20261104v28";
+import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261104v28";
+import { loadCatalog } from "./catalog.js?v=20261104v28";
+import { escapeEpisodeHtml } from "./player-seasons.js?v=20261104v28";
 import {
   closePlayerModal,
   openPlayerModal,
-} from "./player.js?v=20261104v27";
-import { updateBackupSummaryStat } from "./settings.js?v=20261104v27";
+} from "./player.js?v=20261104v28";
+import { updateBackupSummaryStat } from "./settings.js?v=20261104v28";
 
 export function formatRelativeWatchDate(ts) {
   if (!ts) return t("Недавно", "Recently");
@@ -175,7 +175,7 @@ export function renderWatchHistoryTab() {
       state.deletedWatchHistoryBackup = backupRaw;
       try {
         localStorage.setItem(storageKey, "[]");
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Modals", err); }
       renderWatchHistoryTab();
       updateBackupSummaryStat();
       showToast(t("История просмотров очищена", "Watch history cleared"), {
@@ -188,7 +188,7 @@ export function renderWatchHistoryTab() {
             } else {
               localStorage.removeItem(storageKey);
             }
-          } catch (_) {}
+          } catch (err) { window.logDebug?.("Modals", err); }
           state.deletedWatchHistoryBackup = null;
           renderWatchHistoryTab();
           updateBackupSummaryStat();
@@ -387,7 +387,7 @@ export function maybePausePlayerForOverlay() {
     state.pausedByOverlayModal = true;
     try {
       video.pause();
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Modals", err); }
   }
 }
 export function maybeResumePlayerAfterOverlay() {
@@ -799,7 +799,7 @@ export function renderQuickPeekEpisodes(item, metaObj = null) {
         const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
         try {
           actBtn.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "nearest", inline: "center" });
-        } catch (_) {}
+        } catch (err) { window.logDebug?.("Modals", err); }
       }
     });
   }
@@ -1407,7 +1407,7 @@ export async function openQuickPeekModal(item, options = {}) {
     } else {
       renderQpSimilar();
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Modals", err); }
 }
 export function closeStatsModal(options = {}) {
   const { suppressFocusRestore = false } = options;

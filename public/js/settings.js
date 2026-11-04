@@ -9,14 +9,14 @@ import {
   profileStorageKey,
   profileStorageKeyFor,
   state,
-} from "./state.js?v=20261104v27";
+} from "./state.js?v=20261104v28";
 import {
   applyStaticDomTranslations,
   displayAddonDescription,
   isEn,
   syncLanguageSegmentedControlUI,
   t,
-} from "./i18n.js?v=20261104v27";
+} from "./i18n.js?v=20261104v28";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -31,31 +31,31 @@ import {
   syncAllCustomSelects,
   syncCustomSelect,
   syncScrollTopButton,
-} from "./utils.js?v=20261104v27";
-import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261104v27";
+} from "./utils.js?v=20261104v28";
+import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261104v28";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261104v27";
-import { renderHero } from "./catalog-hero.js?v=20261104v27";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261104v27";
+} from "./catalog-shelves.js?v=20261104v28";
+import { renderHero } from "./catalog-hero.js?v=20261104v28";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261104v28";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
-} from "./catalog-filters.js?v=20261104v27";
+} from "./catalog-filters.js?v=20261104v28";
 import {
   loadCatalog,
   renderLoginBannerIfNeeded,
   updateFriendsFilterDropdown,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261104v27";
-import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261104v27";
-import { loadStremioStreams } from "./player-streams.js?v=20261104v27";
-import { renderModalProvidersSidebar } from "./player-meta.js?v=20261104v27";
+} from "./catalog.js?v=20261104v28";
+import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261104v28";
+import { loadStremioStreams } from "./player-streams.js?v=20261104v28";
+import { renderModalProvidersSidebar } from "./player-meta.js?v=20261104v28";
 import {
   refreshOpenPlayerLanguageUI,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261104v27";
+} from "./player.js?v=20261104v28";
 import {
   applyProfilesPayload,
   ensureKidsPinVerifiedForAdminAction,
@@ -68,12 +68,12 @@ import {
   renderProfilesModalUI,
   renderTvCastModalUI,
   startOneClickKinoriumLogin,
-} from "./features.js?v=20261104v27";
+} from "./features.js?v=20261104v28";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   syncDesktopConnectedRemotesUI,
-} from "./remote.js?v=20261104v27";
+} from "./remote.js?v=20261104v28";
 
 function _adminPinPayload() {
   return state.verifiedKidsAdminPin
@@ -154,7 +154,7 @@ export function applyAppLanguage(nextLang, options = {}) {
       action: "appLangChanged",
       lang: norm,
     });
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Settings", err); }
 
   if (persistServer) {
     fetch("/api/settings", {
@@ -792,7 +792,7 @@ export function updateBackupSummaryStat() {
   try {
     const raw = JSON.parse(localStorage.getItem(profileStorageKey(PREFERRED_STUDIOS_STORAGE_KEY)) || "{}") || {};
     studiosCount = Object.keys(raw).length;
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Settings", err); }
   let histCount = getWatchHistoryList().length;
   if (histCount === 0 && Array.isArray(state.continueWatching) && state.continueWatching.length > 0) {
     try {
@@ -895,7 +895,7 @@ function _writeProfileLocalBundle(pid, cs) {
     if (Array.isArray(cs.recent_searches)) {
       localStorage.setItem(profileStorageKeyFor(RECENT_SEARCHES_STORAGE_KEY, pid), JSON.stringify(cs.recent_searches.slice(0, 8)));
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Settings", err); }
 }
 
 export async function buildFullBackupPayload() {
@@ -918,7 +918,7 @@ export async function buildFullBackupPayload() {
   let uiPrefs = {};
   try {
     uiPrefs = JSON.parse(localStorage.getItem(UI_PREFS_STORAGE_KEY) || "{}") || {};
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Settings", err); }
 
   const mainLocal = _readProfileLocalBundle("main");
   payload.client_storage = {
@@ -991,7 +991,7 @@ export async function restoreFromBackupObject(parsed) {
     if (cs.ui_prefs && typeof cs.ui_prefs === "object") {
       try {
         localStorage.setItem(UI_PREFS_STORAGE_KEY, JSON.stringify(cs.ui_prefs));
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Settings", err); }
       state.hideWatched = Boolean(cs.ui_prefs.hideWatched);
       document.getElementById("btn-hide-watched")?.classList.toggle("active", state.hideWatched);
       if (cs.ui_prefs.appLang === "en" || cs.ui_prefs.appLang === "ru") {
@@ -1028,7 +1028,7 @@ export async function restoreFromBackupObject(parsed) {
     if (Array.isArray(aJson.addons)) {
       state.stremioAddons = aJson.addons;
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Settings", err); }
   updateBackupSummaryStat();
   renderIntegrationsList();
   renderStremioAddonsList();
@@ -1216,13 +1216,13 @@ export async function triggerLanSync() {
     try {
       const stored = localStorage.getItem("cineflow_watch_progress") || localStorage.getItem("watch_history");
       if (stored) localHistory = JSON.parse(stored);
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Settings", err); }
 
     let localBookmarks = [];
     try {
       const bms = localStorage.getItem("cineflow_moments") || localStorage.getItem("saved_moments");
       if (bms) localBookmarks = JSON.parse(bms);
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Settings", err); }
 
     let peers = [];
     try {
@@ -1231,7 +1231,7 @@ export async function triggerLanSync() {
         const pJson = await pRes.json();
         peers = pJson.peers || [];
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Settings", err); }
 
     const mergeRes = await fetch("/api/sync/merge", {
       method: "POST",
@@ -1495,7 +1495,7 @@ export async function saveUpdaterSettingsImmediate() {
       }
       renderAppUpdaterUI();
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Settings", err); }
 }
 
 export async function checkAppUpdates({ force = true, silent = false } = {}) {
@@ -1698,7 +1698,7 @@ export async function startAppUpdateDownload() {
             }`
           );
         }
-      } catch (_) {}
+      } catch (err) { window.logDebug?.("Settings", err); }
     }, 750);
   } catch (_) {
     showToast(t("Не удалось начать загрузку обновления", "Could not start update download"));
@@ -2170,7 +2170,7 @@ export function detectEuropeanCountryFromTimezone() {
     if (tz && _TZ_TO_EU_COUNTRY[tz]) {
       return _TZ_TO_EU_COUNTRY[tz];
     }
-  } catch (_) {}
+  } catch (err) { window.logDebug?.("Settings", err); }
   return "PL";
 }
 
@@ -2771,7 +2771,7 @@ export async function openOnboardingModal({ isFirstRun = false } = {}) {
           cw_dismissed_count: Number(cfg.kinorium.cw_dismissed_count || 0),
         };
       }
-    } catch (_) {}
+    } catch (err) { window.logDebug?.("Settings", err); }
   }
 
   const initialCountry = isFirstRun
