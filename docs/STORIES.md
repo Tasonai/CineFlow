@@ -43,7 +43,7 @@ Acceptance:
 - [unit] `public/js/app-hotkeys.js` exports `initGlobalHotkeys` and passes `node --check` and `jsc -m` validation.
 - [unit] `public/app.js` imports and calls `initGlobalHotkeys()`, reducing `public/app.js` by ~470 lines.
 - [self] All static frontend integrity checks in `tests/test_frontend_integrity.py` pass.
-Status: doing
+Status: done
 
 ### S-005 Extract player status & post-watch rating bindings (`public/js/player-rating.js` & `public/js/modals.js`)
 As a user rating episodes/movies or toggling Kinorium statuses in Quick Peek and the player, I want Quick Peek status/rating bindings in `public/js/modals.js` and player status/post-watch bindings in `public/js/player-rating.js` instead of inside monolithic `public/app.js`.
@@ -53,7 +53,7 @@ Acceptance:
 - [unit] `public/js/modals.js` exports `initQuickPeekBindings` and `public/js/player-rating.js` exports `initPlayerStatusAndRatingBindings`.
 - [unit] `public/app.js` delegates to both initializers, reducing `public/app.js` by ~850 lines.
 - [self] All tests in `tests/test_frontend_integrity.py` and `tests/test_roadmap_features.py` pass.
-Status: todo
+Status: doing
 
 ### S-006 Extract settings, onboarding & backup bindings (`public/js/settings.js`)
 As a user configuring settings, running the onboarding wizard, or exporting/importing backups, I want the DOM event bindings for settings, onboarding, and backup paste/export encapsulated in `public/js/settings.js` (`initSettingsAndBackupBindings`).
