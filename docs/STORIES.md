@@ -53,7 +53,7 @@ Acceptance:
 - [unit] `public/js/modals.js` exports `initQuickPeekBindings` and `public/js/player-rating.js` exports `initPlayerStatusAndRatingBindings`.
 - [unit] `public/app.js` delegates to both initializers, reducing `public/app.js` by ~850 lines.
 - [self] All tests in `tests/test_frontend_integrity.py` and `tests/test_roadmap_features.py` pass.
-Status: doing
+Status: done
 
 ### S-006 Extract settings, onboarding & backup bindings (`public/js/settings.js`)
 As a user configuring settings, running the onboarding wizard, or exporting/importing backups, I want the DOM event bindings for settings, onboarding, and backup paste/export encapsulated in `public/js/settings.js` (`initSettingsAndBackupBindings`).
@@ -63,4 +63,4 @@ Acceptance:
 - [unit] `public/js/settings.js` exports `initSettingsAndBackupBindings`, `handleExportBackup`, and `openManualBackupPasteBox`.
 - [unit] `public/app.js` calls `initSettingsAndBackupBindings()`, bringing `public/app.js` down below 2,100 lines (a >45% reduction from 3,814 lines).
 - [self] Cache token bumped via `scripts/bump_cache_token.py`, full test suite (`120/120` tests) passes, and `/Applications/CineFlow.app/Contents/Resources/app/` is synced.
-Status: todo
+Status: doing

@@ -18,6 +18,7 @@ import {
 } from "./i18n.js?v=20261104v28";
 import {
   attachHorizontalWheelScroll,
+  bindStarsHoverRange,
   closeCustomSelectMenu,
   cssUrl,
   escapeAttr,
@@ -38,6 +39,7 @@ import {
   showToast,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
+  withKinoriumActionLock,
 } from "./utils.js?v=20261104v28";
 import {
   attachSmartPosterFallback,
@@ -59,7 +61,7 @@ import {
 import { renderHero } from "./catalog-hero.js?v=20261104v28";
 import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261104v28";
 import { loadCatalog } from "./catalog.js?v=20261104v28";
-import { escapeEpisodeHtml } from "./player-seasons.js?v=20261104v28";
+import { escapeEpisodeHtml, resolveSeriesCompletedFlag } from "./player-seasons.js?v=20261104v28";
 import {
   closePlayerModal,
   openPlayerModal,
@@ -2293,5 +2295,291 @@ export function renderModalCastSection(item, streamData = null) {
 
   people.slice(0, 14).forEach((p) => {
     listEl.appendChild(buildPersonPhotoCard(p, (personObj) => openPersonModal(personObj)));
+  });
+}
+
+export function initQuickPeekBindings() {
+  document.getElementById("qp-back-nav-btn")?.addEventListener("click", () => goBackInModalStack());
+  document.getElementById("close-quick-peek-modal")?.addEventListener("click", () =>
+    closeQuickPeekModal({ clearStack: true })
+  );
+  document.getElementById("quick-peek-modal")?.addEventListener("click", (e) => {
+    if (e.target.id === "quick-peek-modal") {
+      closeQuickPeekModal({ clearStack: true });
+    }
+  });
+
+  const buildQpPayload = (item) => ({
+    id: item.id,
+    title: item.title,
+    orig_title: item.orig_title,
+    poster: item.poster,
+    backdrop: item.backdrop,
+    year: item.year,
+    media_type: item.media_type,
+    rezka_id: item.rezka_id,
+    rezka_url: item.rezka_url,
+    is_series_completed: resolveSeriesCompletedFlag(item),
+  });
+
+  const qpStarsWrap = document.getElementById("qp-stars");
+  bindStarsHoverRange(qpStarsWrap);
+  document.querySelectorAll("#qp-stars button").forEach((btn) => {
+    btn.onclick = () => {
+      const item = state.quickPeekItem;
+      if (!item) return;
+      const score = parseInt(btn.dataset.score, 10) || 0;
+      const prevKin = item.kinorium ? { ...item.kinorium } : null;
+      const optimisticKin = {
+        ...(item.kinorium || {}),
+        user_rating: score,
+        watched: item.media_type === "movie" ? true : Boolean(item.kinorium?.watched),
+        in_watchlist: false,
+        not_watching: false,
+      };
+      item.kinorium = optimisticKin;
+      syncQuickPeekStatusesUI(item);
+      withKinoriumActionLock(`qp-rate:${item.id}`, qpStarsWrap || btn, async () => {
+        try {
+          const res = await fetch("/api/kinorium/rate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...buildQpPayload(item),
+              score,
+              comment: item.kinorium?.comment || "",
+            }),
+          });
+          const updated = await res.json();
+          if (!res.ok || updated?.ok === false || updated?.error) {
+            throw new Error(updated?.error || `HTTP ${res.status}`);
+          }
+          item.kinorium = updated;
+          if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+          patchCatalogItemKinoriumInPlace(item, updated);
+          const syncNote = updated.remote_synced
+            ? t("синхронизировано с Kinorium", "synced to Kinorium")
+            : t("сохранено локально", "saved locally");
+          showToast(
+            t(
+              `Оценка ${score}/10 (${syncNote}) · «${displayTitle(item)}»`,
+              `Rating ${score}/10 (${syncNote}) · "${displayTitle(item)}"`
+            )
+          );
+        } catch (err) {
+          item.kinorium = prevKin;
+          if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+          throw err;
+        }
+      });
+    };
+  });
+  const qpClearRateBtn = document.getElementById("qp-clear-rate-btn");
+  if (qpClearRateBtn) {
+    qpClearRateBtn.onclick = () => {
+      const item = state.quickPeekItem;
+      if (!item || !item.kinorium?.user_rating) return;
+      withKinoriumActionLock(`qp-rate:${item.id}`, qpClearRateBtn, async () => {
+        const res = await fetch("/api/kinorium/rate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...buildQpPayload(item),
+            score: 0,
+            clear: true,
+          }),
+        });
+        const updated = await res.json();
+        if (!res.ok || updated?.ok === false || updated?.error) {
+          throw new Error(updated?.error || `HTTP ${res.status}`);
+        }
+        item.kinorium = updated;
+        if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+        patchCatalogItemKinoriumInPlace(item, updated);
+        showToast(
+          t(
+            `Оценка удалена для «${displayTitle(item)}»`,
+            `Rating removed for "${displayTitle(item)}"`
+          )
+        );
+      });
+    };
+  }
+
+  const qpBtnWatching = document.getElementById("qp-btn-watching");
+  qpBtnWatching?.addEventListener("click", () => {
+    const item = state.quickPeekItem;
+    if (!item) return;
+    withKinoriumActionLock(`qp-watching:${item.id}`, qpBtnWatching, async () => {
+      const res = await fetch("/api/kinorium/watching", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildQpPayload(item)),
+      });
+      const updated = await res.json();
+      if (!res.ok || updated?.ok === false || updated?.error) {
+        throw new Error(updated?.error || `HTTP ${res.status}`);
+      }
+      item.kinorium = updated;
+      if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+      patchCatalogItemKinoriumInPlace(item, updated);
+      showToast(
+        updated.watching
+          ? t(`«${displayTitle(item)}» в разделе Смотрю`, `"${displayTitle(item)}" added to Watching`)
+          : t("Убрано из Смотрю", "Removed from Watching"),
+        {
+          undoText: t("Отменить", "Undo"),
+          durationMs: 5000,
+          onUndo: async () => {
+            try {
+              const uRes = await fetch("/api/kinorium/watching", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(buildQpPayload(item)),
+              });
+              const uData = await uRes.json();
+              if (uRes.ok && uData?.ok !== false && !uData?.error) {
+                item.kinorium = uData;
+                if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+                patchCatalogItemKinoriumInPlace(item, uData);
+              }
+            } catch (err) { window.logDebug?.("Modals", err); }
+          },
+        }
+      );
+    });
+  });
+
+  const qpBtnWatchlist = document.getElementById("qp-btn-watchlist");
+  qpBtnWatchlist?.addEventListener("click", () => {
+    const item = state.quickPeekItem;
+    if (!item) return;
+    withKinoriumActionLock(`qp-watchlist:${item.id}`, qpBtnWatchlist, async () => {
+      const res = await fetch("/api/kinorium/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildQpPayload(item)),
+      });
+      const updated = await res.json();
+      if (!res.ok || updated?.ok === false || updated?.error) {
+        throw new Error(updated?.error || `HTTP ${res.status}`);
+      }
+      item.kinorium = updated;
+      if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+      patchCatalogItemKinoriumInPlace(item, updated);
+      showToast(
+        updated.in_watchlist
+          ? t(`«${displayTitle(item)}» в Буду смотреть`, `"${displayTitle(item)}" added to Watchlist`)
+          : t("Убрано из Буду смотреть", "Removed from Watchlist"),
+        {
+          undoText: t("Отменить", "Undo"),
+          durationMs: 5000,
+          onUndo: async () => {
+            try {
+              const uRes = await fetch("/api/kinorium/watchlist", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(buildQpPayload(item)),
+              });
+              const uData = await uRes.json();
+              if (uRes.ok && uData?.ok !== false && !uData?.error) {
+                item.kinorium = uData;
+                if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+                patchCatalogItemKinoriumInPlace(item, uData);
+              }
+            } catch (err) { window.logDebug?.("Modals", err); }
+          },
+        }
+      );
+    });
+  });
+
+  const qpBtnWatched = document.getElementById("qp-btn-watched");
+  qpBtnWatched?.addEventListener("click", () => {
+    const item = state.quickPeekItem;
+    if (!item) return;
+    withKinoriumActionLock(`qp-watched:${item.id}`, qpBtnWatched, async () => {
+      const curWatched = Boolean(item.kinorium?.watched);
+      const res = await fetch("/api/kinorium/watched", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...buildQpPayload(item), watched: !curWatched }),
+      });
+      const updated = await res.json();
+      if (!res.ok || updated?.ok === false || updated?.error) {
+        throw new Error(updated?.error || `HTTP ${res.status}`);
+      }
+      item.kinorium = updated;
+      if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+      patchCatalogItemKinoriumInPlace(item, updated);
+      showToast(
+        updated.watched
+          ? t(`«${displayTitle(item)}» отмечено просмотренным`, `"${displayTitle(item)}" marked as watched`)
+          : t("Снята отметка просмотренного", "Unmarked as watched"),
+        {
+          undoText: t("Отменить", "Undo"),
+          durationMs: 5000,
+          onUndo: async () => {
+            try {
+              const uRes = await fetch("/api/kinorium/watched", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ...buildQpPayload(item), watched: curWatched }),
+              });
+              const uData = await uRes.json();
+              if (uRes.ok && uData?.ok !== false && !uData?.error) {
+                item.kinorium = uData;
+                if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+                patchCatalogItemKinoriumInPlace(item, uData);
+              }
+            } catch (err) { window.logDebug?.("Modals", err); }
+          },
+        }
+      );
+    });
+  });
+
+  const qpBtnNever = document.getElementById("qp-btn-never");
+  qpBtnNever?.addEventListener("click", () => {
+    const item = state.quickPeekItem;
+    if (!item) return;
+    withKinoriumActionLock(`qp-never:${item.id}`, qpBtnNever, async () => {
+      const res = await fetch("/api/kinorium/never", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildQpPayload(item)),
+      });
+      const updated = await res.json();
+      if (!res.ok || updated?.ok === false || updated?.error) {
+        throw new Error(updated?.error || `HTTP ${res.status}`);
+      }
+      item.kinorium = updated;
+      if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+      patchCatalogItemKinoriumInPlace(item, updated);
+      showToast(
+        updated.not_watching
+          ? t(`«${displayTitle(item)}» в Не буду смотреть`, `"${displayTitle(item)}" added to Won't watch`)
+          : t("Убрано из Не буду смотреть", "Removed from Won't watch"),
+        {
+          undoText: t("Отменить", "Undo"),
+          durationMs: 5000,
+          onUndo: async () => {
+            try {
+              const uRes = await fetch("/api/kinorium/never", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(buildQpPayload(item)),
+              });
+              const uData = await uRes.json();
+              if (uRes.ok && uData?.ok !== false && !uData?.error) {
+                item.kinorium = uData;
+                if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+                patchCatalogItemKinoriumInPlace(item, uData);
+              }
+            } catch (err) { window.logDebug?.("Modals", err); }
+          },
+        }
+      );
+    });
   });
 }

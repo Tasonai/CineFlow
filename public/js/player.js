@@ -247,6 +247,7 @@ import {
   renderPostWatchRatingState,
   maybeAutoOpenCreditsRatingCard,
   openPostWatchRatingOverlay,
+  initPlayerStatusAndRatingBindings,
   rateActivePlayerTitle as _rateActivePlayerTitle,
   toggleActivePlayerWatched as _toggleActivePlayerWatched,
 } from "./player-rating.js?v=20261104v28";
@@ -256,6 +257,7 @@ export {
   renderPostWatchRatingState,
   maybeAutoOpenCreditsRatingCard,
   openPostWatchRatingOverlay,
+  initPlayerStatusAndRatingBindings,
 };
 
 export async function toggleActivePlayerWatched() {

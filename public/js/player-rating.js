@@ -1,9 +1,11 @@
 import { state } from "./state.js?v=20261104v28";
 import { displayTitle, isEn, t } from "./i18n.js?v=20261104v28";
 import {
+  bindStarsHoverRange,
   clampFloatingPopover,
   closeFloatingPopovers,
   showToast,
+  withKinoriumActionLock,
 } from "./utils.js?v=20261104v28";
 import {
   isServiceEnabled,
@@ -409,8 +411,592 @@ export async function rateActivePlayerTitle({
       );
     }
     return kStatus;
-  } catch (_) {
+  } catch (err) {
+    window.logDebug?.("PlayerRating", err);
     showToast(t("Не удалось сохранить оценку", "Could not save rating"));
     return null;
   }
+}
+
+export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
+  const getItemMetaPayload = (it = state.activeItem) => ({
+    id: it?.id,
+    title: it?.title,
+    orig_title: it?.orig_title,
+    poster: it?.poster,
+    backdrop: it?.backdrop,
+    year: it?.year,
+    media_type: it?.media_type,
+    rezka_id: it?.rezka_id,
+    rezka_url: it?.rezka_url,
+    is_series_completed: resolveSeriesCompletedFlag(it),
+  });
+
+  const watchingBtn = document.getElementById("btn-toggle-watching");
+  if (watchingBtn) {
+    watchingBtn.onclick = () => {
+      if (!state.activeItem) return;
+      const itemRef = state.activeItem;
+      const metaSnapshot = getItemMetaPayload(itemRef);
+      document.getElementById("kinorium-status-popover")?.classList.add("hidden");
+      withKinoriumActionLock(`pl-watching:${itemRef.id}`, watchingBtn, async () => {
+        const res = await fetch("/api/kinorium/watching", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(metaSnapshot),
+        });
+        const kStatus = await res.json();
+        if (!res.ok || kStatus?.ok === false || kStatus?.error) {
+          throw new Error(kStatus?.error || `HTTP ${res.status}`);
+        }
+        itemRef.kinorium = kStatus;
+        if (state.activeItem === itemRef) updateModalKinoriumHeader(kStatus);
+        patchCatalogItemKinoriumInPlace(itemRef, kStatus);
+        showToast(
+          kStatus.watching
+            ? t(`«${displayTitle(itemRef)}» в разделе Смотрю`, `"${displayTitle(itemRef)}" added to Watching`)
+            : t("Убрано из Смотрю", "Removed from Watching"),
+          {
+            undoText: t("Отменить", "Undo"),
+            durationMs: 5000,
+            onUndo: async () => {
+              try {
+                const uRes = await fetch("/api/kinorium/watching", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(metaSnapshot),
+                });
+                const uData = await uRes.json();
+                if (uRes.ok && uData?.ok !== false && !uData?.error) {
+                  itemRef.kinorium = uData;
+                  if (state.activeItem === itemRef) updateModalKinoriumHeader(uData);
+                  patchCatalogItemKinoriumInPlace(itemRef, uData);
+                }
+              } catch (err) { window.logDebug?.("PlayerRating", err); }
+            },
+          }
+        );
+      });
+    };
+  }
+
+  const plWatchedBtn = document.getElementById("btn-toggle-watched");
+  if (plWatchedBtn) {
+    plWatchedBtn.onclick = () => {
+      if (!state.activeItem) return;
+      const itemRef = state.activeItem;
+      const metaSnapshot = getItemMetaPayload(itemRef);
+      document.getElementById("kinorium-status-popover")?.classList.add("hidden");
+      withKinoriumActionLock(`pl-watched:${itemRef.id}`, plWatchedBtn, async () => {
+        const curWatched = Boolean(itemRef.kinorium?.watched);
+        const sSnap = state.activeSeason;
+        const eSnap = state.activeEpisode;
+        const res = await fetch("/api/kinorium/watched", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...metaSnapshot,
+            watched: !curWatched,
+            season: sSnap,
+            episode: eSnap,
+          }),
+        });
+        const kStatus = await res.json();
+        if (!res.ok || kStatus?.ok === false || kStatus?.error) {
+          throw new Error(kStatus?.error || `HTTP ${res.status}`);
+        }
+        itemRef.kinorium = kStatus;
+        if (state.activeItem === itemRef) {
+          updateModalKinoriumHeader(kStatus);
+          if (itemRef.media_type === "series") {
+            populateSeasonEpisodeSelectors(
+              itemRef,
+              resolveEffectiveSeasonsMap(itemRef, state.seasonsMap)
+            );
+          }
+        }
+        patchCatalogItemKinoriumInPlace(itemRef, kStatus);
+        pushDesktopRemoteStateNow();
+        showToast(
+          kStatus.watched
+            ? t(`«${displayTitle(itemRef)}» отмечено просмотренным`, `"${displayTitle(itemRef)}" marked as watched`)
+            : t("Снята отметка просмотренного", "Unmarked as watched"),
+          {
+            undoText: t("Отменить", "Undo"),
+            durationMs: 5000,
+            onUndo: async () => {
+              try {
+                const uRes = await fetch("/api/kinorium/watched", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    ...metaSnapshot,
+                    watched: curWatched,
+                    season: sSnap,
+                    episode: eSnap,
+                  }),
+                });
+                const uData = await uRes.json();
+                if (uRes.ok && uData?.ok !== false && !uData?.error) {
+                  itemRef.kinorium = uData;
+                  if (state.activeItem === itemRef) {
+                    updateModalKinoriumHeader(uData);
+                    if (itemRef.media_type === "series") {
+                      populateSeasonEpisodeSelectors(
+                        itemRef,
+                        resolveEffectiveSeasonsMap(itemRef, state.seasonsMap)
+                      );
+                    }
+                  }
+                  patchCatalogItemKinoriumInPlace(itemRef, uData);
+                  pushDesktopRemoteStateNow();
+                }
+              } catch (err) { window.logDebug?.("PlayerRating", err); }
+            },
+          }
+        );
+      });
+    };
+  }
+
+  const postwatchOverlayEl = document.getElementById("kinorium-postwatch-overlay");
+  if (postwatchOverlayEl) {
+    postwatchOverlayEl.addEventListener("mouseenter", () => {
+      state.postwatchHovered = true;
+    });
+    postwatchOverlayEl.addEventListener("mouseleave", () => {
+      state.postwatchHovered = false;
+    });
+  }
+
+  const openRateBtn = document.getElementById("btn-open-rate");
+  if (openRateBtn) {
+    openRateBtn.onclick = (e) => {
+      e.stopPropagation();
+      const scope = state.activeItem?.media_type === "series" ? "series" : "movie";
+      if (
+        postwatchOverlayEl &&
+        !postwatchOverlayEl.classList.contains("hidden") &&
+        state.postwatchAnchor === "header" &&
+        state.postwatchScope === scope
+      ) {
+        state.postwatchManual = false;
+        state.postwatchHovered = false;
+        postwatchOverlayEl.classList.add("hidden");
+        return;
+      }
+      openPostWatchRatingOverlay(scope, state.activeSeason, state.activeEpisode, true, "header");
+    };
+  }
+  const epWatchToggleBtn = document.getElementById("btn-toggle-current-ep");
+  if (epWatchToggleBtn) {
+    epWatchToggleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!state.activeItem) return;
+      withKinoriumActionLock(
+        `pl-ep-watch:${state.activeItem.id}:s${state.activeSeason}e${state.activeEpisode}`,
+        epWatchToggleBtn,
+        async () => {
+          await toggleCurrentEpisodeWatched();
+        }
+      );
+    });
+  }
+  document.getElementById("btn-rate-current-ep")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (
+      postwatchOverlayEl &&
+      !postwatchOverlayEl.classList.contains("hidden") &&
+      state.postwatchAnchor === "epbar" &&
+      state.postwatchScope === "episode"
+    ) {
+      state.postwatchManual = false;
+      state.postwatchHovered = false;
+      postwatchOverlayEl.classList.add("hidden");
+      return;
+    }
+    openPostWatchRatingOverlay("episode", state.activeSeason, state.activeEpisode, true, "epbar");
+  });
+  document.getElementById("postwatch-scope-ep")?.addEventListener("click", () => {
+    state.postwatchScope = "episode";
+    renderPostWatchRatingState();
+  });
+  document.getElementById("postwatch-scope-series")?.addEventListener("click", () => {
+    state.postwatchScope = "series";
+    renderPostWatchRatingState();
+  });
+
+  const plWatchlistBtn = document.getElementById("btn-toggle-watchlist");
+  if (plWatchlistBtn) {
+    plWatchlistBtn.onclick = () => {
+      if (!state.activeItem) return;
+      const itemRef = state.activeItem;
+      const metaSnapshot = getItemMetaPayload(itemRef);
+      document.getElementById("kinorium-status-popover")?.classList.add("hidden");
+      withKinoriumActionLock(`pl-watchlist:${itemRef.id}`, plWatchlistBtn, async () => {
+        const res = await fetch("/api/kinorium/watchlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(metaSnapshot),
+        });
+        const kStatus = await res.json();
+        if (!res.ok || kStatus?.ok === false || kStatus?.error) {
+          throw new Error(kStatus?.error || `HTTP ${res.status}`);
+        }
+        itemRef.kinorium = kStatus;
+        if (state.activeItem === itemRef) {
+          updateModalKinoriumHeader(kStatus);
+          if (itemRef.media_type === "series") {
+            populateSeasonEpisodeSelectors(
+              itemRef,
+              resolveEffectiveSeasonsMap(itemRef, state.seasonsMap)
+            );
+          }
+        }
+        patchCatalogItemKinoriumInPlace(itemRef, kStatus);
+        pushDesktopRemoteStateNow();
+        showToast(
+          kStatus.in_watchlist
+            ? t(`«${displayTitle(itemRef)}» в Буду смотреть`, `"${displayTitle(itemRef)}" added to Watchlist`)
+            : t("Убрано из Буду смотреть", "Removed from Watchlist"),
+          {
+            undoText: t("Отменить", "Undo"),
+            durationMs: 5000,
+            onUndo: async () => {
+              try {
+                const uRes = await fetch("/api/kinorium/watchlist", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(metaSnapshot),
+                });
+                const uData = await uRes.json();
+                if (uRes.ok && uData?.ok !== false && !uData?.error) {
+                  itemRef.kinorium = uData;
+                  if (state.activeItem === itemRef) {
+                    updateModalKinoriumHeader(uData);
+                  }
+                  patchCatalogItemKinoriumInPlace(itemRef, uData);
+                  pushDesktopRemoteStateNow();
+                }
+              } catch (err) { window.logDebug?.("PlayerRating", err); }
+            },
+          }
+        );
+      });
+    };
+  }
+
+  const neverBtn = document.getElementById("btn-toggle-never");
+  if (neverBtn) {
+    neverBtn.onclick = () => {
+      if (!state.activeItem) return;
+      const itemRef = state.activeItem;
+      const metaSnapshot = getItemMetaPayload(itemRef);
+      document.getElementById("kinorium-status-popover")?.classList.add("hidden");
+      withKinoriumActionLock(`pl-never:${itemRef.id}`, neverBtn, async () => {
+        const res = await fetch("/api/kinorium/never", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(metaSnapshot),
+        });
+        const kStatus = await res.json();
+        if (!res.ok || kStatus?.ok === false || kStatus?.error) {
+          throw new Error(kStatus?.error || `HTTP ${res.status}`);
+        }
+        itemRef.kinorium = kStatus;
+        if (state.activeItem === itemRef) updateModalKinoriumHeader(kStatus);
+        patchCatalogItemKinoriumInPlace(itemRef, kStatus);
+        showToast(
+          kStatus.not_watching
+            ? t(`«${displayTitle(itemRef)}» в Не буду смотреть`, `"${displayTitle(itemRef)}" added to Won't watch`)
+            : t("Убрано из Не буду смотреть", "Removed from Won't watch"),
+          {
+            undoText: t("Отменить", "Undo"),
+            durationMs: 5000,
+            onUndo: async () => {
+              try {
+                const uRes = await fetch("/api/kinorium/never", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(metaSnapshot),
+                });
+                const uData = await uRes.json();
+                if (uRes.ok && uData?.ok !== false && !uData?.error) {
+                  itemRef.kinorium = uData;
+                  if (state.activeItem === itemRef) updateModalKinoriumHeader(uData);
+                  patchCatalogItemKinoriumInPlace(itemRef, uData);
+                }
+              } catch (err) { window.logDebug?.("PlayerRating", err); }
+            },
+          }
+        );
+      });
+    };
+  }
+
+  const postwatchStarsWrap = document.getElementById("postwatch-stars");
+  const postwatchSaveBtn = document.getElementById("btn-save-postwatch");
+  const postwatchCommentInp = document.getElementById("postwatch-comment");
+  bindStarsHoverRange(postwatchStarsWrap);
+
+  const submitPostWatchRating = (scoreVal, triggerCtrl, closeAfterSave = true) => {
+    if (!state.activeItem) return;
+    const itemRef = state.activeItem;
+    const metaSnapshot = getItemMetaPayload(itemRef);
+    const score = parseInt(scoreVal, 10) || 0;
+    if (score <= 0) {
+      showToast(t("Сначала выберите оценку от 1 до 10", "Choose a rating from 1 to 10 first"));
+      return;
+    }
+    withKinoriumActionLock(`pl-rate:${itemRef.id}`, triggerCtrl, async () => {
+      const comment = postwatchCommentInp ? postwatchCommentInp.value : "";
+      const isEpisodeScope =
+        itemRef.media_type === "series" && state.postwatchScope === "episode";
+
+      if (isEpisodeScope) {
+        const sNum = state.postwatchSeason || state.activeSeason || 1;
+        const eNum = state.postwatchEpisode || state.activeEpisode || 1;
+        const epMeta = getEpisodeDisplayMeta(sNum, eNum);
+        const effMap = resolveEffectiveSeasonsMap(itemRef, state.seasonsMap);
+        const sKeys = Object.keys(effMap || {})
+          .map((k) => parseInt(k, 10))
+          .filter((n) => !Number.isNaN(n));
+        const totalSeasons = sKeys.length > 0 ? Math.max(...sKeys) : 0;
+        const sEps = effMap?.[String(sNum)];
+        const totalEpsInSeason = Array.isArray(sEps) && sEps.length > 0 ? Math.max(...sEps) : 0;
+        const res = await fetch("/api/kinorium/rate-episode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...metaSnapshot,
+            season: sNum,
+            episode: eNum,
+            episode_title: epMeta.realTitle || "",
+            total_seasons: totalSeasons,
+            total_episodes_in_season: totalEpsInSeason,
+            is_series_completed: resolveSeriesCompletedFlag(itemRef),
+            score: score,
+            comment: comment,
+          }),
+        });
+        const kStatus = await res.json();
+        if (!res.ok || kStatus?.ok === false || kStatus?.error) {
+          throw new Error(kStatus?.error || `HTTP ${res.status}`);
+        }
+        itemRef.kinorium = kStatus;
+        state.catalogDirty = true;
+        if (kStatus.kinorium_counts) {
+          state.kinoriumCounts = { ...state.kinoriumCounts, ...kStatus.kinorium_counts };
+          updateKinoriumSectionCounters();
+        }
+        if (state.activeItem === itemRef) {
+          updateModalKinoriumHeader(kStatus);
+          populateSeasonEpisodeSelectors(itemRef, effMap);
+          updateCurrentEpisodeBar(itemRef, state.activeSeason, state.activeEpisode, false);
+          renderPostWatchRatingState();
+        }
+        patchCatalogItemKinoriumInPlace(itemRef, kStatus);
+        pushDesktopRemoteStateNow();
+        if (closeAfterSave) {
+          state.postwatchManual = false;
+          state.postwatchHovered = false;
+          document.getElementById("kinorium-postwatch-overlay")?.classList.add("hidden");
+        }
+        const epKinSuffix = kStatus.remote_synced ? t(" в Kinorium", " on Kinorium") : "";
+        if (kStatus.auto_completed_series) {
+          state.scrobbledThisSession = true;
+          refreshOpenPersonModalUI();
+          showToast(
+            t(
+              `Оценка (${score}/10) сохранена${epKinSuffix} · финал просмотрен, статус изменён на «Просмотрено»`,
+              `Rating (${score}/10) saved${epKinSuffix} · series finale watched, marked as Watched`
+            )
+          );
+        } else {
+          showToast(
+            t(
+              `Оценка (${score}/10) сохранена${epKinSuffix} · Сезон ${sNum}, Серия ${eNum}`,
+              `Rating (${score}/10) saved${epKinSuffix} · Season ${sNum}, Episode ${eNum}`
+            )
+          );
+        }
+        return;
+      }
+
+      const res = await fetch("/api/kinorium/rate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...metaSnapshot,
+          score: score,
+          comment: comment,
+        }),
+      });
+      const kStatus = await res.json();
+      if (!res.ok || kStatus?.ok === false || kStatus?.error) {
+        throw new Error(kStatus?.error || `HTTP ${res.status}`);
+      }
+      itemRef.kinorium = kStatus;
+      if (kStatus.kinorium_counts) {
+        state.kinoriumCounts = { ...state.kinoriumCounts, ...kStatus.kinorium_counts };
+        updateKinoriumSectionCounters();
+      }
+      if (state.activeItem === itemRef) {
+        updateModalKinoriumHeader(kStatus);
+        renderPostWatchRatingState();
+      }
+      if (closeAfterSave) {
+        state.postwatchManual = false;
+        state.postwatchHovered = false;
+        document.getElementById("kinorium-postwatch-overlay")?.classList.add("hidden");
+      }
+      patchCatalogItemKinoriumInPlace(itemRef, kStatus);
+      pushDesktopRemoteStateNow();
+      showToast(
+        kStatus.remote_synced
+          ? t(`Оценка ${score}/10 синхронизирована с Kinorium`, `Rating ${score}/10 synced to Kinorium`)
+          : t(`Оценка ${score}/10 сохранена локально`, `Rating ${score}/10 saved locally`)
+      );
+    });
+  };
+
+  document.querySelectorAll("#postwatch-stars button").forEach((btn) => {
+    btn.onclick = () => {
+      const score = parseInt(btn.dataset.score, 10) || 0;
+      state.postwatchSelectedScore = score;
+      document.querySelectorAll("#postwatch-stars button").forEach((b) => {
+        const sc = parseInt(b.dataset.score, 10) || 0;
+        b.classList.toggle("active-star", sc === score);
+        b.classList.toggle("in-score-range", sc > 0 && sc < score);
+      });
+      const hasTypedComment = Boolean((postwatchCommentInp?.value || "").trim());
+      submitPostWatchRating(score, postwatchStarsWrap || btn, hasTypedComment);
+    };
+  });
+
+  if (postwatchSaveBtn) {
+    postwatchSaveBtn.onclick = () => {
+      submitPostWatchRating(state.postwatchSelectedScore, postwatchSaveBtn, true);
+    };
+  }
+  if (postwatchCommentInp) {
+    postwatchCommentInp.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") {
+        e.stopPropagation();
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submitPostWatchRating(state.postwatchSelectedScore, postwatchSaveBtn || postwatchCommentInp, true);
+      }
+    });
+  }
+
+  const postwatchClearBtn = document.getElementById("postwatch-clear-rate-btn");
+  if (postwatchClearBtn) {
+    postwatchClearBtn.onclick = () => {
+      if (!state.activeItem) return;
+      const itemRef = state.activeItem;
+      const metaSnapshot = getItemMetaPayload(itemRef);
+      withKinoriumActionLock(`pl-rate:${itemRef.id}`, postwatchClearBtn, async () => {
+        const isEpisodeScope =
+          itemRef.media_type === "series" && state.postwatchScope === "episode";
+        if (isEpisodeScope) {
+          const sNum = state.postwatchSeason || state.activeSeason || 1;
+          const eNum = state.postwatchEpisode || state.activeEpisode || 1;
+          const effMap = resolveEffectiveSeasonsMap(itemRef, state.seasonsMap);
+          const res = await fetch("/api/kinorium/rate-episode", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...metaSnapshot,
+              season: sNum,
+              episode: eNum,
+              score: 0,
+              clear: true,
+            }),
+          });
+          const kStatus = await res.json();
+          if (!res.ok || kStatus?.ok === false || kStatus?.error) {
+            throw new Error(kStatus?.error || `HTTP ${res.status}`);
+          }
+          itemRef.kinorium = kStatus;
+          state.catalogDirty = true;
+          if (kStatus.kinorium_counts) {
+            state.kinoriumCounts = { ...state.kinoriumCounts, ...kStatus.kinorium_counts };
+            updateKinoriumSectionCounters();
+          }
+          if (state.activeItem === itemRef) {
+            updateModalKinoriumHeader(kStatus);
+            populateSeasonEpisodeSelectors(itemRef, effMap);
+            updateCurrentEpisodeBar(itemRef, state.activeSeason, state.activeEpisode, false);
+            renderPostWatchRatingState();
+          }
+          patchCatalogItemKinoriumInPlace(itemRef, kStatus);
+          pushDesktopRemoteStateNow();
+          showToast(
+            t(
+              `Оценка удалена · Сезон ${sNum}, Серия ${eNum}`,
+              `Rating removed · Season ${sNum}, Episode ${eNum}`
+            )
+          );
+          return;
+        }
+        const res = await fetch("/api/kinorium/rate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...metaSnapshot,
+            score: 0,
+            clear: true,
+          }),
+        });
+        const kStatus = await res.json();
+        if (!res.ok || kStatus?.ok === false || kStatus?.error) {
+          throw new Error(kStatus?.error || `HTTP ${res.status}`);
+        }
+        itemRef.kinorium = kStatus;
+        if (kStatus.kinorium_counts) {
+          state.kinoriumCounts = { ...state.kinoriumCounts, ...kStatus.kinorium_counts };
+          updateKinoriumSectionCounters();
+        }
+        if (state.activeItem === itemRef) {
+          updateModalKinoriumHeader(kStatus);
+          renderPostWatchRatingState();
+        }
+        patchCatalogItemKinoriumInPlace(itemRef, kStatus);
+        pushDesktopRemoteStateNow();
+        showToast(
+          kStatus.remote_synced
+            ? t("Оценка удалена в Kinorium", "Rating removed on Kinorium")
+            : t("Локальная оценка удалена", "Local rating removed")
+        );
+      });
+    };
+  }
+
+  const closePwBtn = document.getElementById("close-postwatch-btn");
+  if (closePwBtn) {
+    closePwBtn.onclick = () => {
+      state.postwatchManual = false;
+      state.postwatchHovered = false;
+      document.getElementById("kinorium-postwatch-overlay")?.classList.add("hidden");
+      document.getElementById("video-stage")?.classList.remove("has-postwatch-open");
+    };
+  }
+
+  const closePlBtn = document.getElementById("close-player-modal");
+  if (closePlBtn) {
+    closePlBtn.onclick = () => {
+      if (typeof onClosePlayerModal === "function") {
+        onClosePlayerModal(false);
+      }
+    };
+  }
+  document.getElementById("player-modal")?.addEventListener("click", (e) => {
+    if (e.target.id === "player-modal" && !state.isMiniPlayer) {
+      if (typeof onClosePlayerModal === "function") {
+        onClosePlayerModal(false);
+      }
+    }
+  });
 }

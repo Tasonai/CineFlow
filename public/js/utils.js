@@ -2075,3 +2075,28 @@ if (typeof globalThis !== "undefined") {
 if (typeof window !== "undefined") {
   window.logDebug = logDebug;
 }
+
+export function bindStarsHoverRange(starsContainer) {
+  if (!starsContainer) return;
+  const buttons = Array.from(starsContainer.querySelectorAll("button[data-score]"));
+  const clearHover = () => {
+    starsContainer.classList.remove("is-hovering");
+    buttons.forEach((b) => {
+      b.classList.remove("hover-range", "hover-target");
+    });
+  };
+  buttons.forEach((btn) => {
+    const targetScore = parseInt(btn.dataset.score, 10) || 0;
+    btn.addEventListener("pointerenter", (e) => {
+      if (e.pointerType === "touch") return;
+      starsContainer.classList.add("is-hovering");
+      buttons.forEach((b) => {
+        const sc = parseInt(b.dataset.score, 10) || 0;
+        b.classList.toggle("hover-range", sc > 0 && sc <= targetScore);
+        b.classList.toggle("hover-target", sc === targetScore);
+      });
+    });
+  });
+  starsContainer.addEventListener("pointerleave", clearHover);
+  starsContainer.addEventListener("click", clearHover);
+}
