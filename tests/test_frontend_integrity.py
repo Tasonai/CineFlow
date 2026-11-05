@@ -141,7 +141,7 @@ class TestFrontendIntegrity(unittest.TestCase):
         self.assertIn("env(safe-area-inset-", css_combined)
         self.assertIn("html.is-ios-device .atv-vc-vol-slider", css_combined)
 
-        for clean_js in ("modals.js", "settings.js", "settings-onboarding.js", "settings-updater.js"):
+        for clean_js in ("modals.js", "modals-person.js", "modals-stats.js", "settings.js", "settings-onboarding.js", "settings-updater.js"):
             p = os.path.join(PUBLIC_DIR, "js", clean_js)
             with open(p, "r", encoding="utf-8") as f:
                 js_src = f.read()
@@ -197,6 +197,9 @@ class TestFrontendIntegrity(unittest.TestCase):
         self.assertIn('id="modal-similar-source"', html)
         with open(os.path.join(PUBLIC_DIR, "js", "modals.js"), "r", encoding="utf-8") as f:
             modals_src = f.read()
+        for sub_mod in ("modals-person.js", "modals-stats.js"):
+            with open(os.path.join(PUBLIC_DIR, "js", sub_mod), "r", encoding="utf-8") as f:
+                modals_src += "\n" + f.read()
         self.assertNotIn("|| 2024", modals_src)
         self.assertNotIn("ratings: { kinorium: fv.score", modals_src)
 
@@ -465,6 +468,9 @@ class TestFrontendIntegrity(unittest.TestCase):
             app_src = f.read()
         with open(os.path.join(PUBLIC_DIR, "js", "modals.js"), "r", encoding="utf-8") as f:
             modals_src = f.read()
+        for sub_mod in ("modals-person.js", "modals-stats.js"):
+            with open(os.path.join(PUBLIC_DIR, "js", sub_mod), "r", encoding="utf-8") as f:
+                modals_src += "\n" + f.read()
         self.assertIn('id="global-search"', html_src)
         self.assertIn('role="combobox"', html_src)
         self.assertIn('aria-controls="search-live-popover"', html_src)
