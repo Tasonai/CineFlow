@@ -33,7 +33,7 @@ Acceptance:
 - [unit] `backend/kinorium_sync.py` encapsulates `_is_episode_cached_remote_done`, `_merge_remote_episodes_into_local`, `fetch_series_episodes_state`, `_post_episode_status_remote`, `_sync_episodes_map_to_kinorium_remote`, `reconcile_series_episodes`, `reconcile_local_statuses_to_remote`, `reconcile_all_local_episodes`, and `_sync_to_kinorium_remote`.
 - [unit] `KinoriumService` delegates all sync/reconciliation methods with zero behavioral drift and full thread-lock safety (`_state_lock`, `_episodes_lock`).
 - [self] `backend/kinorium.py` shrinks by ~1,000+ lines (bringing total size below 5,900 lines).
-Status: doing
+Status: done
 
 ### S-004 Extract global keyboard & media hotkeys controller (`public/js/app-hotkeys.js`)
 As a user navigating CineFlow with keyboard shortcuts on macOS and Windows, I want global hotkeys (Escape modal stack, Cmd/Ctrl+K search, mini-player controls, full player playback/audio/subtitle/chapter shortcuts) managed by a dedicated `public/js/app-hotkeys.js` module.
@@ -43,7 +43,7 @@ Acceptance:
 - [unit] `public/js/app-hotkeys.js` exports `initGlobalHotkeys` and passes `node --check` and `jsc -m` validation.
 - [unit] `public/app.js` imports and calls `initGlobalHotkeys()`, reducing `public/app.js` by ~470 lines.
 - [self] All static frontend integrity checks in `tests/test_frontend_integrity.py` pass.
-Status: todo
+Status: doing
 
 ### S-005 Extract player status & post-watch rating bindings (`public/js/player-rating.js` & `public/js/modals.js`)
 As a user rating episodes/movies or toggling Kinorium statuses in Quick Peek and the player, I want Quick Peek status/rating bindings in `public/js/modals.js` and player status/post-watch bindings in `public/js/player-rating.js` instead of inside monolithic `public/app.js`.
