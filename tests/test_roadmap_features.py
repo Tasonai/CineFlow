@@ -2189,6 +2189,57 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertIn("export function logDebug(", utils_src)
         self.assertIn("window.logDebug = logDebug", utils_src)
 
+    def test_improve_loop_m1_modules_and_log_hygiene(self):
+        """Verifies M1 improve-loop modular extractions (kinorium_http, kinorium_sync, app-hotkeys, player-rating, settings bindings) and verbose_log gating."""
+        # 1. backend.kinorium_http & backend.kinorium_sync
+        from backend.kinorium_http import (
+            extract_user_path,
+            sanitize_session_cookie,
+            kinorium_http_request,
+            fetch_kinorium_html,
+        )
+        from backend.kinorium_sync import (
+            fetch_series_episodes_state,
+            reconcile_series_episodes,
+            reconcile_local_statuses_to_remote,
+        )
+        self.assertEqual(extract_user_path("https://ru.kinorium.com/user/51670/"), "/user/51670/")
+        self.assertIn("PHPSESSID=abc123", sanitize_session_cookie("Cookie: PHPSESSID=abc123"))
+        self.assertTrue(callable(kinorium_http_request))
+        self.assertTrue(callable(fetch_kinorium_html))
+        self.assertTrue(callable(fetch_series_episodes_state))
+        self.assertTrue(callable(reconcile_series_episodes))
+        self.assertTrue(callable(reconcile_local_statuses_to_remote))
+
+        # 2. verbose_log gating in backend/routes/streams.py
+        with open(os.path.join(BASE_DIR, "backend", "routes", "streams.py"), "r", encoding="utf-8") as fh:
+            streams_src = fh.read()
+        self.assertIn('if getattr(ctx, "verbose_log", False):', streams_src)
+
+        # 3. Frontend modular controllers
+        hotkeys_path = os.path.join(BASE_DIR, "public", "js", "app-hotkeys.js")
+        self.assertTrue(os.path.isfile(hotkeys_path))
+        with open(hotkeys_path, "r", encoding="utf-8") as fh:
+            self.assertIn("export function initGlobalHotkeys(", fh.read())
+
+        with open(os.path.join(BASE_DIR, "public", "js", "player-rating.js"), "r", encoding="utf-8") as fh:
+            self.assertIn("export function initPlayerStatusAndRatingBindings(", fh.read())
+
+        with open(os.path.join(BASE_DIR, "public", "js", "modals.js"), "r", encoding="utf-8") as fh:
+            self.assertIn("export function initQuickPeekBindings(", fh.read())
+
+        with open(os.path.join(BASE_DIR, "public", "js", "settings.js"), "r", encoding="utf-8") as fh:
+            settings_src = fh.read()
+        self.assertIn("export function initSettingsAndBackupBindings(", settings_src)
+        self.assertIn("export async function requestCloseSettingsModal(", settings_src)
+
+        with open(os.path.join(BASE_DIR, "public", "app.js"), "r", encoding="utf-8") as fh:
+            app_src = fh.read()
+        self.assertIn("initGlobalHotkeys({", app_src)
+        self.assertIn("initQuickPeekBindings()", app_src)
+        self.assertIn("initPlayerStatusAndRatingBindings({", app_src)
+        self.assertIn("initSettingsAndBackupBindings()", app_src)
+
 
 if __name__ == "__main__":
     unittest.main()

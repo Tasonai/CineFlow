@@ -63,4 +63,26 @@ Acceptance:
 - [unit] `public/js/settings.js` exports `initSettingsAndBackupBindings`, `handleExportBackup`, and `openManualBackupPasteBox`.
 - [unit] `public/app.js` calls `initSettingsAndBackupBindings()`, bringing `public/app.js` down below 2,100 lines (a >45% reduction from 3,814 lines).
 - [self] Cache token bumped via `scripts/bump_cache_token.py`, full test suite (`120/120` tests) passes, and `/Applications/CineFlow.app/Contents/Resources/app/` is synced.
-Status: doing
+Status: done
+
+---
+
+## Milestone M2: Next Candidate Improvements (Backlog)
+
+### S-007 Extract player stage & video controls event bindings (`public/js/player-ui-controls.js`)
+As a developer maintaining the video player UI, I want the player stage click/wheel/popover/fullscreen/studio/source tab bindings in `public/app.js` extracted into `initPlayerStageBindings()` in `public/js/player-ui-controls.js`, bringing `public/app.js` below 900 lines.
+Screens: public/js/player-ui-controls.js, public/app.js
+Depends: S-006
+Acceptance:
+- [unit] `public/js/player-ui-controls.js` exports `initPlayerStageBindings` and `public/app.js` invokes it.
+- [self] `public/app.js` shrinks below 900 lines and all `tests/test_frontend_integrity.py` checks pass.
+Status: todo
+
+### S-008 Extract Kinorium social, friends & premieres discovery (`backend/kinorium_discovery.py`)
+As a developer maintaining Kinorium discovery shelves, I want friend activity feeds, premieres fetching, and recommendations isolated in `backend/kinorium_discovery.py` with delegation on `KinoriumService`.
+Screens: backend/kinorium_discovery.py, backend/kinorium.py
+Depends: S-003
+Acceptance:
+- [unit] `backend/kinorium_discovery.py` encapsulates premieres, friends activity, and recommendation list methods.
+- [self] `backend/kinorium.py` shrinks below 4,500 lines and all unit tests pass.
+Status: todo

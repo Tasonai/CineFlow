@@ -9,16 +9,17 @@ import {
   profileStorageKey,
   profileStorageKeyFor,
   state,
-} from "./state.js?v=20261104v28";
+} from "./state.js?v=20261105v1";
 import {
   applyStaticDomTranslations,
   displayAddonDescription,
   isEn,
   syncLanguageSegmentedControlUI,
   t,
-} from "./i18n.js?v=20261104v28";
+} from "./i18n.js?v=20261105v1";
 import {
   closeCustomSelectMenu,
+  copyTextToClipboard,
   escapeAttr,
   escapeHtml,
   getWatchHistoryList,
@@ -31,31 +32,31 @@ import {
   syncAllCustomSelects,
   syncCustomSelect,
   syncScrollTopButton,
-} from "./utils.js?v=20261104v28";
-import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261104v28";
+} from "./utils.js?v=20261105v1";
+import { applyEnabledServicesVisibility, isServiceEnabled } from "./catalog-media-resolver.js?v=20261105v1";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261104v28";
-import { renderHero } from "./catalog-hero.js?v=20261104v28";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261104v28";
+} from "./catalog-shelves.js?v=20261105v1";
+import { renderHero } from "./catalog-hero.js?v=20261105v1";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261105v1";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
-} from "./catalog-filters.js?v=20261104v28";
+} from "./catalog-filters.js?v=20261105v1";
 import {
   loadCatalog,
   renderLoginBannerIfNeeded,
   updateFriendsFilterDropdown,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261104v28";
-import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261104v28";
-import { loadStremioStreams } from "./player-streams.js?v=20261104v28";
-import { renderModalProvidersSidebar } from "./player-meta.js?v=20261104v28";
+} from "./catalog.js?v=20261105v1";
+import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261105v1";
+import { loadStremioStreams } from "./player-streams.js?v=20261105v1";
+import { renderModalProvidersSidebar } from "./player-meta.js?v=20261105v1";
 import {
   refreshOpenPlayerLanguageUI,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261104v28";
+} from "./player.js?v=20261105v1";
 import {
   applyProfilesPayload,
   ensureKidsPinVerifiedForAdminAction,
@@ -68,12 +69,12 @@ import {
   renderProfilesModalUI,
   renderTvCastModalUI,
   startOneClickKinoriumLogin,
-} from "./features.js?v=20261104v28";
+} from "./features.js?v=20261105v1";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   syncDesktopConnectedRemotesUI,
-} from "./remote.js?v=20261104v28";
+} from "./remote.js?v=20261105v1";
 
 function _adminPinPayload() {
   return state.verifiedKidsAdminPin
@@ -3018,5 +3019,453 @@ export async function submitOnboardingModal() {
   } finally {
     btn.disabled = false;
     btn.textContent = t("Применить и начать", "Apply & Start");
+  }
+}
+
+export async function requestCloseSettingsModal() {
+  const settingsModEl = document.getElementById("settings-modal");
+  if (!settingsModEl || settingsModEl.classList.contains("hidden")) return true;
+  if (isNetworkSettingsDirty()) {
+    const discard = await showConfirmModal({
+      title: t("Несохраненные изменения", "Unsaved changes"),
+      message: t(
+        "Вы изменили настройки, но еще не нажали «Сохранить изменения». Закрыть без сохранения?",
+        "You have unsaved settings changes. Close without saving?"
+      ),
+      confirmLabel: t("Закрыть без сохранения", "Discard & Close"),
+      cancelLabel: t("Остаться", "Keep Editing"),
+      danger: true,
+    });
+    if (!discard) return false;
+    resetUnsavedSettingsInputs();
+  }
+  closeCustomSelectMenu({ restoreFocus: false });
+  settingsModEl.classList.add("hidden");
+  state.verifiedKidsAdminPin = "";
+  syncScrollTopButton();
+  restoreModalTriggerFocus("settings-modal");
+  return true;
+}
+
+export async function handleExportBackup(btnEl) {
+  if (btnEl) btnEl.disabled = true;
+  try {
+    const payload = await buildFullBackupPayload();
+    if (!payload) return;
+    const jsonStr = JSON.stringify(payload, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `cineflow-backup-${dateStamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    showToast(t("Резервная копия сохранена в файл JSON", "Backup saved to JSON file"));
+  } catch (err) {
+    console.error("Export backup error:", err);
+    showToast(t("Ошибка при экспорте резервной копии", "Failed to export backup"));
+  } finally {
+    if (btnEl) btnEl.disabled = false;
+  }
+}
+
+export function openManualBackupPasteBox() {
+  const parentTab = document.getElementById("stab-backup");
+  if (!parentTab) return;
+  let pasteBox = document.getElementById("backup-manual-paste-box");
+  if (!pasteBox) {
+    pasteBox = document.createElement("div");
+    pasteBox.id = "backup-manual-paste-box";
+    pasteBox.className = "atv-backup-paste-box";
+    pasteBox.innerHTML = `
+      <div class="atv-backup-paste-label">${escapeHtml(
+        t(
+          "Вставьте JSON резервной копии CineFlow ниже и нажмите «Восстановить»:",
+          "Paste your CineFlow backup JSON below and click Restore:"
+        )
+      )}</div>
+      <textarea id="backup-manual-paste-textarea" class="atv-backup-paste-textarea" rows="4" placeholder="{ &quot;app&quot;: &quot;CineFlow&quot;, ... }"></textarea>
+      <div class="atv-backup-paste-actions">
+        <button type="button" class="atv-btn-secondary atv-btn-xs" id="btn-cancel-backup-paste">${escapeHtml(
+          t("Отмена", "Cancel")
+        )}</button>
+        <button type="button" class="atv-btn-primary atv-btn-xs" id="btn-apply-backup-paste">${escapeHtml(
+          t("Восстановить", "Restore")
+        )}</button>
+      </div>
+    `;
+    parentTab.appendChild(pasteBox);
+    pasteBox.querySelector("#btn-cancel-backup-paste")?.addEventListener("click", () => {
+      pasteBox.classList.add("hidden");
+    });
+    pasteBox.querySelector("#btn-apply-backup-paste")?.addEventListener("click", async () => {
+      const ta = pasteBox.querySelector("#backup-manual-paste-textarea");
+      const rawText = (ta?.value || "").trim();
+      if (!rawText) {
+        ta?.focus();
+        return;
+      }
+      try {
+        const parsed = JSON.parse(rawText);
+        const ok = await restoreFromBackupObject(parsed);
+        if (ok) {
+          if (ta) ta.value = "";
+          pasteBox.classList.add("hidden");
+        }
+      } catch (_) {
+        showToast(
+          t(
+            "Текст не является корректным JSON резервной копии CineFlow",
+            "Text is not a valid CineFlow backup JSON"
+          )
+        );
+      }
+    });
+  }
+  pasteBox.classList.remove("hidden");
+  const ta = pasteBox.querySelector("#backup-manual-paste-textarea");
+  if (ta) {
+    ta.focus();
+  }
+}
+
+export function initSettingsAndBackupBindings() {
+  document.getElementById("btn-open-stremio-addons")?.addEventListener("click", async () => {
+    await openSettingsModal("network");
+    setTimeout(() => {
+      document.getElementById("net-group-stremio")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById("cfg-stremio-manifest-input")?.focus();
+    }, 60);
+  });
+
+  document.getElementById("btn-add-stremio-addon")?.addEventListener("click", () => {
+    addStremioAddonFromInput();
+  });
+  document.getElementById("cfg-stremio-manifest-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addStremioAddonFromInput();
+    }
+  });
+
+  document.getElementById("cfg-lan-toggle")?.addEventListener("change", (e) => {
+    toggleLanAccess(Boolean(e.target.checked));
+  });
+  document.getElementById("cfg-autostart-toggle")?.addEventListener("change", (e) => {
+    toggleMacosAutostart(Boolean(e.target.checked));
+  });
+  document.getElementById("about-update-check-btn")?.addEventListener("click", () => {
+    checkAppUpdates({ force: true, silent: false });
+  });
+  document.getElementById("about-update-action-btn")?.addEventListener("click", () => {
+    startAppUpdateDownload();
+  });
+  document.getElementById("cfg-auto-check-updates")?.addEventListener("change", () => {
+    saveUpdaterSettingsImmediate();
+  });
+  ["cfg-update-repo", "cfg-update-manifest-url"].forEach((id) => {
+    const inp = document.getElementById(id);
+    if (!inp) return;
+    inp.addEventListener("change", () => {
+      saveUpdaterSettingsImmediate();
+    });
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        checkAppUpdates({ force: true, silent: false });
+      }
+    });
+  });
+  document.getElementById("btn-copy-lan-url")?.addEventListener("click", async () => {
+    const urlText = state.systemStatus?.lan_url || document.getElementById("lan-url-code")?.textContent || "";
+    if (!urlText) return;
+    const copied = await copyTextToClipboard(urlText);
+    if (copied) {
+      showToast(t(`Адрес скопирован: ${urlText}`, `Copied URL: ${urlText}`));
+    }
+  });
+
+  document.getElementById("btn-sync-lan-now")?.addEventListener("click", async () => {
+    await triggerLanSync();
+  });
+
+  const openSettingsBtn = document.getElementById("open-settings-btn");
+  if (openSettingsBtn) {
+    openSettingsBtn.onclick = () => openSettingsModal("integrations");
+  }
+  const closeSettingsBtn = document.getElementById("close-settings-modal");
+  if (closeSettingsBtn) {
+    closeSettingsBtn.onclick = () => {
+      requestCloseSettingsModal();
+    };
+  }
+  document.getElementById("settings-modal")?.addEventListener("click", (e) => {
+    if (e.target.id === "settings-modal") {
+      requestCloseSettingsModal();
+    }
+  });
+  document.getElementById("settings-country-select")?.addEventListener("change", (e) => {
+    changeUserCountryInstant(e.target.value);
+  });
+  document.getElementById("btn-open-onboarding-wizard")?.addEventListener("click", () => {
+    openOnboardingModal({ isFirstRun: false });
+  });
+  document.getElementById("close-onboarding-modal")?.addEventListener("click", () => {
+    closeOnboardingModal({ reopenSettings: true });
+  });
+  document.getElementById("btn-onboarding-skip")?.addEventListener("click", () => {
+    skipOnboardingModal();
+  });
+  document.getElementById("btn-onboarding-back")?.addEventListener("click", () => {
+    setOnboardingStep((state.onboardingStep || 1) - 1);
+  });
+  document.getElementById("btn-onboarding-next")?.addEventListener("click", () => {
+    setOnboardingStep((state.onboardingStep || 1) + 1);
+  });
+  document.querySelectorAll("#ob-stepper [data-ob-step-btn]").forEach((stepBtn) => {
+    stepBtn.addEventListener("click", () => {
+      setOnboardingStep(Number(stepBtn.dataset.obStepBtn) || 1);
+    });
+  });
+  document.getElementById("btn-onboarding-finish")?.addEventListener("click", () => {
+    submitOnboardingModal();
+  });
+  document.getElementById("onboarding-modal")?.addEventListener("click", (e) => {
+    if (e.target.id === "onboarding-modal" && !state.onboardingIsFirstRun) {
+      closeOnboardingModal({ reopenSettings: true });
+    }
+  });
+  document.getElementById("reset-settings-btn")?.addEventListener("click", () => {
+    resetUnsavedSettingsInputs();
+    showToast(t("Изменения сброшены", "Unsaved changes reset"));
+  });
+
+  [
+    "cfg-spoof-region",
+    "cfg-custom-mirror",
+    "cfg-proxy-url",
+    "cfg-cf-worker",
+    "cfg-backup-mode",
+    "cfg-torrserver-url",
+    "cfg-debrid-key",
+  ].forEach((fieldId) => {
+    const fieldEl = document.getElementById(fieldId);
+    if (!fieldEl) return;
+    fieldEl.addEventListener("input", () => syncSettingsFooterUI());
+    fieldEl.addEventListener("change", () => {
+      if (fieldId === "cfg-backup-mode" && (fieldEl.value === "realdebrid" || fieldEl.value === "torbox")) {
+        const details4k = document.getElementById("details-net-4k");
+        if (details4k) details4k.open = true;
+      }
+      syncSettingsFooterUI();
+    });
+  });
+
+  const saveSettingsBtn = document.getElementById("save-settings-btn");
+  if (saveSettingsBtn) {
+    saveSettingsBtn.onclick = async () => {
+      if (!isNetworkSettingsDirty()) {
+        closeCustomSelectMenu({ restoreFocus: false });
+        document.getElementById("settings-modal")?.classList.add("hidden");
+        state.verifiedKidsAdminPin = "";
+        syncScrollTopButton();
+        restoreModalTriggerFocus("settings-modal");
+        return;
+      }
+      const adminPinFields = state.verifiedKidsAdminPin
+        ? { pin: state.verifiedKidsAdminPin, current_pin: state.verifiedKidsAdminPin }
+        : {};
+      const kinDirty = isKinoriumQuickFormDirty();
+      const spoofRegion = document.getElementById("cfg-spoof-region").value;
+      const kinQuickUser = (document.getElementById("kin-quick-user-input")?.value || "").trim();
+      const kinQuickCookie = (document.getElementById("kin-quick-cookie-input")?.value || "").trim();
+      const debridKeyVal = (document.getElementById("cfg-debrid-key")?.value || "").trim();
+      const payload = {
+        ...adminPinFields,
+        hdrezka: {
+          spoof_region: spoofRegion,
+          custom_mirror: document.getElementById("cfg-custom-mirror").value,
+          proxy_url: document.getElementById("cfg-proxy-url").value,
+          cf_worker_relay: document.getElementById("cfg-cf-worker")?.value || "",
+        },
+        backup_stream: {
+          mode: document.getElementById("cfg-backup-mode").value,
+          torrserver_url: document.getElementById("cfg-torrserver-url").value,
+          ...(debridKeyVal ? { debrid_api_key: debridKeyVal } : {}),
+        },
+      };
+      if (isServiceEnabled("kinorium") && (kinQuickUser || kinQuickCookie)) {
+        payload.kinorium = {
+          username: kinQuickUser,
+          session_cookie: kinQuickCookie,
+          auto_scrobble_threshold: 0.95,
+        };
+      }
+      let res;
+      let data = {};
+      try {
+        res = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        data = await res.json().catch(() => ({}));
+      } catch (_) {
+        showToast(t("Не удалось сохранить настройки", "Failed to save settings"));
+        return;
+      }
+      if (!res.ok || data?.ok === false || data?.error) {
+        showToast(data?.error || t("Не удалось сохранить настройки", "Failed to save settings"));
+        return;
+      }
+      if (data.integrations) state.integrations = data.integrations;
+      if (kinDirty && isServiceEnabled("kinorium") && kinQuickUser) {
+        try {
+          const syncPayload = { user_id: kinQuickUser, ...adminPinFields };
+          if (kinQuickCookie) syncPayload.session_cookie = kinQuickCookie;
+          const syncRes = await fetch("/api/kinorium/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(syncPayload),
+          });
+          const syncData = await syncRes.json();
+          if (!syncRes.ok || syncData?.ok === false || syncData?.error) {
+            showToast(
+              syncData?.error ||
+                syncData?.sync?.error ||
+                t("Ошибка синхронизации Kinorium", "Kinorium sync error")
+            );
+          } else {
+            if (syncData.kinorium_account) {
+              state.kinoriumAccount = syncData.kinorium_account;
+              updateKinoriumUserBadge();
+              renderHeaderProfileSwitcher();
+            }
+            if (syncData.integrations) state.integrations = syncData.integrations;
+            if (!syncData.sync?.error) {
+              state.kinoriumFormExpanded = false;
+            }
+          }
+        } catch (err) {
+          window.logDebug?.("Settings", err);
+        }
+      }
+      const keyInput = document.getElementById("cfg-debrid-key");
+      if (keyInput && debridKeyVal) {
+        keyInput.value = "";
+        keyInput.placeholder = t(
+          "Ключ сохранён (оставьте пустым или введите новый)",
+          "API key saved (leave blank or enter a new key)"
+        );
+      }
+      state.settingsBaseline = getNetworkSettingsSnapshot();
+      syncSettingsFooterUI();
+      closeCustomSelectMenu({ restoreFocus: false });
+      document.getElementById("settings-modal")?.classList.add("hidden");
+      state.verifiedKidsAdminPin = "";
+      syncScrollTopButton();
+      restoreModalTriggerFocus("settings-modal");
+      applyEnabledServicesVisibility();
+      renderLoginBannerIfNeeded();
+      loadCatalog();
+      showToast(t("Настройки сохранены", "Settings saved"));
+    };
+  }
+
+  const quickExportBackupBtn = document.getElementById("btn-quick-export-backup");
+  if (quickExportBackupBtn) {
+    quickExportBackupBtn.onclick = () => handleExportBackup(quickExportBackupBtn);
+  }
+
+  const copyBackupClipboardBtn = document.getElementById("btn-copy-backup-clipboard");
+  if (copyBackupClipboardBtn) {
+    copyBackupClipboardBtn.onclick = async () => {
+      copyBackupClipboardBtn.disabled = true;
+      try {
+        const payload = await buildFullBackupPayload();
+        if (!payload) return;
+        const jsonStr = JSON.stringify(payload, null, 2);
+        const copied = await copyTextToClipboard(jsonStr);
+        if (copied) {
+          showToast(t("Резервная копия скопирована в буфер обмена", "Backup copied to clipboard"));
+        } else {
+          showToast(
+            t(
+              "Не удалось скопировать в буфер — используйте «Скачать Backup (.json)»",
+              'Could not copy to clipboard — use "Download Backup (.json)"'
+            )
+          );
+        }
+      } catch (_) {
+        showToast(
+          t(
+            "Не удалось скопировать в буфер — используйте «Скачать Backup (.json)»",
+            'Could not copy to clipboard — use "Download Backup (.json)"'
+          )
+        );
+      } finally {
+        copyBackupClipboardBtn.disabled = false;
+      }
+    };
+  }
+
+  const pasteBackupClipboardBtn = document.getElementById("btn-paste-backup-clipboard");
+  if (pasteBackupClipboardBtn) {
+    pasteBackupClipboardBtn.onclick = async () => {
+      if (!navigator.clipboard || typeof navigator.clipboard.readText !== "function") {
+        openManualBackupPasteBox();
+        return;
+      }
+      pasteBackupClipboardBtn.disabled = true;
+      try {
+        const rawText = await navigator.clipboard.readText();
+        if (!rawText || !rawText.trim()) {
+          openManualBackupPasteBox();
+          return;
+        }
+        const parsed = JSON.parse(rawText);
+        await restoreFromBackupObject(parsed);
+      } catch (err) {
+        if (err && (err.name === "NotAllowedError" || err.name === "SecurityError")) {
+          openManualBackupPasteBox();
+        } else {
+          showToast(
+            t(
+              "В буфере обмена нет корректного JSON резервной копии CineFlow",
+              "Clipboard does not contain a valid CineFlow backup JSON"
+            )
+          );
+        }
+      } finally {
+        pasteBackupClipboardBtn.disabled = false;
+      }
+    };
+  }
+
+  const quickImportBackupBtn = document.getElementById("btn-quick-import-backup");
+  const importBackupInput = document.getElementById("input-import-backup");
+  if (importBackupInput) {
+    if (quickImportBackupBtn) {
+      quickImportBackupBtn.onclick = () => importBackupInput.click();
+    }
+    importBackupInput.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (quickImportBackupBtn) quickImportBackupBtn.disabled = true;
+      try {
+        const rawText = await file.text();
+        const parsed = JSON.parse(rawText);
+        await restoreFromBackupObject(parsed);
+      } catch (err) {
+        console.error("Import backup error:", err);
+        showToast(t("Не удалось прочитать JSON-файл резервной копии", "Failed to read backup JSON file"));
+      } finally {
+        if (quickImportBackupBtn) quickImportBackupBtn.disabled = false;
+        importBackupInput.value = "";
+      }
+    };
   }
 }

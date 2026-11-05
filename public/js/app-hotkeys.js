@@ -4,8 +4,8 @@
  * Mini-Player/PiP keyboard shortcuts, and full Player playback/audio/subtitle/crop/Ambilight hotkeys.
  */
 
-import { state } from "./state.js?v=20261104v28";
-import { t } from "./i18n.js?v=20261104v28";
+import { state } from "./state.js?v=20261105v1";
+import { t } from "./i18n.js?v=20261105v1";
 import {
   closeConfirmModal,
   closeCustomSelectMenu,
@@ -15,7 +15,7 @@ import {
   showVideoOsd,
   trapModalTabKey,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261104v28";
+} from "./utils.js?v=20261105v1";
 import {
   applyAudioBoostToVideo,
   applyVideoCropToVideo,
@@ -26,18 +26,18 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261104v28";
+} from "./audio-dsp.js?v=20261105v1";
 import {
   closeCardContextMenu,
   closeCommandPalette,
   closeMovieRouletteModal,
   openCommandPalette,
-} from "./catalog.js?v=20261104v28";
+} from "./catalog.js?v=20261105v1";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261104v28";
+} from "./modals.js?v=20261105v1";
 import {
   captureVideoScreenshot,
   clearAutoplayNextTimer,
@@ -61,9 +61,9 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261104v28";
-import { closeSubtitleDictPopover } from "./subtitles.js?v=20261104v28";
-import { closeOnboardingModal } from "./settings.js?v=20261104v28";
+} from "./player.js?v=20261105v1";
+import { closeSubtitleDictPopover } from "./subtitles.js?v=20261105v1";
+import { closeOnboardingModal } from "./settings.js?v=20261105v1";
 import {
   closeDownloadsModal,
   closeKidsPinModal,
@@ -72,7 +72,7 @@ import {
   closeProfilesModal,
   closeTvCastModal,
   handleTvSpatialKeydown,
-} from "./features.js?v=20261104v28";
+} from "./features.js?v=20261105v1";
 
 export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
   window.addEventListener("focus", () => {

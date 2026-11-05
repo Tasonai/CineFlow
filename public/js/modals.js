@@ -1,4 +1,4 @@
-import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261104v28";
+import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261105v1";
 import {
   displayBackdrop,
   displayCountries,
@@ -15,7 +15,7 @@ import {
   translateCareer,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261104v28";
+} from "./i18n.js?v=20261105v1";
 import {
   attachHorizontalWheelScroll,
   bindStarsHoverRange,
@@ -40,11 +40,11 @@ import {
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
   withKinoriumActionLock,
-} from "./utils.js?v=20261104v28";
+} from "./utils.js?v=20261105v1";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
-} from "./catalog-cards.js?v=20261104v28";
+} from "./catalog-cards.js?v=20261105v1";
 import {
   applyEnabledServicesVisibility,
   getDefaultPlayableSourceTab,
@@ -53,20 +53,20 @@ import {
   patchCatalogItemKinoriumInPlace,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261104v28";
+} from "./catalog-media-resolver.js?v=20261105v1";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261104v28";
-import { renderHero } from "./catalog-hero.js?v=20261104v28";
-import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261104v28";
-import { loadCatalog } from "./catalog.js?v=20261104v28";
-import { escapeEpisodeHtml, resolveSeriesCompletedFlag } from "./player-seasons.js?v=20261104v28";
+} from "./catalog-shelves.js?v=20261105v1";
+import { renderHero } from "./catalog-hero.js?v=20261105v1";
+import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261105v1";
+import { loadCatalog } from "./catalog.js?v=20261105v1";
+import { escapeEpisodeHtml, resolveSeriesCompletedFlag } from "./player-seasons.js?v=20261105v1";
 import {
   closePlayerModal,
   openPlayerModal,
-} from "./player.js?v=20261104v28";
-import { updateBackupSummaryStat } from "./settings.js?v=20261104v28";
+} from "./player.js?v=20261105v1";
+import { updateBackupSummaryStat } from "./settings.js?v=20261105v1";
 
 export function formatRelativeWatchDate(ts) {
   if (!ts) return t("Недавно", "Recently");
