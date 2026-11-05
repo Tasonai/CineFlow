@@ -23,7 +23,7 @@ Acceptance:
 - [unit] `backend/kinorium_http.py` encapsulates `_read_resp_bounded`, `_decompress_gzip_bounded`, `extract_user_path`, `extract_cookie_user_id`, `sanitize_session_cookie`, `solve_kinorium_js_challenge`, `kinorium_candidate_domains`, `is_ip_cooldown_active`, `kinorium_http_request`, `get_active_sync_cookie`, `ensure_kinorium_cookies`, and `fetch_kinorium_html`.
 - [unit] `KinoriumService` delegates all transport and cookie methods seamlessly so existing callers and tests (`test_audit_fixes.py`, `test_v31_upgrades.py`) pass unchanged.
 - [self] `backend/kinorium.py` shrinks by ~600+ lines.
-Status: doing
+Status: done
 
 ### S-003 Extract Kinorium bidirectional episode & status sync engine (`backend/kinorium_sync.py`)
 As a developer maintaining two-way Kinorium synchronization, I want remote status pushing and episode reconciliation isolated in `backend/kinorium_sync.py` with full method delegation on `KinoriumService`.
@@ -33,7 +33,7 @@ Acceptance:
 - [unit] `backend/kinorium_sync.py` encapsulates `_is_episode_cached_remote_done`, `_merge_remote_episodes_into_local`, `fetch_series_episodes_state`, `_post_episode_status_remote`, `_sync_episodes_map_to_kinorium_remote`, `reconcile_series_episodes`, `reconcile_local_statuses_to_remote`, `reconcile_all_local_episodes`, and `_sync_to_kinorium_remote`.
 - [unit] `KinoriumService` delegates all sync/reconciliation methods with zero behavioral drift and full thread-lock safety (`_state_lock`, `_episodes_lock`).
 - [self] `backend/kinorium.py` shrinks by ~1,000+ lines (bringing total size below 5,900 lines).
-Status: todo
+Status: doing
 
 ### S-004 Extract global keyboard & media hotkeys controller (`public/js/app-hotkeys.js`)
 As a user navigating CineFlow with keyboard shortcuts on macOS and Windows, I want global hotkeys (Escape modal stack, Cmd/Ctrl+K search, mini-player controls, full player playback/audio/subtitle/chapter shortcuts) managed by a dedicated `public/js/app-hotkeys.js` module.
