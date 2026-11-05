@@ -1,5 +1,5 @@
-import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261105v4";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261105v4";
+import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261105v5";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261105v5";
 import {
   escapeAttr,
   escapeHtml,
@@ -7,9 +7,9 @@ import {
   rememberModalTriggerFocus,
   restoreModalTriggerFocus,
   showToast,
-} from "./utils.js?v=20261105v4";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261105v4";
-import { seekEffectivePlayback } from "./player-streams.js?v=20261105v4";
+} from "./utils.js?v=20261105v5";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261105v5";
+import { seekEffectivePlayback } from "./player-streams.js?v=20261105v5";
 
 let _bookmarkDialogWasPlaying = false;
 let _activeEditingMoment = null;
@@ -503,7 +503,7 @@ export function renderBookmarksModalList(filterQuery = "") {
         media_type: m.media_type || "movie",
         poster: m.poster,
       };
-      const { openPlayerModal } = await import("./player.js?v=20261105v4");
+      const { openPlayerModal } = await import("./player.js?v=20261105v5");
       openPlayerModal(
         targetItem,
         "hdrezka",

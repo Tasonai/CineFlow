@@ -1,10 +1,10 @@
-import { state } from "./state.js?v=20261105v4";
+import { state } from "./state.js?v=20261105v5";
 import {
   applyStaticDomTranslations,
   isEn,
   syncLanguageSegmentedControlUI,
   t,
-} from "./i18n.js?v=20261105v4";
+} from "./i18n.js?v=20261105v5";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -15,22 +15,22 @@ import {
   syncAllCustomSelects,
   syncCustomSelect,
   syncScrollTopButton,
-} from "./utils.js?v=20261105v4";
-import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261105v4";
+} from "./utils.js?v=20261105v5";
+import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261105v5";
 import {
   loadCatalog,
   renderLoginBannerIfNeeded,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261105v4";
+} from "./catalog.js?v=20261105v5";
 import {
   ensureKidsPinVerifiedForAdminAction,
   renderHeaderProfileSwitcher,
-} from "./features.js?v=20261105v4";
+} from "./features.js?v=20261105v5";
 import {
   _adminPinPayload,
   getNetworkSettingsSnapshot,
   renderIntegrationsList,
-} from "./settings.js?v=20261105v4";
+} from "./settings.js?v=20261105v5";
 
 const _TZ_TO_EU_COUNTRY = {
   "Europe/Warsaw": "PL",

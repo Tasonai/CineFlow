@@ -31,6 +31,16 @@ CineFlow is a cross-platform desktop cinema center for **macOS** (`WKWebView` + 
 │   │   │            settings-updater.js (626 lines)                          │
 │   │   ├── Hotkeys:  app-hotkeys.js (465 lines)                              │
 │   │   └── Shared Foundation: state.js, api.js, utils.js                     │
+│   └── Modular Stylesheets (public/css/, 9 thematic files, all < 2,700 LOC): │
+│       ├── base-and-hero.css (Design tokens, reset, top header & hero)       │
+│       ├── catalog-and-player-layout.css (Catalog shelves, poster grid, modal)│
+│       ├── modals-and-search.css (Stats, Quick Peek, Live Search, Ambilight) │
+│       ├── features-and-remote.css (Profiles, Offline Downloads, Smart TV)   │
+│       ├── remote-and-palette.css (Smartphone Remote, Roulette, Cmd+K, BM)   │
+│       ├── settings-and-episodes.css (Settings sheet, episodes strip, mini)  │
+│       ├── settings-onboarding-and-select.css (Tabs, Setup Wizard, CSelect)  │
+│       ├── video-controls-and-person.css (Player bar, Person modal, PiP dock)│
+│       └── player-subtitles-and-bookmarks.css (TV focus, Subtitles, BMs)     │
 └─────────────────────────────────────┬─────────────────────────────────────┘
                                       │ JSON REST API + HLS/MP4 Proxy
                                       ▼

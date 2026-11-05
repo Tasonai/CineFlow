@@ -1,0 +1,1322 @@
+/* ==========================================================================
+   TV Mode Spatial D-Pad / Gamepad Focus Ring (10-Foot UI)
+   ========================================================================== */
+html.is-tv-mode .tv-focused {
+  outline: none;
+  box-shadow: 0 0 0 3px #f5f5f7, 0 0 0 6px rgba(255, 255, 255, 0.28), 0 14px 32px rgba(0, 0, 0, 0.65) !important;
+  transform: scale(1.035);
+  z-index: 18;
+  transition: transform 0.15s var(--ease-apple, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+html.is-tv-mode .atv-poster-item.tv-focused {
+  box-shadow: none !important;
+  transform: none;
+}
+
+html.is-tv-mode .atv-poster-item.tv-focused .atv-poster-frame {
+  box-shadow: 0 0 0 3px #f5f5f7, 0 0 0 6px rgba(255, 255, 255, 0.32), 0 18px 36px rgba(0, 0, 0, 0.72) !important;
+  transform: scale(1.035);
+}
+
+html.is-tv-mode .atv-upnext-card.tv-focused,
+html.is-tv-mode .atv-upnext-more-card.tv-focused,
+html.is-tv-mode .atv-similar-card.tv-focused {
+  border-radius: var(--radius-card);
+}
+
+html.is-tv-mode .atv-vc-btn {
+  min-width: 38px;
+  min-height: 38px;
+}
+
+html.is-tv-mode .atv-kinorium-pills {
+  padding: 8px 22px 10px 8px;
+}
+
+html.is-tv-mode .atv-nav-pills {
+  padding: 7px 8px;
+}
+
+html.is-tv-mode .atv-episodes-strip {
+  padding: 8px 14px 10px;
+}
+
+html.is-tv-mode .atv-upnext-row {
+  padding: 10px 8px 18px;
+}
+
+html.is-tv-mode .atv-pill,
+html.is-tv-mode .kin-sec-pill,
+html.is-tv-mode .type-pill {
+  font-size: 13.5px;
+}
+
+@media (max-width: 980px) {
+  #vc-btn-offline-dl,
+  #vc-btn-remote {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   Smart Subtitles Timing Stepper, Online Search, Drag-Drop & Batch Offline (v31)
+   ========================================================================== */
+.atv-sub-offset-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+  border-radius: 8px;
+  background: #242427;
+}
+
+.atv-sub-step-btn,
+.atv-sub-step-val {
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  outline: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(245, 245, 247, 0.88);
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-sub-step-btn:hover,
+  .atv-sub-step-val:hover {
+    background: #2c2c30;
+    color: #ffffff;
+  }
+}
+
+.atv-sub-step-val {
+  min-width: 54px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.atv-sub-step-val.is-modified {
+  background: #f5f5f7;
+  color: #0b0c0f;
+}
+
+.atv-vc-subs-tracks-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.atv-vc-subs-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 4px 6px 4px;
+}
+
+.atv-vc-subs-sync-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 2px;
+}
+
+.atv-vc-subs-sync-lbl {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: rgba(235, 235, 245, 0.68);
+  white-space: nowrap;
+}
+
+.atv-vc-subs-actions-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.atv-vc-subs-action-btn {
+  height: 30px;
+  padding: 0 9px;
+  border: none;
+  outline: none;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: #242427;
+  color: #f5f5f7;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-subs-action-btn:hover:not(:disabled) {
+    background: #2c2c30;
+    color: #ffffff;
+  }
+}
+
+.atv-vc-subs-action-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.atv-video-stage.is-sub-drop-target::after {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 14px;
+  border: 2px dashed rgba(245, 245, 247, 0.72);
+  background: rgba(10, 10, 12, 0.56);
+  pointer-events: none;
+  z-index: 48;
+}
+
+.atv-vc-btn.is-remote-active {
+  background: #f5f5f7;
+  color: #0b0c0f;
+}
+
+.atv-ep-batch-toolbar,
+.atv-ep-dl-batch-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.atv-b4k-files-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #141416;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.atv-b4k-files-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+  white-space: nowrap;
+}
+
+.atv-b4k-files-select-group {
+  flex: 1 1 260px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.atv-b4k-files-select-group .atv-cselect-btn {
+  width: 100%;
+  justify-content: space-between;
+}
+
+/* Video Drag and Drop Subtitle/Media Dropzone */
+.atv-video-dropzone {
+  position: absolute;
+  inset: 20px;
+  z-index: 38;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(14, 14, 16, 0.92);
+  border: 2px dashed rgba(255, 255, 255, 0.32);
+  border-radius: 16px;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.atv-video-dropzone.hidden {
+  display: none;
+}
+
+.atv-video-dropzone-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  color: #f5f5f7;
+  padding: 24px;
+}
+
+.atv-video-dropzone-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 29px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+}
+
+.atv-video-dropzone-title {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.atv-video-dropzone-sub {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+/* Apple TV-style X-Ray Cast Shelf on Video Pause (disabled — cast shown below player) */
+.atv-xray-pause-shelf {
+  display: none !important;
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 84px;
+  z-index: 25;
+  background: #141416;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 12px 16px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
+  transform: translateY(0);
+  opacity: 1;
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.atv-xray-pause-shelf.hidden {
+  display: none;
+}
+
+.atv-video-stage.vc-popover-open .atv-xray-pause-shelf {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.atv-xray-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.atv-xray-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.atv-xray-badge {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f5f5f7;
+}
+
+.atv-xray-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.atv-xray-close {
+  position: relative;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+  transition: color 0.15s ease, background 0.15s ease, transform 0.12s ease;
+}
+
+.atv-xray-close::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+}
+
+.atv-xray-close:focus-visible {
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.9);
+}
+
+.atv-xray-close:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-xray-close:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+
+.atv-xray-cast-list {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+
+.atv-xray-actor-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 7px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  outline: none;
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-xray-actor-card:hover {
+    background: rgba(255, 255, 255, 0.13);
+    transform: translateY(-1px);
+  }
+}
+
+.atv-xray-actor-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.85);
+}
+
+.atv-xray-actor-avatar {
+  display: none;
+}
+
+.atv-xray-actor-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.atv-xray-actor-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f5f7;
+}
+
+.atv-xray-actor-role {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Apple TV Floating Next Episode Toast at Detected Credits */
+.atv-next-ep-toast {
+  position: absolute;
+  bottom: 86px;
+  left: 50%;
+  transform: translateX(-50%) translateY(0);
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--bg-elevated, #141416);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 10px 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
+  max-width: 480px;
+  width: 90%;
+  transition: opacity 0.25s ease-out, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.atv-next-ep-toast.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(16px);
+}
+
+.atv-next-ep-thumb-wrap {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-surface, #1c1c1e);
+}
+
+.atv-next-ep-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.atv-next-ep-ring-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: inherit;
+}
+
+.atv-next-ep-ring {
+  transform: rotate(-90deg);
+  color: #fff;
+}
+
+.atv-next-ep-sec {
+  position: absolute;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+
+.atv-next-ep-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.atv-next-ep-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.atv-next-ep-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-next-ep-sub {
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.72);
+}
+
+.atv-next-ep-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Wave-2 Flagship Player Upgrades:
+   1. Two-Line Scrubber Card (.atv-vc-hover-chapter, .atv-vc-hover-delta)
+   2. In-Stage Episodes & Seasons Popover (.atv-vc-episodes-popover)
+   3. Interactive Click-to-Translate Subtitle Words (.atv-sub-word, .atv-sub-dict-popover)
+   ========================================================================== */
+.atv-vc-hover-time {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 10px;
+  border-radius: 9px;
+  background: #141416;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.72);
+  white-space: nowrap;
+}
+
+.atv-vc-hover-chapter {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #f5f5f7;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.atv-vc-hover-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.atv-vc-hover-target {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.atv-vc-hover-delta {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(245, 245, 247, 0.9);
+}
+
+.atv-vc-hover-delta.is-fwd {
+  color: #86efac;
+}
+
+.atv-vc-hover-delta.is-rew {
+  color: #93c5fd;
+}
+
+.atv-vc-hover-rem {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(235, 235, 245, 0.6);
+}
+
+/* In-Stage Episodes & Seasons Popover */
+.atv-vc-episodes-popover {
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  max-height: min(62vh, 420px);
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  gap: 8px;
+  transform-origin: bottom right;
+}
+
+.atv-vc-ep-seasons-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  scrollbar-width: none;
+}
+
+.atv-vc-ep-seasons-row::-webkit-scrollbar {
+  display: none;
+}
+
+.atv-vc-ep-season-pill {
+  flex-shrink: 0;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: none;
+  outline: none;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(235, 235, 245, 0.78);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-ep-season-pill:hover {
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+  }
+}
+
+.atv-vc-ep-season-pill:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.85);
+}
+
+.atv-vc-ep-season-pill.active {
+  background: #f5f5f7;
+  color: #0b0c0f;
+  font-weight: 700;
+}
+
+.atv-vc-ep-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow-y: auto;
+  max-height: 310px;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.atv-vc-ep-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: rgba(245, 245, 247, 0.88);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-ep-row:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: #ffffff;
+  }
+}
+
+.atv-vc-ep-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(245, 245, 247, 0.85);
+}
+
+.atv-vc-ep-row.active {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.atv-vc-ep-row.watched:not(.active) {
+  color: rgba(235, 235, 245, 0.68);
+}
+
+.atv-vc-ep-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.atv-vc-ep-num {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.atv-vc-ep-title {
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.62);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-vc-ep-row-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  color: rgba(245, 245, 247, 0.78);
+}
+
+.atv-vc-ep-prog-pct {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Interactive Click-to-Translate Subtitle Words & Dictionary Popover */
+.atv-sub-dict-popover {
+  position: absolute;
+  left: 50%;
+  bottom: 132px;
+  transform: translateX(-50%);
+  z-index: 36;
+  width: min(380px, calc(100% - 32px));
+  background: #141416;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.78);
+  color: #f5f5f7;
+  pointer-events: auto;
+  transform-origin: bottom center;
+}
+
+.atv-sub-dict-popover.hidden {
+  display: none !important;
+}
+
+.atv-sub-dict-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.atv-sub-dict-word {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.atv-sub-dict-close {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: none;
+  outline: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(245, 245, 247, 0.75);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)), color 0.15s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+.atv-sub-dict-close::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+}
+
+.atv-sub-dict-close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-blue);
+}
+
+.atv-sub-dict-close:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-sub-dict-close:hover {
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+  }
+}
+
+.atv-sub-dict-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.atv-sub-dict-loading {
+  font-size: 12.5px;
+  color: rgba(235, 235, 245, 0.65);
+}
+
+.atv-sub-dict-primary {
+  font-size: 15px;
+  font-weight: 600;
+  color: #86efac;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.atv-sub-dict-alts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.atv-sub-dict-alt-pill {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(245, 245, 247, 0.86);
+}
+
+.atv-sub-dict-ctx {
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.atv-sub-dict-ctx-orig {
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.6);
+}
+
+.atv-sub-dict-ctx-tr {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(245, 245, 247, 0.92);
+}
+
+.atv-sub-dict-footer {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.atv-sub-dict-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.atv-vocab-card {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+}
+
+.atv-vocab-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.atv-vocab-search-row {
+  padding: 12px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.atv-vocab-search-input {
+  width: 100%;
+}
+
+.atv-vocab-body {
+  padding: 12px 20px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 200px;
+  max-height: 55vh;
+}
+
+.atv-vocab-empty {
+  text-align: center;
+  color: rgba(245, 245, 247, 0.6);
+  padding: 40px 20px;
+  font-size: 14px;
+}
+
+.atv-vocab-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+
+.atv-vocab-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.atv-vocab-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.atv-vocab-item-word {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.atv-vocab-item-trans {
+  font-size: 14px;
+  font-weight: 600;
+  color: #86efac;
+}
+
+.atv-vocab-item-ctx {
+  font-size: 12.5px;
+  color: rgba(245, 245, 247, 0.75);
+  line-height: 1.4;
+}
+
+.atv-vocab-item-meta {
+  font-size: 11.5px;
+  color: rgba(245, 245, 247, 0.45);
+}
+
+.atv-vocab-del-btn {
+  background: transparent;
+  border: none;
+  color: rgba(245, 245, 247, 0.4);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vocab-item:hover {
+    background: rgba(255, 255, 255, 0.07);
+  }
+  .atv-vocab-del-btn:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.12);
+  }
+}
+
+/* ==========================================================================
+   v106 Tactile Press Feedback, Tabular Numerals & Range Focus Ring
+   ========================================================================== */
+.atv-pill:active:not(:disabled),
+.atv-icon-btn:active:not(:disabled),
+.source-tab:active:not(:disabled),
+.atv-close-btn:active:not(:disabled),
+.type-pill:active:not(:disabled),
+.settings-tab:active:not(:disabled),
+.atv-filter-chip:active:not(:disabled),
+.atv-cselect-btn:active:not(:disabled),
+.atv-remote-sec-btn:active:not(:disabled),
+.atv-remote-icon-btn:active:not(:disabled),
+.atv-remote-mode-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.atv-section-count,
+.atv-filter-count-badge,
+.atv-vc-time-btn,
+.atv-ep-card-num,
+.atv-vc-ep-num,
+.atv-history-time,
+.kin-sec-count,
+.atv-dl-badge,
+.atv-notif-badge,
+.atv-remote-vol-val {
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="range"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.9), 0 0 0 4px rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+}
+
+/* ==========================================================================
+   Smart Video Bookmarks & Note Editor Dialog
+   ========================================================================== */
+.atv-bookmark-dialog {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  z-index: 60;
+  pointer-events: auto;
+  padding: 16px;
+}
+
+.atv-bookmark-dialog.hidden {
+  display: none !important;
+}
+
+.atv-bookmark-card {
+  width: 100%;
+  max-width: 440px;
+  background: #1c1c1e;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.92);
+  padding: 18px 20px;
+  animation: atvModalSheetIn 0.17s cubic-bezier(0.22, 1, 0.36, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.atv-bookmark-header,
+.atv-bookmark-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.atv-bookmark-title-wrap,
+.atv-bookmark-head-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.atv-bookmark-title-wrap h4,
+.atv-bookmark-head-title h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #f5f5f7;
+  margin: 0;
+}
+
+.atv-bookmark-badge,
+.atv-bookmark-time-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(56, 189, 248, 0.16);
+  border: 1px solid rgba(56, 189, 248, 0.32);
+  color: #38bdf8;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
+}
+
+.atv-bookmark-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.atv-bookmark-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: #f5f5f7;
+  resize: vertical;
+  min-height: 74px;
+  outline: none;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.atv-bookmark-textarea:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(56, 189, 248, 0.6);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.atv-bookmark-textarea::placeholder {
+  color: rgba(235, 235, 245, 0.38);
+}
+
+.atv-bookmark-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.atv-bookmark-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ==========================================================================
+   Bookmarks Popover Inside Player Video Controls
+   ========================================================================== */
+#vc-bookmarks-popover {
+  min-width: 270px;
+  max-width: min(340px, 86vw);
+  max-height: min(360px, 52vh);
+  max-height: min(360px, 52dvh);
+  padding: 8px;
+}
+
+.atv-vc-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  margin-bottom: 4px;
+}
+
+.atv-vc-popover-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+  letter-spacing: -0.01em;
+}
+
+.atv-vc-bookmarks-empty {
+  padding: 14px 10px;
+  text-align: center;
+  color: rgba(235, 235, 245, 0.58);
+}
+
+.atv-vc-bookmarks-empty p {
+  font-size: 12.5px;
+  margin: 0 0 4px;
+  color: #f5f5f7;
+}
+
+.atv-vc-bookmarks-empty .atv-vc-hint {
+  font-size: 11px;
+  color: rgba(235, 235, 245, 0.44);
+  line-height: 1.35;
+  display: block;
+}
+
+.atv-vc-bookmark-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-bookmark-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.atv-vc-bookmark-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  background: none;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.atv-vc-bookmark-btn .atv-vc-time {
+  font-size: 12px;
+  font-weight: 600;
+  color: #38bdf8;
+  font-variant-numeric: tabular-nums;
+}
+
+.atv-vc-bookmark-note-prev {
+  font-size: 11px;
+  color: rgba(235, 235, 245, 0.72);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.atv-vc-bookmark-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.atv-vc-icon-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: none;
+  border: none;
+  outline: none;
+  color: rgba(235, 235, 245, 0.45);
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-icon-btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #f5f5f7;
+  }
+}
+
+.atv-vc-popover-footer {
+  padding-top: 6px;
+  margin-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.atv-vc-footer-link {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px;
+  background: none;
+  border: none;
+  outline: none;
+  color: rgba(235, 235, 245, 0.78);
+  font-size: 11.5px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.14s, color 0.14s;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-footer-link:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #ffffff;
+  }
+}

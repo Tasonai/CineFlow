@@ -1,4 +1,4 @@
-import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261105v4";
+import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261105v5";
 import {
   displayPoster,
   displayTitle,
@@ -6,7 +6,7 @@ import {
   t,
   translateGenre,
   translateStudioName,
-} from "./i18n.js?v=20261105v4";
+} from "./i18n.js?v=20261105v5";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -21,15 +21,15 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261105v4";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261105v4";
+} from "./utils.js?v=20261105v5";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261105v5";
 import {
   getDefaultPlayableSourceTab,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261105v4";
-import { openPlayerModal } from "./player.js?v=20261105v4";
-import { updateBackupSummaryStat } from "./settings.js?v=20261105v4";
-import { openQuickPeekModal } from "./modals.js?v=20261105v4";
+} from "./catalog-media-resolver.js?v=20261105v5";
+import { openPlayerModal } from "./player.js?v=20261105v5";
+import { updateBackupSummaryStat } from "./settings.js?v=20261105v5";
+import { openQuickPeekModal } from "./modals.js?v=20261105v5";
 
 export function formatRelativeWatchDate(ts) {
   if (!ts) return t("Недавно", "Recently");

@@ -4,8 +4,8 @@
  * Mini-Player/PiP keyboard shortcuts, and full Player playback/audio/subtitle/crop/Ambilight hotkeys.
  */
 
-import { state } from "./state.js?v=20261105v4";
-import { t } from "./i18n.js?v=20261105v4";
+import { state } from "./state.js?v=20261105v5";
+import { t } from "./i18n.js?v=20261105v5";
 import {
   closeConfirmModal,
   closeCustomSelectMenu,
@@ -15,7 +15,7 @@ import {
   showVideoOsd,
   trapModalTabKey,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261105v4";
+} from "./utils.js?v=20261105v5";
 import {
   applyAudioBoostToVideo,
   applyVideoCropToVideo,
@@ -26,19 +26,19 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261105v4";
+} from "./audio-dsp.js?v=20261105v5";
 import {
   closeCardContextMenu,
   closeCommandPalette,
   closeMovieRouletteModal,
   openCommandPalette,
-} from "./catalog.js?v=20261105v4";
+} from "./catalog.js?v=20261105v5";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261105v4";
-import { jumpToAdjacentTimelineMarker } from "./player-ui-controls.js?v=20261105v4";
+} from "./modals.js?v=20261105v5";
+import { jumpToAdjacentTimelineMarker } from "./player-ui-controls.js?v=20261105v5";
 import {
   captureVideoScreenshot,
   clearAutoplayNextTimer,
@@ -62,9 +62,9 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261105v4";
-import { closeSubtitleDictPopover } from "./subtitles.js?v=20261105v4";
-import { closeOnboardingModal } from "./settings.js?v=20261105v4";
+} from "./player.js?v=20261105v5";
+import { closeSubtitleDictPopover } from "./subtitles.js?v=20261105v5";
+import { closeOnboardingModal } from "./settings.js?v=20261105v5";
 import {
   closeDownloadsModal,
   closeKidsPinModal,
@@ -73,7 +73,7 @@ import {
   closeProfilesModal,
   closeTvCastModal,
   handleTvSpatialKeydown,
-} from "./features.js?v=20261105v4";
+} from "./features.js?v=20261105v5";
 
 export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
   window.addEventListener("focus", () => {

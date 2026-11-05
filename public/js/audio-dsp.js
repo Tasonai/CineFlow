@@ -1,6 +1,6 @@
-import { PLAYER_PREFS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261105v4";
-import { t } from "./i18n.js?v=20261105v4";
-import { isIosOrIpadOs, showToast } from "./utils.js?v=20261105v4";
+import { PLAYER_PREFS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261105v5";
+import { t } from "./i18n.js?v=20261105v5";
+import { isIosOrIpadOs, showToast } from "./utils.js?v=20261105v5";
 import {
   closePlayerModal,
   isStageFullscreen,
@@ -8,7 +8,7 @@ import {
   setPipBackgroundMode,
   syncCustomVideoControlsUI,
   syncPipDockUI,
-} from "./player.js?v=20261105v4";
+} from "./player.js?v=20261105v5";
 
 export function getAudioPresetLabel(preset) {
   const map = {

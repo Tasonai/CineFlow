@@ -1,10 +1,10 @@
-import { state } from "./state.js?v=20261105v4";
-import { t, displayTitle } from "./i18n.js?v=20261105v4";
-import { supportsNativePiP, syncScrollTopButton, iconSvg } from "./utils.js?v=20261105v4";
-import { isVideoInPiP, startAmbilightLoop } from "./audio-dsp.js?v=20261105v4";
-import { closeAllVcPopovers } from "./player-ui-controls.js?v=20261105v4";
-import { loadCatalog } from "./catalog.js?v=20261105v4";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261105v4";
+import { state } from "./state.js?v=20261105v5";
+import { t, displayTitle } from "./i18n.js?v=20261105v5";
+import { supportsNativePiP, syncScrollTopButton, iconSvg } from "./utils.js?v=20261105v5";
+import { isVideoInPiP, startAmbilightLoop } from "./audio-dsp.js?v=20261105v5";
+import { closeAllVcPopovers } from "./player-ui-controls.js?v=20261105v5";
+import { loadCatalog } from "./catalog.js?v=20261105v5";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261105v5";
 
 export function syncPipDockUI() {
   const video = document.getElementById("native-video");

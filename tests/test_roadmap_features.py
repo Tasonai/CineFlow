@@ -1121,6 +1121,8 @@ class TestRoadmapFeatures(unittest.TestCase):
         vc_css_path = os.path.join(BASE_DIR, "public", "css", "video-controls-and-person.css")
         with open(vc_css_path, "r", encoding="utf-8") as f:
             vc_css = f.read()
+        with open(os.path.join(BASE_DIR, "public", "css", "player-subtitles-and-bookmarks.css"), "r", encoding="utf-8") as f:
+            vc_css += "\n" + f.read()
         self.assertIn(".atv-video-dropzone", vc_css)
         self.assertIn(".atv-xray-pause-shelf", vc_css)
         self.assertIn(".atv-vc-bookmarks", vc_css)
@@ -1129,6 +1131,9 @@ class TestRoadmapFeatures(unittest.TestCase):
         modals_css_path = os.path.join(BASE_DIR, "public", "css", "modals-and-search.css")
         with open(modals_css_path, "r", encoding="utf-8") as f:
             modals_css = f.read()
+        for sub_css in ("features-and-remote.css", "remote-and-palette.css"):
+            with open(os.path.join(BASE_DIR, "public", "css", sub_css), "r", encoding="utf-8") as f:
+                modals_css += "\n" + f.read()
         self.assertIn(".atv-roulette-dialog", modals_css)
         self.assertIn(".atv-roulette-pill", modals_css)
 
@@ -1174,6 +1179,9 @@ class TestRoadmapFeatures(unittest.TestCase):
         modals_css_path = os.path.join(BASE_DIR, "public", "css", "modals-and-search.css")
         with open(modals_css_path, "r", encoding="utf-8") as f:
             modals_css = f.read()
+        for sub_css in ("features-and-remote.css", "remote-and-palette.css"):
+            with open(os.path.join(BASE_DIR, "public", "css", sub_css), "r", encoding="utf-8") as f:
+                modals_css += "\n" + f.read()
         self.assertIn(".atv-palette-sheet", modals_css)
         self.assertIn(".atv-palette-input", modals_css)
         self.assertIn(".atv-poster-preview-video", modals_css)
@@ -1181,6 +1189,8 @@ class TestRoadmapFeatures(unittest.TestCase):
         vc_css_path = os.path.join(BASE_DIR, "public", "css", "video-controls-and-person.css")
         with open(vc_css_path, "r", encoding="utf-8") as f:
             vc_css = f.read()
+        with open(os.path.join(BASE_DIR, "public", "css", "player-subtitles-and-bookmarks.css"), "r", encoding="utf-8") as f:
+            vc_css += "\n" + f.read()
         self.assertIn(".atv-next-ep-toast", vc_css)
         self.assertIn(".atv-next-ep-ring", vc_css)
 
@@ -2090,6 +2100,8 @@ class TestRoadmapFeatures(unittest.TestCase):
 
         with open(os.path.join(BASE_DIR, "public", "css", "video-controls-and-person.css"), "r", encoding="utf-8") as fh:
             css_src = fh.read()
+        with open(os.path.join(BASE_DIR, "public", "css", "player-subtitles-and-bookmarks.css"), "r", encoding="utf-8") as fh:
+            css_src += "\n" + fh.read()
         self.assertIn(".atv-video-stage.has-postwatch-open #skip-outro-btn", css_src)
         self.assertIn(".atv-bookmark-dialog", css_src)
         self.assertIn("#vc-bookmarks-popover", css_src)

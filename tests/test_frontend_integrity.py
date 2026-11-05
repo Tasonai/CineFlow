@@ -241,7 +241,7 @@ class TestFrontendIntegrity(unittest.TestCase):
     def test_v26_responsive_offline_tv_and_native_wrappers_invariants(self):
         with open(os.path.join(PUBLIC_DIR, "index.html"), "r", encoding="utf-8") as f:
             html = f.read()
-        self.assertIn("?v=20261105v4", html)
+        self.assertIn("?v=20261105v5", html)
 
         css_combined = ""
         for css_file in sorted(glob.glob(os.path.join(PUBLIC_DIR, "css", "*.css"))):
@@ -514,11 +514,23 @@ class TestFrontendIntegrity(unittest.TestCase):
         self.assertIn('btn.setAttribute("aria-controls", "qp-ep-list")', modals_src)
         self.assertIn('btn.setAttribute("aria-controls", "atv-cselect-portal")', utils_src)
         self.assertIn('id="atv-cselect-opt-${idx}"', utils_src)
-        for css_file in sorted(os.listdir(os.path.join(PUBLIC_DIR, "css"))):
-            if not css_file.endswith(".css"):
-                continue
+        linked_css = re.findall(r'<link[^>]+rel="stylesheet"[^>]+href="/css/([^"?]+)', html_src)
+        actual_css = sorted(f for f in os.listdir(os.path.join(PUBLIC_DIR, "css")) if f.endswith(".css"))
+        self.assertEqual(
+            sorted(linked_css),
+            actual_css,
+            f"All public/css/*.css files must be linked in index.html: linked={linked_css}, disk={actual_css}",
+        )
+        for css_file in actual_css:
             with open(os.path.join(PUBLIC_DIR, "css", css_file), "r", encoding="utf-8") as f:
                 css_text = f.read()
+            line_count = len(css_text.splitlines())
+            self.assertLessEqual(line_count, 2800, f"{css_file} exceeds 2,800-line modular budget ({line_count} lines)")
+            self.assertEqual(
+                css_text.count("{") - css_text.count("}"),
+                0,
+                f"{css_file} has unbalanced curly braces",
+            )
             media_stack = []
             brace_depth = 0
             unguarded_hover = []

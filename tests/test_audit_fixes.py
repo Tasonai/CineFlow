@@ -567,7 +567,11 @@ class TestAuditFixes(unittest.TestCase):
 
         app_js = self._read_text(os.path.join(root, "public", "app.js"))
         self.assertIn("initCustomSelects()", app_js)
-        set_css = self._read_text(os.path.join(root, "public", "css", "settings-and-episodes.css"))
+        set_css = (
+            self._read_text(os.path.join(root, "public", "css", "settings-and-episodes.css"))
+            + "\n"
+            + self._read_text(os.path.join(root, "public", "css", "settings-onboarding-and-select.css"))
+        )
         self.assertIn(".atv-cselect-menu", set_css)
         self.assertIn(".atv-native-select-hidden", set_css)
 
