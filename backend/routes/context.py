@@ -268,6 +268,14 @@ class ServerContext:
         return self._resolve("safe_log")
 
     @property
+    def verbose_log(self) -> bool:
+        res = self._resolve("verbose_log")
+        if res is not None:
+            return bool(res)
+        import os
+        return os.environ.get("CINEFLOW_VERBOSE_LOG", "0").strip().lower() in ("1", "true", "yes")
+
+    @property
     def has_cyrillic(self) -> Any:
         res = self._resolve("has_cyrillic")
         if res is not None:

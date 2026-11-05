@@ -20,9 +20,10 @@ def handle_hdrezka_streams(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
     episode = max(1, ctx.qs_int(qs, "episode", 1))
     rezka_url = qs.get("rezka_url", [""])[0].strip()
     force_refresh = qs.get("nocache", ["0"])[0].strip().lower() in ("1", "true", "yes")
-    ctx.safe_log(
-        f"[CineFlow-DEBUG] streams req: id={item_id} t={title} s={season} e={episode} tr={translator_id} nocache={force_refresh}\n"
-    )
+    if getattr(ctx, "verbose_log", False):
+        ctx.safe_log(
+            f"[CineFlow-DEBUG] streams req: id={item_id} t={title} s={season} e={episode} tr={translator_id} nocache={force_refresh}\n"
+        )
     if not media_type:
         is_known_series = False
         if (rezka_url and "/series/" in rezka_url.lower()) or season > 1 or episode > 1:
@@ -410,9 +411,10 @@ def handle_hdrezka_streams(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
             data.get("episodes_titles"), data.get("episodes_meta")
         )
 
-    ctx.safe_log(
-        f"[CineFlow-DEBUG] streams resp: qualities={len(data.get('qualities') or {})} def_url={bool(data.get('default_stream_url'))} tr={data.get('selected_translator_id')} err={data.get('error')}\n"
-    )
+    if getattr(ctx, "verbose_log", False):
+        ctx.safe_log(
+            f"[CineFlow-DEBUG] streams resp: qualities={len(data.get('qualities') or {})} def_url={bool(data.get('default_stream_url'))} tr={data.get('selected_translator_id')} err={data.get('error')}\n"
+        )
     handler._send_json(data)
     return True
 
