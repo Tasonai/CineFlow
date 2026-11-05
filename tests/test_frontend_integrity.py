@@ -111,7 +111,7 @@ class TestFrontendIntegrity(unittest.TestCase):
         self.assertIn("Atoma", html)
         self.assertIn("2026", html)
         self.assertIn("Windows", html)
-        self.assertIn("2.7.0", html)
+        self.assertIn("2.7.1", html)
 
         for svg_rel in ("favicon.svg", os.path.join("icons", "icon.svg")):
             with open(os.path.join(PUBLIC_DIR, svg_rel), "r", encoding="utf-8") as f:
@@ -241,7 +241,7 @@ class TestFrontendIntegrity(unittest.TestCase):
     def test_v26_responsive_offline_tv_and_native_wrappers_invariants(self):
         with open(os.path.join(PUBLIC_DIR, "index.html"), "r", encoding="utf-8") as f:
             html = f.read()
-        self.assertIn("?v=20261105v3", html)
+        self.assertIn("?v=20261105v4", html)
 
         css_combined = ""
         for css_file in sorted(glob.glob(os.path.join(PUBLIC_DIR, "css", "*.css"))):
@@ -369,6 +369,8 @@ class TestFrontendIntegrity(unittest.TestCase):
             player_src = f.read()
         with open(os.path.join(PUBLIC_DIR, "js", "player-streams.js"), "r", encoding="utf-8") as f:
             player_streams_src = f.read()
+        with open(os.path.join(PUBLIC_DIR, "js", "player-streams-4k.js"), "r", encoding="utf-8") as f:
+            player_streams_src += "\n" + f.read()
         with open(os.path.join(PUBLIC_DIR, "js", "player-ui-controls.js"), "r", encoding="utf-8") as f:
             player_ui_src = f.read()
         player_combined = player_src + player_streams_src + player_ui_src

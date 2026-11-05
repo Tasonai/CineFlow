@@ -20,9 +20,11 @@ CineFlow is a cross-platform desktop cinema center for **macOS** (`WKWebView` + 
 │   ├── Feature Subsystems (public/js/):                                    │
 │   │   ├── Catalog: catalog.js, catalog-shelves.js, catalog-cards.js,      │
 │   │   │            catalog-filters.js, catalog-hero.js, catalog-grid.js   │
-│   │   ├── Player:  player.js, player-streams.js, player-ui-controls.js,   │
-│   │   │            player-rating.js, player-hls.js, player-subtitles.js,  │
-│   │   │            player-audio.js, player-chapters.js                    │
+│   │   ├── Player:  player.js, player-streams.js (2,151 lines),            │
+│   │   │            player-streams-4k.js (1,127 lines),                    │
+│   │   │            player-ui-controls.js, player-rating.js,               │
+│   │   │            player-remux.js, player-seasons.js,                    │
+│   │   │            player-intro-credits.js, player-bookmarks.js           │
 │   │   ├── Modals:   modals.js (1,514 lines), modals-person.js (650 lines),  │
 │   │   │            modals-stats.js (467 lines)                              │
 │   │   ├── Settings: settings.js (1,825 lines), settings-onboarding.js (723),│
@@ -50,13 +52,15 @@ CineFlow is a cross-platform desktop cinema center for **macOS** (`WKWebView` + 
 │   │   ├── kinorium_parsers.py (1,120 lines) — HTML list/episode parsers   │
 │   │   ├── kinorium_persons.py (665 lines) — Actor/director profiles       │
 │   │   ├── kinorium_sync.py (1,141 lines) — Bidirectional remote sync      │
-│   │   ├── kinorium_mutations.py (1,907 lines) — Status/rating/ep actions  │
+│   │   ├── kinorium_mutations.py (1,950 lines) — Status/rating/ep actions  │
 │   │   └── kinorium_profile.py (1,511 lines) — Profile sync, premieres,    │
 │   │                                           friends, backups & services │
 │   ├── Media Providers:                                                    │
-│   │   ├── hdrezka.py — HDRezka mirror resolver, parser & stream extractor │
-│   │   ├── aggregator.py — Multi-source metadata & catalog aggregator      │
-│   │   └── torrserve.py — TorrServe 4K / BitTorrent integration            │
+│   │   ├── hdrezka.py (2,196 lines) — Mirror resolver, parser & streams    │
+│   │   ├── hdrezka_extras.py (720 lines) — Trailers, Wiki/person & ep poll │
+│   │   ├── aggregator.py (2,324 lines) — Catalog & unified search core     │
+│   │   ├── aggregator_discovery.py (1,127 lines) — Similar, person & cal.  │
+│   │   └── backup_stream.py — TorrServer 4K / Debrid integration           │
 │   └── Storage & Infra:                                                    │
 │       └── database.py — SQLite WAL persistence & JSON state migration     │
 └───────────────────────────────────────────────────────────────────────────┘

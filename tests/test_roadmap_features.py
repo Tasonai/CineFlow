@@ -365,7 +365,7 @@ class TestRoadmapFeatures(unittest.TestCase):
             ):
                 self.assertTrue(os.path.isfile(os.path.join(stage_core, rel_req)), f"Missing staged file: {rel_req}")
             self.assertFalse(os.path.exists(os.path.join(stage_core, "data")))
-        win_setup_exe = os.path.join(BASE_DIR, "dist", "CineFlow-Setup-2.7.0-x64.exe")
+        win_setup_exe = os.path.join(BASE_DIR, "dist", "CineFlow-Setup-2.7.1-x64.exe")
         if os.path.isfile(win_setup_exe):
             self.assertGreater(os.path.getsize(win_setup_exe), 20 * 1024 * 1024)
 
@@ -1375,6 +1375,8 @@ class TestRoadmapFeatures(unittest.TestCase):
             player_js_code = fh.read()
         with open(os.path.join(BASE_DIR, "public", "js", "player-streams.js"), "r", encoding="utf-8") as fh:
             player_streams_code = fh.read()
+        with open(os.path.join(BASE_DIR, "public", "js", "player-streams-4k.js"), "r", encoding="utf-8") as fh:
+            player_streams_code += "\n" + fh.read()
         player_combined_code = player_js_code + player_streams_code
         self.assertIn("isGenuineEnd", player_combined_code)
         self.assertIn("_lastPrematureEndReconnectTs", player_combined_code)
@@ -1390,6 +1392,8 @@ class TestRoadmapFeatures(unittest.TestCase):
         # 2. Player streams preload integration for backup4k and stremio
         with open(os.path.join(BASE_DIR, "public", "js", "player-streams.js"), "r", encoding="utf-8") as fh:
             ps_code = fh.read()
+        with open(os.path.join(BASE_DIR, "public", "js", "player-streams-4k.js"), "r", encoding="utf-8") as fh:
+            ps_code += "\n" + fh.read()
         self.assertIn('["hdrezka", "backup4k", "stremio"].includes(state.activeSourceTab)', ps_code)
         self.assertIn('tab: "backup4k"', ps_code)
         self.assertIn('tab: "stremio"', ps_code)
@@ -2262,7 +2266,32 @@ class TestRoadmapFeatures(unittest.TestCase):
             self.assertIn("export function initPlayerStatusAndRatingBindings(", fh.read())
 
         with open(os.path.join(BASE_DIR, "public", "js", "player-ui-controls.js"), "r", encoding="utf-8") as fh:
-            self.assertIn("export function initPlayerStageAndGearBindings(", fh.read())
+            pui_src = fh.read()
+        self.assertIn("export function initPlayerStageAndGearBindings(", pui_src)
+        self.assertIn("export function jumpToAdjacentTimelineMarker(", pui_src)
+
+        with open(os.path.join(BASE_DIR, "public", "js", "player-streams-4k.js"), "r", encoding="utf-8") as fh:
+            ps4k_src = fh.read()
+        self.assertIn("export async function probeAndPlay4KStream(", ps4k_src)
+        self.assertIn("export async function loadStremioStreams(", ps4k_src)
+        self.assertIn("export async function loadBackup4KReleases(", ps4k_src)
+
+        from backend.aggregator_discovery import (
+            resolve_similar_for_title,
+            get_person_profile,
+            get_release_calendar,
+        )
+        from backend.hdrezka_extras import (
+            check_series_latest_episodes,
+            get_trailer_for_title,
+            get_person_details,
+        )
+        self.assertTrue(callable(resolve_similar_for_title))
+        self.assertTrue(callable(get_person_profile))
+        self.assertTrue(callable(get_release_calendar))
+        self.assertTrue(callable(check_series_latest_episodes))
+        self.assertTrue(callable(get_trailer_for_title))
+        self.assertTrue(callable(get_person_details))
 
         with open(os.path.join(BASE_DIR, "public", "js", "catalog-filters.js"), "r", encoding="utf-8") as fh:
             cf_src = fh.read()

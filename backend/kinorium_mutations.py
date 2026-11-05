@@ -558,6 +558,8 @@ def get_profile_stats(self) -> Dict[str, Any]:
     }
     favorites: List[Dict[str, Any]] = []
     friend_stats: Dict[str, Dict[str, Any]] = {}
+    genre_stats: Dict[str, Dict[str, Any]] = {}
+    yearly_buckets: Dict[int, Dict[str, Any]] = {}
 
     for kid, entry in watched_dict.items():
         if not isinstance(entry, dict):
@@ -579,6 +581,17 @@ def get_profile_stats(self) -> Dict[str, Any]:
             decades["1990–1999"] += 1
         elif yr_raw > 0:
             decades["До 1990"] += 1
+
+        if yr_raw >= 2015:
+            yb = yearly_buckets.setdefault(
+                yr_raw,
+                {"year": yr_raw, "total": 0, "movies": 0, "series": 0, "score_sum": 0.0, "rated": 0},
+            )
+            yb["total"] += 1
+            if mtype == "series":
+                yb["series"] += 1
+            else:
+                yb["movies"] += 1
 
         kr = entry.get("kinorium_rating")
         kr_float: Optional[float] = None
@@ -605,11 +618,16 @@ def get_profile_stats(self) -> Dict[str, Any]:
             )
         else:
             sc = entry.get("score")
+        sc_valid: Optional[int] = None
         if sc is not None:
             try:
                 sc_int = max(1, min(10, int(sc)))
+                sc_valid = sc_int
                 user_scores.append(sc_int)
                 histogram[str(sc_int)] = histogram.get(str(sc_int), 0) + 1
+                if yr_raw in yearly_buckets:
+                    yearly_buckets[yr_raw]["score_sum"] += float(sc_int)
+                    yearly_buckets[yr_raw]["rated"] += 1
                 if sc_int >= 9:
                     favorites.append(
                         {
@@ -649,6 +667,17 @@ def get_profile_stats(self) -> Dict[str, Any]:
             except Exception:
                 pass
 
+        for raw_g in entry.get("genres") or []:
+            g_str = str(raw_g or "").strip()
+            if not g_str or g_str.lower() in ("фильм", "сериал", "movie", "series"):
+                continue
+            g_key = g_str.capitalize()
+            gs_entry = genre_stats.setdefault(g_key, {"genre": g_key, "count": 0, "score_sum": 0.0, "rated": 0})
+            gs_entry["count"] += 1
+            if sc_valid is not None:
+                gs_entry["score_sum"] += float(sc_valid)
+                gs_entry["rated"] += 1
+
     favorites.sort(key=lambda x: (x["score"], _safe_year_int(x.get("year"))), reverse=True)
     friend_meta_by_name = {
         str(f.get("name") or "").strip(): f
@@ -678,6 +707,30 @@ def get_profile_stats(self) -> Dict[str, Any]:
             )
     friends_out.sort(key=lambda x: (x["similarity_pct"], x["common_count"]), reverse=True)
 
+    top_genres_out = []
+    for g_obj in sorted(genre_stats.values(), key=lambda x: (x["count"], x["score_sum"]), reverse=True)[:6]:
+        top_genres_out.append(
+            {
+                "genre": g_obj["genre"],
+                "count": g_obj["count"],
+                "avg_score": round(g_obj["score_sum"] / g_obj["rated"], 1) if g_obj["rated"] > 0 else None,
+            }
+        )
+
+    yearly_summary_out = []
+    for yr_val in sorted(yearly_buckets.keys(), reverse=True)[:5]:
+        yb = yearly_buckets[yr_val]
+        yearly_summary_out.append(
+            {
+                "year": yb["year"],
+                "total": yb["total"],
+                "movies": yb["movies"],
+                "series": yb["series"],
+                "hours": round(yb["movies"] * 2.0 + yb["series"] * 10.5),
+                "avg_score": round(yb["score_sum"] / yb["rated"], 1) if yb["rated"] > 0 else None,
+            }
+        )
+
     total_watched = len(watched_dict)
     estimated_hours = round(watched_movies * 2.0 + watched_series * 10.5)
     return {
@@ -696,6 +749,8 @@ def get_profile_stats(self) -> Dict[str, Any]:
         "avg_kinorium_rating": round(sum(kin_scores) / len(kin_scores), 2) if kin_scores else 0.0,
         "ratings_histogram": histogram,
         "decades": decades,
+        "top_genres": top_genres_out,
+        "yearly_summary": yearly_summary_out,
         "friends_comparison": friends_out[:8],
         "top_favorites": favorites[:12],
     }

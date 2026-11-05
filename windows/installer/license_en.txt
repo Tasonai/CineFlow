@@ -5,17 +5,17 @@ Product Passport, Local Privacy & License Agreement
 
 PRODUCT INFORMATION
   Product Name:    CineFlow
-  Release Version: 2.7.0 (64-bit x64 Edition)
+  Release Version: 2.7.1 (64-bit x64 Edition)
   Developer:       Atoma
   Release Year:    2026
   Target Platform: Microsoft Windows 10 & Windows 11 (x64)
 
 0. RELEASE NOTES (CHANGELOG)
-What's new in CineFlow 2.7.0:
-• Complete Modular Backend Architecture: the monolithic server has been restructured into 20+ decoupled services and route modules (backend/routes/, backend/app_factory.py, backend/bootstrap.py, backend/server_lifecycle.py), reducing server.py by 87% while preserving 100% API compatibility.
-• Frontend Acyclic Dependency Graph: circular import cycles across catalog and player modules have been completely resolved, allowing components to communicate directly with specialized subsystems and accelerating SPA startup.
-• Hardened Data Security & Vault Isolation: encryption keys and local databases are strictly excluded from source control, strengthening runtime credential protection.
-• Streaming Stability & A/V Sync: improved live remuxing pipeline reliability with zero-jitter PTS alignment and automated recovery against frozen hardware video decoders.
+What's new in CineFlow 2.7.1:
+• Zero-Wait Seamless Episode Transitions: near the end of an episode, the player pre-resolves and pre-buffers the next episode stream, Skip Intro/Credits segments, and subtitles in the background for an instant spinner-free transition.
+• Smart Timeline Chapter Ticks & Bookmark Previews: added visual chapter markers, inline bookmark note previews on timeline scrub hover, and instant marker jumping ([ and ]) across intro, bookmarks, chapters, and credits.
+• Smart Collections, Voiceover Filter & Year in Review: added a quick collection & voiceover studio selector (8.0+, 4K UHD, Friends' Favorites, Studios) in the catalog filter drawer, plus Favorite Genres and Year-in-Review breakdowns in Profile Statistics.
+• Deep Core Modularization (Rounds 1–3): split large modules into 14 focused subsystems (kinorium.py reduced by 72%, app.js by 80%, extracted player-streams-4k.js, settings-onboarding.js, settings-updater.js, modals-person.js, modals-stats.js, aggregator_discovery.py, hdrezka_extras.py) with logDebug diagnostics.
 
 1. OVERVIEW & CORE CAPABILITIES
 CineFlow unifies your personal movie tracking library, high-bitrate streaming, and regional streaming availability inside a single matte-dark desktop interface:
@@ -35,7 +35,7 @@ CineFlow unifies your personal movie tracking library, high-bitrate streaming, a
 • All personal preferences, backups, and sync caches remain exclusively inside the local "data" directory on your machine.
 
 3. LICENSE TERMS
-• CineFlow 2.7.0 is provided by Atoma for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
+• CineFlow 2.7.1 is provided by Atoma for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
 • CineFlow operates solely as a local client-side media interface and metadata aggregator and does not host or distribute media content on any server.
 • Bundled open-source runtime components (Python 3.11 Embeddable Runtime, FFmpeg 9 GPL, TorrServer MatriX) remain covered by their respective licenses.
 

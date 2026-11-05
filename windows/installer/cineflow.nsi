@@ -1,15 +1,15 @@
 ; ============================================================================
-; CineFlow 2.7.0 — Official Windows x64 Installer Script (NSIS 3 Modern UI 2)
+; CineFlow 2.7.1 — Official Windows x64 Installer Script (NSIS 3 Modern UI 2)
 ; Developer / Publisher: Atoma
 ; ============================================================================
 
 Unicode True
 
 !ifndef APP_VERSION
-  !define APP_VERSION "2.7.0"
+  !define APP_VERSION "2.7.1"
 !endif
 !ifndef APP_VERSION_QUAD
-  !define APP_VERSION_QUAD "2.7.0.0"
+  !define APP_VERSION_QUAD "2.7.1.0"
 !endif
 !define APP_NAME "CineFlow"
 !define APP_PUBLISHER "Atoma"
@@ -46,7 +46,7 @@ ShowUninstDetails show
 SetCompressor /SOLID lzma
 SetCompressorDictSize 32
 
-; PE Version Information embedded into CineFlow-Setup-2.7.0-x64.exe
+; PE Version Information embedded into CineFlow-Setup-2.7.1-x64.exe
 VIProductVersion "${APP_VERSION_QUAD}"
 VIFileVersion "${APP_VERSION_QUAD}"
 VIAddVersionKey "ProductName" "${APP_NAME}"

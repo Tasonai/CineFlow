@@ -1,11 +1,12 @@
-import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261105v3";
+import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261105v4";
 import {
   displayPoster,
   displayTitle,
   isEn,
   t,
+  translateGenre,
   translateStudioName,
-} from "./i18n.js?v=20261105v3";
+} from "./i18n.js?v=20261105v4";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -20,15 +21,15 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261105v3";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261105v3";
+} from "./utils.js?v=20261105v4";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261105v4";
 import {
   getDefaultPlayableSourceTab,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261105v3";
-import { openPlayerModal } from "./player.js?v=20261105v3";
-import { updateBackupSummaryStat } from "./settings.js?v=20261105v3";
-import { openQuickPeekModal } from "./modals.js?v=20261105v3";
+} from "./catalog-media-resolver.js?v=20261105v4";
+import { openPlayerModal } from "./player.js?v=20261105v4";
+import { updateBackupSummaryStat } from "./settings.js?v=20261105v4";
+import { openQuickPeekModal } from "./modals.js?v=20261105v4";
 
 export function formatRelativeWatchDate(ts) {
   if (!ts) return t("Недавно", "Recently");
@@ -391,6 +392,55 @@ export async function openStatsModal(initialTab = "analytics") {
           </div>`
         : `<div class="atv-stats-empty-sub">${t("Пока нет оценок 9–10", "No 9–10 ratings yet")}</div>`;
 
+    const topGenres = Array.isArray(st.top_genres) ? st.top_genres : [];
+    const maxGenreCnt = Math.max(1, ...topGenres.map((g) => Number(g.count) || 0));
+    const topGenresHtml =
+      topGenres.length > 0
+        ? topGenres
+            .map((g) => {
+              const pct = Math.round(((Number(g.count) || 0) / maxGenreCnt) * 100);
+              const avgPart = g.avg_score ? ` (${escapeHtml(g.avg_score)}/10)` : "";
+              return `
+                <div class="atv-hist-row">
+                  <span class="atv-hist-label is-wide">${escapeHtml(translateGenre(g.genre))}</span>
+                  <div class="atv-hist-bar-wrap">
+                    <div class="atv-hist-bar-fill" style="width:${pct}%"></div>
+                  </div>
+                  <span class="atv-hist-count">${escapeHtml(g.count)}${avgPart}</span>
+                </div>
+              `;
+            })
+            .join("")
+        : "";
+
+    const yearlyList = Array.isArray(st.yearly_summary) ? st.yearly_summary : [];
+    const yearlyHtml =
+      yearlyList.length > 0
+        ? yearlyList
+            .map((yb) => {
+              const avgBadge = yb.avg_score
+                ? `<span class="atv-inline-icon-label atv-friend-avg-score">${iconSvg("star", 11)}<span>${escapeHtml(yb.avg_score)}</span></span>`
+                : "";
+              const mCnt = Number(yb.movies) || 0;
+              const sCnt = Number(yb.series) || 0;
+              const hCnt = Number(yb.hours) || 0;
+              const totCnt = Number(yb.total) || 0;
+              return `
+                <div class="atv-friend-stat-row">
+                  <div class="atv-friend-stat-info">
+                    <div class="atv-friend-stat-name">${escapeHtml(yb.year)}</div>
+                    <div class="atv-friend-stat-sub">${escapeHtml(mCnt)} ${t(pluralRu(mCnt, "фильм", "фильма", "фильмов"), "movies")} · ${escapeHtml(sCnt)} ${t(pluralRu(sCnt, "сериал", "сериала", "сериалов"), "series")} · ~${escapeHtml(hCnt)} ${t(pluralRu(hCnt, "час", "часа", "часов"), "hours")}</div>
+                  </div>
+                  <div class="atv-friend-stat-metrics">
+                    ${avgBadge}
+                    <span class="atv-similarity-badge tier-high">${escapeHtml(totCnt)} ${t(pluralRu(totCnt, "тайтл", "тайтла", "тайтлов"), "titles")}</span>
+                  </div>
+                </div>
+              `;
+            })
+            .join("")
+        : "";
+
     const moviesCount = st.watched_movies || 0;
     const seriesCount = st.watched_series || 0;
     const hoursCount = st.estimated_hours || 0;
@@ -433,10 +483,20 @@ export async function openStatsModal(initialTab = "analytics") {
         <div class="atv-stats-card">
           <h4>${t("Распределение ваших оценок (10 – 1)", "Your Ratings Distribution (10 – 1)")}</h4>
           ${histHtml}
+          ${
+            topGenresHtml
+              ? `<h4 class="atv-stats-subhead">${t("Любимые жанры", "Favorite Genres")}</h4>${topGenresHtml}`
+              : ""
+          }
         </div>
         <div class="atv-stats-card">
           <h4>${t("Просмотрено по десятилетиям", "Watched by Decade")}</h4>
           ${decHtml}
+          ${
+            yearlyHtml
+              ? `<h4 class="atv-stats-subhead">${t("Кино-итоги по годам релиза", "Year in Review (by Release Year)")}</h4>${yearlyHtml}`
+              : ""
+          }
           <h4 class="atv-stats-subhead">${t("Совпадение вкусов с друзьями Kinorium", "Taste Match with Kinorium Friends")}</h4>
           ${friendsHtml}
         </div>

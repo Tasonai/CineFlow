@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261105v3";
+import { state } from "./state.js?v=20261105v4";
 
 export function isEn() {
   return state.appLang === "en";
@@ -941,6 +941,7 @@ export function applyStaticDomTranslations() {
 
   setElAttr("#select-catalog-genre", "title", "Фильтр по жанру", "Filter by genre");
   setElAttr("#select-catalog-year", "title", "Фильтр по году выпуска", "Filter by release year");
+  setElAttr("#select-catalog-collection", "title", "Умные коллекции и фильтр по озвучке", "Smart collections and voiceover studio filter");
   setElAttr("#btn-hide-watched", "title", "Скрыть уже просмотренные фильмы и сериалы", "Hide already watched movies and series");
   setElText("#btn-hide-watched > span", "Скрыть просмотренные", "Hide watched");
   setElAttr("#btn-friends-filter", "title", "Показать только тайтлы, которые оценили ваши друзья на Kinorium", "Show only titles rated by your Kinorium friends");

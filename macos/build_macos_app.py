@@ -143,7 +143,7 @@ def main() -> None:
         "CFBundleDisplayName": "CineFlow",
         "CFBundleIdentifier": "app.cineflow.cinema",
         "CFBundleVersion": "2700",
-        "CFBundleShortVersionString": "2.7.0",
+        "CFBundleShortVersionString": "2.7.1",
         "CFBundlePackageType": "APPL",
         "CFBundleExecutable": "CineFlow",
         "LSMinimumSystemVersion": "12.0",

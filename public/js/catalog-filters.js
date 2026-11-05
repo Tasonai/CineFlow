@@ -1,10 +1,10 @@
-import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261105v3";
+import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261105v4";
 import {
   displayTitle,
   getItemGenreEntries,
   t,
   translateGenre,
-} from "./i18n.js?v=20261105v3";
+} from "./i18n.js?v=20261105v4";
 import {
   clampFloatingPopover,
   closeFloatingPopovers,
@@ -15,31 +15,32 @@ import {
   showToast,
   syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261105v3";
+} from "./utils.js?v=20261105v4";
 import {
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261105v3";
+} from "./catalog-hero.js?v=20261105v4";
 import {
   applyEnabledServicesVisibility,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261105v3";
+} from "./catalog-media-resolver.js?v=20261105v4";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261105v3";
-import { switchNotificationsTab } from "./catalog-notifications.js?v=20261105v3";
-import { syncSearchClearButton } from "./catalog-live-search.js?v=20261105v3";
-import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261105v3";
-import { openQuickPeekModal } from "./modals.js?v=20261105v3";
-import { loadCatalog } from "./catalog.js?v=20261105v3";
+} from "./catalog-shelves.js?v=20261105v4";
+import { switchNotificationsTab } from "./catalog-notifications.js?v=20261105v4";
+import { syncSearchClearButton } from "./catalog-live-search.js?v=20261105v4";
+import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261105v4";
+import { openQuickPeekModal } from "./modals.js?v=20261105v4";
+import { loadCatalog } from "./catalog.js?v=20261105v4";
 
 export function updateActiveFiltersBadge() {
   let drawerCount = 0;
   if (state.genreFilter && state.genreFilter !== "all") drawerCount += 1;
   if (state.yearFilter && state.yearFilter !== "all") drawerCount += 1;
+  if (state.collectionFilter && state.collectionFilter !== "all") drawerCount += 1;
   if (state.hideWatched) drawerCount += 1;
   if (state.friendsFilter) drawerCount += 1;
   const badge = document.getElementById("active-filters-badge");
@@ -153,6 +154,54 @@ export function updateDynamicCatalogFilters() {
     yearSel.value = validValues.has(state.yearFilter) ? state.yearFilter : "all";
   }
 
+  const collSel = document.getElementById("select-catalog-collection");
+  if (collSel) {
+    const validColl = new Set(["all", "rating_8", "rating_75", "uhd_4k", "friends_8"]);
+    collSel.innerHTML = "";
+    const baseOpts = [
+      ["all", t("Все подборки", "All collections")],
+      ["rating_8", t("Шедевры 8.0+ (IMDb / Kinorium)", "Masterpieces 8.0+ (IMDb / Kinorium)")],
+      ["rating_75", t("Высокий рейтинг 7.5+", "High Rating 7.5+")],
+      ["uhd_4k", t("В 4K UHD / BDRemux", "In 4K UHD / BDRemux")],
+      ["friends_8", t("Фавориты друзей (8.0+)", "Friends' Favorites (8.0+)")],
+    ];
+    baseOpts.forEach(([val, label]) => {
+      const opt = document.createElement("option");
+      opt.value = val;
+      opt.textContent = label;
+      collSel.appendChild(opt);
+    });
+
+    const studioCounts = new Map();
+    items.forEach((it) => {
+      const stStr = String(it.studios_summary || it.preferred_studio || "").trim();
+      if (stStr) {
+        stStr.split(",").forEach((rawS) => {
+          const sName = rawS.trim();
+          if (sName && sName.toLowerCase() !== "hdrezka") {
+            studioCounts.set(sName, (studioCounts.get(sName) || 0) + 1);
+          }
+        });
+      }
+    });
+    Array.from(studioCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .forEach(([sName, cnt]) => {
+        const val = `studio:${sName}`;
+        validColl.add(val);
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = `${t("Озвучка", "Studio")}: ${sName} (${cnt})`;
+        collSel.appendChild(opt);
+      });
+
+    if (state.collectionFilter && !validColl.has(state.collectionFilter)) {
+      state.collectionFilter = "all";
+    }
+    collSel.value = state.collectionFilter || "all";
+  }
+
   updateActiveFiltersBadge();
 }
 export function renderActiveFilterChips() {
@@ -236,6 +285,25 @@ export function renderActiveFilterChips() {
       clear: () => {
         state.yearFilter = "all";
         const sel = document.getElementById("select-catalog-year");
+        if (sel) sel.value = "all";
+      },
+    });
+  }
+  if (state.collectionFilter && state.collectionFilter !== "all") {
+    const collLabels = {
+      rating_8: t("Шедевры 8.0+", "Masterpieces 8.0+"),
+      rating_75: t("Рейтинг 7.5+", "Rating 7.5+"),
+      uhd_4k: "4K UHD",
+      friends_8: t("Фавориты друзей 8+", "Friends 8+"),
+    };
+    const lbl = state.collectionFilter.startsWith("studio:")
+      ? `${t("Озвучка", "Studio")}: ${state.collectionFilter.slice(7)}`
+      : collLabels[state.collectionFilter] || state.collectionFilter;
+    chips.push({
+      label: lbl,
+      clear: () => {
+        state.collectionFilter = "all";
+        const sel = document.getElementById("select-catalog-collection");
         if (sel) sel.value = "all";
       },
     });
@@ -336,6 +404,30 @@ export function filterCatalogItemsByGenreAndYear(items, options = {}) {
       return true;
     });
   }
+  if (state.collectionFilter && state.collectionFilter !== "all") {
+    const cf = String(state.collectionFilter);
+    out = out.filter((it) => {
+      const kScore = parseFloat(it.kinorium?.kinorium_rating || it.ratings?.kinorium) || 0;
+      const iScore = parseFloat(it.ratings?.imdb) || 0;
+      const bestScore = Math.max(kScore, iScore);
+      if (cf === "rating_8") return bestScore >= 8.0;
+      if (cf === "rating_75") return bestScore >= 7.5;
+      if (cf === "uhd_4k") {
+        return (it.providers || []).some(
+          (p) => p && p.available && (p.id === "backup4k" || /4k|2160/i.test(String(p.quality || "")))
+        );
+      }
+      if (cf === "friends_8") {
+        return getFriendsAverageScore(it) >= 8.0;
+      }
+      if (cf.startsWith("studio:")) {
+        const targetSt = cf.slice(7).trim().toLowerCase();
+        const stSummary = String(it.studios_summary || it.preferred_studio || "").toLowerCase();
+        return stSummary.includes(targetSt);
+      }
+      return true;
+    });
+  }
   if (state.selectedFriend && state.selectedFriend !== "all") {
     out = out.filter((it) =>
       (it.kinorium?.friends_ratings || []).some((f) => f?.name === state.selectedFriend)
@@ -432,6 +524,7 @@ export function sortCatalogItems(items) {
 export function resetCatalogDrawerFiltersUI() {
   state.genreFilter = "all";
   state.yearFilter = "all";
+  state.collectionFilter = "all";
   state.sortBy = "default";
   state.hideWatched = false;
   state.friendsFilter = false;
@@ -443,6 +536,8 @@ export function resetCatalogDrawerFiltersUI() {
   if (genreSel) genreSel.value = "all";
   const yearSel = document.getElementById("select-catalog-year");
   if (yearSel) yearSel.value = "all";
+  const collSel = document.getElementById("select-catalog-collection");
+  if (collSel) collSel.value = "all";
   const friendSel = document.getElementById("select-friend-filter");
   if (friendSel) friendSel.value = "all";
   document.getElementById("btn-hide-watched")?.classList.remove("active");
@@ -614,6 +709,15 @@ export function initCatalogToolbarAndFilterBindings() {
   if (yearSelect) {
     yearSelect.onchange = (e) => {
       state.yearFilter = e.target.value || "all";
+      updateActiveFiltersBadge();
+      renderCatalogShelves();
+    };
+  }
+
+  const collSelect = document.getElementById("select-catalog-collection");
+  if (collSelect) {
+    collSelect.onchange = (e) => {
+      state.collectionFilter = e.target.value || "all";
       updateActiveFiltersBadge();
       renderCatalogShelves();
     };

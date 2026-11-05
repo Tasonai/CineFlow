@@ -2,14 +2,14 @@
 // Manages interactive player timeline, scrubber, volume slider, stage idle states,
 // fullscreen toggling, control popovers, and responsive layout synchronization.
 
-import { EP_VIEW_MODE_STORAGE_KEY, state } from "./state.js?v=20261105v3";
+import { EP_VIEW_MODE_STORAGE_KEY, state } from "./state.js?v=20261105v4";
 import {
   displayTitle,
   getItemGenreEntries,
   isEn,
   secondaryTitle,
   t,
-} from "./i18n.js?v=20261105v3";
+} from "./i18n.js?v=20261105v4";
 import {
   attachHorizontalWheelScroll,
   clampFloatingPopover,
@@ -25,15 +25,15 @@ import {
   showToast,
   syncToastContainerMount,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261105v3";
-import { isEpisodeWatched, isServiceEnabled, savePreferredStudioForItem } from "./catalog.js?v=20261105v3";
+} from "./utils.js?v=20261105v4";
+import { isEpisodeWatched, isServiceEnabled, savePreferredStudioForItem } from "./catalog.js?v=20261105v4";
 import {
   activateSelectedSubtitleTrack,
   adjustSubtitleOffset,
   closeSubtitleDictPopover,
   renderVcSubtitlesPopover,
   resetSubtitleOffset,
-} from "./subtitles.js?v=20261105v3";
+} from "./subtitles.js?v=20261105v4";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -48,9 +48,9 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261105v3";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261105v3";
-import { buildRemuxStreamEndpoint, getEffectivePlaybackTiming } from "./player-remux.js?v=20261105v3";
+} from "./audio-dsp.js?v=20261105v4";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261105v4";
+import { buildRemuxStreamEndpoint, getEffectivePlaybackTiming } from "./player-remux.js?v=20261105v4";
 import {
   getEpisodeDisplayMeta,
   hasStartedWatchingCurrentEpisode,
@@ -61,14 +61,14 @@ import {
   stepEpisode,
   switchToSeriesSeasonEpisode,
   syncEpisodesStripDrawerUI,
-} from "./player-seasons.js?v=20261105v3";
-import { syncPostwatchOverlayMount } from "./player-rating.js?v=20261105v3";
+} from "./player-seasons.js?v=20261105v4";
+import { syncPostwatchOverlayMount } from "./player-rating.js?v=20261105v4";
 import {
   clearAutoplayNextTimer,
   dismissPlayerNextEpisodeToast,
   getNextEpisodeCoords,
   setSleepTimer,
-} from "./player-autoplay.js?v=20261105v3";
+} from "./player-autoplay.js?v=20261105v4";
 import {
   adjustAudioOffset,
   hideVideoStreamError,
@@ -84,17 +84,17 @@ import {
   switchRemuxAudioTrack,
   switchSourceTab,
   toggleErrorStudiosPanel,
-} from "./player-streams.js?v=20261105v3";
-import { getDetectedCreditsStartSec, loadSkipIntroSegments } from "./player-intro-credits.js?v=20261105v3";
-import { toggleBookmarkCurrentMoment } from "./player-bookmarks.js?v=20261105v3";
+} from "./player-streams.js?v=20261105v4";
+import { getDetectedCreditsStartSec, loadSkipIntroSegments } from "./player-intro-credits.js?v=20261105v4";
+import { toggleBookmarkCurrentMoment } from "./player-bookmarks.js?v=20261105v4";
 import {
   restoreFullPlayerFromPip,
   setMiniPlayerMode,
   setPipBackgroundMode,
   updateMiniPlayerTitle,
-} from "./player-pip-dock.js?v=20261105v3";
-import { captureVideoScreenshot, togglePlayerSidebarCollapsed } from "./player-meta.js?v=20261105v3";
-import { closePlayerModal, playVideoUrl, toggleVideoPlayPause } from "./player.js?v=20261105v3";
+} from "./player-pip-dock.js?v=20261105v4";
+import { captureVideoScreenshot, togglePlayerSidebarCollapsed } from "./player-meta.js?v=20261105v4";
+import { closePlayerModal, playVideoUrl, toggleVideoPlayPause } from "./player.js?v=20261105v4";
 
 export function hasOpenVcPopover() {
   return [
@@ -864,10 +864,28 @@ export function getSnappingRatio(rawRatio, dur, timeline = document.getElementBy
   if (Array.isArray(state.activeItemBookmarks)) {
     state.activeItemBookmarks.forEach((bm) => {
       if (bm && typeof bm.time === "number" && bm.time > 0 && bm.time < dur) {
-        candidates.push({ r: bm.time / dur, label: `${t("Закладка", "Bookmark")} (${formatTime(bm.time)})` });
+        const bmNote = String(bm.note || "").trim();
+        const bmLabel = bmNote
+          ? `${t("Закладка", "Bookmark")}: ${bmNote}`
+          : `${t("Закладка", "Bookmark")} (${formatTime(bm.time)})`;
+        candidates.push({ r: bm.time / dur, label: bmLabel });
       }
     });
   }
+  const extraChapters = Array.isArray(state.remuxMeta?.chapters)
+    ? state.remuxMeta.chapters
+    : Array.isArray(state.skipSegments?.chapters)
+    ? state.skipSegments.chapters
+    : [];
+  extraChapters.forEach((ch) => {
+    const chSec = Number(ch?.start ?? ch?.time ?? ch?.start_sec) || 0;
+    if (chSec > 0 && chSec < dur) {
+      candidates.push({
+        r: chSec / dur,
+        label: String(ch?.title || ch?.label || `${t("Глава", "Chapter")} (${formatTime(chSec)})`),
+      });
+    }
+  });
 
   for (const cand of candidates) {
     if (Math.abs(rawRatio - cand.r) <= snapThresholdRatio) {
@@ -875,6 +893,67 @@ export function getSnappingRatio(rawRatio, dur, timeline = document.getElementBy
     }
   }
   return { ratio: rawRatio, snapped: null };
+}
+
+export function jumpToAdjacentTimelineMarker(direction = 1) {
+  const video = document.getElementById("native-video");
+  if (!video || !state.isPlayerOpen) return false;
+  const { cur, dur } = getEffectivePlaybackTiming(video);
+  if (!dur || dur <= 0) return false;
+
+  const points = [{ sec: 0, label: t("Начало", "Start") }];
+  const introStart = Number(state.skipSegments?.intro?.start) || Number(state.skipSegments?.intro?.start_sec) || 0;
+  const introEnd = Number(state.skipSegments?.intro?.end) || Number(state.skipSegments?.intro?.end_sec) || 0;
+  const creditsStart = getDetectedCreditsStartSec(dur) || 0;
+
+  if (introStart > 1 && introStart < dur) {
+    points.push({ sec: introStart, label: t("Заставка: начало", "Intro start") });
+  }
+  if (introEnd > 1 && introEnd < dur) {
+    points.push({ sec: introEnd, label: t("Заставка: конец", "Intro end") });
+  }
+  if (creditsStart > 1 && creditsStart < dur) {
+    points.push({ sec: creditsStart, label: t("Титры", "Credits") });
+  }
+  if (Array.isArray(state.activeItemBookmarks)) {
+    state.activeItemBookmarks.forEach((bm) => {
+      if (bm && typeof bm.time === "number" && bm.time > 0 && bm.time < dur) {
+        points.push({
+          sec: bm.time,
+          label: bm.note
+            ? `${t("Закладка", "Bookmark")}: ${bm.note}`
+            : `${t("Закладка", "Bookmark")} (${formatTime(bm.time)})`,
+        });
+      }
+    });
+  }
+  const extraChapters = Array.isArray(state.remuxMeta?.chapters)
+    ? state.remuxMeta.chapters
+    : Array.isArray(state.skipSegments?.chapters)
+    ? state.skipSegments.chapters
+    : [];
+  extraChapters.forEach((ch) => {
+    const chSec = Number(ch?.start ?? ch?.time ?? ch?.start_sec) || 0;
+    if (chSec > 1 && chSec < dur) {
+      points.push({
+        sec: chSec,
+        label: String(ch?.title || ch?.label || `${t("Глава", "Chapter")} (${formatTime(chSec)})`),
+      });
+    }
+  });
+
+  points.sort((a, b) => a.sec - b.sec);
+  const target =
+    direction > 0
+      ? points.find((p) => p.sec > cur + 2.5)
+      : [...points].reverse().find((p) => p.sec < cur - 3.5);
+  if (!target) return false;
+  seekEffectivePlayback(target.sec);
+  triggerVideoCenterIndicator(
+    direction > 0 ? "fwd10" : "back10",
+    `${target.label} · ${formatTime(target.sec)}`
+  );
+  return true;
 }
 
 export function initCustomVideoControls() {

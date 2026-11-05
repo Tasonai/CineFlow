@@ -2,7 +2,7 @@
 chcp 65001 >nul
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
-title CineFlow 2.7.0 — Atoma
+title CineFlow 2.7.1 — Atoma
 
 cd /d "%~dp0\.."
 
@@ -12,7 +12,7 @@ if exist "%CD%\CineFlow.exe" (
 )
 
 echo ============================================================
-echo Запуск CineFlow 2.7.0 для Windows (Разработчик: Atoma)
+echo Запуск CineFlow 2.7.1 для Windows (Разработчик: Atoma)
 echo ============================================================
 
 if exist "%CD%\runtime\pythonw.exe" (

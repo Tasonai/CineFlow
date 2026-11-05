@@ -421,8 +421,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             } else if (!background_only) {
                 MessageBoxW(
                     NULL,
-                    L"Не удалось запустить локальный сервер CineFlow.\nПроверьте целостность файлов установки или переустановите CineFlow 2.7.0.\n\nFailed to start the local CineFlow server.\nPlease verify the installation files or reinstall CineFlow 2.7.0.",
-                    L"CineFlow 2.7.0 — Atoma",
+                    L"Не удалось запустить локальный сервер CineFlow.\nПроверьте целостность файлов установки или переустановите CineFlow 2.7.1.\n\nFailed to start the local CineFlow server.\nPlease verify the installation files or reinstall CineFlow 2.7.1.",
+                    L"CineFlow 2.7.1 — Atoma",
                     MB_ICONERROR | MB_OK
                 );
                 if (hStartMutex) {

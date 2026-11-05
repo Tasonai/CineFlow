@@ -559,7 +559,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
         if !isFromDmgOrDownloads { return false }
         guard fm.fileExists(atPath: targetAppPath) else { return false }
 
-        let currentVer = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.7.0"
+        let currentVer = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.7.1"
         var installedVer = "2.5.x"
         let targetPlistPath = (targetAppPath as NSString).appendingPathComponent("Contents/Info.plist")
         if let plistData = try? Data(contentsOf: URL(fileURLWithPath: targetPlistPath)),

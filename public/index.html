@@ -11,15 +11,15 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="CineFlow" />
-  <link rel="manifest" href="/manifest.webmanifest?v=20261105v3" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261105v3" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png?v=20261105v3" />
-  <link rel="shortcut icon" href="/favicon.svg?v=20261105v3" />
-  <link rel="stylesheet" href="/css/base-and-hero.css?v=20261105v3" />
-  <link rel="stylesheet" href="/css/catalog-and-player-layout.css?v=20261105v3" />
-  <link rel="stylesheet" href="/css/modals-and-search.css?v=20261105v3" />
-  <link rel="stylesheet" href="/css/settings-and-episodes.css?v=20261105v3" />
-  <link rel="stylesheet" href="/css/video-controls-and-person.css?v=20261105v3" />
+  <link rel="manifest" href="/manifest.webmanifest?v=20261105v4" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20261105v4" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png?v=20261105v4" />
+  <link rel="shortcut icon" href="/favicon.svg?v=20261105v4" />
+  <link rel="stylesheet" href="/css/base-and-hero.css?v=20261105v4" />
+  <link rel="stylesheet" href="/css/catalog-and-player-layout.css?v=20261105v4" />
+  <link rel="stylesheet" href="/css/modals-and-search.css?v=20261105v4" />
+  <link rel="stylesheet" href="/css/settings-and-episodes.css?v=20261105v4" />
+  <link rel="stylesheet" href="/css/video-controls-and-person.css?v=20261105v4" />
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
 </head>
 <body>
@@ -29,7 +29,7 @@
   <header class="atv-header">
     <div class="atv-header-left">
       <div class="atv-brand" id="brand-home" tabindex="0" role="button" aria-label="CineFlow — На главную">
-        <img class="atv-logo-icon" src="/favicon.svg?v=20261105v3" alt="" width="24" height="24" />
+        <img class="atv-logo-icon" src="/favicon.svg?v=20261105v4" alt="" width="24" height="24" />
         <span class="atv-brand-name">CineFlow</span>
       </div>
 
@@ -320,6 +320,9 @@
         </select>
         <select id="select-catalog-year" class="atv-filter-select" aria-label="Фильтр по году выпуска" title="Фильтр по году выпуска">
           <option value="all">Все годы</option>
+        </select>
+        <select id="select-catalog-collection" class="atv-filter-select" aria-label="Умные коллекции и озвучка" title="Умные коллекции и фильтр по озвучке">
+          <option value="all">Все подборки</option>
         </select>
         <button type="button" class="atv-friends-filter-btn" id="btn-hide-watched" aria-pressed="false" title="Скрыть уже просмотренные фильмы и сериалы">
           <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
@@ -1609,7 +1612,7 @@
       <div class="atv-settings-body hidden" id="stab-about" role="tabpanel" aria-labelledby="settings-tab-about">
         <div class="atv-about-minimal">
           <div class="atv-about-head">
-            <img class="atv-about-logo" src="/favicon.svg?v=20261105v3" alt="CineFlow" width="44" height="44" />
+            <img class="atv-about-logo" src="/favicon.svg?v=20261105v4" alt="CineFlow" width="44" height="44" />
             <div class="atv-about-head-text">
               <h3 class="atv-about-app-name">CineFlow</h3>
               <p class="atv-about-tagline" id="about-app-tagline">Персональный домашний кинотеатр</p>
@@ -1623,7 +1626,7 @@
           <div class="atv-about-list">
             <div class="atv-about-row">
               <span class="atv-about-label" id="about-lbl-version">Версия</span>
-              <span class="atv-about-value" id="about-val-version">2.7.0</span>
+              <span class="atv-about-value" id="about-val-version">2.7.1</span>
             </div>
             <div class="atv-about-row">
               <span class="atv-about-label" id="about-lbl-developer">Разработчик</span>
@@ -1646,7 +1649,7 @@
                   <strong class="atv-about-update-heading" id="about-update-heading">Обновления приложения</strong>
                   <span class="atv-about-update-badge" id="about-update-badge">Установлена актуальная версия</span>
                 </div>
-                <div class="atv-about-update-subline" id="about-update-subline">Текущая версия 2.7.0</div>
+                <div class="atv-about-update-subline" id="about-update-subline">Текущая версия 2.7.1</div>
               </div>
               <div class="atv-about-update-actions">
                 <button type="button" class="atv-btn-primary atv-btn-xs hidden" id="about-update-action-btn">
@@ -1709,7 +1712,7 @@
     <div class="atv-settings-sheet atv-onboarding-sheet">
       <div class="atv-settings-header atv-onboarding-header">
         <div class="atv-onboarding-title-wrap">
-          <img class="atv-onboarding-logo" src="/favicon.svg?v=20261105v3" alt="" width="28" height="28" />
+          <img class="atv-onboarding-logo" src="/favicon.svg?v=20261105v4" alt="" width="28" height="28" />
           <div>
             <h2 class="atv-onboarding-title" id="ob-title">Первичная настройка CineFlow</h2>
             <p class="atv-onboarding-sub" id="ob-subtitle">Выберите страну Европы для обхода блокировок, подключаемые сервисы и синхронизацию Kinorium</p>
@@ -2378,6 +2381,6 @@
 
   <input type="file" id="input-local-subtitle-file" accept=".srt,.vtt,.ass,.ssa" class="hidden" aria-hidden="true" />
   <div id="toast-container" class="atv-toast-container" role="region" aria-live="polite" aria-label="Уведомления"></div>
-  <script type="module" src="/app.js?v=20261105v3"></script>
+  <script type="module" src="/app.js?v=20261105v4"></script>
 </body>
 </html>

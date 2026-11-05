@@ -371,6 +371,16 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   background: rgba(255, 255, 255, 0.2);
 }
 
+.atv-vc-chapter-tick {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.72);
+  border-radius: 1px;
+  transform: translateX(-50%);
+}
+
 .atv-vc-bookmarks {
   position: absolute;
   inset: 0;

@@ -1,7 +1,7 @@
-import { state } from "./state.js?v=20261105v3";
-import { t } from "./i18n.js?v=20261105v3";
-import { formatTime } from "./utils.js?v=20261105v3";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261105v3";
+import { state } from "./state.js?v=20261105v4";
+import { t } from "./i18n.js?v=20261105v4";
+import { formatTime } from "./utils.js?v=20261105v4";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261105v4";
 
 export function getDetectedCreditsStartSec(dur) {
   if (!dur || dur < 120) return null;
@@ -44,6 +44,19 @@ export function renderTimelineChapterMarkers(dur) {
     const widthPct = Math.max(0.6, 100 - Number(leftPct)).toFixed(2);
     html += `<div class="atv-vc-chapter-segment is-credits" style="left:${leftPct}%; width:${widthPct}%" title="${t("Титры", "Credits")}"></div>`;
   }
+  const extraChapters = Array.isArray(state.remuxMeta?.chapters)
+    ? state.remuxMeta.chapters
+    : Array.isArray(state.skipSegments?.chapters)
+    ? state.skipSegments.chapters
+    : [];
+  extraChapters.forEach((ch) => {
+    const chSec = Number(ch?.start ?? ch?.time ?? ch?.start_sec) || 0;
+    if (chSec > 2 && chSec < dur - 2) {
+      const chPct = Math.max(0, Math.min(100, (chSec / dur) * 100)).toFixed(2);
+      const chTitle = String(ch?.title || ch?.label || `${t("Глава", "Chapter")} (${formatTime(chSec)})`).replace(/"/g, "&quot;");
+      html += `<div class="atv-vc-chapter-tick" style="left:${chPct}%" title="${chTitle}"></div>`;
+    }
+  });
   container.innerHTML = html;
 }
 
@@ -82,6 +95,9 @@ export async function loadSkipIntroSegments() {
           }
         }
         state.preloadedSkipSegments = null;
+        const vPre = document.getElementById("native-video");
+        const { dur: durPre } = getEffectivePlaybackTiming(vPre);
+        if (durPre > 0) renderTimelineChapterMarkers(durPre);
         return;
       }
     }

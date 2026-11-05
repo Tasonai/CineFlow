@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Cross-platform Windows x64 Installer Builder for CineFlow 2.7.0 (Developer: Atoma).
+Cross-platform Windows x64 Installer Builder for CineFlow 2.7.1 (Developer: Atoma).
 
 Builds:
   1. windows/assets/cineflow.ico (multi-size 16..256px Windows icon)
   2. windows/assets/wizard-welcome.bmp & wizard-header.bmp (NSIS MUI2 branding bitmaps)
   3. windows/installer/license_ru.txt & license_en.txt (UTF-8 BOM localized product & license docs)
   4. dist/CineFlow.exe (native 64-bit Win32 GUI launcher with PE VERSIONINFO & Per-Monitor V2 DPI)
-  5. dist/CineFlow-Setup-2.7.0-x64.exe (standalone bilingual NSIS 3 Modern UI 2 installer bundling
+  5. dist/CineFlow-Setup-2.7.1-x64.exe (standalone bilingual NSIS 3 Modern UI 2 installer bundling
      Python 3.11.9 Windows x64 runtime + TorrServer MatriX x64 + FFmpeg 9 x64)
 """
 
@@ -24,8 +24,8 @@ from typing import List, Optional, Tuple
 
 
 APP_NAME = "CineFlow"
-APP_VERSION = "2.7.0"
-APP_VERSION_QUAD = "2.7.0.0"
+APP_VERSION = "2.7.1"
+APP_VERSION_QUAD = "2.7.1.0"
 APP_PUBLISHER = "Atoma"
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -128,7 +128,7 @@ def _download_if_missing(url: str, dest_path: str, label: str) -> str:
         return dest_path
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     print(f"[build] Downloading {label} from {url} ...")
-    req = urllib.request.Request(url, headers={"User-Agent": "CineFlow-Builder/2.7.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "CineFlow-Builder/2.7.1"})
     tmp_path = f"{dest_path}.part"
     with urllib.request.urlopen(req, timeout=120) as resp, open(tmp_path, "wb") as out:
         shutil.copyfileobj(resp, out)

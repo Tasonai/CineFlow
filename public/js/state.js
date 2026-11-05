@@ -31,7 +31,7 @@ const _initialAppLang = (() => {
 
 export const state = {
   appLang: _initialAppLang,
-  appVersion: "2.7.0",
+  appVersion: "2.7.1",
   launchSeed: Math.floor(Math.random() * 0x7fffffff) || 1,
   providerFilter: "all",
   mediaTypeFilter: "all",
@@ -39,6 +39,7 @@ export const state = {
   kinoriumSubType: "all",
   genreFilter: "all",
   yearFilter: "all",
+  collectionFilter: "all",
   hideWatched: false,
   friendsFilter: false,
   selectedFriend: "all",

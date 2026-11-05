@@ -793,7 +793,7 @@ class TestAuditFixes(unittest.TestCase):
         # Verify NSIS installer script metadata, installer language dialog, and app language custom page
         nsi_path = os.path.join(root, "windows", "installer", "cineflow.nsi")
         nsi_txt = self._read_text(nsi_path)
-        self.assertIn('!define APP_VERSION "2.7.0"', nsi_txt)
+        self.assertIn('!define APP_VERSION "2.7.1"', nsi_txt)
         self.assertIn('!define APP_PUBLISHER "Atoma"', nsi_txt)
         self.assertIn("!insertmacro MUI_LANGDLL_DISPLAY", nsi_txt)
         self.assertIn("Page custom AppLangPageCreate AppLangPageLeave", nsi_txt)
@@ -2192,9 +2192,9 @@ class TestAuditFixes(unittest.TestCase):
 
         # 1. AppUpdater semver comparison, manifest parsing & GitHub release parsing
         self.assertEqual(parse_semver("v2.6.6"), (2, 6, 6, 0))
-        self.assertEqual(normalize_version_str("v2.7.0-beta1"), "2.7.0")
+        self.assertEqual(normalize_version_str("v2.7.1-beta1"), "2.7.1")
         self.assertTrue(is_newer_version("2.6.11", "2.6.6"))
-        self.assertTrue(is_newer_version("2.7.0", "2.6.119"))
+        self.assertTrue(is_newer_version("2.7.1", "2.6.119"))
         self.assertFalse(is_newer_version("2.6.6", "2.6.6"))
         self.assertFalse(is_newer_version("2.6.5", "2.6.6"))
 
