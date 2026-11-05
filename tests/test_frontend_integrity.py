@@ -141,7 +141,7 @@ class TestFrontendIntegrity(unittest.TestCase):
         self.assertIn("env(safe-area-inset-", css_combined)
         self.assertIn("html.is-ios-device .atv-vc-vol-slider", css_combined)
 
-        for clean_js in ("modals.js", "settings.js"):
+        for clean_js in ("modals.js", "settings.js", "settings-onboarding.js", "settings-updater.js"):
             p = os.path.join(PUBLIC_DIR, "js", clean_js)
             with open(p, "r", encoding="utf-8") as f:
                 js_src = f.read()
@@ -175,6 +175,9 @@ class TestFrontendIntegrity(unittest.TestCase):
 
         with open(os.path.join(PUBLIC_DIR, "js", "settings.js"), "r", encoding="utf-8") as f:
             settings_src = f.read()
+        for sub_set in ("settings-onboarding.js", "settings-updater.js"):
+            with open(os.path.join(PUBLIC_DIR, "js", sub_set), "r", encoding="utf-8") as f:
+                settings_src += "\n" + f.read()
         self.assertNotIn("srv-toggle-label", settings_src)
         self.assertNotIn("status-badge-ok", settings_src)
         self.assertNotIn("atv-stremio-badge", settings_src)
@@ -436,6 +439,9 @@ class TestFrontendIntegrity(unittest.TestCase):
         # Wave 7 UI/UX invariants: role="switch" on all toggle switches, TV cast tablist/tab ARIA, touch poster-more-btn, break-ui guards
         with open(os.path.join(PUBLIC_DIR, "js", "settings.js"), "r", encoding="utf-8") as f:
             settings_src = f.read()
+        for sub_set in ("settings-onboarding.js", "settings-updater.js"):
+            with open(os.path.join(PUBLIC_DIR, "js", sub_set), "r", encoding="utf-8") as f:
+                settings_src += "\n" + f.read()
         with open(os.path.join(PUBLIC_DIR, "js", "features.js"), "r", encoding="utf-8") as f:
             features_src = f.read()
         self.assertIn('id="cfg-lan-toggle" role="switch" aria-labelledby="lan-toggle-title"', html_src)
