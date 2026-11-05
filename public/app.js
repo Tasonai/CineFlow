@@ -5,7 +5,7 @@ import {
   UI_PREFS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./js/state.js?v=20261105v2";
+} from "./js/state.js?v=20261105v3";
 import {
   applyStaticDomTranslations,
   displayPoster,
@@ -14,7 +14,7 @@ import {
   secondaryTitle,
   syncLanguageSegmentedControlUI,
   t,
-} from "./js/i18n.js?v=20261105v2";
+} from "./js/i18n.js?v=20261105v3";
 import {
   attachHorizontalWheelScroll,
   clampFloatingPopover,
@@ -46,7 +46,7 @@ import {
   trapModalTabKey,
   triggerVideoCenterIndicator,
   withKinoriumActionLock,
-} from "./js/utils.js?v=20261105v2";
+} from "./js/utils.js?v=20261105v3";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -61,7 +61,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./js/audio-dsp.js?v=20261105v2";
+} from "./js/audio-dsp.js?v=20261105v3";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -96,7 +96,7 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./js/catalog.js?v=20261105v2";
+} from "./js/catalog.js?v=20261105v3";
 import {
   buildFallbackAvatarSvg,
   closePersonModal,
@@ -110,7 +110,7 @@ import {
   switchStatsModalTab,
   initQuickPeekBindings,
   syncQuickPeekStatusesUI,
-} from "./js/modals.js?v=20261105v2";
+} from "./js/modals.js?v=20261105v3";
 import {
   activateSelectedSubtitleTrack,
   adjustAudioOffset,
@@ -174,20 +174,20 @@ import {
   updateMiniPlayerTitle,
   updateModalKinoriumHeader,
   wakeVideoControls,
-} from "./js/player.js?v=20261105v2";
+} from "./js/player.js?v=20261105v3";
 import {
   adjustSubtitleOffset,
   bindSubtitleFileAndDropListeners,
   closeSubtitleDictPopover,
   resetSubtitleOffset,
   syncSubtitleOffsetUI,
-} from "./js/subtitles.js?v=20261105v2";
+} from "./js/subtitles.js?v=20261105v3";
 import {
   initDesktopRemoteAgent,
   initMobileRemoteController,
   isMobileRemoteUrl,
   pushDesktopRemoteStateNow,
-} from "./js/remote.js?v=20261105v2";
+} from "./js/remote.js?v=20261105v3";
 import {
   applyAppLanguage,
   checkAppUpdates,
@@ -200,11 +200,11 @@ import {
   renderSettingsCountryUI,
   requestCloseSettingsModal,
   switchSettingsTab,
-} from "./js/settings.js?v=20261105v2";
+} from "./js/settings.js?v=20261105v3";
 import {
   initBookmarksListeners,
   openBookmarksModal,
-} from "./js/player-bookmarks.js?v=20261105v2";
+} from "./js/player-bookmarks.js?v=20261105v3";
 import {
   applyPendingTvDeepLinkIfReady,
   applyProfilesPayload,
@@ -218,15 +218,15 @@ import {
   initRoadmapFeatures,
   reloadProfileLocalPlayerPrefs,
   renderHeaderProfileSwitcher,
-} from "./js/features.js?v=20261105v2";
-import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261105v2";
+} from "./js/features.js?v=20261105v3";
+import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261105v3";
 import {
   initCatalogLiveSearch,
   closeLiveSearchPopover,
   resetCatalogFiltersForGlobalSearch,
   syncSearchClearButton,
-} from "./js/catalog-live-search.js?v=20261105v2";
-import { initGlobalHotkeys } from "./js/app-hotkeys.js?v=20261105v2";
+} from "./js/catalog-live-search.js?v=20261105v3";
+import { initGlobalHotkeys } from "./js/app-hotkeys.js?v=20261105v3";
 
 function initCineFlowApp() {
   document.documentElement.classList.toggle("is-ios-device", isIosOrIpadOs());

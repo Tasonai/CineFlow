@@ -95,3 +95,30 @@ Acceptance:
 - [unit] `public/js/catalog-filters.js` exports `resetCatalogDrawerFiltersUI` and `initCatalogToolbarAndFilterBindings`.
 - [self] `public/app.js` shrinks to 864 lines (80% smaller than original 4,316 lines) and all 120 unit tests pass.
 Status: done
+
+### S-010 Extract Settings Onboarding/Country selector & Auto-Updater/Backup subsystems (`public/js/settings-onboarding.js`, `public/js/settings-updater.js`)
+As a developer maintaining settings, onboarding, and auto-updates, I want the Onboarding Wizard + 50-country selector in `public/js/settings-onboarding.js` and the Auto-Updater + Profile Backup engine in `public/js/settings-updater.js`, re-exported by `public/js/settings.js`.
+Screens: public/js/settings-onboarding.js, public/js/settings-updater.js, public/js/settings.js
+Depends: S-009
+Acceptance:
+- [unit] `public/js/settings-onboarding.js` and `public/js/settings-updater.js` pass `node --check` and are re-exported by `public/js/settings.js`.
+- [self] `public/js/settings.js` shrinks from 3,471 lines to 1,825 lines (−47.4%) and all frontend integrity checks pass.
+Status: done
+
+### S-011 Extract Person Profile & Stats/Watch-History modals (`public/js/modals-person.js`, `public/js/modals-stats.js`)
+As a developer maintaining modal views, I want the Person Profile / Cast modal in `public/js/modals-person.js` and the Analytics / Watch History modal in `public/js/modals-stats.js`, leaving `public/js/modals.js` focused on Quick Peek and modal coordination while re-exporting all symbols.
+Screens: public/js/modals-person.js, public/js/modals-stats.js, public/js/modals.js
+Depends: S-010
+Acceptance:
+- [unit] `public/js/modals-person.js` and `public/js/modals-stats.js` pass `node --check` and are re-exported by `public/js/modals.js`.
+- [self] `public/js/modals.js` shrinks from 2,585 lines to 1,514 lines (−41.4%) and all unit tests pass.
+Status: done
+
+### S-012 Extract Kinorium profile sync, discovery & backup engine (`backend/kinorium_profile.py`)
+As a developer maintaining Kinorium profile synchronization, friends feed, online premieres, and backup export/import, I want these cohesive responsibilities isolated in `backend/kinorium_profile.py` with full delegation on `KinoriumService`.
+Screens: backend/kinorium_profile.py, backend/kinorium.py
+Depends: S-008
+Acceptance:
+- [unit] `backend/kinorium_profile.py` encapsulates `sync_user_profile`, `disconnect_user_profile`, `fetch_status_list_ajax`, `fetch_movie_page_extras`, `get_similar_catalog_items`, `fetch_online_premieres`, `export_backup_state`, `import_backup_state`, and service integration helpers.
+- [self] `backend/kinorium.py` shrinks from 3,896 lines to 2,436 lines (71.8% smaller than original 8,623 lines) and all 120 unit tests pass.
+Status: done

@@ -3,23 +3,23 @@
 // (watching_10, completed, series finale), continue watching synchronization,
 // and offline download automation triggers.
 
-import { state } from "./state.js?v=20261105v2";
-import { t, displayTitle } from "./i18n.js?v=20261105v2";
-import { saveEpisodeProgress, showToast } from "./utils.js?v=20261105v2";
+import { state } from "./state.js?v=20261105v3";
+import { t, displayTitle } from "./i18n.js?v=20261105v3";
+import { saveEpisodeProgress, showToast } from "./utils.js?v=20261105v3";
 import {
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   renderContinueWatching,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261105v2";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261105v2";
-import { refreshDownloadsState } from "./features.js?v=20261105v2";
+} from "./catalog.js?v=20261105v3";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261105v3";
+import { refreshDownloadsState } from "./features.js?v=20261105v3";
 import {
   resolveEffectiveSeasonsMap,
   resolveSeriesCompletedFlag,
   populateSeasonEpisodeSelectors,
-} from "./player-seasons.js?v=20261105v2";
-import { updateModalKinoriumHeader } from "./player-meta.js?v=20261105v2";
+} from "./player-seasons.js?v=20261105v3";
+import { updateModalKinoriumHeader } from "./player-meta.js?v=20261105v3";
 
 export async function reportScrobbleProgress(currentTime, duration, options = {}) {
   if (!state.activeItem) return;

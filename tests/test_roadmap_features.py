@@ -2191,7 +2191,7 @@ class TestRoadmapFeatures(unittest.TestCase):
 
     def test_improve_loop_m1_modules_and_log_hygiene(self):
         """Verifies M1/M2 improve-loop & improve-architecture modular extractions and verbose_log gating."""
-        # 1. backend.kinorium_http, backend.kinorium_sync & backend.kinorium_mutations
+        # 1. backend.kinorium_http, backend.kinorium_sync, backend.kinorium_mutations & backend.kinorium_profile
         from backend.kinorium_http import (
             extract_user_path,
             sanitize_session_cookie,
@@ -2214,6 +2214,15 @@ class TestRoadmapFeatures(unittest.TestCase):
             toggle_not_watching,
             get_profile_stats,
         )
+        from backend.kinorium_profile import (
+            sync_user_profile,
+            disconnect_user_profile,
+            fetch_movie_page_extras,
+            get_similar_catalog_items,
+            fetch_online_premieres,
+            export_backup_state,
+            import_backup_state,
+        )
         self.assertEqual(extract_user_path("https://ru.kinorium.com/user/51670/"), "/user/51670/")
         self.assertIn("PHPSESSID=abc123", sanitize_session_cookie("Cookie: PHPSESSID=abc123"))
         self.assertTrue(callable(kinorium_http_request))
@@ -2230,6 +2239,13 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertTrue(callable(toggle_watching))
         self.assertTrue(callable(toggle_not_watching))
         self.assertTrue(callable(get_profile_stats))
+        self.assertTrue(callable(sync_user_profile))
+        self.assertTrue(callable(disconnect_user_profile))
+        self.assertTrue(callable(fetch_movie_page_extras))
+        self.assertTrue(callable(get_similar_catalog_items))
+        self.assertTrue(callable(fetch_online_premieres))
+        self.assertTrue(callable(export_backup_state))
+        self.assertTrue(callable(import_backup_state))
 
         # 2. verbose_log gating in backend/routes/streams.py
         with open(os.path.join(BASE_DIR, "backend", "routes", "streams.py"), "r", encoding="utf-8") as fh:
@@ -2255,11 +2271,19 @@ class TestRoadmapFeatures(unittest.TestCase):
 
         with open(os.path.join(BASE_DIR, "public", "js", "modals.js"), "r", encoding="utf-8") as fh:
             self.assertIn("export function initQuickPeekBindings(", fh.read())
+        with open(os.path.join(BASE_DIR, "public", "js", "modals-person.js"), "r", encoding="utf-8") as fh:
+            self.assertIn("export async function openPersonModal(", fh.read())
+        with open(os.path.join(BASE_DIR, "public", "js", "modals-stats.js"), "r", encoding="utf-8") as fh:
+            self.assertIn("export async function openStatsModal(", fh.read())
 
         with open(os.path.join(BASE_DIR, "public", "js", "settings.js"), "r", encoding="utf-8") as fh:
             settings_src = fh.read()
         self.assertIn("export function initSettingsAndBackupBindings(", settings_src)
         self.assertIn("export async function requestCloseSettingsModal(", settings_src)
+        with open(os.path.join(BASE_DIR, "public", "js", "settings-onboarding.js"), "r", encoding="utf-8") as fh:
+            self.assertIn("export async function openOnboardingModal(", fh.read())
+        with open(os.path.join(BASE_DIR, "public", "js", "settings-updater.js"), "r", encoding="utf-8") as fh:
+            self.assertIn("export async function checkAppUpdates(", fh.read())
 
         with open(os.path.join(BASE_DIR, "public", "app.js"), "r", encoding="utf-8") as fh:
             app_src = fh.read()

@@ -1,11 +1,11 @@
-import { state } from "./state.js?v=20261105v2";
+import { state } from "./state.js?v=20261105v3";
 import {
   hasCyrillicText,
   isEn,
   t,
   translateCareer,
   transliterateRuToEn,
-} from "./i18n.js?v=20261105v2";
+} from "./i18n.js?v=20261105v3";
 import {
   attachHorizontalWheelScroll,
   closeCustomSelectMenu,
@@ -18,20 +18,20 @@ import {
   showToast,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261105v2";
-import { createPosterCardElement } from "./catalog-cards.js?v=20261105v2";
-import { isServiceEnabled } from "./catalog-media-resolver.js?v=20261105v2";
-import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261105v2";
-import { loadCatalog } from "./catalog.js?v=20261105v2";
-import { escapeEpisodeHtml } from "./player-seasons.js?v=20261105v2";
-import { closePlayerModal } from "./player.js?v=20261105v2";
+} from "./utils.js?v=20261105v3";
+import { createPosterCardElement } from "./catalog-cards.js?v=20261105v3";
+import { isServiceEnabled } from "./catalog-media-resolver.js?v=20261105v3";
+import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261105v3";
+import { loadCatalog } from "./catalog.js?v=20261105v3";
+import { escapeEpisodeHtml } from "./player-seasons.js?v=20261105v3";
+import { closePlayerModal } from "./player.js?v=20261105v3";
 import {
   closeQuickPeekModal,
   goBackInModalStack,
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   syncModalBackButtons,
-} from "./modals.js?v=20261105v2";
+} from "./modals.js?v=20261105v3";
 
 export function triggerPersonSearch(personName) {
   if (!personName) return;

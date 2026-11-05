@@ -23,8 +23,12 @@ CineFlow is a cross-platform desktop cinema center for **macOS** (`WKWebView` + 
 │   │   ├── Player:  player.js, player-streams.js, player-ui-controls.js,   │
 │   │   │            player-rating.js, player-hls.js, player-subtitles.js,  │
 │   │   │            player-audio.js, player-chapters.js                    │
-│   │   ├── Modals & Settings: modals.js, settings.js, app-hotkeys.js       │
-│   │   └── Shared Foundation: state.js, api.js, utils.js                   │
+│   │   ├── Modals:   modals.js (1,514 lines), modals-person.js (650 lines),  │
+│   │   │            modals-stats.js (467 lines)                              │
+│   │   ├── Settings: settings.js (1,825 lines), settings-onboarding.js (723),│
+│   │   │            settings-updater.js (626 lines)                          │
+│   │   ├── Hotkeys:  app-hotkeys.js (465 lines)                              │
+│   │   └── Shared Foundation: state.js, api.js, utils.js                     │
 └─────────────────────────────────────┬─────────────────────────────────────┘
                                       │ JSON REST API + HLS/MP4 Proxy
                                       ▼
@@ -41,12 +45,14 @@ CineFlow is a cross-platform desktop cinema center for **macOS** (`WKWebView` + 
 ┌───────────────────────────────────────────────────────────────────────────┐
 │ Domain Services (backend/):                                               │
 │   ├── Kinorium Engine:                                                    │
-│   │   ├── kinorium.py (3,896 lines) — Core state, indices & catalog lists │
+│   │   ├── kinorium.py (2,436 lines) — Core state, indices & catalog lists │
 │   │   ├── kinorium_http.py (762 lines) — Transport, failover, PoW solver  │
 │   │   ├── kinorium_parsers.py (1,120 lines) — HTML list/episode parsers   │
 │   │   ├── kinorium_persons.py (665 lines) — Actor/director profiles       │
 │   │   ├── kinorium_sync.py (1,141 lines) — Bidirectional remote sync      │
-│   │   └── kinorium_mutations.py (1,907 lines) — Status/rating/ep actions  │
+│   │   ├── kinorium_mutations.py (1,907 lines) — Status/rating/ep actions  │
+│   │   └── kinorium_profile.py (1,511 lines) — Profile sync, premieres,    │
+│   │                                           friends, backups & services │
 │   ├── Media Providers:                                                    │
 │   │   ├── hdrezka.py — HDRezka mirror resolver, parser & stream extractor │
 │   │   ├── aggregator.py — Multi-source metadata & catalog aggregator      │
