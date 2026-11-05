@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261105v1";
+import { state } from "./state.js?v=20261105v2";
 import {
   displayBackdrop,
   displayCountries,
@@ -15,7 +15,7 @@ import {
   translateGenre,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261105v1";
+} from "./i18n.js?v=20261105v2";
 import {
   clampFloatingPopover,
   clampStagePopover,
@@ -50,7 +50,7 @@ import {
   syncSearchInputHasQueryUI,
   syncToastContainerMount,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261105v1";
+} from "./utils.js?v=20261105v2";
 import {
   applyAudioBoostToVideo,
   applySavedPlayerPrefsToVideo,
@@ -67,7 +67,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261105v1";
+} from "./audio-dsp.js?v=20261105v2";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -85,7 +85,7 @@ import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261105v1";
+} from "./catalog.js?v=20261105v2";
 import {
   closePersonModal,
   closeQuickPeekModal,
@@ -93,13 +93,13 @@ import {
   openQuickPeekModal,
   refreshOpenPersonModalUI,
   renderModalCastSection,
-} from "./modals.js?v=20261105v1";
-import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261105v1";
+} from "./modals.js?v=20261105v2";
+import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261105v2";
 import {
   refreshDownloadsState,
   sweepPendingDownloadCleanups,
   syncNativeNowPlaying,
-} from "./features.js?v=20261105v1";
+} from "./features.js?v=20261105v2";
 import {
   activateSelectedSubtitleTrack,
   adjustSubtitleOffset,
@@ -122,8 +122,8 @@ import {
   syncSubtitleOffsetUI,
   triggerLocalSubtitleFilePicker,
   updateCustomSubtitleOverlay,
-} from "./subtitles.js?v=20261105v1";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261105v1";
+} from "./subtitles.js?v=20261105v2";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261105v2";
 import {
   clearVideoStallWatchdog,
   getRenderedVideoFrameCount,
@@ -131,7 +131,7 @@ import {
   recoverFrozenVideoPlayback,
   getVideoForwardBufferSec,
   checkVideoPlaybackFreeze,
-} from "./player-watchdog.js?v=20261105v1";
+} from "./player-watchdog.js?v=20261105v2";
 import {
   estimateItemDurationSec,
   buildRemuxStreamEndpoint,
@@ -140,7 +140,7 @@ import {
   syncAudioOffsetUI,
   scheduleRemuxFullDurationProbe,
   prepareRemuxAudioSwitch,
-} from "./player-remux.js?v=20261105v1";
+} from "./player-remux.js?v=20261105v2";
 import {
   hasOpenVcPopover,
   closeAllVcPopovers,
@@ -158,7 +158,7 @@ import {
   positionStagePopover,
   toggleQuickOriginalAudio,
   syncCustomControlPopovers,
-} from "./player-ui-controls.js?v=20261105v1";
+} from "./player-ui-controls.js?v=20261105v2";
 import {
   getNextEpisodeCoords,
   showPlayerNextEpisodeToast,
@@ -167,14 +167,14 @@ import {
   clearAutoplayNextTimer,
   isPostwatchCardPausingAutoplay,
   startAutoplayNextCountdown,
-} from "./player-autoplay.js?v=20261105v1";
+} from "./player-autoplay.js?v=20261105v2";
 import {
   syncPipDockUI,
   setPipBackgroundMode,
   restoreFullPlayerFromPip,
   updateMiniPlayerTitle,
   setMiniPlayerMode,
-} from "./player-pip-dock.js?v=20261105v1";
+} from "./player-pip-dock.js?v=20261105v2";
 import {
   escapeEpisodeHtml,
   getEpisodeDisplayMeta,
@@ -190,7 +190,7 @@ import {
   toggleCurrentEpisodeWatched,
   hasStartedWatchingCurrentEpisode,
   markOutgoingEpisodeWatched,
-} from "./player-seasons.js?v=20261105v1";
+} from "./player-seasons.js?v=20261105v2";
 import {
   isHdRezkaStreamDeadOrExpired as _isHdRezkaStreamDeadOrExpired,
   _localizeOfflineSubLabel,
@@ -219,7 +219,7 @@ import {
   loadStremioStreams,
   loadBackup4KReleases,
   _tryRecoverHdRezkaPlayback as _tryRecoverHdRezkaPlaybackImpl,
-} from "./player-streams.js?v=20261105v1";
+} from "./player-streams.js?v=20261105v2";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -234,7 +234,7 @@ import {
   renderModalSimilarItems,
   captureVideoScreenshot,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261105v1";
+} from "./player-meta.js?v=20261105v2";
 import {
   hideXRayPauseShelf,
   showXRayPauseShelf,
@@ -242,7 +242,7 @@ import {
   saveMoments,
   toggleBookmarkCurrentMoment,
   renderTimelineBookmarks,
-} from "./player-bookmarks.js?v=20261105v1";
+} from "./player-bookmarks.js?v=20261105v2";
 import {
   syncPostwatchOverlayMount,
   renderPostWatchRatingState,
@@ -251,7 +251,7 @@ import {
   initPlayerStatusAndRatingBindings,
   rateActivePlayerTitle as _rateActivePlayerTitle,
   toggleActivePlayerWatched as _toggleActivePlayerWatched,
-} from "./player-rating.js?v=20261105v1";
+} from "./player-rating.js?v=20261105v2";
 
 export {
   syncPostwatchOverlayMount,
@@ -273,7 +273,7 @@ import {
   getDetectedCreditsStartSec,
   renderTimelineChapterMarkers,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261105v1";
+} from "./player-intro-credits.js?v=20261105v2";
 
 export {
   getDetectedCreditsStartSec,
@@ -281,7 +281,7 @@ export {
   loadSkipIntroSegments,
 };
 
-import { reportScrobbleProgress } from "./player-scrobble.js?v=20261105v1";
+import { reportScrobbleProgress } from "./player-scrobble.js?v=20261105v2";
 
 export { reportScrobbleProgress };
 

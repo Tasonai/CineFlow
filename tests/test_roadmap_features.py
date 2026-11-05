@@ -2190,8 +2190,8 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertIn("window.logDebug = logDebug", utils_src)
 
     def test_improve_loop_m1_modules_and_log_hygiene(self):
-        """Verifies M1 improve-loop modular extractions (kinorium_http, kinorium_sync, app-hotkeys, player-rating, settings bindings) and verbose_log gating."""
-        # 1. backend.kinorium_http & backend.kinorium_sync
+        """Verifies M1/M2 improve-loop & improve-architecture modular extractions and verbose_log gating."""
+        # 1. backend.kinorium_http, backend.kinorium_sync & backend.kinorium_mutations
         from backend.kinorium_http import (
             extract_user_path,
             sanitize_session_cookie,
@@ -2203,6 +2203,17 @@ class TestRoadmapFeatures(unittest.TestCase):
             reconcile_series_episodes,
             reconcile_local_statuses_to_remote,
         )
+        from backend.kinorium_mutations import (
+            mark_watched,
+            set_rating,
+            set_episode_rating,
+            toggle_episode_watched,
+            mark_episodes_batch,
+            toggle_watchlist,
+            toggle_watching,
+            toggle_not_watching,
+            get_profile_stats,
+        )
         self.assertEqual(extract_user_path("https://ru.kinorium.com/user/51670/"), "/user/51670/")
         self.assertIn("PHPSESSID=abc123", sanitize_session_cookie("Cookie: PHPSESSID=abc123"))
         self.assertTrue(callable(kinorium_http_request))
@@ -2210,6 +2221,15 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertTrue(callable(fetch_series_episodes_state))
         self.assertTrue(callable(reconcile_series_episodes))
         self.assertTrue(callable(reconcile_local_statuses_to_remote))
+        self.assertTrue(callable(mark_watched))
+        self.assertTrue(callable(set_rating))
+        self.assertTrue(callable(set_episode_rating))
+        self.assertTrue(callable(toggle_episode_watched))
+        self.assertTrue(callable(mark_episodes_batch))
+        self.assertTrue(callable(toggle_watchlist))
+        self.assertTrue(callable(toggle_watching))
+        self.assertTrue(callable(toggle_not_watching))
+        self.assertTrue(callable(get_profile_stats))
 
         # 2. verbose_log gating in backend/routes/streams.py
         with open(os.path.join(BASE_DIR, "backend", "routes", "streams.py"), "r", encoding="utf-8") as fh:
@@ -2225,6 +2245,14 @@ class TestRoadmapFeatures(unittest.TestCase):
         with open(os.path.join(BASE_DIR, "public", "js", "player-rating.js"), "r", encoding="utf-8") as fh:
             self.assertIn("export function initPlayerStatusAndRatingBindings(", fh.read())
 
+        with open(os.path.join(BASE_DIR, "public", "js", "player-ui-controls.js"), "r", encoding="utf-8") as fh:
+            self.assertIn("export function initPlayerStageAndGearBindings(", fh.read())
+
+        with open(os.path.join(BASE_DIR, "public", "js", "catalog-filters.js"), "r", encoding="utf-8") as fh:
+            cf_src = fh.read()
+        self.assertIn("export function resetCatalogDrawerFiltersUI(", cf_src)
+        self.assertIn("export function initCatalogToolbarAndFilterBindings(", cf_src)
+
         with open(os.path.join(BASE_DIR, "public", "js", "modals.js"), "r", encoding="utf-8") as fh:
             self.assertIn("export function initQuickPeekBindings(", fh.read())
 
@@ -2238,6 +2266,8 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertIn("initGlobalHotkeys({", app_src)
         self.assertIn("initQuickPeekBindings()", app_src)
         self.assertIn("initPlayerStatusAndRatingBindings({", app_src)
+        self.assertIn("initPlayerStageAndGearBindings()", app_src)
+        self.assertIn("initCatalogToolbarAndFilterBindings()", app_src)
         self.assertIn("initSettingsAndBackupBindings()", app_src)
 
 

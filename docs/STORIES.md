@@ -67,22 +67,31 @@ Status: done
 
 ---
 
-## Milestone M2: Next Candidate Improvements (Backlog)
+## Milestone M2: Architecture Deepening (`improve-architecture`)
 
 ### S-007 Extract player stage & video controls event bindings (`public/js/player-ui-controls.js`)
-As a developer maintaining the video player UI, I want the player stage click/wheel/popover/fullscreen/studio/source tab bindings in `public/app.js` extracted into `initPlayerStageBindings()` in `public/js/player-ui-controls.js`, bringing `public/app.js` below 900 lines.
+As a developer maintaining the video player UI, I want the player stage click/wheel/popover/fullscreen/studio/source tab bindings in `public/app.js` extracted into `initPlayerStageAndGearBindings()` in `public/js/player-ui-controls.js`, bringing `public/app.js` below 1,300 lines.
 Screens: public/js/player-ui-controls.js, public/app.js
 Depends: S-006
 Acceptance:
-- [unit] `public/js/player-ui-controls.js` exports `initPlayerStageBindings` and `public/app.js` invokes it.
-- [self] `public/app.js` shrinks below 900 lines and all `tests/test_frontend_integrity.py` checks pass.
-Status: todo
+- [unit] `public/js/player-ui-controls.js` exports `initPlayerStageAndGearBindings` and `public/app.js` invokes it.
+- [self] `public/app.js` shrinks to 1,209 lines and all `tests/test_frontend_integrity.py` checks pass.
+Status: done
 
-### S-008 Extract Kinorium social, friends & premieres discovery (`backend/kinorium_discovery.py`)
-As a developer maintaining Kinorium discovery shelves, I want friend activity feeds, premieres fetching, and recommendations isolated in `backend/kinorium_discovery.py` with delegation on `KinoriumService`.
-Screens: backend/kinorium_discovery.py, backend/kinorium.py
+### S-008 Extract Kinorium status, rating & episode mutations (`backend/kinorium_mutations.py`)
+As a developer maintaining Kinorium state mutations, I want optimistic local state updates and remote writebacks (`mark_watched`, `set_rating`, `set_episode_rating`, `toggle_episode_watched`, `mark_episodes_batch`, `toggle_watchlist`, `toggle_watching`, `toggle_not_watching`, `get_profile_stats`, `configure_account`) isolated in `backend/kinorium_mutations.py` with delegation on `KinoriumService`.
+Screens: backend/kinorium_mutations.py, backend/kinorium.py
 Depends: S-003
 Acceptance:
-- [unit] `backend/kinorium_discovery.py` encapsulates premieres, friends activity, and recommendation list methods.
-- [self] `backend/kinorium.py` shrinks below 4,500 lines and all unit tests pass.
-Status: todo
+- [unit] `backend/kinorium_mutations.py` encapsulates all status, rating, and episode mutation methods.
+- [self] `backend/kinorium.py` shrinks below 3,900 lines and all unit tests pass.
+Status: done
+
+### S-009 Consolidate catalog toolbar, filter reset & notifications bindings (`public/js/catalog-filters.js`)
+As a developer maintaining catalog filters, I want filter-reset UI logic and catalog toolbar/notification event bindings consolidated in `public/js/catalog-filters.js` (`resetCatalogDrawerFiltersUI`, `initCatalogToolbarAndFilterBindings`), eliminating duplicated reset code and bringing `public/app.js` below 900 lines.
+Screens: public/js/catalog-filters.js, public/js/catalog.js, public/app.js
+Depends: S-007
+Acceptance:
+- [unit] `public/js/catalog-filters.js` exports `resetCatalogDrawerFiltersUI` and `initCatalogToolbarAndFilterBindings`.
+- [self] `public/app.js` shrinks to 864 lines (80% smaller than original 4,316 lines) and all 120 unit tests pass.
+Status: done

@@ -1,29 +1,40 @@
-import { state } from "./state.js?v=20261105v1";
+import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261105v2";
 import {
+  displayTitle,
   getItemGenreEntries,
   t,
   translateGenre,
-} from "./i18n.js?v=20261105v1";
+} from "./i18n.js?v=20261105v2";
 import {
+  clampFloatingPopover,
+  closeFloatingPopovers,
   escapeHtml,
   iconSvg,
   pluralRu,
+  saveUiPrefs,
+  showToast,
   syncCustomSelect,
-} from "./utils.js?v=20261105v1";
+  syncSearchInputHasQueryUI,
+} from "./utils.js?v=20261105v2";
 import {
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261105v1";
+} from "./catalog-hero.js?v=20261105v2";
 import {
+  applyEnabledServicesVisibility,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261105v1";
+} from "./catalog-media-resolver.js?v=20261105v2";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261105v1";
-import { loadCatalog } from "./catalog.js?v=20261105v1";
+} from "./catalog-shelves.js?v=20261105v2";
+import { switchNotificationsTab } from "./catalog-notifications.js?v=20261105v2";
+import { syncSearchClearButton } from "./catalog-live-search.js?v=20261105v2";
+import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261105v2";
+import { openQuickPeekModal } from "./modals.js?v=20261105v2";
+import { loadCatalog } from "./catalog.js?v=20261105v2";
 
 export function updateActiveFiltersBadge() {
   let drawerCount = 0;
@@ -416,4 +427,342 @@ export function sortCatalogItems(items) {
     copy.sort((a, b) => (parseInt(b.year, 10) || 0) - (parseInt(a.year, 10) || 0));
   }
   return copy;
+}
+
+export function resetCatalogDrawerFiltersUI() {
+  state.genreFilter = "all";
+  state.yearFilter = "all";
+  state.sortBy = "default";
+  state.hideWatched = false;
+  state.friendsFilter = false;
+  state.selectedFriend = "all";
+  saveUiPrefs({ hideWatched: false });
+  const sortSel = document.getElementById("select-catalog-sort");
+  if (sortSel) sortSel.value = "default";
+  const genreSel = document.getElementById("select-catalog-genre");
+  if (genreSel) genreSel.value = "all";
+  const yearSel = document.getElementById("select-catalog-year");
+  if (yearSel) yearSel.value = "all";
+  const friendSel = document.getElementById("select-friend-filter");
+  if (friendSel) friendSel.value = "all";
+  document.getElementById("btn-hide-watched")?.classList.remove("active");
+  document.getElementById("btn-friends-filter")?.classList.remove("active");
+  updateActiveFiltersBadge();
+}
+
+export function initCatalogToolbarAndFilterBindings() {
+  const searchInput = document.getElementById("global-search");
+  const brandHomeEl = document.getElementById("brand-home");
+  if (brandHomeEl) {
+    brandHomeEl.onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        brandHomeEl.click();
+      }
+    };
+    brandHomeEl.onclick = () => {
+      rerollCatalogLaunchSeed();
+      state.searchQuery = "";
+      state.providerFilter = "all";
+      state.mediaTypeFilter = "all";
+      state.kinoriumSection = "all";
+      state.kinoriumSubType = "all";
+      if (searchInput) searchInput.value = "";
+      syncSearchClearButton();
+      resetCatalogDrawerFiltersUI();
+      document.querySelectorAll(".atv-pill").forEach((b) => {
+        b.classList.toggle("active", b.dataset.provider === "all");
+      });
+      document.querySelectorAll(".type-pill").forEach((b) => {
+        b.classList.toggle("active", b.dataset.type === "all");
+      });
+      document.querySelectorAll(".kin-sec-pill").forEach((b) => {
+        b.classList.toggle("active", b.dataset.ksec === "all");
+      });
+      loadCatalog();
+    };
+  }
+
+  const toggleCatalogFiltersBtn = document.getElementById("btn-toggle-catalog-filters");
+  const catalogFiltersDrawer = document.getElementById("catalog-filters-drawer");
+  if (toggleCatalogFiltersBtn && catalogFiltersDrawer) {
+    toggleCatalogFiltersBtn.onclick = () => {
+      const isHidden = catalogFiltersDrawer.classList.toggle("hidden");
+      toggleCatalogFiltersBtn.setAttribute("aria-expanded", isHidden ? "false" : "true");
+      toggleCatalogFiltersBtn.setAttribute("aria-pressed", isHidden ? "false" : "true");
+      updateActiveFiltersBadge();
+    };
+  }
+
+  const clearCatalogFiltersBtn = document.getElementById("btn-clear-catalog-filters");
+  if (clearCatalogFiltersBtn) {
+    clearCatalogFiltersBtn.onclick = () => {
+      resetCatalogDrawerFiltersUI();
+      renderCatalogShelves();
+      showToast(t("Фильтры и сортировка сброшены", "Filters and sorting reset"));
+    };
+  }
+
+  const toggleCuratedBtn = document.getElementById("btn-toggle-curated-shelves");
+  if (toggleCuratedBtn) {
+    toggleCuratedBtn.classList.toggle("active", state.showCuratedShelves !== false);
+    toggleCuratedBtn.onclick = () => {
+      state.showCuratedShelves = state.showCuratedShelves === false;
+      try {
+        localStorage.setItem(CURATED_SHELVES_STORAGE_KEY, state.showCuratedShelves ? "true" : "false");
+      } catch (err) {
+        window.logDebug?.("CatalogFilters", err);
+      }
+      toggleCuratedBtn.classList.toggle("active", state.showCuratedShelves);
+      renderCatalogShelves();
+      showToast(
+        state.showCuratedShelves
+          ? t("Персональные подборки на главной включены", "Curated shelves enabled")
+          : t("Персональные подборки скрыты", "Curated shelves hidden")
+      );
+    };
+  }
+
+  const btnOpenRelCal = document.getElementById("btn-open-release-calendar");
+  if (btnOpenRelCal) {
+    btnOpenRelCal.onclick = (e) => {
+      e?.stopPropagation();
+      const shelf = document.getElementById("release-calendar-shelf");
+      if (shelf && !shelf.classList.contains("hidden")) {
+        shelf.scrollIntoView({ behavior: "smooth", block: "start" });
+        const firstCard = shelf.querySelector(".atv-cal-shelf-card");
+        if (firstCard) firstCard.focus();
+      } else {
+        closeFloatingPopovers();
+        switchNotificationsTab("calendar");
+        const notifPopover = document.getElementById("notifications-popover");
+        const notifBellBtn = document.getElementById("notifications-bell-btn");
+        if (notifPopover) {
+          notifPopover.classList.remove("hidden");
+          notifBellBtn?.classList.add("active");
+          notifBellBtn?.setAttribute("aria-expanded", "true");
+          clampFloatingPopover(notifPopover, { isHeader: true });
+        }
+      }
+    };
+  }
+
+  const hideWatchedBtn = document.getElementById("btn-hide-watched");
+  if (hideWatchedBtn) {
+    hideWatchedBtn.onclick = () => {
+      state.hideWatched = !state.hideWatched;
+      saveUiPrefs({ hideWatched: state.hideWatched });
+      hideWatchedBtn.classList.toggle("active", state.hideWatched);
+      updateActiveFiltersBadge();
+      renderCatalogShelves();
+      showToast(
+        state.hideWatched
+          ? t("Просмотренные фильмы и сериалы скрыты", "Watched movies and series hidden")
+          : t("Отображение просмотренных фильмов включено", "Showing watched titles")
+      );
+    };
+  }
+
+  const friendSelect = document.getElementById("select-friend-filter");
+  const friendsFilterBtn = document.getElementById("btn-friends-filter");
+  if (friendsFilterBtn) {
+    friendsFilterBtn.onclick = () => {
+      state.friendsFilter = !state.friendsFilter;
+      if (!state.friendsFilter) {
+        state.selectedFriend = "all";
+        if (friendSelect) friendSelect.value = "all";
+      }
+      friendsFilterBtn.classList.toggle("active", state.friendsFilter);
+      updateActiveFiltersBadge();
+      renderCatalogShelves();
+      showToast(
+        state.friendsFilter
+          ? t(
+              "Показаны только фильмы и сериалы с оценками друзей",
+              "Showing only movies and series rated by friends"
+            )
+          : t("Фильтр «Оценили друзья» отключен", '"Rated by friends" filter disabled')
+      );
+    };
+  }
+  if (friendSelect) {
+    friendSelect.onchange = (e) => {
+      const val = e.target.value || "all";
+      state.selectedFriend = val;
+      if (val !== "all") {
+        state.friendsFilter = true;
+        friendsFilterBtn?.classList.add("active");
+        showToast(t(`Показаны тайтлы, которые оценил(а) ${val}`, `Showing titles rated by ${val}`));
+      } else {
+        showToast(t("Показаны оценки всех друзей", "Showing ratings from all friends"));
+      }
+      updateActiveFiltersBadge();
+      renderCatalogShelves();
+    };
+  }
+
+  const genreSelect = document.getElementById("select-catalog-genre");
+  if (genreSelect) {
+    genreSelect.onchange = (e) => {
+      state.genreFilter = e.target.value || "all";
+      updateActiveFiltersBadge();
+      renderCatalogShelves();
+    };
+  }
+
+  const yearSelect = document.getElementById("select-catalog-year");
+  if (yearSelect) {
+    yearSelect.onchange = (e) => {
+      state.yearFilter = e.target.value || "all";
+      updateActiveFiltersBadge();
+      renderCatalogShelves();
+    };
+  }
+
+  const sortSelect = document.getElementById("select-catalog-sort");
+  if (sortSelect) {
+    sortSelect.onchange = (e) => {
+      state.sortBy = e.target.value || "default";
+      updateActiveFiltersBadge();
+      renderCatalogShelves();
+    };
+  }
+
+  const randomPickBtn = document.getElementById("btn-random-pick");
+  if (randomPickBtn) {
+    randomPickBtn.onclick = () => {
+      const pool = getCurrentlyFilteredItems();
+      if (!pool || pool.length === 0) {
+        showToast(
+          t(
+            "В текущем разделе или фильтре нет подходящих тайтлов",
+            "No matching titles in the current section or filter"
+          )
+        );
+        return;
+      }
+      const picked = pool[Math.floor(Math.random() * pool.length)];
+      showToast(
+        t(
+          `Случайный выбор: «${displayTitle(picked)}» (${picked.year})`,
+          `Random pick: "${displayTitle(picked)}" (${picked.year})`
+        )
+      );
+      openQuickPeekModal(picked);
+    };
+  }
+
+  document.querySelectorAll(".kin-sec-pill").forEach((btn) => {
+    btn.onclick = () => {
+      state.kinoriumSection = btn.dataset.ksec;
+      state.kinoriumSubType = state.mediaTypeFilter || "all";
+      document.querySelectorAll(".kin-sec-pill").forEach((b) => {
+        b.classList.remove("active");
+        b.setAttribute("aria-selected", "false");
+      });
+      btn.classList.add("active");
+      btn.setAttribute("aria-selected", "true");
+      requestAnimationFrame(() => {
+        try {
+          btn.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+        } catch (err) {
+          window.logDebug?.("CatalogFilters", err);
+        }
+      });
+      loadCatalog();
+    };
+  });
+
+  document.querySelectorAll(".type-pill").forEach((btn) => {
+    btn.onclick = () => {
+      const nextType = btn.dataset.type || "all";
+      state.mediaTypeFilter = nextType;
+      state.kinoriumSubType = nextType;
+      document.querySelectorAll(".type-pill").forEach((b) => {
+        b.classList.remove("active");
+        b.setAttribute("aria-selected", "false");
+      });
+      btn.classList.add("active");
+      btn.setAttribute("aria-selected", "true");
+      renderContinueWatching();
+      if (state.kinoriumSection !== "all" || nextType === "offline") {
+        renderCatalogShelves();
+      } else {
+        loadCatalog();
+      }
+    };
+  });
+
+  const btnOfflineView = document.getElementById("btn-offline-banner-view");
+  if (btnOfflineView) {
+    btnOfflineView.onclick = () => {
+      const offlinePill = document.getElementById("type-pill-offline");
+      if (offlinePill && !offlinePill.classList.contains("hidden")) {
+        offlinePill.click();
+      } else {
+        openDownloadsModal();
+      }
+    };
+  }
+
+  const btnOfflineRetry = document.getElementById("btn-offline-banner-retry");
+  if (btnOfflineRetry) {
+    btnOfflineRetry.onclick = async () => {
+      showToast(t("Проверяем подключение к сети...", "Checking network connection..."));
+      try {
+        const res = await fetch("/api/system/status", { cache: "no-store" });
+        if (res.ok) {
+          setOfflineMode(false);
+          showToast(t("Подключение успешно восстановлено", "Connection restored successfully"));
+          loadCatalog({ showLoading: true });
+        } else {
+          showToast(t("Сеть пока недоступна", "Network is still unavailable"));
+        }
+      } catch (_) {
+        showToast(t("Сеть пока недоступна", "Network is still unavailable"));
+      }
+    };
+  }
+
+  window.addEventListener("online", () => {
+    setOfflineMode(false);
+    showToast(t("Подключение к сети восстановлено", "Network connection restored"));
+    loadCatalog();
+  });
+
+  window.addEventListener("offline", () => {
+    setOfflineMode(true);
+    showToast(t("Офлайн-режим: доступны скачанные фильмы и серии", "Offline mode: downloaded movies and series available"));
+    renderCatalogShelves();
+  });
+
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    setOfflineMode(true);
+  }
+
+  document.querySelectorAll(".atv-pill").forEach((btn) => {
+    btn.onclick = () => {
+      const nextProv = btn.dataset.provider || "all";
+      if (state.providerFilter === nextProv && nextProv !== "all") {
+        state.providerFilter = "all";
+      } else {
+        state.providerFilter = nextProv;
+      }
+      if (state.providerFilter && state.providerFilter !== "all") {
+        state.kinoriumSection = "all";
+        document.querySelectorAll(".kin-sec-pill").forEach((b) => {
+          const isAll = b.dataset.ksec === "all";
+          b.classList.toggle("active", isAll);
+          b.setAttribute("aria-selected", isAll ? "true" : "false");
+        });
+      }
+      document.querySelectorAll(".atv-pill").forEach((b) => {
+        const isCur = b.dataset.provider === state.providerFilter;
+        b.classList.toggle("active", isCur);
+        b.setAttribute("aria-pressed", isCur ? "true" : "false");
+      });
+      applyEnabledServicesVisibility();
+      loadCatalog();
+    };
+  });
 }

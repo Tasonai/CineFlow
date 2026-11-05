@@ -5,7 +5,7 @@ import {
   UI_PREFS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./js/state.js?v=20261105v1";
+} from "./js/state.js?v=20261105v2";
 import {
   applyStaticDomTranslations,
   displayPoster,
@@ -14,7 +14,7 @@ import {
   secondaryTitle,
   syncLanguageSegmentedControlUI,
   t,
-} from "./js/i18n.js?v=20261105v1";
+} from "./js/i18n.js?v=20261105v2";
 import {
   attachHorizontalWheelScroll,
   clampFloatingPopover,
@@ -46,7 +46,7 @@ import {
   trapModalTabKey,
   triggerVideoCenterIndicator,
   withKinoriumActionLock,
-} from "./js/utils.js?v=20261105v1";
+} from "./js/utils.js?v=20261105v2";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -61,7 +61,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./js/audio-dsp.js?v=20261105v1";
+} from "./js/audio-dsp.js?v=20261105v2";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -72,6 +72,7 @@ import {
   collectNewEpisodeNotifications,
   getCurrentlyFilteredItems,
   getDefaultPlayableSourceTab,
+  initCatalogToolbarAndFilterBindings,
   initCommandPalette,
   initMovieRouletteModal,
   isEpisodeWatched,
@@ -95,7 +96,7 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./js/catalog.js?v=20261105v1";
+} from "./js/catalog.js?v=20261105v2";
 import {
   buildFallbackAvatarSvg,
   closePersonModal,
@@ -109,7 +110,7 @@ import {
   switchStatsModalTab,
   initQuickPeekBindings,
   syncQuickPeekStatusesUI,
-} from "./js/modals.js?v=20261105v1";
+} from "./js/modals.js?v=20261105v2";
 import {
   activateSelectedSubtitleTrack,
   adjustAudioOffset,
@@ -173,20 +174,20 @@ import {
   updateMiniPlayerTitle,
   updateModalKinoriumHeader,
   wakeVideoControls,
-} from "./js/player.js?v=20261105v1";
+} from "./js/player.js?v=20261105v2";
 import {
   adjustSubtitleOffset,
   bindSubtitleFileAndDropListeners,
   closeSubtitleDictPopover,
   resetSubtitleOffset,
   syncSubtitleOffsetUI,
-} from "./js/subtitles.js?v=20261105v1";
+} from "./js/subtitles.js?v=20261105v2";
 import {
   initDesktopRemoteAgent,
   initMobileRemoteController,
   isMobileRemoteUrl,
   pushDesktopRemoteStateNow,
-} from "./js/remote.js?v=20261105v1";
+} from "./js/remote.js?v=20261105v2";
 import {
   applyAppLanguage,
   checkAppUpdates,
@@ -199,11 +200,11 @@ import {
   renderSettingsCountryUI,
   requestCloseSettingsModal,
   switchSettingsTab,
-} from "./js/settings.js?v=20261105v1";
+} from "./js/settings.js?v=20261105v2";
 import {
   initBookmarksListeners,
   openBookmarksModal,
-} from "./js/player-bookmarks.js?v=20261105v1";
+} from "./js/player-bookmarks.js?v=20261105v2";
 import {
   applyPendingTvDeepLinkIfReady,
   applyProfilesPayload,
@@ -217,15 +218,15 @@ import {
   initRoadmapFeatures,
   reloadProfileLocalPlayerPrefs,
   renderHeaderProfileSwitcher,
-} from "./js/features.js?v=20261105v1";
-import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261105v1";
+} from "./js/features.js?v=20261105v2";
+import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261105v2";
 import {
   initCatalogLiveSearch,
   closeLiveSearchPopover,
   resetCatalogFiltersForGlobalSearch,
   syncSearchClearButton,
-} from "./js/catalog-live-search.js?v=20261105v1";
-import { initGlobalHotkeys } from "./js/app-hotkeys.js?v=20261105v1";
+} from "./js/catalog-live-search.js?v=20261105v2";
+import { initGlobalHotkeys } from "./js/app-hotkeys.js?v=20261105v2";
 
 function initCineFlowApp() {
   document.documentElement.classList.toggle("is-ios-device", isIosOrIpadOs());
@@ -622,89 +623,7 @@ function initCineFlowApp() {
   initCatalogLiveSearch();
 
   initGlobalHotkeys({ onRequestCloseSettings: () => requestCloseSettingsModal() });
-
-  const brandHomeEl = document.getElementById("brand-home");
-  brandHomeEl.onkeydown = (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      brandHomeEl.click();
-    }
-  };
-  brandHomeEl.onclick = () => {
-    rerollCatalogLaunchSeed();
-    state.searchQuery = "";
-    state.providerFilter = "all";
-    state.mediaTypeFilter = "all";
-    state.kinoriumSection = "all";
-    state.kinoriumSubType = "all";
-    state.genreFilter = "all";
-    state.yearFilter = "all";
-    state.hideWatched = false;
-    saveUiPrefs({ hideWatched: false });
-    state.friendsFilter = false;
-    state.selectedFriend = "all";
-    state.sortBy = "default";
-    searchInput.value = "";
-    syncSearchClearButton();
-    const sortSel = document.getElementById("select-catalog-sort");
-    if (sortSel) sortSel.value = "default";
-    const genreSel = document.getElementById("select-catalog-genre");
-    if (genreSel) genreSel.value = "all";
-    const yearSel = document.getElementById("select-catalog-year");
-    if (yearSel) yearSel.value = "all";
-    const friendSel = document.getElementById("select-friend-filter");
-    if (friendSel) friendSel.value = "all";
-    document.getElementById("btn-hide-watched")?.classList.remove("active");
-    document.getElementById("btn-friends-filter")?.classList.remove("active");
-    updateActiveFiltersBadge();
-    document.querySelectorAll(".atv-pill").forEach((b) => {
-      b.classList.toggle("active", b.dataset.provider === "all");
-    });
-    document.querySelectorAll(".type-pill").forEach((b) => {
-      b.classList.toggle("active", b.dataset.type === "all");
-    });
-    document.querySelectorAll(".kin-sec-pill").forEach((b) => {
-      b.classList.toggle("active", b.dataset.ksec === "all");
-    });
-    loadCatalog();
-  };
-
-  const toggleCatalogFiltersBtn = document.getElementById("btn-toggle-catalog-filters");
-  const catalogFiltersDrawer = document.getElementById("catalog-filters-drawer");
-  if (toggleCatalogFiltersBtn && catalogFiltersDrawer) {
-    toggleCatalogFiltersBtn.onclick = () => {
-      const isHidden = catalogFiltersDrawer.classList.toggle("hidden");
-      toggleCatalogFiltersBtn.setAttribute("aria-expanded", isHidden ? "false" : "true");
-      toggleCatalogFiltersBtn.setAttribute("aria-pressed", isHidden ? "false" : "true");
-      updateActiveFiltersBadge();
-    };
-  }
-
-  const clearCatalogFiltersBtn = document.getElementById("btn-clear-catalog-filters");
-  if (clearCatalogFiltersBtn) {
-    clearCatalogFiltersBtn.onclick = () => {
-      state.genreFilter = "all";
-      state.yearFilter = "all";
-      state.sortBy = "default";
-      state.hideWatched = false;
-      state.friendsFilter = false;
-      state.selectedFriend = "all";
-      saveUiPrefs({ hideWatched: false });
-      const sortSel = document.getElementById("select-catalog-sort");
-      if (sortSel) sortSel.value = "default";
-      const genreSel = document.getElementById("select-catalog-genre");
-      if (genreSel) genreSel.value = "all";
-      const yearSel = document.getElementById("select-catalog-year");
-      if (yearSel) yearSel.value = "all";
-      const friendSel = document.getElementById("select-friend-filter");
-      if (friendSel) friendSel.value = "all";
-      document.getElementById("btn-hide-watched")?.classList.remove("active");
-      document.getElementById("btn-friends-filter")?.classList.remove("active");
-      updateActiveFiltersBadge();
-      renderCatalogShelves();
-      showToast(t("Фильтры и сортировка сброшены", "Filters and sorting reset"));
-    };
-  }
+  initCatalogToolbarAndFilterBindings();
 
   const openStatsBtn = document.getElementById("btn-open-stats-modal");
   if (openStatsBtn) {
@@ -762,145 +681,6 @@ function initCineFlowApp() {
 
   // Quick Peek Modal listeners (back, rate 1-10, status toggles, close)
   initQuickPeekBindings();
-
-  const toggleCuratedBtn = document.getElementById("btn-toggle-curated-shelves");
-  if (toggleCuratedBtn) {
-    toggleCuratedBtn.classList.toggle("active", state.showCuratedShelves !== false);
-    toggleCuratedBtn.onclick = () => {
-      state.showCuratedShelves = state.showCuratedShelves === false;
-      try {
-        localStorage.setItem(CURATED_SHELVES_STORAGE_KEY, state.showCuratedShelves ? "true" : "false");
-      } catch (err) { window.logDebug?.("App", err); }
-      toggleCuratedBtn.classList.toggle("active", state.showCuratedShelves);
-      renderCatalogShelves();
-      showToast(
-        state.showCuratedShelves
-          ? t("Персональные подборки на главной включены", "Curated shelves enabled")
-          : t("Персональные подборки скрыты", "Curated shelves hidden")
-      );
-    };
-  }
-
-  const btnOpenRelCal = document.getElementById("btn-open-release-calendar");
-  if (btnOpenRelCal) {
-    btnOpenRelCal.onclick = (e) => {
-      e?.stopPropagation();
-      const shelf = document.getElementById("release-calendar-shelf");
-      if (shelf && !shelf.classList.contains("hidden")) {
-        shelf.scrollIntoView({ behavior: "smooth", block: "start" });
-        const firstCard = shelf.querySelector(".atv-cal-shelf-card");
-        if (firstCard) firstCard.focus();
-      } else {
-        closeFloatingPopovers();
-        switchNotificationsTab("calendar");
-        const notifPopover = document.getElementById("notifications-popover");
-        const notifBellBtn = document.getElementById("notifications-bell-btn");
-        if (notifPopover) {
-          notifPopover.classList.remove("hidden");
-          notifBellBtn?.classList.add("active");
-          notifBellBtn?.setAttribute("aria-expanded", "true");
-          clampFloatingPopover(notifPopover, { isHeader: true });
-        }
-      }
-    };
-  }
-
-  const hideWatchedBtn = document.getElementById("btn-hide-watched");
-  if (hideWatchedBtn) {
-    hideWatchedBtn.onclick = () => {
-      state.hideWatched = !state.hideWatched;
-      saveUiPrefs({ hideWatched: state.hideWatched });
-      hideWatchedBtn.classList.toggle("active", state.hideWatched);
-      updateActiveFiltersBadge();
-      renderCatalogShelves();
-      showToast(
-        state.hideWatched
-          ? t("Просмотренные фильмы и сериалы скрыты", "Watched movies and series hidden")
-          : t("Отображение просмотренных фильмов включено", "Showing watched titles")
-      );
-    };
-  }
-
-  const friendSelect = document.getElementById("select-friend-filter");
-  const friendsFilterBtn = document.getElementById("btn-friends-filter");
-  if (friendsFilterBtn) {
-    friendsFilterBtn.onclick = () => {
-      state.friendsFilter = !state.friendsFilter;
-      if (!state.friendsFilter) {
-        state.selectedFriend = "all";
-        if (friendSelect) friendSelect.value = "all";
-      }
-      friendsFilterBtn.classList.toggle("active", state.friendsFilter);
-      updateActiveFiltersBadge();
-      renderCatalogShelves();
-      showToast(
-        state.friendsFilter
-          ? t(
-              "Показаны только фильмы и сериалы с оценками друзей",
-              "Showing only movies and series rated by friends"
-            )
-          : t("Фильтр «Оценили друзья» отключен", '"Rated by friends" filter disabled')
-      );
-    };
-  }
-  if (friendSelect) {
-    friendSelect.onchange = (e) => {
-      const val = e.target.value || "all";
-      state.selectedFriend = val;
-      if (val !== "all") {
-        state.friendsFilter = true;
-        friendsFilterBtn?.classList.add("active");
-        showToast(t(`Показаны тайтлы, которые оценил(а) ${val}`, `Showing titles rated by ${val}`));
-      } else {
-        showToast(t("Показаны оценки всех друзей", "Showing ratings from all friends"));
-      }
-      updateActiveFiltersBadge();
-      renderCatalogShelves();
-    };
-  }
-
-  const genreSelect = document.getElementById("select-catalog-genre");
-  if (genreSelect) {
-    genreSelect.onchange = (e) => {
-      state.genreFilter = e.target.value || "all";
-      updateActiveFiltersBadge();
-      renderCatalogShelves();
-    };
-  }
-
-  const yearSelect = document.getElementById("select-catalog-year");
-  if (yearSelect) {
-    yearSelect.onchange = (e) => {
-      state.yearFilter = e.target.value || "all";
-      updateActiveFiltersBadge();
-      renderCatalogShelves();
-    };
-  }
-
-  const randomPickBtn = document.getElementById("btn-random-pick");
-  if (randomPickBtn) {
-    randomPickBtn.onclick = () => {
-      const pool = getCurrentlyFilteredItems();
-      if (!pool || pool.length === 0) {
-        showToast(
-          t(
-            "В текущем разделе или фильтре нет подходящих тайтлов",
-            "No matching titles in the current section or filter"
-          )
-        );
-        return;
-      }
-      const picked = pool[Math.floor(Math.random() * pool.length)];
-      showToast(
-        t(
-          `Случайный выбор: «${displayTitle(picked)}» (${picked.year})`,
-          `Random pick: "${displayTitle(picked)}" (${picked.year})`
-        )
-      );
-      openQuickPeekModal(picked);
-    };
-  }
-
   initPlayerStageAndGearBindings();
 
   const preservePlayerHistoryIfNeeded = () => {
@@ -1010,131 +790,6 @@ function initCineFlowApp() {
         }
       }
     }
-  });
-
-  const sortSelect = document.getElementById("select-catalog-sort");
-  if (sortSelect) {
-    sortSelect.onchange = (e) => {
-      state.sortBy = e.target.value || "default";
-      updateActiveFiltersBadge();
-      renderCatalogShelves();
-    };
-  }
-
-  // Kinorium Sections switcher: Весь каталог | Смотрю | Буду смотреть | Просмотрено | Не буду смотреть
-  document.querySelectorAll(".kin-sec-pill").forEach((btn) => {
-    btn.onclick = () => {
-      state.kinoriumSection = btn.dataset.ksec;
-      state.kinoriumSubType = state.mediaTypeFilter || "all";
-      document.querySelectorAll(".kin-sec-pill").forEach((b) => {
-        b.classList.remove("active");
-        b.setAttribute("aria-selected", "false");
-      });
-      btn.classList.add("active");
-      btn.setAttribute("aria-selected", "true");
-      requestAnimationFrame(() => {
-        try {
-          btn.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-        } catch (err) { window.logDebug?.("App", err); }
-      });
-      loadCatalog();
-    };
-  });
-
-  // Single unified Content Type switcher (#media-type-bar): Все | Фильмы | Сериалы | Скачано
-  document.querySelectorAll(".type-pill").forEach((btn) => {
-    btn.onclick = () => {
-      const nextType = btn.dataset.type || "all";
-      state.mediaTypeFilter = nextType;
-      state.kinoriumSubType = nextType;
-      document.querySelectorAll(".type-pill").forEach((b) => {
-        b.classList.remove("active");
-        b.setAttribute("aria-selected", "false");
-      });
-      btn.classList.add("active");
-      btn.setAttribute("aria-selected", "true");
-      renderContinueWatching();
-      if (state.kinoriumSection !== "all" || nextType === "offline") {
-        renderCatalogShelves();
-      } else {
-        loadCatalog();
-      }
-    };
-  });
-
-  // Offline status banner actions
-  const btnOfflineView = document.getElementById("btn-offline-banner-view");
-  if (btnOfflineView) {
-    btnOfflineView.onclick = () => {
-      const offlinePill = document.getElementById("type-pill-offline");
-      if (offlinePill && !offlinePill.classList.contains("hidden")) {
-        offlinePill.click();
-      } else {
-        openDownloadsModal();
-      }
-    };
-  }
-
-  const btnOfflineRetry = document.getElementById("btn-offline-banner-retry");
-  if (btnOfflineRetry) {
-    btnOfflineRetry.onclick = async () => {
-      showToast(t("Проверяем подключение к сети...", "Checking network connection..."));
-      try {
-        const res = await fetch("/api/system/status", { cache: "no-store" });
-        if (res.ok) {
-          setOfflineMode(false);
-          showToast(t("Подключение успешно восстановлено", "Connection restored successfully"));
-          loadCatalog({ showLoading: true });
-        } else {
-          showToast(t("Сеть пока недоступна", "Network is still unavailable"));
-        }
-      } catch (_) {
-        showToast(t("Сеть пока недоступна", "Network is still unavailable"));
-      }
-    };
-  }
-
-  window.addEventListener("online", () => {
-    setOfflineMode(false);
-    showToast(t("Подключение к сети восстановлено", "Network connection restored"));
-    loadCatalog();
-  });
-
-  window.addEventListener("offline", () => {
-    setOfflineMode(true);
-    showToast(t("Офлайн-режим: доступны скачанные фильмы и серии", "Offline mode: downloaded movies and series available"));
-    renderCatalogShelves();
-  });
-
-  if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    setOfflineMode(true);
-  }
-
-  // Service filter bar (#provider-filter-bar)
-  document.querySelectorAll(".atv-pill").forEach((btn) => {
-    btn.onclick = () => {
-      const nextProv = btn.dataset.provider || "all";
-      if (state.providerFilter === nextProv && nextProv !== "all") {
-        state.providerFilter = "all";
-      } else {
-        state.providerFilter = nextProv;
-      }
-      if (state.providerFilter && state.providerFilter !== "all") {
-        state.kinoriumSection = "all";
-        document.querySelectorAll(".kin-sec-pill").forEach((b) => {
-          const isAll = b.dataset.ksec === "all";
-          b.classList.toggle("active", isAll);
-          b.setAttribute("aria-selected", isAll ? "true" : "false");
-        });
-      }
-      document.querySelectorAll(".atv-pill").forEach((b) => {
-        const isCur = b.dataset.provider === state.providerFilter;
-        b.classList.toggle("active", isCur);
-        b.setAttribute("aria-pressed", isCur ? "true" : "false");
-      });
-      applyEnabledServicesVisibility();
-      loadCatalog();
-    };
   });
 
   document.querySelectorAll("#settings-tabs .settings-tab").forEach((tab) => {

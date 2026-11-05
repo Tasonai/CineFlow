@@ -1,42 +1,70 @@
-# Architecture Review — 2026-11-05 (Milestone M1 Check-in)
+# Architecture Review — 2026-11-05
 
-Milestone `M1` check-in (`improve-loop` + `improve-architecture`), фиксирующий декомпозицию `backend/kinorium.py` и `public/app.js`, а также гигиену продакшн-логов.
-
----
-
-## 1. Декомпозиция `backend/kinorium.py` (Transport & Sync Submodules)  [Completed ✓]
-
-- **Files:** `backend/kinorium_http.py` (774 строки), `backend/kinorium_sync.py` (1 141 строка), `backend/kinorium_parsers.py` (1 146 строк), `backend/kinorium_persons.py` (665 строк), `backend/kinorium.py` (5 734 строки)
-- **Status:** Выполнены истории `S-002` и `S-003`.
-- **Details:**
-  - **`backend/kinorium_http.py`**:
-    - Выделены лимитированное чтение ответов `_read_resp_bounded`, `_decompress_gzip_bounded`, нормализация путей и кук `extract_user_path`, `extract_cookie_user_id`, `sanitize_session_cookie`.
-    - Выделен решатель антибот-вызовов `solve_kinorium_js_challenge`, ротация зеркал и кулдауны `kinorium_candidate_domains`, `is_ip_cooldown_active`, а также HTTP-транспорт `kinorium_http_request`, `get_active_sync_cookie`, `ensure_kinorium_cookies`, `fetch_kinorium_html`.
-  - **`backend/kinorium_sync.py`**:
-    - Выделен движок двусторонней сверки эпизодов и статусов: `_is_episode_cached_remote_done`, `_merge_remote_episodes_into_local`, `fetch_series_episodes_state`, `_post_episode_status_remote`, `_sync_episodes_map_to_kinorium_remote`, `reconcile_series_episodes`, `reconcile_local_statuses_to_remote`, `reconcile_all_local_episodes`, `_sync_to_kinorium_remote`.
-  - **Результат:** Размер `backend/kinorium.py` сократился с **8 623 строк** (до начала декомпозиции) до **5 734 строк** (−2 889 строк, или **−33.5%**) при 100% обратной совместимости всех методов `KinoriumService`.
+Архитектурная ревизия (`improve-architecture`) кодовой базы CineFlow после завершения Milestone `M1`.
 
 ---
 
-## 2. Декомпозиция `public/app.js` (Controllers Extraction)  [Completed ✓]
+## 0. Результаты обследования (Survey & Hot Spots)
 
-- **Files:** `public/js/app-hotkeys.js` (475 строк), `public/js/catalog-live-search.js` (534 строки), `public/js/player-rating.js`, `public/js/modals.js`, `public/js/settings.js`, `public/app.js` (2 011 строк)
-- **Status:** Выполнены истории `S-004`, `S-005` и `S-006`.
-- **Details:**
-  - **`public/js/app-hotkeys.js` (`initGlobalHotkeys`)**:
-    - Изолированы глобальные клавиатурные сокращения (стек модальных окон `Escape`, `Cmd/Ctrl+K`, управление мини-плеером и полноэкранным плеером).
-  - **`public/js/modals.js` (`initQuickPeekBindings`) & `public/js/player-rating.js` (`initPlayerStatusAndRatingBindings`)**:
-    - Вынесены обработчики статусов Kinorium, звёздного рейтинга и пост-просмотровой карточки оценки фильма/серии.
-  - **`public/js/settings.js` (`initSettingsAndBackupBindings`, `requestCloseSettingsModal`, `handleExportBackup`, `openManualBackupPasteBox`)**:
-    - Вынесены обработчики настроек сети, Stremio-аддонов, LAN/Autostart, автообновлений, мастера первого запуска (Onboarding) и экспорта/импорта резервных копий.
-  - **Результат:** Размер `public/app.js` сократился с **4 316 строк** (до начала декомпозиции) до **2 011 строк** (−2 305 строк, или **−53.4%**).
+- **Топ файлов по частоте изменений за 30 дней (`git log --since=30.days`):**
+  1. `public/app.js` (14 коммитов, 2 014 строк)
+  2. `public/js/player.js` (13 коммитов, 2 289 строк)
+  3. `public/js/modals.js` (13 коммитов, 2 585 строк)
+  4. `public/js/utils.js` (13 коммитов, 2 102 строки)
+  5. `public/js/settings.js` (12 коммитов, 3 471 строка)
+  6. `public/js/player-rating.js` (12 коммитов, 824 строки)
+- **Крупнейшие модули кодовой базы (`wc -l`):**
+  1. `backend/kinorium.py` — **5 734 строки** (после выделения `kinorium_persons.py`, `kinorium_parsers.py`, `kinorium_http.py`, `kinorium_sync.py`)
+  2. `public/js/player-streams.js` — **3 489 строк**
+  3. `public/js/settings.js` — **3 471 строка**
+  4. `backend/aggregator.py` — **3 308 строк**
+  5. `backend/hdrezka.py` — **2 846 строк**
+  6. `public/js/modals.js` — **2 585 строк**
+  7. `public/js/player.js` — **2 289 строк**
+  8. `public/app.js` — **2 014 строк**
 
 ---
 
-## 3. Гигиена логов в продакшене (`S-001`)  [Completed ✓]
+## Candidate 1: Player Stage, Gear & Selector Bindings Module  [Completed ✓]
 
-- **Files:** `backend/routes/context.py`, `backend/routes/streams.py`, `docs/FIXLOG.md`
-- **Status:** Выполнена история `S-001`.
-- **Details:**
-  - В `ServerContext` добавлено свойство `verbose_log`, считывающее переменную окружения `CINEFLOW_VERBOSE_LOG`.
-  - В `backend/routes/streams.py` подробное логирование запросов и ответов `/api/hdrezka/streams` (`[CineFlow-DEBUG]`) закрыто проверкой `if getattr(ctx, "verbose_log", False):`.
+- **Files:** [`public/app.js`](file:///Users/tasonai/Documents/antigravity/agitated-mendeleev/public/app.js) (2 014 → 1 209 lines), [`public/js/player-ui-controls.js`](file:///Users/tasonai/Documents/antigravity/agitated-mendeleev/public/js/player-ui-controls.js) (1 974 lines), [`public/js/player.js`](file:///Users/tasonai/Documents/antigravity/agitated-mendeleev/public/js/player.js)
+- **Commit:** `5558cd8` (`refactor(player): extract initPlayerStageAndGearBindings to player-ui-controls.js`)
+- **Signal:** Highest commit churn (`public/app.js` — 14 commits in 30 days) + feature controls living far from their feature folder (`lines 903–1428` and `1556–1955` in `public/app.js`).
+- **Problem:** Nearly half of `public/app.js` (~810 lines) bound DOM events for the video player (gear popover, audio/subtitle sync offset buttons, playback speed, quality/studio/season/episode selectors, sleep timer, screenshot, mini-player drag/resize, Ru/En trailer toggle, and Stremio filter pills). Modifying any player control required editing both `public/js/player-*.js` and `public/app.js`, hurting **Locality**.
+- **Outcome:**
+  - `initPlayerStageAndGearBindings()` extracted to `public/js/player-ui-controls.js` and re-exported by `public/js/player.js`.
+  - `public/app.js` dropped from **2 014 lines to 1 209 lines**.
+
+---
+
+## Candidate 2: Kinorium Status, Episode & Rating Mutations Engine  [Completed ✓]
+
+- **Files:** [`backend/kinorium.py`](file:///Users/tasonai/Documents/antigravity/agitated-mendeleev/backend/kinorium.py) (5 734 → 3 896 lines), [`backend/kinorium_mutations.py`](file:///Users/tasonai/Documents/antigravity/agitated-mendeleev/backend/kinorium_mutations.py) (1 907 lines)
+- **Commit:** `d6f93da` (`refactor(kinorium): extract status, rating & episode mutations into backend/kinorium_mutations.py`)
+- **Signal:** File size over threshold (`backend/kinorium.py` was 5 734 lines, the largest file in the project).
+- **Problem:** Lines `3845–5687` of `backend/kinorium.py` (~1 840 lines) implemented user mutations (`dismiss_continue_watching`, `restore_continue_watching`, `_ensure_remote_entry_template`, `_record_episode_watched`, `_unrecord_episode_watched`, `mark_episodes_batch`, `toggle_episode_watched`, `mark_watched`, `set_rating`, `set_episode_rating`, `toggle_watchlist`, `toggle_watching`, `toggle_not_watching`, `_promote_to_watching_with_status`, `configure_account`, `get_profile_stats`) mixed with profile syncing and read-only catalog queries.
+- **Outcome:**
+  - All optimistic local state mutations + remote Kinorium writebacks extracted into `backend/kinorium_mutations.py` with 100% backward-compatible delegation on `KinoriumService`.
+  - `backend/kinorium.py` shrunk from **5 734 lines to 3 896 lines** (a total reduction of **54.8%** from the original 8 623 lines).
+
+---
+
+## Candidate 3: Catalog Toolbar, Filter Reset & Notifications Bindings  [Completed ✓]
+
+- **Files:** [`public/app.js`](file:///Users/tasonai/Documents/antigravity/agitated-mendeleev/public/app.js) (1 209 → 864 lines), [`public/js/catalog-filters.js`](file:///Users/tasonai/Documents/antigravity/agitated-mendeleev/public/js/catalog-filters.js) (768 lines), [`public/js/catalog.js`](file:///Users/tasonai/Documents/antigravity/agitated-mendeleev/public/js/catalog.js)
+- **Signal:** Drifted duplicate filter-reset block in `public/app.js` (`brand-home` click and `btn-clear-catalog-filters` click) + ~350 lines of catalog toolbar/filter/pill/notification bindings sitting in `public/app.js`.
+- **Outcome:**
+  - `resetCatalogDrawerFiltersUI()` and `initCatalogToolbarAndFilterBindings()` extracted to `public/js/catalog-filters.js` (and re-exported by `public/js/catalog.js`), eliminating duplicate filter-reset logic.
+  - `public/app.js` shrunk from **1 209 lines to 864 lines** (a total reduction of **80.0%** from the original 4 316 lines!).
+
+---
+
+## Considered, Not Recommended Right Now
+
+- **Splitting `public/js/player-streams.js` (3 489 lines) by provider (`Speculative`)**: Passes the **Deletion test** as a cohesive stream-switching engine (`switchSourceTab`, `loadHDRezkaStream`, `loadStremioStreams`, `loadBackup4KReleases` share tightly coupled fallback and recovery state). Splitting it now would create shallow pass-through wrappers.
+
+---
+
+## Top Recommendation
+
+Execute **Candidate 1** (`Player Stage, Gear & Selector Bindings -> public/js/player-ui-controls.js`) and **Candidate 2** (`Kinorium Mutations Engine -> backend/kinorium_mutations.py`), optionally followed by **Candidate 3** (`Catalog Toolbar & Filter Reset -> public/js/catalog-filters.js`).

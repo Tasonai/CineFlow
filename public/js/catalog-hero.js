@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261105v1";
+import { state } from "./state.js?v=20261105v2";
 import {
   displayBackdrop,
   displayCountries,
@@ -8,26 +8,26 @@ import {
   isEn,
   t,
   translateGenre,
-} from "./i18n.js?v=20261105v1";
+} from "./i18n.js?v=20261105v2";
 import {
   cssUrl,
   escapeHtml,
   iconSvg,
   setAmbientColor,
-} from "./utils.js?v=20261105v1";
-import { openQuickPeekModal } from "./modals.js?v=20261105v1";
-import { openPlayerModal } from "./player.js?v=20261105v1";
+} from "./utils.js?v=20261105v2";
+import { openQuickPeekModal } from "./modals.js?v=20261105v2";
+import { openPlayerModal } from "./player.js?v=20261105v2";
 import {
   _hashItemKey,
   filterCatalogItemsByGenreAndYear,
   seededShuffle,
-} from "./catalog-filters.js?v=20261105v1";
+} from "./catalog-filters.js?v=20261105v2";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261105v1";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261105v1";
+} from "./catalog-media-resolver.js?v=20261105v2";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261105v2";
 
 const LAST_HERO_ID_STORAGE_KEY = "cineflow_last_hero_id";
 let _heroRecordedThisLaunch = false;

@@ -9,14 +9,14 @@ import {
   profileStorageKey,
   profileStorageKeyFor,
   state,
-} from "./state.js?v=20261105v1";
+} from "./state.js?v=20261105v2";
 import {
   applyStaticDomTranslations,
   displayAddonDescription,
   isEn,
   syncLanguageSegmentedControlUI,
   t,
-} from "./i18n.js?v=20261105v1";
+} from "./i18n.js?v=20261105v2";
 import {
   closeCustomSelectMenu,
   copyTextToClipboard,
@@ -32,31 +32,31 @@ import {
   syncAllCustomSelects,
   syncCustomSelect,
   syncScrollTopButton,
-} from "./utils.js?v=20261105v1";
-import { applyEnabledServicesVisibility, isServiceEnabled } from "./catalog-media-resolver.js?v=20261105v1";
+} from "./utils.js?v=20261105v2";
+import { applyEnabledServicesVisibility, isServiceEnabled } from "./catalog-media-resolver.js?v=20261105v2";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261105v1";
-import { renderHero } from "./catalog-hero.js?v=20261105v1";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261105v1";
+} from "./catalog-shelves.js?v=20261105v2";
+import { renderHero } from "./catalog-hero.js?v=20261105v2";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261105v2";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
-} from "./catalog-filters.js?v=20261105v1";
+} from "./catalog-filters.js?v=20261105v2";
 import {
   loadCatalog,
   renderLoginBannerIfNeeded,
   updateFriendsFilterDropdown,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261105v1";
-import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261105v1";
-import { loadStremioStreams } from "./player-streams.js?v=20261105v1";
-import { renderModalProvidersSidebar } from "./player-meta.js?v=20261105v1";
+} from "./catalog.js?v=20261105v2";
+import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261105v2";
+import { loadStremioStreams } from "./player-streams.js?v=20261105v2";
+import { renderModalProvidersSidebar } from "./player-meta.js?v=20261105v2";
 import {
   refreshOpenPlayerLanguageUI,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261105v1";
+} from "./player.js?v=20261105v2";
 import {
   applyProfilesPayload,
   ensureKidsPinVerifiedForAdminAction,
@@ -69,12 +69,12 @@ import {
   renderProfilesModalUI,
   renderTvCastModalUI,
   startOneClickKinoriumLogin,
-} from "./features.js?v=20261105v1";
+} from "./features.js?v=20261105v2";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   syncDesktopConnectedRemotesUI,
-} from "./remote.js?v=20261105v1";
+} from "./remote.js?v=20261105v2";
 
 function _adminPinPayload() {
   return state.verifiedKidsAdminPin
