@@ -241,7 +241,7 @@ class TestFrontendIntegrity(unittest.TestCase):
     def test_v26_responsive_offline_tv_and_native_wrappers_invariants(self):
         with open(os.path.join(PUBLIC_DIR, "index.html"), "r", encoding="utf-8") as f:
             html = f.read()
-        self.assertIn("?v=20261108v19", html)
+        self.assertIn("?v=20261109v1", html)
 
         css_combined = ""
         for css_file in sorted(glob.glob(os.path.join(PUBLIC_DIR, "css", "*.css"))):

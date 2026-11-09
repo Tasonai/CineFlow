@@ -1,22 +1,22 @@
-import { state } from "./state.js?v=20261108v19";
-import { t } from "./i18n.js?v=20261108v19";
+import { state } from "./state.js?v=20261109v1";
+import { t } from "./i18n.js?v=20261109v1";
 import {
   closeCustomSelectMenu,
   closeFloatingPopovers,
   isCustomSelectMenuOpen,
   showToast,
   showVideoOsd,
-} from "./utils.js?v=20261108v19";
-import { savePlayerPrefs } from "./audio-dsp.js?v=20261108v19";
+} from "./utils.js?v=20261109v1";
+import { savePlayerPrefs } from "./audio-dsp.js?v=20261109v1";
 import {
   closeCommandPalette,
   closeMovieRouletteModal,
-} from "./catalog.js?v=20261108v19";
+} from "./catalog.js?v=20261109v1";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261108v19";
+} from "./modals.js?v=20261109v1";
 import {
   closeAllVcPopovers,
   closePlayerModal,
@@ -29,15 +29,15 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261108v19";
-import { closeOnboardingModal } from "./settings.js?v=20261108v19";
-import { closeDownloadsModal } from "./features-downloads.js?v=20261108v19";
-import { closeTvCastModal } from "./features-cast.js?v=20261108v19";
+} from "./player.js?v=20261109v1";
+import { closeOnboardingModal } from "./settings.js?v=20261109v1";
+import { closeDownloadsModal } from "./features-downloads.js?v=20261109v1";
+import { closeTvCastModal } from "./features-cast.js?v=20261109v1";
 import {
   closeKidsPinModal,
   closeProfilePopover,
   closeProfilesModal,
-} from "./features.js?v=20261108v19";
+} from "./features.js?v=20261109v1";
 
 // ============================================================================
 // 5. TV MODE (D-Pad / Gamepad Spatial Navigation + AirPlay / DLNA / QR)
@@ -801,14 +801,55 @@ export function startGamepadPollingLoop() {
     if (wasPressed(3) && state.isPlayerOpen) {
       document.getElementById("vc-btn-fs")?.click();
     }
-    // LB (4) / RB (5): Seek -15s / +15s or Prev/Next episode
-    if (wasPressed(4) && state.isPlayerOpen) {
-      const { cur } = getEffectivePlaybackTiming(document.getElementById("native-video"));
-      seekEffectivePlayback(Math.max(0, cur - 15));
+    // LB (4) / RB (5): Seek -15s / +15s in player, or cycle catalog media-type tabs when in catalog
+    if (wasPressed(4)) {
+      if (state.isPlayerOpen) {
+        const { cur } = getEffectivePlaybackTiming(document.getElementById("native-video"));
+        seekEffectivePlayback(Math.max(0, cur - 15));
+      } else {
+        const tabs = Array.from(document.querySelectorAll(".atv-nav-pill[data-type]"));
+        if (tabs.length > 0) {
+          const curIdx = Math.max(0, tabs.findIndex((b) => b.classList.contains("active")));
+          const nextTab = tabs[(curIdx - 1 + tabs.length) % tabs.length];
+          nextTab?.click();
+        }
+      }
     }
-    if (wasPressed(5) && state.isPlayerOpen) {
-      const { cur, dur } = getEffectivePlaybackTiming(document.getElementById("native-video"));
-      seekEffectivePlayback(dur > 0 ? Math.min(dur, cur + 15) : cur + 15);
+    if (wasPressed(5)) {
+      if (state.isPlayerOpen) {
+        const { cur, dur } = getEffectivePlaybackTiming(document.getElementById("native-video"));
+        seekEffectivePlayback(dur > 0 ? Math.min(dur, cur + 15) : cur + 15);
+      } else {
+        const tabs = Array.from(document.querySelectorAll(".atv-nav-pill[data-type]"));
+        if (tabs.length > 0) {
+          const curIdx = Math.max(0, tabs.findIndex((b) => b.classList.contains("active")));
+          const nextTab = tabs[(curIdx + 1) % tabs.length];
+          nextTab?.click();
+        }
+      }
+    }
+    // LT (6) / RT (7): Seek -30s / +30s in player, or fast vertical scroll in catalog
+    if (wasPressed(6)) {
+      if (state.isPlayerOpen) {
+        const { cur } = getEffectivePlaybackTiming(document.getElementById("native-video"));
+        seekEffectivePlayback(Math.max(0, cur - 30));
+        showVideoOsd("back10", `−30 ${t("с", "s")}`);
+      } else {
+        window.scrollBy({ top: -Math.round(window.innerHeight * 0.65), behavior: "smooth" });
+      }
+    }
+    if (wasPressed(7)) {
+      if (state.isPlayerOpen) {
+        const { cur, dur } = getEffectivePlaybackTiming(document.getElementById("native-video"));
+        seekEffectivePlayback(dur > 0 ? Math.min(dur, cur + 30) : cur + 30);
+        showVideoOsd("fwd10", `+30 ${t("с", "s")}`);
+      } else {
+        window.scrollBy({ top: Math.round(window.innerHeight * 0.65), behavior: "smooth" });
+      }
+    }
+    // Back/View (8) or Start/Menu (9): Toggle X-Ray Pause Shelf in player
+    if ((wasPressed(8) || wasPressed(9)) && state.isPlayerOpen) {
+      document.getElementById("vc-btn-xray")?.click();
     }
 
     for (let i = 0; i < rawBtns.length; i++) {

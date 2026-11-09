@@ -1,12 +1,12 @@
-import { state } from "./state.js?v=20261108v19";
-import { t, displayTitle } from "./i18n.js?v=20261108v19";
-import { supportsNativePiP, syncScrollTopButton, iconSvg } from "./utils.js?v=20261108v19";
-import { isVideoInPiP, startAmbilightLoop } from "./audio-dsp.js?v=20261108v19";
-import { closeAllVcPopovers } from "./player-ui-controls.js?v=20261108v19";
-import { loadCatalog } from "./catalog.js?v=20261108v19";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261108v19";
-import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261108v19";
-import { closeOfficialEmbeddedStream } from "./player-streams.js?v=20261108v19";
+import { state } from "./state.js?v=20261109v1";
+import { t, displayTitle } from "./i18n.js?v=20261109v1";
+import { supportsNativePiP, syncScrollTopButton, iconSvg } from "./utils.js?v=20261109v1";
+import { isVideoInPiP, startAmbilightLoop } from "./audio-dsp.js?v=20261109v1";
+import { closeAllVcPopovers } from "./player-ui-controls.js?v=20261109v1";
+import { loadCatalog } from "./catalog.js?v=20261109v1";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261109v1";
+import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261109v1";
+import { closeOfficialEmbeddedStream } from "./player-streams.js?v=20261109v1";
 
 export function syncPipDockUI() {
   const video = document.getElementById("native-video");

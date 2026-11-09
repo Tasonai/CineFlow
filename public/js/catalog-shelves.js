@@ -2,7 +2,7 @@
 // Manages "Continue Watching", "Curated Collections" (Friends' picks, In your taste,
 // Short movies tonight, Top Kinorium/IMDb), and separated/unified catalog shelves.
 
-import { state } from "./state.js?v=20261108v19";
+import { state } from "./state.js?v=20261109v1";
 import {
   displayBackdrop,
   displayPoster,
@@ -11,7 +11,7 @@ import {
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261108v19";
+} from "./i18n.js?v=20261109v1";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -23,36 +23,36 @@ import {
   matchCatalogItemSafe,
   showToast,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261108v19";
+} from "./utils.js?v=20261109v1";
 import {
   buildPersonPhotoCard,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261108v19";
+} from "./modals.js?v=20261109v1";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
   renderPosterCardsInto,
-} from "./catalog-cards.js?v=20261108v19";
+} from "./catalog-cards.js?v=20261109v1";
 import {
   filterCatalogItemsByGenreAndYear,
   sortCatalogItems,
-} from "./catalog-filters.js?v=20261108v19";
+} from "./catalog-filters.js?v=20261109v1";
 import {
   formatRemainingTime,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261108v19";
-import { renderHero } from "./catalog-hero.js?v=20261108v19";
-import { renderNotificationsBell, renderReleaseCalendarShelf } from "./catalog-notifications.js?v=20261108v19";
+} from "./catalog-media-resolver.js?v=20261109v1";
+import { renderHero } from "./catalog-hero.js?v=20261109v1";
+import { renderNotificationsBell, renderReleaseCalendarShelf } from "./catalog-notifications.js?v=20261109v1";
 import {
   clearCatalogFrontendCache,
   loadCatalog,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261108v19";
-import { getOfflineCatalogItems } from "./features-downloads.js?v=20261108v19";
+} from "./catalog.js?v=20261109v1";
+import { getOfflineCatalogItems } from "./features-downloads.js?v=20261109v1";
 
 export function renderContinueWatching() {
   renderNotificationsBell();
@@ -372,6 +372,44 @@ export function parseItemDurationMinutes(item) {
   return 0;
 }
 
+const _CURATED_MOOD_PRESETS = [
+  {
+    id: "all",
+    icon: "sparkles",
+    ru: "Все подборки",
+    en: "All Collections",
+    genres: null,
+  },
+  {
+    id: "action",
+    icon: "bolt",
+    ru: "Драйв и экшен",
+    en: "Action & Drive",
+    genres: new Set(["боевик", "приключения", "криминал", "вестерн", "военный", "action", "adventure", "crime", "western"]),
+  },
+  {
+    id: "mindbender",
+    icon: "sliders",
+    ru: "Интеллектуальный триллер",
+    en: "Mind-Bending Thriller",
+    genres: new Set(["триллер", "детектив", "драма", "ужасы", "нуар", "thriller", "mystery", "drama", "horror"]),
+  },
+  {
+    id: "cozy",
+    icon: "heart",
+    ru: "Уютный вечер",
+    en: "Cozy Evening",
+    genres: new Set(["комедия", "мелодрама", "семейный", "мультфильм", "музыка", "comedy", "romance", "family", "animation", "music"]),
+  },
+  {
+    id: "scifi",
+    icon: "tv",
+    ru: "Миры и фантастика",
+    en: "Sci-Fi & Worlds",
+    genres: new Set(["фантастика", "фэнтези", "аниме", "sci-fi", "science fiction", "fantasy", "anime"]),
+  },
+];
+
 export function renderCuratedShelves(allItemsSorted = []) {
   const section = document.getElementById("curated-shelves-section");
   const stack = document.getElementById("curated-shelves-stack");
@@ -397,20 +435,35 @@ export function renderCuratedShelves(allItemsSorted = []) {
     return;
   }
 
-  const inputSig = `${allItemsSorted.length}|${allItemsSorted[0]?.id || ""}|${allItemsSorted[allItemsSorted.length - 1]?.id || ""}|${state.catalogIndexVersion || 0}|${state.liveSeriesUpdatesVersion || 0}|${state.mediaTypeFilter || "all"}|${state.appLang || "ru"}|${state.activeProfile?.id || "main"}`;
+  const activeMood = String(state.curatedMoodFilter || "all");
+  const activeMoodObj = _CURATED_MOOD_PRESETS.find((m) => m.id === activeMood) || _CURATED_MOOD_PRESETS[0];
+
+  const inputSig = `${allItemsSorted.length}|${allItemsSorted[0]?.id || ""}|${allItemsSorted[allItemsSorted.length - 1]?.id || ""}|${state.catalogIndexVersion || 0}|${state.liveSeriesUpdatesVersion || 0}|${state.mediaTypeFilter || "all"}|${state.appLang || "ru"}|${state.activeProfile?.id || "main"}|${activeMood}`;
   if (stack._lastCuratedInputSig === inputSig && stack.children.length > 0) {
     section.classList.remove("hidden");
     return;
   }
 
-  const unwatchedPool = allItemsSorted.filter((it) => {
+  const _getNormGenres = (it) => {
+    if (!it || typeof it !== "object") return [];
+    if (Array.isArray(it._normGenres)) return it._normGenres;
+    const raw = Array.isArray(it.genres) ? it.genres : [];
+    it._normGenres = raw.map((g) => String(g || "").trim().toLowerCase()).filter(Boolean);
+    return it._normGenres;
+  };
+
+  const baseUnwatchedPool = allItemsSorted.filter((it) => {
     if (!it || isItemWatchedOrCaughtUp(it)) return false;
     if (state.mediaTypeFilter === "movie" && it.media_type !== "movie") return false;
     if (state.mediaTypeFilter === "series" && it.media_type !== "series") return false;
     return true;
   });
 
-  if (unwatchedPool.length === 0) {
+  const unwatchedPool = activeMoodObj.genres
+    ? baseUnwatchedPool.filter((it) => _getNormGenres(it).some((g) => activeMoodObj.genres.has(g)))
+    : baseUnwatchedPool;
+
+  if (baseUnwatchedPool.length === 0) {
     section.classList.add("hidden");
     stack.innerHTML = "";
     stack._lastCuratedShelvesSig = "";
@@ -431,6 +484,18 @@ export function renderCuratedShelves(allItemsSorted = []) {
   };
 
   const shelves = [];
+
+  if (activeMoodObj.genres && unwatchedPool.length >= 2) {
+    const moodSorted = [...unwatchedPool]
+      .sort((a, b) => getBestScore(b) - getBestScore(a))
+      .slice(0, 14);
+    shelves.push({
+      id: `curated-mood-${activeMoodObj.id}`,
+      title: t(`Под настроение: ${activeMoodObj.ru}`, `Mood Pick: ${activeMoodObj.en}`),
+      sub: t("Лучшие непросмотренные тайтлы выбранного настроения", "Top unwatched titles matching your mood"),
+      items: moodSorted,
+    });
+  }
 
   // 1. Высоко оценили друзья
   if (isServiceEnabled("kinorium")) {
@@ -457,15 +522,7 @@ export function renderCuratedShelves(allItemsSorted = []) {
     }
   }
 
-  const _getNormGenres = (it) => {
-    if (!it || typeof it !== "object") return [];
-    if (Array.isArray(it._normGenres)) return it._normGenres;
-    const raw = Array.isArray(it.genres) ? it.genres : [];
-    it._normGenres = raw.map((g) => String(g || "").trim().toLowerCase()).filter(Boolean);
-    return it._normGenres;
-  };
-
-  // 2. В вашем вкусе
+  // 2. В вашем вкусе + Потому что вам понравилось + Любимые режиссёры
   const catPool = state.catalogItems || [];
   const favVer = `${Number(state.catalogIndexVersion) || 0}|${catPool.length}`;
   let favGenreWeights = state._cachedFavGenreWeights;
@@ -485,6 +542,66 @@ export function renderCuratedShelves(allItemsSorted = []) {
     state._cachedFavGenreWeights = favGenreWeights;
     state._cachedFavGenreWeightsVer = favVer;
   }
+
+  const highRatedAnchors = catPool
+    .filter((it) => Number(it?.kinorium?.user_rating || 0) >= 8)
+    .sort((a, b) => Number(b?.kinorium?.user_rating || 0) - Number(a?.kinorium?.user_rating || 0) || getBestScore(b) - getBestScore(a));
+
+  if (highRatedAnchors.length > 0) {
+    const anchor = highRatedAnchors[0];
+    const anchorTitle = displayTitle(anchor) || anchor.title || "";
+    const anchorGenres = new Set(
+      _getNormGenres(anchor).filter((g) => g && g !== "фильм" && g !== "сериал" && g !== "movie" && g !== "series")
+    );
+    const anchorDirs = new Set((anchor.directors || []).map((d) => String(d || "").trim().toLowerCase()).filter(Boolean));
+    if (anchorTitle && (anchorGenres.size > 0 || anchorDirs.size > 0)) {
+      const becausePicks = unwatchedPool
+        .filter((it) => it.id !== anchor.id)
+        .map((it) => {
+          const gOverlap = _getNormGenres(it).filter((g) => anchorGenres.has(g)).length;
+          const dOverlap = (it.directors || []).some((d) => anchorDirs.has(String(d || "").trim().toLowerCase())) ? 1 : 0;
+          return { it, sim: gOverlap * 3 + dOverlap * 5 + getBestScore(it) };
+        })
+        .filter((x) => x.sim >= 10.5 && getBestScore(x.it) >= 7.0)
+        .sort((a, b) => b.sim - a.sim)
+        .slice(0, 14)
+        .map((x) => x.it);
+      if (becausePicks.length >= 3) {
+        shelves.push({
+          id: "curated-because-liked",
+          title: t(`Потому что вам понравилось «${anchorTitle}»`, `Because You Liked "${anchorTitle}"`),
+          sub: t("Похожие по жанрам, атмосфере и создателям", "Similar genres, atmosphere, and creators"),
+          items: becausePicks,
+        });
+      }
+    }
+
+    const favDirectorsMap = new Map();
+    highRatedAnchors.forEach((it) => {
+      (it.directors || []).forEach((d) => {
+        const clean = String(d || "").trim();
+        if (clean) favDirectorsMap.set(clean.toLowerCase(), clean);
+      });
+    });
+    if (favDirectorsMap.size > 0) {
+      const dirPicks = unwatchedPool
+        .filter((it) => (it.directors || []).some((d) => favDirectorsMap.has(String(d || "").trim().toLowerCase())))
+        .sort((a, b) => getBestScore(b) - getBestScore(a))
+        .slice(0, 14);
+      if (dirPicks.length >= 2) {
+        const sampleDirs = Array.from(favDirectorsMap.values()).slice(0, 2).join(", ");
+        shelves.push({
+          id: "curated-favorite-directors",
+          title: t("Любимые режиссёры и авторы", "Favorite Directors & Creators"),
+          sub: sampleDirs
+            ? t(`Новые работы: ${sampleDirs} и другие`, `Works by ${sampleDirs} and more`)
+            : t("Тайтлы от режиссёров ваших любимых фильмов", "Titles from directors of your top-rated films"),
+          items: dirPicks,
+        });
+      }
+    }
+  }
+
   if (favGenreWeights.size > 0) {
     const tastePicks = unwatchedPool
       .map((it) => {
@@ -561,16 +678,16 @@ export function renderCuratedShelves(allItemsSorted = []) {
     });
   }
 
-  if (shelves.length === 0) {
+  if (shelves.length === 0 && activeMood === "all") {
     section.classList.add("hidden");
     stack.innerHTML = "";
     stack._lastCuratedShelvesSig = "";
     return;
   }
 
-  const curSig = shelves.map((s) => `${s.id}:${s.items.map((it) => it.id || it.kinorium_id || it.title).join(",")}`).join("|");
+  const curSig = `${activeMood}|${shelves.map((s) => `${s.id}:${s.items.map((it) => it.id || it.kinorium_id || it.title).join(",")}`).join("|")}`;
   stack._lastCuratedInputSig = inputSig;
-  if (stack._lastCuratedShelvesSig === curSig && stack.children.length === shelves.length) {
+  if (stack._lastCuratedShelvesSig === curSig && stack.children.length > 0) {
     section.classList.remove("hidden");
     return;
   }
@@ -579,6 +696,30 @@ export function renderCuratedShelves(allItemsSorted = []) {
   section.classList.remove("hidden");
   stack.innerHTML = "";
   const stackFrag = document.createDocumentFragment();
+
+  const moodBar = document.createElement("div");
+  moodBar.className = "atv-curated-mood-bar";
+  moodBar.setAttribute("role", "tablist");
+  moodBar.setAttribute("aria-label", t("Фильтр подборок по настроению", "Filter collections by mood"));
+  _CURATED_MOOD_PRESETS.forEach((mp) => {
+    const isAct = mp.id === activeMood;
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.role = "tab";
+    chip.className = `atv-curated-mood-chip${isAct ? " is-active" : ""}`;
+    chip.setAttribute("data-mood-chip", mp.id);
+    chip.setAttribute("aria-selected", isAct ? "true" : "false");
+    chip.innerHTML = `${iconSvg(mp.icon, 13)}<span>${escapeHtml(t(mp.ru, mp.en))}</span>`;
+    chip.onclick = () => {
+      state.curatedMoodFilter = state.curatedMoodFilter === mp.id && mp.id !== "all" ? "all" : mp.id;
+      stack._lastCuratedInputSig = "";
+      stack._lastCuratedShelvesSig = "";
+      renderCuratedShelves(allItemsSorted);
+    };
+    moodBar.appendChild(chip);
+  });
+  stackFrag.appendChild(moodBar);
+
   shelves.forEach((shelf) => {
     const block = document.createElement("div");
     block.className = "atv-curated-shelf";

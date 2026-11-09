@@ -1,5 +1,5 @@
-import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261108v19";
-import { displayTitle, isEn, t, translateStudioName } from "./i18n.js?v=20261108v19";
+import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261109v1";
+import { displayTitle, isEn, t, translateStudioName } from "./i18n.js?v=20261109v1";
 import {
   clampFloatingPopover,
   closeCustomSelectMenu,
@@ -23,7 +23,7 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261108v19";
+} from "./utils.js?v=20261109v1";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -31,7 +31,7 @@ import {
   getPlayerPrefs,
   savePlayerPrefs,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261108v19";
+} from "./audio-dsp.js?v=20261109v1";
 import {
   applyEnabledServicesVisibility,
   clearCatalogFrontendCache,
@@ -46,13 +46,13 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261108v19";
+} from "./catalog.js?v=20261109v1";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261108v19";
+} from "./modals.js?v=20261109v1";
 import {
   closeAllVcPopovers,
   closePlayerModal,
@@ -70,19 +70,19 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261108v19";
+} from "./player.js?v=20261109v1";
 import {
   closeOnboardingModal,
   openSettingsModal,
   renderIntegrationsList,
   toggleLanAccess,
   updateBackupSummaryStat,
-} from "./settings.js?v=20261108v19";
+} from "./settings.js?v=20261109v1";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   switchCastModalTab,
-} from "./remote.js?v=20261108v19";
+} from "./remote.js?v=20261109v1";
 
 export function exitBrowserFullscreenIfNeeded() {
   if (typeof document === "undefined") return;
@@ -264,7 +264,7 @@ import {
   _editingProfileId,
   _editingProfileColor,
   _clearKidsPinRequested,
-} from "./features-profiles.js?v=20261108v19";
+} from "./features-profiles.js?v=20261109v1";
 
 export {
   PROFILE_COLOR_SWATCHES,
@@ -539,8 +539,9 @@ import {
   cancelOfflineDownload,
   retryOfflineDownload,
   deleteOfflineDownload,
+  deleteSeasonOfflineDownloads,
   openDownloadsFolder,
-} from "./features-downloads.js?v=20261108v19";
+} from "./features-downloads.js?v=20261109v1";
 
 export {
   syncDownloadsHeaderBadge,
@@ -560,6 +561,7 @@ export {
   cancelOfflineDownload,
   retryOfflineDownload,
   deleteOfflineDownload,
+  deleteSeasonOfflineDownloads,
   openDownloadsFolder,
 };
 
@@ -580,7 +582,7 @@ import {
   executeRemoteDpadCommand as _executeRemoteDpadCommand,
   handleTvSpatialKeydown,
   startGamepadPollingLoop,
-} from "./features-tv-mode.js?v=20261108v19";
+} from "./features-tv-mode.js?v=20261109v1";
 
 export {
   clearTvFocusClass,
@@ -620,7 +622,7 @@ import {
   applyPendingTvDeepLinkIfReady,
   openPlayerHandoffModal,
   closePlayerHandoffModal,
-} from "./features-cast.js?v=20261108v19";
+} from "./features-cast.js?v=20261109v1";
 
 export {
   supportsWebkitAirPlay,
@@ -681,6 +683,10 @@ export function initRoadmapFeatures() {
   document.getElementById("btn-dl-batch-3")?.addEventListener("click", (e) => {
     e.stopPropagation();
     enqueueBatchSeriesDownload("next3");
+  });
+  document.getElementById("btn-dl-batch-unwatched")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    enqueueBatchSeriesDownload("unwatched");
   });
   document.getElementById("btn-dl-batch-season")?.addEventListener("click", (e) => {
     e.stopPropagation();

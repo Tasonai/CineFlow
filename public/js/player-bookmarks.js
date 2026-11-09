@@ -1,4 +1,4 @@
-import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261108v19";
+import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261109v1";
 import {
   displayPoster,
   displayTitle,
@@ -6,7 +6,7 @@ import {
   isEn,
   t,
   transliterateRuToEn,
-} from "./i18n.js?v=20261108v19";
+} from "./i18n.js?v=20261109v1";
 import {
   attachHorizontalWheelScroll,
   clampStagePopover,
@@ -20,15 +20,15 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261108v19";
-import { attachSmartPosterFallback } from "./catalog.js?v=20261108v19";
-import { openPersonModal } from "./modals.js?v=20261108v19";
-import { buildFallbackAvatarSvg } from "./modals-person.js?v=20261108v19";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261108v19";
-import { seekEffectivePlayback } from "./player-streams.js?v=20261108v19";
-import { findActiveChapterLabel, syncVcPopoverOpenClass } from "./player-ui-controls.js?v=20261108v19";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261108v19";
-import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261108v19";
+} from "./utils.js?v=20261109v1";
+import { attachSmartPosterFallback } from "./catalog.js?v=20261109v1";
+import { openPersonModal } from "./modals.js?v=20261109v1";
+import { buildFallbackAvatarSvg } from "./modals-person.js?v=20261109v1";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261109v1";
+import { seekEffectivePlayback } from "./player-streams.js?v=20261109v1";
+import { findActiveChapterLabel, syncVcPopoverOpenClass } from "./player-ui-controls.js?v=20261109v1";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261109v1";
+import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261109v1";
 
 let _bookmarkDialogWasPlaying = false;
 let _activeEditingMoment = null;
@@ -779,6 +779,8 @@ function _renderXRayCastSection(item, sceneCtx = resolveActiveXRaySceneContext()
   requestAnimationFrame(_syncXRayScrollButtons);
 }
 
+let _xraySoundtrackViewMode = "title"; // "title" | "saved"
+
 function _renderXRaySoundtrackAndTrivia(item, xrayPayload, sceneCtx = resolveActiveXRaySceneContext()) {
   const ostEl = document.getElementById("xray-soundtrack-list");
   const trivEl = document.getElementById("xray-trivia-list");
@@ -787,9 +789,31 @@ function _renderXRaySoundtrackAndTrivia(item, xrayPayload, sceneCtx = resolveAct
     : Array.isArray(item?.soundtrack)
     ? item.soundtrack
     : [];
-  const tracks = rawTracks
+  const savedTracks = Array.isArray(xrayPayload?.saved_tracks)
+    ? xrayPayload.saved_tracks
+    : Array.isArray(item?._xrayData?.saved_tracks)
+    ? item._xrayData.saved_tracks
+    : [];
+  const savedTrackIds = new Set(
+    savedTracks.map((st) => String(st.track_id || `${st.artist || ""}--${st.title || ""}`).toLowerCase())
+  );
+  if (_xraySoundtrackViewMode === "saved" && savedTracks.length === 0) {
+    _xraySoundtrackViewMode = "title";
+  }
+  const sourceTracks =
+    _xraySoundtrackViewMode === "saved"
+      ? savedTracks.map((st) => ({ ...st, is_saved: true }))
+      : rawTracks;
+  const tracks = sourceTracks
     .map((tr, idx) => {
-      const match = scoreTrackForScene(tr, sceneCtx);
+      const match =
+        _xraySoundtrackViewMode === "saved"
+          ? {
+              score: 0,
+              inScene: Boolean(tr.media_title),
+              badgeText: tr.media_title ? String(tr.media_title) : "",
+            }
+          : scoreTrackForScene(tr, sceneCtx);
       return { tr, idx, score: match.score, inScene: match.inScene, badgeText: match.badgeText };
     })
     .sort((a, b) => {
@@ -802,14 +826,14 @@ function _renderXRaySoundtrackAndTrivia(item, xrayPayload, sceneCtx = resolveAct
     ? item.trivia
     : [];
 
-  _updateXRayTabLabel("xray-tab-soundtrack", "Саундтрек", "Soundtrack", tracks.length);
+  _updateXRayTabLabel("xray-tab-soundtrack", "Саундтрек", "Soundtrack", rawTracks.length || tracks.length);
   _updateXRayTabLabel("xray-tab-trivia", "Факты и пасхалки", "Trivia & Facts", triviaList.length);
 
   if (ostEl) {
-    const ostSig = `${item?.id || item?.title || ""}|${state.appLang || "ru"}|${sceneCtx?.memoKey || ""}|${tracks.map(({ tr, inScene, badgeText }) => `${tr.title || ""}:${tr.artist || ""}:${inScene ? 1 : 0}:${badgeText || ""}`).join(",")}`;
+    const ostSig = `${item?.id || item?.title || ""}|${state.appLang || "ru"}|${_xraySoundtrackViewMode}|${savedTracks.length}|${sceneCtx?.memoKey || ""}|${tracks.map(({ tr, inScene, badgeText }) => `${tr.title || ""}:${tr.artist || ""}:${tr.is_saved ? 1 : 0}:${inScene ? 1 : 0}:${badgeText || ""}`).join(",")}`;
     if (ostEl.dataset.renderSig === ostSig && ostEl.childElementCount > 0) {
       // Already rendered with identical scene soundtrack state
-    } else if (tracks.length === 0) {
+    } else if (tracks.length === 0 && savedTracks.length === 0) {
       ostEl.dataset.renderSig = ostSig;
       ostEl.innerHTML = `<div class="atv-xray-empty">${escapeHtml(
         t("Поиск саундтрека сцены...", "Searching scene soundtrack...")
@@ -818,11 +842,39 @@ function _renderXRaySoundtrackAndTrivia(item, xrayPayload, sceneCtx = resolveAct
       ostEl.dataset.renderSig = ostSig;
       ostEl.innerHTML = "";
       const ostFrag = document.createDocumentFragment();
+      if (savedTracks.length > 0 || _xraySoundtrackViewMode === "saved") {
+        const modeCard = document.createElement("div");
+        modeCard.className = "atv-xray-ost-mode-bar";
+        modeCard.innerHTML = `
+          <button type="button" class="atv-xray-ost-mode-btn${_xraySoundtrackViewMode === "title" ? " is-active" : ""}" data-ost-mode="title">
+            ${iconSvg("music", 12)}
+            <span>${escapeHtml(t("В этом тайтле", "In This Title"))} (${rawTracks.length})</span>
+          </button>
+          <button type="button" class="atv-xray-ost-mode-btn${_xraySoundtrackViewMode === "saved" ? " is-active" : ""}" data-ost-mode="saved">
+            ${iconSvg("heartFilled", 12)}
+            <span>${escapeHtml(t("Избранные треки", "Saved Tracks"))} (${savedTracks.length})</span>
+          </button>
+        `;
+        modeCard.querySelectorAll("[data-ost-mode]").forEach((mBtn) => {
+          mBtn.onclick = (e) => {
+            e.stopPropagation();
+            const nextMode = mBtn.getAttribute("data-ost-mode") || "title";
+            if (_xraySoundtrackViewMode !== nextMode) {
+              _xraySoundtrackViewMode = nextMode;
+              ostEl.dataset.renderSig = "";
+              _renderXRaySoundtrackAndTrivia(item, xrayPayload, sceneCtx);
+            }
+          };
+        });
+        ostFrag.appendChild(modeCard);
+      }
       tracks.forEach(({ tr, inScene, badgeText }) => {
         const card = document.createElement("div");
         card.className = `atv-xray-track-card${inScene ? " is-in-scene" : ""}`;
         const trackTitle = String(tr.title || "");
         const trackArtist = String(tr.artist || "");
+        const trackIdKey = String(tr.track_id || `${trackArtist}--${trackTitle}`).toLowerCase();
+        const isTrackSaved = Boolean(tr.is_saved || savedTrackIds.has(trackIdKey));
         const rawScene = String(tr.scene || "").trim();
         const isGenericScene = /^(официальный саундтрек|official soundtrack)$/i.test(rawScene);
         const sceneHint = isGenericScene ? "" : rawScene;
@@ -835,6 +887,9 @@ function _renderXRaySoundtrackAndTrivia(item, xrayPayload, sceneCtx = resolveAct
           inScene && badgeText
             ? `<span class="atv-xray-scene-pill">${escapeHtml(badgeText)}</span>`
             : "";
+        const saveTitleText = isTrackSaved
+          ? t("Убрать из избранных треков", "Remove from saved tracks")
+          : t("Сохранить трек в избранное", "Save track to favorites");
         card.innerHTML = `
           <div class="atv-xray-track-main" title="${escapeAttr(`${trackTitle} — ${trackArtist}`)}">
             <div class="atv-xray-track-icon">${
@@ -860,6 +915,13 @@ function _renderXRaySoundtrackAndTrivia(item, xrayPayload, sceneCtx = resolveAct
                   )}">${iconSvg("play", 11)}<span>${escapeHtml(t("Слушать", "Preview"))}</span></button>`
                 : ""
             }
+            <button type="button" class="atv-xray-action-pill btn-xray-save-track${
+              isTrackSaved ? " is-saved" : ""
+            }" title="${escapeAttr(saveTitleText)}" aria-label="${escapeAttr(saveTitleText)}" aria-pressed="${
+              isTrackSaved ? "true" : "false"
+            }">${iconSvg(isTrackSaved ? "heartFilled" : "heart", 12)}<span>${escapeHtml(
+              isTrackSaved ? t("В избранном", "Saved") : t("В избранное", "Save")
+            )}</span></button>
             <button type="button" class="atv-xray-action-pill btn-xray-copy" title="${escapeAttr(
               t("Скопировать исполнителя и название трека", "Copy artist and track name")
             )}" aria-label="${escapeAttr(
@@ -893,6 +955,62 @@ function _renderXRaySoundtrackAndTrivia(item, xrayPayload, sceneCtx = resolveAct
           coverImg.onerror = () => {
             const iconWrap = coverImg.parentElement;
             if (iconWrap) iconWrap.innerHTML = iconSvg("music", 15);
+          };
+        }
+        const saveBtn = card.querySelector(".btn-xray-save-track");
+        if (saveBtn) {
+          saveBtn.onclick = async (e) => {
+            e.stopPropagation();
+            try {
+              const res = await apiJson("/api/xray/saved-tracks", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "toggle",
+                  media_title: item?.title || "",
+                  media_id: item?.id || "",
+                  track: {
+                    track_id: tr.track_id || "",
+                    title: trackTitle,
+                    artist: trackArtist,
+                    album: tr.album || "",
+                    scene: tr.scene || "",
+                    preview_url: tr.preview_url || "",
+                    artwork_url: tr.artwork_url || "",
+                    apple_music_url: tr.apple_music_url || "",
+                    spotify_url: tr.spotify_url || "",
+                    youtube_url: tr.youtube_url || "",
+                  },
+                }),
+              });
+              if (res && res.ok) {
+                tr.is_saved = Boolean(res.is_saved);
+                if (res.track_id) tr.track_id = res.track_id;
+                if (xrayPayload && typeof xrayPayload === "object") {
+                  xrayPayload.saved_tracks = Array.isArray(res.items) ? res.items : [];
+                  if (Array.isArray(xrayPayload.soundtrack)) {
+                    xrayPayload.soundtrack.forEach((oTr) => {
+                      if (
+                        (oTr.track_id && oTr.track_id === res.track_id) ||
+                        (oTr.title === trackTitle && oTr.artist === trackArtist)
+                      ) {
+                        oTr.is_saved = Boolean(res.is_saved);
+                      }
+                    });
+                  }
+                }
+                if (item?._xrayData && typeof item._xrayData === "object") {
+                  item._xrayData.saved_tracks = Array.isArray(res.items) ? res.items : [];
+                }
+                showToast(
+                  res.is_saved
+                    ? t(`Трек сохранён: ${copyLabel}`, `Saved track: ${copyLabel}`)
+                    : t(`Убрано из избранного: ${copyLabel}`, `Removed track: ${copyLabel}`)
+                );
+                ostEl.dataset.renderSig = "";
+                _renderXRaySoundtrackAndTrivia(item, xrayPayload, sceneCtx);
+              }
+            } catch (_) {}
           };
         }
         const copyBtn = card.querySelector(".btn-xray-copy");
@@ -1890,7 +2008,7 @@ export function renderBookmarksModalList(filterQuery = null) {
         poster: m.poster,
       };
       const sourceTab = m.source || "hdrezka";
-      const { openPlayerModal } = await import("./player.js?v=20261108v19");
+      const { openPlayerModal } = await import("./player.js?v=20261109v1");
       openPlayerModal(targetItem, sourceTab, m.season || 1, m.episode || 1, m.time || 0);
     });
   });

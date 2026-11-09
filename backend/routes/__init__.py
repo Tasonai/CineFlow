@@ -4,18 +4,24 @@ Velarium Modular Route Registry & Dispatcher
 
 from backend.routes.context import ServerContext
 from backend.routes.backup import BACKUP_GET_ROUTES, BACKUP_POST_ROUTES
-from backend.routes.catalog import handle_catalog, handle_search
+from backend.routes.catalog import (
+    handle_catalog,
+    handle_catalog_recommendations,
+    handle_search,
+)
 from backend.routes.debrid import DEBRID_GET_ROUTES, DEBRID_POST_ROUTES
 from backend.routes.downloads import (
     handle_downloads_batch,
     handle_downloads_cancel,
     handle_downloads_cleanup_pending,
     handle_downloads_delete,
+    handle_downloads_delete_season,
     handle_downloads_get,
     handle_downloads_open_folder,
     handle_downloads_prefs_get,
     handle_downloads_prefs_post,
     handle_downloads_retry,
+    handle_downloads_season_status,
     handle_downloads_start,
 )
 from backend.routes.kinorium import (
@@ -41,7 +47,7 @@ from backend.routes.kinorium import (
     handle_kinorium_watching,
     handle_kinorium_watchlist,
 )
-from backend.routes.meta import META_GET_ROUTES
+from backend.routes.meta import META_GET_ROUTES, META_POST_ROUTES
 from backend.routes.profiles import (
     handle_profiles_delete,
     handle_profiles_get,
@@ -99,6 +105,7 @@ from backend.routes.system import (
 
 GET_ROUTES = {
     "/api/catalog": handle_catalog,
+    "/api/catalog/recommendations": handle_catalog_recommendations,
     "/api/search": handle_search,
     "/api/system/status": handle_system_status,
     "/api/system/update/status": handle_system_update_status,
@@ -107,6 +114,7 @@ GET_ROUTES = {
     "/api/profiles": handle_profiles_get,
     "/api/downloads": handle_downloads_get,
     "/api/downloads/prefs": handle_downloads_prefs_get,
+    "/api/downloads/season-status": handle_downloads_season_status,
     "/api/kinorium/avatar": handle_kinorium_avatar,
     "/api/kinorium/live-digest": handle_kinorium_live_digest,
     "/api/kinorium/stats": handle_kinorium_stats,
@@ -142,8 +150,11 @@ POST_ROUTES = {
     "/api/downloads/resume": handle_downloads_retry,
     "/api/downloads/cancel": handle_downloads_cancel,
     "/api/downloads/delete": handle_downloads_delete,
+    "/api/downloads/delete-season": handle_downloads_delete_season,
+    "/api/downloads/batch-season/delete": handle_downloads_delete_season,
     "/api/downloads/open-folder": handle_downloads_open_folder,
     "/api/downloads/batch": handle_downloads_batch,
+    "/api/downloads/batch-season": handle_downloads_batch,
     "/api/downloads/prefs": handle_downloads_prefs_post,
     "/api/downloads/cleanup-pending": handle_downloads_cleanup_pending,
     "/api/kinorium/scrobble": handle_kinorium_scrobble,
@@ -167,6 +178,7 @@ POST_ROUTES = {
     "/api/stremio/resolve": handle_stremio_resolve_post,
     **REMOTE_POST_ROUTES,
     **BACKUP_POST_ROUTES,
+    **META_POST_ROUTES,
     **DEBRID_POST_ROUTES,
 }
 

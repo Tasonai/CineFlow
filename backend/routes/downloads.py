@@ -380,3 +380,57 @@ def handle_downloads_cleanup_pending(handler, qs: Dict[str, Any], parsed, body: 
     res_cl = ctx.download_manager.sweep_pending_cleanups(exclude_download_id=excl_id)
     handler._send_json(res_cl)
     return True
+
+
+def handle_downloads_season_status(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
+    app_lang = ctx.app_prefs.get("app_lang", "ru")
+    req_lang = ctx.norm_app_lang(qs.get("lang", [app_lang])[0], app_lang)
+    item_id = qs.get("id", [qs.get("item_id", [""])[0]])[0]
+    kinorium_id = qs.get("kinorium_id", [""])[0]
+    rezka_id = qs.get("rezka_id", [""])[0]
+    title = qs.get("title", [""])[0]
+    raw_season = qs.get("season", [qs.get("season_num", ["1"])[0]])[0]
+    season = max(1, ctx.safe_int(raw_season, 1))
+    res = ctx.download_manager.get_season_download_status(
+        item_id=str(item_id or ""),
+        kinorium_id=str(kinorium_id or ""),
+        rezka_id=str(rezka_id or ""),
+        title=str(title or ""),
+        season=season,
+        kids_mode=ctx.profile_manager.is_kids_mode_active(),
+        active_profile_id=ctx.profile_manager.get_active_profile_id(),
+        lang=req_lang,
+    )
+    handler._send_json(res)
+    return True
+
+
+def handle_downloads_delete_season(handler, qs: Dict[str, Any], parsed, body: Dict[str, Any], ctx) -> bool:
+    app_lang = ctx.app_prefs.get("app_lang", "ru")
+    req_lang = ctx.norm_app_lang(body.get("lang", app_lang), app_lang)
+    if not handler._require_authorized_client_if_lan(body, lang=req_lang):
+        return True
+    if not handler._require_kids_pin_if_locked(str(body.get("pin") or ""), lang=req_lang):
+        return True
+    season = max(1, ctx.safe_int(body.get("season") or body.get("season_num"), 1))
+    res = ctx.download_manager.delete_season_downloads(
+        item_id=str(body.get("id") or body.get("item_id") or ""),
+        kinorium_id=str(body.get("kinorium_id") or ""),
+        rezka_id=str(body.get("rezka_id") or ""),
+        title=str(body.get("title") or ""),
+        season=season,
+        kids_mode=ctx.profile_manager.is_kids_mode_active(),
+        active_profile_id=ctx.profile_manager.get_active_profile_id(),
+    )
+    handler._send_json(
+        {
+            **res,
+            "downloads": ctx.download_manager.get_downloads_payload(
+                kids_mode=ctx.profile_manager.is_kids_mode_active(),
+                active_profile_id=ctx.profile_manager.get_active_profile_id(),
+                lang=req_lang,
+            ),
+        }
+    )
+    return True
+

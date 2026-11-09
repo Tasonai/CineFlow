@@ -1686,7 +1686,156 @@ def handle_xray(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool
                 ph_a = ctx.rezka_client.person_photo_by_name.get(a_str.lower(), "")
             synth_xr.append({"name": a_str, "role": "Actor" if is_en_req else "В ролях", "is_director": False, "photo": ph_a})
         payload["cast_people"] = synth_xr
+    _enrich_xray_payload_with_saved_tracks(payload, ctx)
     handler._send_json(payload)
+    return True
+
+
+def _compute_xray_track_id(track: Dict[str, Any]) -> str:
+    explicit = str(track.get("track_id") or "").strip().lower()
+    if explicit:
+        return explicit
+    title_norm = re.sub(r"[^a-zа-яё0-9]+", "-", str(track.get("title") or "").strip().lower()).strip("-")
+    artist_norm = re.sub(r"[^a-zа-яё0-9]+", "-", str(track.get("artist") or "").strip().lower()).strip("-")
+    combined = f"{artist_norm}--{title_norm}".strip("-")
+    return combined or "unknown-track"
+
+
+def _get_active_profile_id_for_xray(ctx: Any) -> str:
+    try:
+        pm = getattr(ctx, "profile_manager", None)
+        if pm and hasattr(pm, "get_active_profile"):
+            prof = pm.get_active_profile() or {}
+            pid = str(prof.get("id") or "").strip()
+            if pid:
+                return pid
+    except Exception:
+        pass
+    return "default"
+
+
+_XRAY_SAVED_TRACKS_MEM: Dict[str, List[Dict[str, Any]]] = {}
+
+
+def _get_saved_xray_tracks(ctx: Any, profile_id: str) -> List[Dict[str, Any]]:
+    d = getattr(ctx, "__dict__", {})
+    storage_db = d.get("storage_db") if isinstance(d, dict) and "storage_db" in d else getattr(type(ctx), "storage_db", None)
+    if storage_db is None and not hasattr(ctx, "_main_module"):
+        storage_db = getattr(ctx, "storage_db", None)
+    if storage_db and hasattr(storage_db, "get_kv"):
+        try:
+            raw = storage_db.get_kv("xray_saved_tracks", profile_id, default=[])
+            if isinstance(raw, list):
+                return [dict(x) for x in raw if isinstance(x, dict)]
+        except Exception:
+            pass
+    raw_mem = _XRAY_SAVED_TRACKS_MEM.get(profile_id, [])
+    if isinstance(raw_mem, list):
+        return [dict(x) for x in raw_mem if isinstance(x, dict)]
+    return []
+
+
+def _save_xray_tracks_list(ctx: Any, profile_id: str, items: List[Dict[str, Any]]) -> None:
+    clean = [dict(x) for x in items if isinstance(x, dict)][:250]
+    d = getattr(ctx, "__dict__", {})
+    storage_db = d.get("storage_db") if isinstance(d, dict) and "storage_db" in d else getattr(type(ctx), "storage_db", None)
+    if storage_db is None and not hasattr(ctx, "_main_module"):
+        storage_db = getattr(ctx, "storage_db", None)
+    if storage_db and hasattr(storage_db, "set_kv"):
+        try:
+            storage_db.set_kv("xray_saved_tracks", profile_id, clean)
+        except Exception:
+            pass
+    _XRAY_SAVED_TRACKS_MEM[profile_id] = clean
+
+
+def _enrich_xray_payload_with_saved_tracks(payload: Dict[str, Any], ctx: Any) -> None:
+    if not isinstance(payload, dict):
+        return
+    prof_id = _get_active_profile_id_for_xray(ctx)
+    saved_list = _get_saved_xray_tracks(ctx, prof_id)
+    saved_ids = {str(x.get("track_id") or _compute_xray_track_id(x)) for x in saved_list}
+    ost = payload.get("soundtrack")
+    if isinstance(ost, list):
+        enriched_ost: List[Dict[str, Any]] = []
+        for tr in ost:
+            if not isinstance(tr, dict):
+                continue
+            tr_copy = dict(tr)
+            tid = _compute_xray_track_id(tr_copy)
+            tr_copy["track_id"] = tid
+            tr_copy["is_saved"] = tid in saved_ids
+            enriched_ost.append(tr_copy)
+        payload["soundtrack"] = enriched_ost
+    payload["saved_tracks"] = saved_list
+    payload["saved_tracks_count"] = len(saved_list)
+
+
+def handle_xray_saved_tracks_get(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
+    prof_id = str(qs.get("profile_id", [""])[0] or "").strip() or _get_active_profile_id_for_xray(ctx)
+    saved = _get_saved_xray_tracks(ctx, prof_id)
+    handler._send_json(
+        {
+            "ok": True,
+            "profile_id": prof_id,
+            "count": len(saved),
+            "items": saved,
+        }
+    )
+    return True
+
+
+def handle_xray_saved_tracks_post(handler: Any, qs: Dict[str, Any], parsed: Any, body: Dict[str, Any], ctx: Any) -> bool:
+    prof_id = str(body.get("profile_id") or "").strip() or _get_active_profile_id_for_xray(ctx)
+    action = str(body.get("action") or "toggle").strip().lower()
+    track_in = body.get("track") if isinstance(body.get("track"), dict) else body
+    title = str(track_in.get("title") or "").strip()
+    artist = str(track_in.get("artist") or "").strip()
+    track_id = _compute_xray_track_id({"track_id": track_in.get("track_id"), "title": title, "artist": artist})
+    if not title and not track_in.get("track_id"):
+        handler._send_json({"ok": False, "error": "Track title is required"}, status=400)
+        return True
+    saved = _get_saved_xray_tracks(ctx, prof_id)
+    existing_idx = next(
+        (idx for idx, item in enumerate(saved) if str(item.get("track_id") or _compute_xray_track_id(item)) == track_id),
+        -1,
+    )
+    if action == "remove" or (action == "toggle" and existing_idx >= 0):
+        if existing_idx >= 0:
+            saved.pop(existing_idx)
+        is_saved = False
+    else:
+        entry = {
+            "track_id": track_id,
+            "title": title or str((saved[existing_idx] if existing_idx >= 0 else {}).get("title") or ""),
+            "artist": artist or str((saved[existing_idx] if existing_idx >= 0 else {}).get("artist") or ""),
+            "album": str(track_in.get("album") or "").strip(),
+            "scene": str(track_in.get("scene") or "").strip(),
+            "media_title": str(track_in.get("media_title") or body.get("media_title") or "").strip(),
+            "media_id": str(track_in.get("media_id") or body.get("media_id") or "").strip(),
+            "preview_url": str(track_in.get("preview_url") or "").strip(),
+            "artwork_url": str(track_in.get("artwork_url") or "").strip(),
+            "apple_music_url": str(track_in.get("apple_music_url") or "").strip(),
+            "spotify_url": str(track_in.get("spotify_url") or "").strip(),
+            "youtube_url": str(track_in.get("youtube_url") or "").strip(),
+            "saved_at": int(time.time()),
+        }
+        if existing_idx >= 0:
+            saved[existing_idx] = entry
+        else:
+            saved.insert(0, entry)
+        is_saved = True
+    _save_xray_tracks_list(ctx, prof_id, saved)
+    handler._send_json(
+        {
+            "ok": True,
+            "profile_id": prof_id,
+            "track_id": track_id,
+            "is_saved": is_saved,
+            "count": len(saved),
+            "items": saved,
+        }
+    )
     return True
 
 
@@ -1830,9 +1979,17 @@ META_GET_ROUTES = {
     "/api/person-photo": handle_person_photo,
     "/api/title-meta": handle_title_meta,
     "/api/xray": handle_xray,
+    "/api/xray/soundtracks": handle_xray,
+    "/api/xray/saved-tracks": handle_xray_saved_tracks_get,
+    "/api/user/saved-tracks": handle_xray_saved_tracks_get,
     "/api/provider-link": handle_provider_link,
     "/api/skip-intro": handle_skip_intro,
     "/api/subtitles/search": handle_subtitles_search,
     "/api/subtitles/translate": handle_subtitles_translate,
     "/api/calendar": handle_calendar,
+}
+
+META_POST_ROUTES = {
+    "/api/xray/saved-tracks": handle_xray_saved_tracks_post,
+    "/api/user/saved-tracks": handle_xray_saved_tracks_post,
 }

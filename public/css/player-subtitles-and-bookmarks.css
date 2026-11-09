@@ -2048,3 +2048,43 @@ input[type="range"]:focus-visible {
     color: #ffffff;
   }
 }
+
+.atv-xray-ost-mode-bar {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.atv-xray-ost-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(235, 235, 245, 0.72);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.atv-xray-ost-mode-btn.is-active {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+}
+
+.btn-xray-save-track.is-saved {
+  background: rgba(244, 63, 94, 0.22);
+  border-color: rgba(244, 63, 94, 0.45);
+  color: #fda4af;
+}

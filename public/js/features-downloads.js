@@ -1,11 +1,11 @@
-import { state } from "./state.js?v=20261108v19";
+import { state } from "./state.js?v=20261109v1";
 import {
   displayTitle,
   hasCyrillicText,
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261108v19";
+} from "./i18n.js?v=20261109v1";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -20,12 +20,13 @@ import {
   showToast,
   showVideoOsd,
   syncScrollTopButton,
-} from "./utils.js?v=20261108v19";
+} from "./utils.js?v=20261109v1";
 import {
   getDefaultPlayableSourceTab,
+  isEpisodeWatched,
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog.js?v=20261108v19";
+} from "./catalog.js?v=20261109v1";
 import {
   closePlayerModal,
   getEffectivePlaybackTiming,
@@ -33,12 +34,12 @@ import {
   openPlayerModal,
   switchSourceTab,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261108v19";
+} from "./player.js?v=20261109v1";
 import {
   ensureKidsPinVerifiedForAdminAction,
   exitBrowserFullscreenIfNeeded,
   formatBytesHuman,
-} from "./features.js?v=20261108v19";
+} from "./features.js?v=20261109v1";
 
 // ============================================================================
 // 4. OFFLINE DOWNLOADS MANAGER ("Скачать в дорогу" — MP4 + Audio + RU/EN VTT)
@@ -309,6 +310,18 @@ export async function enqueueBatchSeriesDownload(mode = "next3") {
     targetEpisodes = sortedSeasonEps.filter((ep) => ep >= curEp);
     if (!targetEpisodes.length) {
       targetEpisodes = [curEp];
+    }
+  } else if (mode === "unwatched") {
+    const candidateEps = sortedSeasonEps.length ? sortedSeasonEps : [curEp];
+    targetEpisodes = candidateEps.filter((ep) => !isEpisodeWatched(item, sNum, ep));
+    if (!targetEpisodes.length) {
+      showToast(
+        t(
+          "Все серии этого сезона уже отмечены просмотренными",
+          "All episodes in this season are already marked as watched"
+        )
+      );
+      return;
     }
   } else {
     targetEpisodes = sortedSeasonEps.filter((ep) => ep >= curEp).slice(0, 3);
@@ -736,10 +749,27 @@ export function renderDownloadsModalList(downloadsDir = "") {
   }
   listEl.dataset.dlStructureKey = structureKey;
 
+  const seasonGroupCounts = new Map();
+  items.forEach((dl) => {
+    if (dl.media_type === "series") {
+      const sKey = `${dl.item_id || dl.kinorium_id || dl.rezka_id || (dl.title || "").trim().toLowerCase()}|s${Number(dl.season) || 1}`;
+      seasonGroupCounts.set(sKey, (seasonGroupCounts.get(sKey) || 0) + 1);
+    }
+  });
+  const renderedSeasonGroups = new Set();
+
   listEl.innerHTML = items
     .map((dl) => {
       const did = dl.download_id;
       const isSeries = dl.media_type === "series";
+      const sKey = isSeries
+        ? `${dl.item_id || dl.kinorium_id || dl.rezka_id || (dl.title || "").trim().toLowerCase()}|s${Number(dl.season) || 1}`
+        : "";
+      const showDeleteSeasonBtn =
+        isSeries && (seasonGroupCounts.get(sKey) || 0) >= 2 && !renderedSeasonGroups.has(sKey);
+      if (showDeleteSeasonBtn) {
+        renderedSeasonGroups.add(sKey);
+      }
       const titleDisp = isEn() && dl.orig_title ? dl.orig_title : dl.title || "Velarium";
       const rawEpTitle = String(dl.episode_title || "").trim();
       const locEpTitle = isEn() && hasCyrillicText(rawEpTitle) ? "" : rawEpTitle;
@@ -834,6 +864,14 @@ export function renderDownloadsModalList(downloadsDir = "") {
                   </button>`
                 : ""
             }
+            ${
+              showDeleteSeasonBtn
+                ? `<button type="button" class="atv-btn-secondary atv-btn-xs atv-btn-danger-text" data-delete-season-dl="${escapeAttr(did)}" title="${escapeAttr(t(`Удалить все скачанные серии ${dl.season} сезона`, `Delete all Season ${dl.season} downloads`))}">
+                    <span>${t(`Сезон ${dl.season}`, `Season ${dl.season}`)}</span>
+                    ${iconSvg("trash", 11)}
+                  </button>`
+                : ""
+            }
             <button type="button" class="atv-btn-secondary atv-btn-xs atv-btn-danger-text" data-delete-dl="${escapeAttr(did)}" title="${escapeAttr(t("Удалить файл с диска", "Delete from disk"))}" aria-label="${escapeAttr(t("Удалить файл с диска", "Delete from disk"))}">
               ${iconSvg("trash", 12)}
             </button>
@@ -878,6 +916,12 @@ export function renderDownloadsModalList(downloadsDir = "") {
   });
   listEl.querySelectorAll("[data-delete-dl]").forEach((b) => {
     b.onclick = () => deleteOfflineDownload(b.dataset.deleteDl);
+  });
+  listEl.querySelectorAll("[data-delete-season-dl]").forEach((b) => {
+    b.onclick = () => {
+      const found = items.find((x) => x.download_id === b.dataset.deleteSeasonDl);
+      if (found) deleteSeasonOfflineDownloads(found);
+    };
   });
 }
 
@@ -1044,6 +1088,46 @@ export async function deleteOfflineDownload(downloadId) {
       }
     }
     showToast(t("Офлайн-файл удалён с диска", "Offline file deleted from disk"));
+  } catch (err) { window.logDebug?.("FeaturesDownloads", err); }
+}
+
+export async function deleteSeasonOfflineDownloads(dlSample) {
+  if (!dlSample) return;
+  try {
+    const prevCompletedSig = _completedDownloadsSignature(state.downloadsItems);
+    const sNum = Math.max(1, Number(dlSample.season) || 1);
+    const res = await fetch("/api/downloads/delete-season", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        item_id: dlSample.item_id || "",
+        kinorium_id: dlSample.kinorium_id || "",
+        rezka_id: dlSample.rezka_id || "",
+        title: dlSample.title || "",
+        season: sNum,
+        lang: state.appLang || "ru",
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.ok === false) {
+      showToast(data.error || t("Не удалось удалить сезон", "Could not delete season downloads"));
+      return;
+    }
+    if (data.downloads) {
+      state.downloadsItems = data.downloads.items || [];
+      state.downloadsActiveCount = Number(data.downloads.active_count) || 0;
+      state.downloadsTotalBytes = Number(data.downloads.total_disk_bytes) || 0;
+      syncDownloadsHeaderBadge();
+      renderDownloadsModalList(data.downloads.downloads_dir || "");
+      _syncOfflineSurfacesAfterDownloadsChange(prevCompletedSig);
+    }
+    const delCnt = Number(data.deleted_count) || 0;
+    showToast(
+      t(
+        `Удалено серий ${sNum} сезона с диска: ${delCnt}`,
+        `Deleted ${delCnt} episodes of Season ${sNum} from disk`
+      )
+    );
   } catch (err) { window.logDebug?.("FeaturesDownloads", err); }
 }
 

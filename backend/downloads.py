@@ -881,7 +881,33 @@ class OfflineDownloadManager:
                 else "Некорректный список серий для загрузки"
             )
         eff_max_ep = max(max_season_episode, max(x[0] for x in parsed_eps))
+        skipped_items: List[Dict[str, Any]] = []
         for ep_num, ep_t, ep_u in parsed_eps:
+            cand_did = self.build_download_id(
+                item_id=item_id,
+                title=title,
+                media_type="series",
+                season=eff_season,
+                episode=ep_num,
+                quality=quality,
+                studio=studio,
+            )
+            already_active_or_done = False
+            with self._lock:
+                existing = self._items.get(cand_did)
+                if existing and existing.get("status") in ("downloading", "queued", "completed"):
+                    existing_vpath = os.path.join(self.downloads_dir, cand_did, "video.mp4")
+                    if (
+                        existing.get("status") != "completed"
+                        or int(existing.get("file_size") or 0) <= 0
+                        or os.path.isfile(existing_vpath)
+                    ):
+                        already_active_or_done = True
+                        if existing.get("pending_cleanup"):
+                            existing["pending_cleanup"] = False
+                        skipped_items.append(self._format_entry_for_client(existing, lang=lang))
+            if already_active_or_done:
+                continue
             rec = self.enqueue_download(
                 item_id=item_id,
                 kinorium_id=kinorium_id,
@@ -912,14 +938,31 @@ class OfflineDownloadManager:
             )
             queued_items.append(rec)
         with self._lock:
-            self._save_index_locked(changed_ids=[r.get("download_id") for r in queued_items if r.get("download_id")])
+            changed = [r.get("download_id") for r in (queued_items + skipped_items) if r.get("download_id")]
+            if changed:
+                self._save_index_locked(changed_ids=changed)
+
+        free_bytes = 0
+        try:
+            free_bytes = int(shutil.disk_usage(self.downloads_dir).free)
+        except Exception:
+            free_bytes = 0
+        est_per_ep = 1200 * 1024 * 1024 if "2160" in str(quality) or "4k" in str(quality).lower() else 550 * 1024 * 1024
+        estimated_bytes = len(queued_items) * est_per_ep
 
         return {
             "ok": True,
             "queued_count": len(queued_items),
+            "skipped_count": len(skipped_items),
             "season": eff_season,
+            "free_bytes": free_bytes,
+            "estimated_bytes": estimated_bytes,
+            "sufficient_disk_space": (free_bytes == 0) or (free_bytes >= estimated_bytes),
             "items": queued_items,
+            "skipped_items": skipped_items,
         }
+
+    batch_enqueue_season = enqueue_batch_series
 
     def _worker_loop(self) -> None:
         while not self._shutdown:
@@ -2262,6 +2305,148 @@ class OfflineDownloadManager:
             "total_disk_bytes": total_bytes,
             "prefs": prefs,
             "items": formatted,
+        }
+
+    def _matches_series_season_entry(
+        self,
+        entry: Dict[str, Any],
+        *,
+        item_id: str = "",
+        kinorium_id: str = "",
+        rezka_id: str = "",
+        title: str = "",
+        season: int = 1,
+        kids_mode: bool = False,
+        active_profile_id: str = "",
+    ) -> bool:
+        if entry.get("media_type") != "series":
+            return False
+        if int(entry.get("season") or 1) != max(1, int(season or 1)):
+            return False
+        if kids_mode and not self._is_entry_kids_safe(entry, active_profile_id=active_profile_id):
+            return False
+        e_id = str(entry.get("item_id") or "").strip()
+        e_kin = str(entry.get("kinorium_id") or "").strip()
+        e_rez = str(entry.get("rezka_id") or "").strip()
+        e_title = str(entry.get("title") or "").strip().lower()
+        q_id = str(item_id or "").strip()
+        q_kin = str(kinorium_id or "").strip()
+        q_rez = str(rezka_id or "").strip()
+        q_title = str(title or "").strip().lower()
+        if q_id and e_id and q_id == e_id:
+            return True
+        if q_kin and e_kin and q_kin == e_kin:
+            return True
+        if q_rez and e_rez and q_rez == e_rez:
+            return True
+        if q_title and e_title and q_title == e_title:
+            return True
+        return False
+
+    def get_season_download_status(
+        self,
+        *,
+        item_id: str = "",
+        kinorium_id: str = "",
+        rezka_id: str = "",
+        title: str = "",
+        season: int = 1,
+        kids_mode: bool = False,
+        active_profile_id: str = "",
+        lang: str = "ru",
+    ) -> Dict[str, Any]:
+        eff_s = max(1, int(season or 1))
+        with self._lock:
+            matched = [
+                dict(it)
+                for it in self._items.values()
+                if self._matches_series_season_entry(
+                    it,
+                    item_id=item_id,
+                    kinorium_id=kinorium_id,
+                    rezka_id=rezka_id,
+                    title=title,
+                    season=eff_s,
+                    kids_mode=kids_mode,
+                    active_profile_id=active_profile_id,
+                )
+            ]
+        matched.sort(key=lambda x: int(x.get("episode") or 1))
+        formatted = [self._format_entry_for_client(it, lang=lang) for it in matched]
+        completed_count = sum(1 for it in matched if it.get("status") == "completed")
+        active_count = sum(1 for it in matched if it.get("status") in ("downloading", "queued"))
+        failed_count = sum(1 for it in matched if it.get("status") in ("failed", "cancelled"))
+        total_bytes = sum(
+            int(it.get("file_size") or it.get("downloaded_bytes") or 0)
+            for it in matched
+            if it.get("status") in ("completed", "downloading")
+        )
+        total_eps = len(matched)
+        overall_pct = 0.0
+        if total_eps > 0:
+            pct_sum = sum(
+                100.0
+                if it.get("status") == "completed"
+                else float(it.get("progress_pct") or 0.0)
+                if it.get("status") == "downloading"
+                else 0.0
+                for it in matched
+            )
+            overall_pct = round(pct_sum / total_eps, 1)
+        free_bytes = 0
+        try:
+            free_bytes = int(shutil.disk_usage(self.downloads_dir).free)
+        except Exception:
+            free_bytes = 0
+        return {
+            "ok": True,
+            "season": eff_s,
+            "total_episodes": total_eps,
+            "completed_count": completed_count,
+            "active_count": active_count,
+            "failed_count": failed_count,
+            "total_bytes": total_bytes,
+            "free_bytes": free_bytes,
+            "overall_progress_pct": overall_pct,
+            "episodes": formatted,
+        }
+
+    def delete_season_downloads(
+        self,
+        *,
+        item_id: str = "",
+        kinorium_id: str = "",
+        rezka_id: str = "",
+        title: str = "",
+        season: int = 1,
+        kids_mode: bool = False,
+        active_profile_id: str = "",
+    ) -> Dict[str, Any]:
+        eff_s = max(1, int(season or 1))
+        with self._lock:
+            target_ids = [
+                did
+                for did, it in self._items.items()
+                if self._matches_series_season_entry(
+                    it,
+                    item_id=item_id,
+                    kinorium_id=kinorium_id,
+                    rezka_id=rezka_id,
+                    title=title,
+                    season=eff_s,
+                    kids_mode=kids_mode,
+                    active_profile_id=active_profile_id,
+                )
+            ]
+        deleted_ids: List[str] = []
+        for did in target_ids:
+            if self.delete_download(did):
+                deleted_ids.append(did)
+        return {
+            "ok": True,
+            "season": eff_s,
+            "deleted_count": len(deleted_ids),
+            "deleted_ids": deleted_ids,
         }
 
     def shutdown(self) -> None:

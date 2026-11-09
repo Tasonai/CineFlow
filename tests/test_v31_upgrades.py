@@ -3617,6 +3617,181 @@ Dialogue: 0,0:00:10.50,0:00:14.20,Default,,0,0,0,,{\\an8\\pos(192,20)}Приве
         self.assertIn("_VOICE_PATTERNS_COMPILED", bs_py)
         self.assertIn("self._torr_preflight_pool.submit(self._drop_other_active_torrents, {active_ih})", bs_py)
 
+    def test_flagship_product_roadmap_features_stages_1_to_4(self):
+        import tempfile
+        from backend.downloads import OfflineDownloadManager
+        from backend.remote_control import DesktopRemoteBroker
+        from backend.routes import GET_ROUTES, POST_ROUTES
+        from backend.routes.meta import (
+            _compute_xray_track_id,
+            _enrich_xray_payload_with_saved_tracks,
+            handle_xray_saved_tracks_get,
+            handle_xray_saved_tracks_post,
+        )
+        from backend.routes.catalog import handle_catalog_recommendations
+
+        # 1. Route registration checks
+        self.assertIn("/api/downloads/season-status", GET_ROUTES)
+        self.assertIn("/api/downloads/delete-season", POST_ROUTES)
+        self.assertIn("/api/downloads/batch-season", POST_ROUTES)
+        self.assertIn("/api/downloads/batch-season/delete", POST_ROUTES)
+        self.assertIn("/api/xray/saved-tracks", GET_ROUTES)
+        self.assertIn("/api/xray/saved-tracks", POST_ROUTES)
+        self.assertIn("/api/xray/soundtracks", GET_ROUTES)
+        self.assertIn("/api/user/saved-tracks", GET_ROUTES)
+        self.assertIn("/api/user/saved-tracks", POST_ROUTES)
+        self.assertIn("/api/catalog/recommendations", GET_ROUTES)
+        self.assertTrue(hasattr(OfflineDownloadManager, "batch_enqueue_season"))
+
+        # 2. Stage 1: Batch Season Downloader status & delete_season_downloads
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mgr = OfflineDownloadManager(data_dir=tmpdir, remux_engine=None, start_workers=False)
+            dl_id = "series_test_s1_e1"
+            mgr._items[dl_id] = {
+                "download_id": dl_id,
+                "item_id": "kin_999",
+                "kinorium_id": "999",
+                "title": "Тестовый сериал",
+                "orig_title": "Test Series",
+                "media_type": "series",
+                "season": 1,
+                "episode": 1,
+                "status": "completed",
+                "progress": 100.0,
+                "total_bytes": 1048576,
+                "downloaded_bytes": 1048576,
+            }
+            st = mgr.get_season_download_status(
+                item_id="kin_999",
+                kinorium_id="999",
+                title="Тестовый сериал",
+                season=1,
+            )
+            self.assertTrue(st["ok"])
+            self.assertEqual(st["completed_count"], 1)
+            self.assertEqual(st["episodes"][0]["episode"], 1)
+
+            del_res = mgr.delete_season_downloads(
+                item_id="kin_999",
+                kinorium_id="999",
+                title="Тестовый сериал",
+                season=1,
+            )
+            self.assertTrue(del_res["ok"])
+            self.assertEqual(del_res["deleted_count"], 1)
+            self.assertNotIn(dl_id, mgr._items)
+
+        # 3. Stage 2: X-Ray Saved Tracks toggle & enrichment
+        class _DummyHandler:
+            def __init__(self):
+                self.last_json = None
+                self.last_status = 200
+
+            def _send_json(self, payload, status=200):
+                self.last_json = payload
+                self.last_status = status
+
+        class _DummyCtx:
+            app_prefs = {"app_lang": "ru"}
+
+            @staticmethod
+            def norm_app_lang(val, default="ru"):
+                return val or default
+
+        dummy_h = _DummyHandler()
+        dummy_ctx = _DummyCtx()
+        tid = _compute_xray_track_id({"title": "Cornfield Chase", "artist": "Hans Zimmer"})
+        self.assertEqual(tid, "hans-zimmer--cornfield-chase")
+
+        handle_xray_saved_tracks_post(
+            dummy_h,
+            {},
+            None,
+            {
+                "action": "toggle",
+                "media_title": "Интерстеллар",
+                "track": {
+                    "title": "Cornfield Chase",
+                    "artist": "Hans Zimmer",
+                    "preview_url": "https://example.com/preview.m4a",
+                },
+            },
+            dummy_ctx,
+        )
+        self.assertTrue(dummy_h.last_json["ok"])
+        self.assertTrue(dummy_h.last_json["is_saved"])
+        self.assertEqual(dummy_h.last_json["count"], 1)
+
+        xray_payload = {
+            "soundtrack": [
+                {"title": "Cornfield Chase", "artist": "Hans Zimmer"},
+                {"title": "No Time for Caution", "artist": "Hans Zimmer"},
+            ]
+        }
+        _enrich_xray_payload_with_saved_tracks(xray_payload, dummy_ctx)
+        self.assertTrue(xray_payload["soundtrack"][0]["is_saved"])
+        self.assertFalse(xray_payload["soundtrack"][1]["is_saved"])
+        self.assertEqual(xray_payload["saved_tracks_count"], 1)
+
+        handle_xray_saved_tracks_get(dummy_h, {}, None, dummy_ctx)
+        self.assertEqual(len(dummy_h.last_json["items"]), 1)
+
+        # 4. Stage 3: Remote search command & Gamepad/Touchpad upgrades
+        self.assertIn("remote_search", DesktopRemoteBroker.ALLOWED_COMMANDS)
+        with open(os.path.join(ROOT_DIR, "public", "js", "remote.js"), "r", encoding="utf-8") as f:
+            rm_js = f.read()
+        self.assertIn('case "remote_search":', rm_js)
+        self.assertIn("rm-catalog-search-tv", rm_js)
+        self.assertIn("longPressTriggered", rm_js)
+
+        with open(os.path.join(ROOT_DIR, "public", "js", "features-tv-mode.js"), "r", encoding="utf-8") as f:
+            tv_js = f.read()
+        self.assertIn("wasPressed(6)", tv_js)
+        self.assertIn("wasPressed(7)", tv_js)
+        self.assertIn('document.getElementById("vc-btn-xray")?.click()', tv_js)
+
+        # 5. Stage 4: Smart Recommendations & Mood Filter Chips
+        class _DummyAgg:
+            def get_catalog(self, **kwargs):
+                return {
+                    "items": [
+                        {
+                            "id": "m1",
+                            "title": "Интерстеллар",
+                            "media_type": "movie",
+                            "genres": ["фантастика", "драма"],
+                            "directors": ["Кристофер Нолан"],
+                            "ratings": {"imdb": 8.7},
+                            "kinorium": {"user_rating": 10, "watched": True},
+                        },
+                        {
+                            "id": "m2",
+                            "title": "Начало",
+                            "media_type": "movie",
+                            "genres": ["фантастика", "триллер"],
+                            "directors": ["Кристофер Нолан"],
+                            "ratings": {"imdb": 8.8},
+                            "kinorium": {"user_rating": 0, "watched": False},
+                        },
+                    ]
+                }
+
+        dummy_ctx.aggregator = _DummyAgg()
+        handle_catalog_recommendations(dummy_h, {"mood": ["scifi"]}, None, dummy_ctx)
+        self.assertTrue(dummy_h.last_json["ok"])
+        self.assertEqual(dummy_h.last_json["anchor_title"], "Интерстеллар")
+        self.assertEqual(len(dummy_h.last_json["recommended_for_you"]), 1)
+        self.assertIn("Кристофер Нолан", dummy_h.last_json["recommended_for_you"][0]["recommendation_reason"])
+        self.assertEqual(len(dummy_h.last_json["because_you_liked"]), 1)
+        self.assertEqual(len(dummy_h.last_json["favorite_directors"]), 1)
+        self.assertEqual(len(dummy_h.last_json["mood_items"]), 1)
+
+        with open(os.path.join(ROOT_DIR, "public", "js", "catalog-shelves.js"), "r", encoding="utf-8") as f:
+            cs_js = f.read()
+        self.assertIn("_CURATED_MOOD_PRESETS", cs_js)
+        self.assertIn("curated-because-liked", cs_js)
+        self.assertIn("curated-favorite-directors", cs_js)
+
 
 if __name__ == "__main__":
     unittest.main()

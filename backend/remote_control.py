@@ -56,6 +56,7 @@ class DesktopRemoteBroker:
         "toggle_ambilight",
         "cycle_subtitle",
         "cycle_audio",
+        "remote_search",
     }
 
     def __init__(self, initial_token: str = "") -> None:

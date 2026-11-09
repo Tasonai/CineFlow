@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261108v19";
-import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261108v19";
+import { state } from "./state.js?v=20261109v1";
+import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261109v1";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -11,7 +11,7 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261108v19";
+} from "./utils.js?v=20261109v1";
 import {
   applyAudioBoostToVideo,
   applyVideoCropToVideo,
@@ -23,12 +23,12 @@ import {
   startAmbilightLoop,
   stopAmbilightLoop,
   togglePictureInPicture,
-} from "./audio-dsp.js?v=20261108v19";
+} from "./audio-dsp.js?v=20261109v1";
 import {
   adjustSubtitleOffset,
   formatSubtitleOffsetLabel,
   resetSubtitleOffset,
-} from "./subtitles.js?v=20261108v19";
+} from "./subtitles.js?v=20261109v1";
 import {
   addOrUpdateRemoteBookmark,
   closePlayerModal,
@@ -57,9 +57,9 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   toggleXRayPauseShelf,
-} from "./player.js?v=20261108v19";
-import { openPersonModal } from "./modals.js?v=20261108v19";
-import { attachSmartPosterFallback, isEpisodeWatched } from "./catalog.js?v=20261108v19";
+} from "./player.js?v=20261109v1";
+import { openPersonModal } from "./modals.js?v=20261109v1";
+import { attachSmartPosterFallback, isEpisodeWatched } from "./catalog.js?v=20261109v1";
 import {
   closeTvCastModal,
   executeRemoteDpadCommand,
@@ -67,7 +67,7 @@ import {
   isItemSafeForKidsClient,
   requestKidsPinVerification,
   setTvMode,
-} from "./features.js?v=20261108v19";
+} from "./features.js?v=20261109v1";
 
 export function isMobileRemoteUrl() {
   if (typeof window === "undefined") return false;
@@ -1031,6 +1031,22 @@ async function _executeRemoteCommandOnDesktop(cmdObj) {
       break;
     }
 
+    case "remote_search": {
+      const qText = String(payload.query ?? "").trim();
+      const globalSearchEl = document.getElementById("global-search");
+      if (globalSearchEl) {
+        if (state.isPlayerOpen && !state.isMiniPlayer && payload.close_player) {
+          closePlayerModal();
+        }
+        globalSearchEl.value = qText;
+        globalSearchEl.dispatchEvent(new Event("input", { bubbles: true }));
+        if (qText) {
+          showToast(t(`Поиск с телефона: «${qText}»`, `Search from phone: "${qText}"`));
+        }
+      }
+      break;
+    }
+
     case "play_item": {
       const tvCastMod = document.getElementById("tv-cast-modal");
       if (tvCastMod && !tvCastMod.classList.contains("hidden") && state.remoteCastTab !== "tv") {
@@ -1820,6 +1836,7 @@ export function initMobileRemoteController() {
             t("Найти фильм или сериал для запуска на ПК...", "Search movies or series to play on PC...")
           )}" autocomplete="off" />
           <button type="button" class="atv-remote-search-clear hidden" id="rm-catalog-search-clear" aria-label="${escapeAttr(t("Очистить поиск", "Clear search"))}">${iconSvg("x", 14)}</button>
+          <button type="button" class="atv-remote-pill-btn hidden" id="rm-catalog-search-tv" title="${escapeAttr(t("Передать поисковый запрос на экран ПК", "Send search query to PC screen"))}">${iconSvg("tv", 13)}<span id="rm-lbl-search-tv">${t("На экран", "To PC")}</span></button>
         </div>
         <div class="atv-remote-chips-scroll atv-remote-cat-filters" id="rm-catalog-filter-chips" role="tablist" aria-label="${escapeAttr(t("Фильтры каталога", "Catalog filters"))}">
           <button type="button" role="tab" aria-selected="true" class="atv-remote-chip active" data-rcat-filter="all" id="rm-cat-flt-all">${t("Все", "All")}</button>
@@ -3886,9 +3903,17 @@ export function initMobileRemoteController() {
     let lastY = 0;
     let isDown = false;
     let hasMoved = false;
+    let longPressTriggered = false;
+    let longPressTimer = null;
     let touchStartTime = 0;
     let activePointerId = null;
     let activeArrowCls = "";
+    const clearLongPressTimer = () => {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    };
     const arrowMap = {
       "is-up": surface.querySelector(".atv-remote-touchpad-arrow.is-up"),
       "is-down": surface.querySelector(".atv-remote-touchpad-arrow.is-down"),
@@ -3904,6 +3929,9 @@ export function initMobileRemoteController() {
     };
 
     const triggerDirectionalAction = (dirKey) => {
+      try {
+        navigator.vibrate?.(15);
+      } catch (_) {}
       if (dirKey === "left" || dirKey === "right") {
         const isRight = dirKey === "right";
         if (rState.snap?.is_player_open) {
@@ -3936,6 +3964,8 @@ export function initMobileRemoteController() {
       isDown = true;
       activePointerId = e.pointerId ?? null;
       hasMoved = false;
+      longPressTriggered = false;
+      clearLongPressTimer();
       touchStartTime = Date.now();
       const pt = e.touches ? e.touches[0] : e;
       startX = pt.clientX;
@@ -3944,6 +3974,17 @@ export function initMobileRemoteController() {
       lastY = startY;
       surface.classList.add("is-dragging");
       puck?.classList.add("is-dragging");
+      longPressTimer = setTimeout(() => {
+        if (!isDown || hasMoved) return;
+        longPressTriggered = true;
+        try {
+          navigator.vibrate?.(25);
+        } catch (_) {}
+        rState.snap.xray_open = !rState.snap.xray_open;
+        renderRemoteUI();
+        sendCmd("toggle_xray");
+        flashTouchpadHud("X-Ray");
+      }, 480);
       if (surface.setPointerCapture && e.pointerId != null) {
         try {
           surface.setPointerCapture(e.pointerId);
@@ -3959,7 +4000,10 @@ export function initMobileRemoteController() {
       const dx = pt.clientX - startX;
       const dy = pt.clientY - startY;
       const dist = Math.hypot(dx, dy);
-      if (dist > 10) hasMoved = true;
+      if (dist > 10) {
+        hasMoved = true;
+        clearLongPressTimer();
+      }
 
       const nextArrowCls =
         dist >= 20
@@ -3996,6 +4040,7 @@ export function initMobileRemoteController() {
       isDown = false;
       activePointerId = null;
       hasMoved = false;
+      clearLongPressTimer();
       surface.classList.remove("is-dragging");
       puck?.classList.remove("is-dragging");
       clearArrowHighlights();
@@ -4008,9 +4053,17 @@ export function initMobileRemoteController() {
       if (!isDown || (activePointerId !== null && e.pointerId != null && e.pointerId !== activePointerId)) return;
       isDown = false;
       activePointerId = null;
+      clearLongPressTimer();
       surface.classList.remove("is-dragging");
       puck?.classList.remove("is-dragging");
       clearArrowHighlights();
+      if (puck) {
+        puck.style.transform = "translate3d(0, 0, 0)";
+      }
+      if (longPressTriggered) {
+        longPressTriggered = false;
+        return;
+      }
       const elapsed = Date.now() - touchStartTime;
       const pt = e.changedTouches ? e.changedTouches[0] : (e.touches ? e.touches[0] : e);
       const endX = pt ? pt.clientX : lastX;
@@ -4018,10 +4071,6 @@ export function initMobileRemoteController() {
       const totalDx = endX - startX;
       const totalDy = endY - startY;
       const totalDist = Math.hypot(totalDx, totalDy);
-
-      if (puck) {
-        puck.style.transform = "translate3d(0, 0, 0)";
-      }
 
       if (!hasMoved || (totalDist < 14 && elapsed < 320)) {
         const rect = surface.getBoundingClientRect();
@@ -4066,10 +4115,12 @@ export function initMobileRemoteController() {
   let searchDebounce = null;
   const searchInp = document.getElementById("rm-catalog-search");
   const searchClearBtn = document.getElementById("rm-catalog-search-clear");
+  const searchSendTvBtn = document.getElementById("rm-catalog-search-tv");
   if (searchInp) {
     searchInp.addEventListener("input", () => {
       rState.searchQuery = String(searchInp.value || "").trim();
       searchClearBtn?.classList.toggle("hidden", !rState.searchQuery);
+      searchSendTvBtn?.classList.toggle("hidden", !rState.searchQuery);
       if (searchDebounce) clearTimeout(searchDebounce);
       if (!rState.searchQuery) {
         rState.searchResults = null;
@@ -4080,13 +4131,24 @@ export function initMobileRemoteController() {
         loadRemoteCatalog(rState.searchQuery);
       }, 280);
     });
+    searchInp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && rState.searchQuery) {
+        sendCmd("remote_search", { query: rState.searchQuery });
+      }
+    });
   }
+  searchSendTvBtn?.addEventListener("click", () => {
+    if (!rState.searchQuery) return;
+    sendCmd("remote_search", { query: rState.searchQuery, close_player: false });
+  });
   searchClearBtn?.addEventListener("click", () => {
     if (!searchInp) return;
     searchInp.value = "";
     rState.searchQuery = "";
     rState.searchResults = null;
     searchClearBtn.classList.add("hidden");
+    searchSendTvBtn?.classList.add("hidden");
+    sendCmd("remote_search", { query: "" });
     renderRemoteCatalog();
     try {
       searchInp.focus();

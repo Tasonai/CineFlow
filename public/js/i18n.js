@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261108v19";
+import { state } from "./state.js?v=20261109v1";
 
 export function isEn() {
   return state.appLang === "en";
@@ -1406,6 +1406,8 @@ export function applyStaticDomTranslations(force = false) {
   setElText("#lbl-ep-batch-summary", "Действия с сезоном", "Season Actions");
   setElText("#lbl-dl-batch-3", "3 серии офлайн", "3 Episodes Offline");
   setElAttr("#btn-dl-batch-3", "title", "Скачать офлайн текущую и две следующие серии сезона", "Download current and next 2 episodes offline");
+  setElText("#lbl-dl-batch-unwatched", "Непросмотренные офлайн", "Unwatched Offline");
+  setElAttr("#btn-dl-batch-unwatched", "title", "Скачать офлайн все непросмотренные серии этого сезона", "Download all unwatched episodes in this season offline");
   setElText("#lbl-dl-batch-season", "Сезон офлайн", "Season Offline");
   setElAttr("#btn-dl-batch-season", "title", "Скачать офлайн все серии текущего сезона начиная с выбранной", "Download remaining episodes of this season offline");
   setElText("#btn-mark-ep-upto > span", "По текущую", "Up to current");
