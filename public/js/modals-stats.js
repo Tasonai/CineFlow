@@ -1,4 +1,4 @@
-import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261109v4";
+import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261109v5";
 import {
   displayPoster,
   displayTitle,
@@ -8,7 +8,7 @@ import {
   translateGenre,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261109v4";
+} from "./i18n.js?v=20261109v5";
 import {
   closeCustomSelectMenu,
   copyTextToClipboard,
@@ -25,15 +25,15 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261109v4";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261109v4";
+} from "./utils.js?v=20261109v5";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261109v5";
 import {
   getDefaultPlayableSourceTab,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261109v4";
-import { openPlayerModal } from "./player.js?v=20261109v4";
-import { updateBackupSummaryStat } from "./settings.js?v=20261109v4";
-import { openPersonModal, openQuickPeekModal } from "./modals.js?v=20261109v4";
+} from "./catalog-media-resolver.js?v=20261109v5";
+import { openPlayerModal } from "./player.js?v=20261109v5";
+import { updateBackupSummaryStat } from "./settings.js?v=20261109v5";
+import { openPersonModal, openQuickPeekModal } from "./modals.js?v=20261109v5";
 
 let _timeFmtRu = null;
 let _timeFmtEn = null;

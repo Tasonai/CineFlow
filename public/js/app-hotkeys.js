@@ -4,8 +4,8 @@
  * Mini-Player/PiP keyboard shortcuts, and full Player playback/audio/subtitle/crop/Ambilight hotkeys.
  */
 
-import { state } from "./state.js?v=20261109v4";
-import { t } from "./i18n.js?v=20261109v4";
+import { state } from "./state.js?v=20261109v5";
+import { t } from "./i18n.js?v=20261109v5";
 import {
   closeConfirmModal,
   closeCustomSelectMenu,
@@ -15,7 +15,7 @@ import {
   showVideoOsd,
   trapModalTabKey,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261109v4";
+} from "./utils.js?v=20261109v5";
 import {
   applyAudioBoostToVideo,
   applyVideoCropToVideo,
@@ -26,19 +26,19 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261109v4";
+} from "./audio-dsp.js?v=20261109v5";
 import {
   closeCardContextMenu,
   closeCommandPalette,
   closeMovieRouletteModal,
   openCommandPalette,
-} from "./catalog.js?v=20261109v4";
+} from "./catalog.js?v=20261109v5";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261109v4";
-import { jumpToAdjacentTimelineMarker } from "./player-ui-controls.js?v=20261109v4";
+} from "./modals.js?v=20261109v5";
+import { jumpToAdjacentTimelineMarker } from "./player-ui-controls.js?v=20261109v5";
 import {
   captureVideoScreenshot,
   clearAutoplayNextTimer,
@@ -63,15 +63,15 @@ import {
   toggleVideoPlayPause,
   toggleXRayPauseShelf,
   wakeVideoControls,
-} from "./player.js?v=20261109v4";
-import { closeSubtitleDictPopover, closeVocabularyModal } from "./subtitles.js?v=20261109v4";
+} from "./player.js?v=20261109v5";
+import { closeSubtitleDictPopover, closeVocabularyModal } from "./subtitles.js?v=20261109v5";
 import {
   closeBookmarkNoteDialog,
   closeBookmarksModal,
   scrollActiveXRayList,
   switchXRayTab,
-} from "./player-bookmarks.js?v=20261109v4";
-import { closeOnboardingModal } from "./settings.js?v=20261109v4";
+} from "./player-bookmarks.js?v=20261109v5";
+import { closeOnboardingModal } from "./settings.js?v=20261109v5";
 import {
   closeDownloadsModal,
   closeKidsPinModal,
@@ -80,7 +80,7 @@ import {
   closeProfilesModal,
   closeTvCastModal,
   handleTvSpatialKeydown,
-} from "./features.js?v=20261109v4";
+} from "./features.js?v=20261109v5";
 
 export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
   window.addEventListener("focus", () => {
@@ -511,8 +511,26 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
       }
     }
 
-    if ((e.code === "Space" && !isInteractiveBtnTarget) || keyLow === "k" || keyLow === "л") {
+    const isOverlayActionBtn = Boolean(
+      e.target?.closest?.(
+        ".atv-vc-popover, .atv-gear-popover, #xray-pause-shelf, #atv-sub-dict-popover, #autoplay-next-card, #player-next-ep-toast, #skip-intro-btn, #skip-credits-btn"
+      )
+    );
+    const isStageTransportControl =
+      !isOverlayActionBtn &&
+      (isStageFullscreen() || Boolean(e.target?.closest?.("#atv-custom-controls, #video-stage")));
+
+    if (
+      ((e.code === "Space" || e.key === " ") && (!isInteractiveBtnTarget || isStageTransportControl)) ||
+      keyLow === "k" ||
+      keyLow === "л"
+    ) {
       e.preventDefault();
+      if (isStageTransportControl && typeof e.target?.blur === "function") {
+        try {
+          e.target.blur();
+        } catch (_) {}
+      }
       toggleVideoPlayPause(true);
     } else if (e.code === "KeyR" && !e.ctrlKey && !e.metaKey && !e.altKey && !isInteractiveBtnTarget) {
       e.preventDefault();

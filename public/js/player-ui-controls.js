@@ -2,14 +2,14 @@
 // Manages interactive player timeline, scrubber, volume slider, stage idle states,
 // fullscreen toggling, control popovers, and responsive layout synchronization.
 
-import { EP_VIEW_MODE_STORAGE_KEY, state } from "./state.js?v=20261109v4";
+import { EP_VIEW_MODE_STORAGE_KEY, state } from "./state.js?v=20261109v5";
 import {
   displayTitle,
   getItemGenreEntries,
   isEn,
   secondaryTitle,
   t,
-} from "./i18n.js?v=20261109v4";
+} from "./i18n.js?v=20261109v5";
 import {
   attachHorizontalWheelScroll,
   clampFloatingPopover,
@@ -25,15 +25,15 @@ import {
   showToast,
   syncToastContainerMount,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261109v4";
-import { isEpisodeWatched, isServiceEnabled, savePreferredStudioForItem } from "./catalog.js?v=20261109v4";
+} from "./utils.js?v=20261109v5";
+import { isEpisodeWatched, isServiceEnabled, savePreferredStudioForItem } from "./catalog.js?v=20261109v5";
 import {
   activateSelectedSubtitleTrack,
   adjustSubtitleOffset,
   closeSubtitleDictPopover,
   renderVcSubtitlesPopover,
   resetSubtitleOffset,
-} from "./subtitles.js?v=20261109v4";
+} from "./subtitles.js?v=20261109v5";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -48,9 +48,9 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261109v4";
-import { pushDesktopRemoteStateNow, scheduleDesktopRemoteStatePush } from "./remote.js?v=20261109v4";
-import { buildRemuxStreamEndpoint, getEffectivePlaybackTiming } from "./player-remux.js?v=20261109v4";
+} from "./audio-dsp.js?v=20261109v5";
+import { pushDesktopRemoteStateNow, scheduleDesktopRemoteStatePush } from "./remote.js?v=20261109v5";
+import { buildRemuxStreamEndpoint, getEffectivePlaybackTiming } from "./player-remux.js?v=20261109v5";
 import {
   filterReleasedEpisodesForSeason,
   getEpisodeDisplayMeta,
@@ -62,15 +62,15 @@ import {
   stepEpisode,
   switchToSeriesSeasonEpisode,
   syncEpisodesStripDrawerUI,
-} from "./player-seasons.js?v=20261109v4";
-import { syncPostwatchOverlayMount } from "./player-rating.js?v=20261109v4";
-import { syncPersonModalMount } from "./modals-person.js?v=20261109v4";
+} from "./player-seasons.js?v=20261109v5";
+import { syncPostwatchOverlayMount } from "./player-rating.js?v=20261109v5";
+import { syncPersonModalMount } from "./modals-person.js?v=20261109v5";
 import {
   clearAutoplayNextTimer,
   dismissPlayerNextEpisodeToast,
   getNextEpisodeCoords,
   setSleepTimer,
-} from "./player-autoplay.js?v=20261109v4";
+} from "./player-autoplay.js?v=20261109v5";
 import {
   adjustAudioOffset,
   hideVideoStreamError,
@@ -86,28 +86,28 @@ import {
   switchRemuxAudioTrack,
   switchSourceTab,
   toggleErrorStudiosPanel,
-} from "./player-streams.js?v=20261109v4";
-import { getDetectedCreditsStartSec, loadSkipIntroSegments } from "./player-intro-credits.js?v=20261109v4";
+} from "./player-streams.js?v=20261109v5";
+import { getDetectedCreditsStartSec, loadSkipIntroSegments } from "./player-intro-credits.js?v=20261109v5";
 import {
   closeBookmarkNoteDialog,
   hideXRayPauseShelf,
   renderTimelineBookmarks,
   toggleBookmarkCurrentMoment,
   toggleXRayPauseShelf,
-} from "./player-bookmarks.js?v=20261109v4";
+} from "./player-bookmarks.js?v=20261109v5";
 import {
   restoreFullPlayerFromPip,
   setMiniPlayerMode,
   setPipBackgroundMode,
   updateMiniPlayerTitle,
-} from "./player-pip-dock.js?v=20261109v4";
-import { captureVideoScreenshot, togglePlayerSidebarCollapsed } from "./player-meta.js?v=20261109v4";
+} from "./player-pip-dock.js?v=20261109v5";
+import { captureVideoScreenshot, togglePlayerSidebarCollapsed } from "./player-meta.js?v=20261109v5";
 import {
   captureVideoFrameBridge,
   closePlayerModal,
   playVideoUrl,
   toggleVideoPlayPause,
-} from "./player.js?v=20261109v4";
+} from "./player.js?v=20261109v5";
 
 export function hasOpenVcPopover() {
   return [
@@ -893,6 +893,17 @@ export function toggleStageFullscreen() {
   const video = document.getElementById("native-video");
   const stage = document.getElementById("video-stage") || video;
   if (!stage) return;
+  const activeEl = typeof document !== "undefined" ? document.activeElement : null;
+  if (
+    activeEl &&
+    activeEl !== document.body &&
+    activeEl !== video &&
+    typeof activeEl.blur === "function"
+  ) {
+    try {
+      activeEl.blur();
+    } catch (_) {}
+  }
   if (state.vcClickTimerId) {
     clearTimeout(state.vcClickTimerId);
     state.vcClickTimerId = null;
@@ -1469,11 +1480,13 @@ export function initCustomVideoControls() {
 
   document.getElementById("vc-btn-play")?.addEventListener("click", (e) => {
     e.stopPropagation();
+    if (e.detail > 0) e.currentTarget?.blur?.();
     toggleVideoPlayPause(true);
   });
 
   document.getElementById("vc-btn-back10")?.addEventListener("click", (e) => {
     e.stopPropagation();
+    if (e.detail > 0) e.currentTarget?.blur?.();
     const { cur } = getEffectivePlaybackTiming(getVideoEl());
     const target = Math.max(0, cur - 10);
     seekEffectivePlayback(target);
@@ -1482,6 +1495,7 @@ export function initCustomVideoControls() {
 
   document.getElementById("vc-btn-fwd10")?.addEventListener("click", (e) => {
     e.stopPropagation();
+    if (e.detail > 0) e.currentTarget?.blur?.();
     const { cur, dur } = getEffectivePlaybackTiming(getVideoEl());
     const maxDur = dur > 0 ? dur : cur + 10;
     const target = Math.min(maxDur, cur + 10);
@@ -1491,6 +1505,7 @@ export function initCustomVideoControls() {
 
   document.getElementById("vc-btn-mute")?.addEventListener("click", (e) => {
     e.stopPropagation();
+    if (e.detail > 0) e.currentTarget?.blur?.();
     const video = getVideoEl();
     if (!video) return;
     state.userMutedThisSession = !video.muted;
@@ -1573,11 +1588,13 @@ export function initCustomVideoControls() {
 
   document.getElementById("vc-btn-pip")?.addEventListener("click", (e) => {
     e.stopPropagation();
+    if (e.detail > 0) e.currentTarget?.blur?.();
     togglePictureInPicture();
   });
 
   document.getElementById("vc-btn-fs")?.addEventListener("click", (e) => {
     e.stopPropagation();
+    e.currentTarget?.blur?.();
     toggleStageFullscreen();
   });
 
