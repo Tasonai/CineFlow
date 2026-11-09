@@ -1,6 +1,6 @@
 {
-  "name": "CineFlow — Unified Cinema",
-  "short_name": "CineFlow",
+  "name": "Velarium — Unified Cinema",
+  "short_name": "Velarium",
   "description": "Единый домашний онлайн-кинотеатр с синхронизацией Kinorium, Stremio и 4K HDR потоками",
   "start_url": "/",
   "scope": "/",

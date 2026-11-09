@@ -92,7 +92,7 @@ class TestFrontendIntegrity(unittest.TestCase):
         targets = [os.path.join(PUBLIC_DIR, "index.html"), os.path.join(PUBLIC_DIR, "app.js")] + sorted(
             glob.glob(os.path.join(PUBLIC_DIR, "js", "*.js"))
         )
-        swift_path = os.path.join(BASE_DIR, "macos", "CineFlowApp.swift")
+        swift_path = os.path.join(BASE_DIR, "macos", "VelariumApp.swift")
         if os.path.isfile(swift_path):
             targets.append(swift_path)
         for p in targets:
@@ -111,7 +111,7 @@ class TestFrontendIntegrity(unittest.TestCase):
         self.assertIn("Atoma", html)
         self.assertIn("2026", html)
         self.assertIn("Windows", html)
-        self.assertIn("2.7.1", html)
+        self.assertIn("2.7.11", html)
 
         for svg_rel in ("favicon.svg", os.path.join("icons", "icon.svg")):
             with open(os.path.join(PUBLIC_DIR, svg_rel), "r", encoding="utf-8") as f:
@@ -228,7 +228,7 @@ class TestFrontendIntegrity(unittest.TestCase):
         self.assertIn(".atv-search-quick-random.active-hit", css_combined)
         self.assertIn(".atv-prof-pin-controls input:not(:placeholder-shown)", css_combined)
 
-        swift_path = os.path.join(BASE_DIR, "macos", "CineFlowApp.swift")
+        swift_path = os.path.join(BASE_DIR, "macos", "VelariumApp.swift")
         if os.path.isfile(swift_path):
             with open(swift_path, "r", encoding="utf-8") as f:
                 swift_src = f.read()
@@ -241,7 +241,7 @@ class TestFrontendIntegrity(unittest.TestCase):
     def test_v26_responsive_offline_tv_and_native_wrappers_invariants(self):
         with open(os.path.join(PUBLIC_DIR, "index.html"), "r", encoding="utf-8") as f:
             html = f.read()
-        self.assertIn("?v=20261105v5", html)
+        self.assertIn("?v=20261108v19", html)
 
         css_combined = ""
         for css_file in sorted(glob.glob(os.path.join(PUBLIC_DIR, "css", "*.css"))):
@@ -262,7 +262,7 @@ class TestFrontendIntegrity(unittest.TestCase):
         self.assertIn("ensureKidsPinVerifiedForAdminAction", set_src)
         self.assertIn("findAllOfflineDownloadsForTitle", play_src)
 
-        swift_path = os.path.join(BASE_DIR, "macos", "CineFlowApp.swift")
+        swift_path = os.path.join(BASE_DIR, "macos", "VelariumApp.swift")
         if os.path.isfile(swift_path):
             with open(swift_path, "r", encoding="utf-8") as f:
                 swift_src = f.read()
@@ -278,7 +278,7 @@ class TestFrontendIntegrity(unittest.TestCase):
             self.assertIn('background_color="#0a0a0c"', wv_src)
             self.assertIn("text_select=True", wv_src)
 
-        launcher_c = os.path.join(BASE_DIR, "windows", "launcher", "cineflow_launcher.c")
+        launcher_c = os.path.join(BASE_DIR, "windows", "launcher", "velarium_launcher.c")
         if os.path.isfile(launcher_c):
             with open(launcher_c, "r", encoding="utf-8") as f:
                 lc_src = f.read()
@@ -414,6 +414,15 @@ class TestFrontendIntegrity(unittest.TestCase):
             i18n_src = f.read()
         self.assertIn("посвящается всем голд дигерам", html_src.lower())
         self.assertIn("посвящается всем голд дигерам", i18n_src.lower())
+        self.assertIn('id="about-features-wrap"', html_src)
+        for feat_idx in range(1, 10):
+            self.assertIn(f'id="about-feat-{feat_idx}-title"', html_src)
+            self.assertIn(f'id="about-feat-{feat_idx}-desc"', html_src)
+            self.assertIn(f"#about-feat-{feat_idx}-title", i18n_src)
+            self.assertIn(f"#about-feat-{feat_idx}-desc", i18n_src)
+        for must_have_kw in ("netflix", "cookie", "50 стран европы", "kinorium", "audio dsp", "x-ray", "субтитры", "?remote=1", "pin-кодом"):
+            self.assertIn(must_have_kw, html_src.lower())
+            self.assertIn(must_have_kw, i18n_src.lower())
 
         # Wave 3, 4 & 5 UI/UX invariants: hit-slop expansion, explicit button types, tablist & popover ARIA, remote A11y
         self.assertIn(".atv-vc-bookmark-pin::before", css_combined)

@@ -1,11 +1,12 @@
-import { state } from "./state.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
 import {
+  formatRussianTypography,
   hasCyrillicText,
   isEn,
   t,
   translateCareer,
   transliterateRuToEn,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   attachHorizontalWheelScroll,
   closeCustomSelectMenu,
@@ -18,20 +19,20 @@ import {
   showToast,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261105v5";
-import { createPosterCardElement } from "./catalog-cards.js?v=20261105v5";
-import { isServiceEnabled } from "./catalog-media-resolver.js?v=20261105v5";
-import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261105v5";
-import { loadCatalog } from "./catalog.js?v=20261105v5";
-import { escapeEpisodeHtml } from "./player-seasons.js?v=20261105v5";
-import { closePlayerModal } from "./player.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
+import { createPosterCardElement } from "./catalog-cards.js?v=20261108v19";
+import { isServiceEnabled } from "./catalog-media-resolver.js?v=20261108v19";
+import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261108v19";
+import { loadCatalog } from "./catalog.js?v=20261108v19";
+import { escapeEpisodeHtml } from "./player-seasons.js?v=20261108v19";
+import { closePlayerModal } from "./player.js?v=20261108v19";
 import {
   closeQuickPeekModal,
   goBackInModalStack,
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   syncModalBackButtons,
-} from "./modals.js?v=20261105v5";
+} from "./modals.js?v=20261108v19";
 
 export function triggerPersonSearch(personName) {
   if (!personName) return;
@@ -165,26 +166,32 @@ export function buildPersonPhotoCard(personObj, onSelect) {
   const lookupName = personObj?.ru_name || pName;
   const photoEndpoint = `/api/person-photo?name=${encodeURIComponent(lookupName)}${
     hintUrl ? `&url=${encodeURIComponent(hintUrl)}` : ""
-  }`;
+  }&strict=1&v=3`;
 
-  const fallbackAvatarUri = buildFallbackAvatarSvg(pName);
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = `atv-person-card${isDir ? " director" : ""}`;
   btn.title = `${isDir ? t("Режиссёр", "Director") : t("Актёр", "Actor")}: ${pName} — ${t("нажмите, чтобы открыть карточку персоны и фильмографию", "click to view profile & filmography")}`;
   btn.innerHTML = `
-    <img class="atv-person-avatar" src="${escapeAttr(photoEndpoint)}" alt="${escapeAttr(pName)}" loading="lazy" referrerpolicy="no-referrer" />
+    <div class="atv-person-avatar-frame">
+      <img class="atv-person-avatar" src="${escapeAttr(photoEndpoint)}" alt="${escapeAttr(pName)}" width="96" height="128" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
+    </div>
     <div class="atv-person-name">${escapeHtml(pName)}</div>
     <div class="atv-person-role">${escapeHtml(roleText)}</div>
   `;
   const imgEl = btn.querySelector("img");
   if (imgEl) {
-    imgEl.style.backgroundImage = `url("${fallbackAvatarUri}")`;
-    imgEl.style.backgroundSize = "cover";
-    imgEl.style.backgroundPosition = "center";
+    imgEl.style.width = "100%";
+    imgEl.style.height = "100%";
+    imgEl.style.objectFit = "cover";
+    imgEl.style.objectPosition = "center 14%";
     imgEl.onerror = () => {
       imgEl.onerror = null;
-      imgEl.src = fallbackAvatarUri;
+      const parentRow = btn.parentElement;
+      btn.remove();
+      if (parentRow && !parentRow.querySelector(".atv-person-card")) {
+        parentRow.closest("#qp-cast-wrap, #meta-cast-section")?.classList.add("hidden");
+      }
     };
   }
   btn.onclick = () => {
@@ -197,8 +204,32 @@ export function buildPersonPhotoCard(personObj, onSelect) {
   return btn;
 }
 
+export function syncPersonModalMount() {
+  const pseudoStage = document.documentElement?.classList.contains("is-stage-pseudo-fullscreen")
+    ? document.getElementById("video-stage")
+    : null;
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement || pseudoStage;
+  ["person-modal", "quick-peek-modal"].forEach((id) => {
+    const mod = document.getElementById(id);
+    if (!mod) return;
+    const isOpen = !mod.classList.contains("hidden");
+    const targetParent = fsEl && isOpen ? fsEl : document.body;
+    if (targetParent && mod.parentElement !== targetParent) {
+      targetParent.appendChild(mod);
+    }
+  });
+}
+
+let _personModalAbortController = null;
+
 export function closePersonModal(options = {}) {
   closeCustomSelectMenu({ restoreFocus: false });
+  if (_personModalAbortController) {
+    try {
+      _personModalAbortController.abort();
+    } catch (_) {}
+    _personModalAbortController = null;
+  }
   const { clearStack = true, suppressResume = false } = options;
   if (!clearStack) {
     const top = state.navModalStack[state.navModalStack.length - 1];
@@ -210,6 +241,7 @@ export function closePersonModal(options = {}) {
   state.navModalStack = [];
   state.personModalReqId += 1;
   document.getElementById("person-modal")?.classList.add("hidden");
+  syncPersonModalMount();
   syncModalBackButtons();
   syncScrollTopButton();
   if (!suppressResume) {
@@ -249,46 +281,47 @@ export function renderPersonStatsStrip(data) {
       ? Math.round((userScores.reduce((a, b) => a + b, 0) / userScores.length) * 10) / 10
       : null;
 
-  const extraParts = [];
-  if (watchingCount > 0) extraParts.push(`${t("Смотрю", "Watching")}: ${watchingCount}`);
-  if (watchlistCount > 0) extraParts.push(`${t("Буду смотреть", "Watchlist")}: ${watchlistCount}`);
-  const extraSuffix = extraParts.length > 0 ? ` · ${extraParts.join(" · ")}` : "";
   statsWatchedEl.innerHTML = `<span class="atv-inline-icon-label">${iconSvg("check", 12)}<span>${t(
-    `Просмотрено в Kinorium: ${watchedCount} из ${totalCount} (${watchedPct}%)`,
-    `Watched on Kinorium: ${watchedCount} of ${totalCount} (${watchedPct}%)`
-  )}${extraSuffix}</span></span>`;
+    `Просмотрено: ${watchedCount} из ${totalCount} (${watchedPct}%)`,
+    `Watched: ${watchedCount} of ${totalCount} (${watchedPct}%)`
+  )}</span></span>`;
   statsRatingEl.innerHTML = avgUserRating
-    ? `<span class="atv-inline-icon-label"><span>${t("Ваша средняя оценка:", "Your avg rating:")}</span>${iconSvg("star", 11)}<strong>${avgUserRating}</strong><span>(${userScores.length})</span></span>`
-    : t("Ваших оценок пока нет", "No user ratings yet");
+    ? `<span class="atv-inline-icon-label"><span>${t("Средняя оценка:", "Avg rating:")}</span>${iconSvg("star", 11)}<strong>${avgUserRating}</strong><span>(${userScores.length})</span></span>`
+    : t("Оценок пока нет", "No ratings yet");
   statsFillEl.style.width = `${watchedPct}%`;
   statsBox.classList.remove("hidden");
 }
 
+const _PERSON_MONTH_MAP = {
+  января: "January",
+  февраля: "February",
+  марта: "March",
+  апреля: "April",
+  мая: "May",
+  июня: "June",
+  июля: "July",
+  августа: "August",
+  сентября: "September",
+  октября: "October",
+  ноября: "November",
+  декабря: "December",
+};
+const _PERSON_MONTH_RE_ENTRIES = Object.entries(_PERSON_MONTH_MAP).map(([ruM, enM]) => [new RegExp(ruM, "gi"), enM]);
+const _PERSON_GODA_RE = /\bгода\b/gi;
+const _PERSON_AGE_RE = /\(\s*(\d+)\s*(?:год|года|лет)\s*\)/gi;
+const _PERSON_SPACES_RE = /\s{2,}/g;
+
 function formatBirthDateForLang(rawDate) {
   const cleaned = expandRussianDateText(rawDate);
   if (!isEn() || !cleaned) return cleaned;
-  const monthMap = {
-    января: "January",
-    февраля: "February",
-    марта: "March",
-    апреля: "April",
-    мая: "May",
-    июня: "June",
-    июля: "July",
-    августа: "August",
-    сентября: "September",
-    октября: "October",
-    ноября: "November",
-    декабря: "December",
-  };
   let s = cleaned;
-  Object.entries(monthMap).forEach(([ruM, enM]) => {
-    s = s.replace(new RegExp(ruM, "gi"), enM);
+  _PERSON_MONTH_RE_ENTRIES.forEach(([re, enM]) => {
+    s = s.replace(re, enM);
   });
   s = s
-    .replace(/\bгода\b/gi, "")
-    .replace(/\(\s*(\d+)\s*(?:год|года|лет)\s*\)/gi, "($1)")
-    .replace(/\s{2,}/g, " ")
+    .replace(_PERSON_GODA_RE, "")
+    .replace(_PERSON_AGE_RE, "($1)")
+    .replace(_PERSON_SPACES_RE, " ")
     .trim();
   return hasCyrillicText(s) ? "" : s;
 }
@@ -333,10 +366,6 @@ export function renderPersonProfileDetails(data) {
     if (data.birth_place && (!isEn() || !/[А-Яа-яЁё]/.test(data.birth_place))) {
       chips.push(`${iconSvg("pin", 12)}<span>${escapeEpisodeHtml(data.birth_place)}</span>`);
     }
-    const totalWorks = Number(data.stats?.total_count || data.all_items?.length || 0);
-    if (totalWorks > 0) {
-      chips.push(`${iconSvg("film", 12)}<span>${t("Тайтлов в базе", "Titles")}: ${totalWorks}</span>`);
-    }
     metaEl.innerHTML = chips
       .map((c) => `<span class="atv-person-chip atv-inline-icon-label">${c}</span>`)
       .join("");
@@ -345,7 +374,7 @@ export function renderPersonProfileDetails(data) {
   if (bioEl) {
     const activeBio = isEn() ? data.bio_en || "" : data.bio || data.bio_en || "";
     if (activeBio && String(activeBio).trim().length > 15) {
-      bioEl.textContent = activeBio;
+      bioEl.textContent = isEn() ? activeBio : formatRussianTypography(activeBio);
       bioEl.classList.remove("hidden");
     } else {
       bioEl.textContent = "";
@@ -376,7 +405,7 @@ export function refreshOpenPersonModalUI(langChanged = false) {
   renderPersonFilmographyGrid();
 }
 
-export function renderPersonFilmographyGrid() {
+export function renderPersonFilmographyGrid({ appendFrom = 0 } = {}) {
   const data = state.personProfileData;
   const gridEl = document.getElementById("person-filmography-grid");
   const tabsEl = document.getElementById("person-role-tabs");
@@ -385,7 +414,7 @@ export function renderPersonFilmographyGrid() {
   const rolesList = Array.isArray(data.roles) ? data.roles : [];
   const allItems = Array.isArray(data.all_items) ? data.all_items : [];
 
-  if (tabsEl) {
+  if (tabsEl && appendFrom <= 0) {
     tabsEl.setAttribute("aria-label", t("Роли в фильмографии", "Filmography roles"));
     tabsEl.innerHTML = "";
     const makeTab = (roleKey, label) => {
@@ -456,7 +485,10 @@ export function renderPersonFilmographyGrid() {
     }
   }
 
-  gridEl.innerHTML = "";
+  const startIdx = appendFrom > 0 ? appendFrom : 0;
+  if (startIdx === 0) {
+    gridEl.innerHTML = "";
+  }
   const prevMore = document.getElementById("person-load-more-row");
   if (prevMore) prevMore.remove();
   if (itemsToShow.length === 0) {
@@ -465,10 +497,14 @@ export function renderPersonFilmographyGrid() {
   }
 
   const limit = Math.max(24, Number(state.personFilmographyLimit) || 24);
-  const visibleSlice = itemsToShow.slice(0, limit);
-  visibleSlice.forEach((filmItem) => {
-    gridEl.appendChild(createPosterCardElement(filmItem));
-  });
+  const visibleSlice = itemsToShow.slice(startIdx, limit);
+  if (visibleSlice.length > 0) {
+    const frag = document.createDocumentFragment();
+    visibleSlice.forEach((filmItem) => {
+      frag.appendChild(createPosterCardElement(filmItem));
+    });
+    gridEl.appendChild(frag);
+  }
 
   if (itemsToShow.length > limit && gridEl.parentElement) {
     const moreRow = document.createElement("div");
@@ -485,7 +521,7 @@ export function renderPersonFilmographyGrid() {
     );
     moreBtn.onclick = () => {
       state.personFilmographyLimit = limit + 24;
-      renderPersonFilmographyGrid();
+      renderPersonFilmographyGrid({ appendFrom: limit });
     };
     moreRow.appendChild(moreBtn);
     gridEl.parentElement.appendChild(moreRow);
@@ -498,7 +534,7 @@ export async function openPersonModal(personInput, options = {}) {
     typeof personInput === "string"
       ? { name: personInput, person_url: "", photo: "", role: "" }
       : personInput || {};
-  const pName = (personObj.name || "").trim();
+  const pName = (personObj.name || personObj.orig_name || "").trim();
   if (!pName) return;
 
   const modal = document.getElementById("person-modal");
@@ -521,6 +557,9 @@ export async function openPersonModal(personInput, options = {}) {
     : null;
   if (!skipStackPush) {
     if (cameFromQuickPeek) {
+      if (state.navModalStack.length >= 12) {
+        state.navModalStack.shift();
+      }
       const qpSheetEl = qpMod.querySelector(".atv-quickpeek-sheet");
       state.navModalStack.push({
         view: "quick-peek",
@@ -548,8 +587,16 @@ export async function openPersonModal(personInput, options = {}) {
 
   state.personModalReqId += 1;
   const reqId = state.personModalReqId;
+  if (_personModalAbortController) {
+    try {
+      _personModalAbortController.abort();
+    } catch (_) {}
+  }
+  _personModalAbortController = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const personAbortSignal = _personModalAbortController ? _personModalAbortController.signal : undefined;
+  state.personModalPerson = personObj;
   state.personProfileData = null;
-  state.personActiveRole = "all";
+  state.personActiveRole = options.restoreActiveRole || "all";
   state.personFilmographyLimit = 24;
 
   const photoEl = document.getElementById("person-modal-photo");
@@ -564,7 +611,7 @@ export async function openPersonModal(personInput, options = {}) {
   const loadingEl = document.getElementById("person-modal-loading");
   const gridEl = document.getElementById("person-filmography-grid");
 
-  const initPhotoHint = personObj.photo || "";
+  const initPhotoHint = personObj.photo || personObj.avatar || "";
   const lookupPersonName = personObj.ru_name || pName;
   if (photoEl) {
     const fallbackPersonSvg = buildFallbackAvatarSvg(pName);
@@ -573,7 +620,7 @@ export async function openPersonModal(personInput, options = {}) {
     photoEl.style.backgroundPosition = "center";
     photoEl.src = `/api/person-photo?name=${encodeURIComponent(lookupPersonName)}${
       initPhotoHint ? `&url=${encodeURIComponent(initPhotoHint)}` : ""
-    }`;
+    }&v=2`;
     photoEl.alt = pName;
     photoEl.onerror = () => {
       photoEl.onerror = null;
@@ -602,6 +649,7 @@ export async function openPersonModal(personInput, options = {}) {
 
   maybePausePlayerForOverlay();
   modal.classList.remove("hidden");
+  syncPersonModalMount();
   modal.querySelector(".atv-person-sheet-scroll")?.scrollTo({ top: 0 });
   requestAnimationFrame(() => {
     document.getElementById("close-person-modal")?.focus({ preventScroll: true });
@@ -616,7 +664,10 @@ export async function openPersonModal(personInput, options = {}) {
       hint_orig: ctxItem?.orig_title || "",
       lang: state.appLang || "ru",
     });
-    const res = await fetch(`/api/person?${params.toString()}`);
+    const res = await fetch(
+      `/api/person?${params.toString()}`,
+      personAbortSignal ? { signal: personAbortSignal } : undefined
+    );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (reqId !== state.personModalReqId) return;
@@ -630,7 +681,7 @@ export async function openPersonModal(personInput, options = {}) {
 
     const bestPhoto = data.photo || initPhotoHint;
     if (photoEl && bestPhoto) {
-      photoEl.src = `/api/person-photo?name=${encodeURIComponent(data.name || pName)}&url=${encodeURIComponent(bestPhoto)}`;
+      photoEl.src = `/api/person-photo?name=${encodeURIComponent(data.name || pName)}&url=${encodeURIComponent(bestPhoto)}&v=2`;
       photoEl.onerror = () => {
         photoEl.onerror = null;
         photoEl.src = buildFallbackAvatarSvg(data.name || pName);
@@ -640,7 +691,9 @@ export async function openPersonModal(personInput, options = {}) {
     renderPersonProfileDetails(data);
 
     // Default to "director" tab if person was clicked as a Director and has directed items, else "all"
-    if (
+    if (options.restoreActiveRole) {
+      state.personActiveRole = options.restoreActiveRole;
+    } else if (
       personObj.is_director &&
       Array.isArray(data.roles) &&
       data.roles.some((r) => r.role_key === "director" && r.items?.length > 0) &&
@@ -651,6 +704,12 @@ export async function openPersonModal(personInput, options = {}) {
       state.personActiveRole = "all";
     }
     renderPersonFilmographyGrid();
+    if (typeof options.restoreScrollTop === "number") {
+      requestAnimationFrame(() => {
+        const scroller = modal.querySelector(".atv-person-sheet-scroll");
+        if (scroller) scroller.scrollTop = options.restoreScrollTop;
+      });
+    }
   } catch (err) {
     if (reqId !== state.personModalReqId) return;
     if (loadingEl) loadingEl.classList.add("hidden");
@@ -687,11 +746,19 @@ export function renderModalCastSection(item, streamData = null) {
     listEl.innerHTML = "";
     return;
   }
+  const visiblePeople = people.slice(0, 14);
+  const castRenderSig = `${item?.id || item?.title || ""}|${state.appLang || "ru"}|${visiblePeople.map((p) => `${p.name || ""}:${p.role || ""}:${p.photo || ""}`).join(",")}`;
   secEl.classList.remove("hidden");
+  if (listEl._castRenderSig === castRenderSig && listEl.childElementCount > 0) {
+    return;
+  }
+  listEl._castRenderSig = castRenderSig;
   listEl.innerHTML = "";
   attachHorizontalWheelScroll(listEl);
 
-  people.slice(0, 14).forEach((p) => {
-    listEl.appendChild(buildPersonPhotoCard(p, (personObj) => openPersonModal(personObj)));
+  const frag = document.createDocumentFragment();
+  visiblePeople.forEach((p) => {
+    frag.appendChild(buildPersonPhotoCard(p, (personObj) => openPersonModal(personObj)));
   });
+  listEl.appendChild(frag);
 }

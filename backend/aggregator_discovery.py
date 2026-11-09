@@ -21,6 +21,11 @@ from .kinorium import _norm_title, _title_variants
 from .profiles import ProfileManager
 from .storage_db import get_storage_db
 
+_DISCOVERY_BG_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=6,
+    thread_name_prefix="VelariumDiscoveryBg",
+)
+
 
 def resolve_similar_for_title(
     agg,
@@ -117,6 +122,219 @@ def resolve_similar_for_title(
     sliced_fb = fb_items[:limit]
     agg._register_catalog_items(sliced_fb)
     return {"items": sliced_fb, "source": "curated"}
+
+
+_FRANCHISE_SUFFIX_RE = re.compile(
+    r"""(?ix)
+    (?:
+        \s*[:\-–—]\s*(?:
+            part\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+|[ivx]+)
+            |chapter\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|\d+|[ivx]+)
+            |volume\s+(?:\d+|[ivx]+)
+            |vol\.?\s*(?:\d+|[ivx]+)
+            |часть\s+(?:первая|вторая|третья|четвертая|четвёртая|пятая|шестая|\d+|[ivx]+)
+            |глава\s+(?:первая|вторая|третья|четвертая|четвёртая|\d+|[ivx]+)
+            |фильм\s+(?:первый|второй|третий|\d+|[ivx]+)
+        )\b.*$
+        |\s+(?:
+            part\s+(?:one|two|three|four|five|\d+|[ivx]+)
+            |chapter\s+(?:one|two|three|four|five|\d+|[ivx]+)
+            |часть\s+(?:первая|вторая|третья|четвертая|четвёртая|\d+|[ivx]+)
+            |глава\s+(?:первая|вторая|третья|четвертая|четвёртая|\d+|[ivx]+)
+        )\b.*$
+    )
+    """
+)
+_TRAILING_PART_NUM_RE = re.compile(r"\s+(?:[2-9]|1[0-5]|ii|iii|iv|v|vi|vii|viii|ix|x)\s*$", re.I)
+
+
+def extract_franchise_root_key(title: str = "", orig_title: str = "") -> str:
+    raw = str(orig_title or "").strip()
+    if not raw or has_cyrillic(raw):
+        raw = str(title or orig_title or "").strip()
+    if not raw:
+        return ""
+    s = raw.lower().replace("ё", "е").strip()
+    s = re.sub(r"\(\s*(?:19|20)\d{2}\s*\)\s*$", "", s).strip()
+    s = _FRANCHISE_SUFFIX_RE.sub("", s).strip()
+    if ":" in s:
+        head = s.split(":", 1)[0].strip()
+        head = _TRAILING_PART_NUM_RE.sub("", head).strip()
+        if len(head) >= 3 and head not in ("the", "movie", "film", "фильм", "кино", "история"):
+            s = head
+    s = _TRAILING_PART_NUM_RE.sub("", s).strip()
+    s = re.sub(r"^(?:the|a|an)\s+", "", s).strip()
+    s = re.sub(r"[^\w\s]+", " ", s, flags=re.U)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s if len(s) >= 3 else ""
+
+
+def resolve_franchise_for_title(
+    agg,
+    item_id: str = "",
+    rezka_id: str = "",
+    title: str = "",
+    orig_title: str = "",
+    year: int = 0,
+    media_type: str = "movie",
+    preloaded_parts: Optional[List[Dict[str, Any]]] = None,
+    lang: str = "ru",
+) -> Dict[str, Any]:
+    with agg._catalog_lock:
+        catalog_pool = list(agg.CURATED_CATALOG) + list(agg._catalog_by_id.values())
+
+    by_rezka_id: Dict[str, Dict[str, Any]] = {}
+    by_norm_title: Dict[Tuple[str, int], Dict[str, Any]] = {}
+    for cat_it in catalog_pool:
+        if not isinstance(cat_it, dict):
+            continue
+        rid = str(cat_it.get("rezka_id") or "").strip()
+        if rid and rid not in by_rezka_id:
+            by_rezka_id[rid] = cat_it
+        cy = int(cat_it.get("year") or 0) if str(cat_it.get("year") or "").isdigit() else 0
+        for t_field in ("title", "orig_title"):
+            nt = _norm_title(str(cat_it.get(t_field) or ""))
+            if nt and (nt, cy) not in by_norm_title:
+                by_norm_title[(nt, cy)] = cat_it
+            if nt and (nt, 0) not in by_norm_title:
+                by_norm_title[(nt, 0)] = cat_it
+
+    kin_enabled = agg.is_service_enabled("kinorium")
+
+    if isinstance(preloaded_parts, list) and len(preloaded_parts) >= 2:
+        items_out: List[Dict[str, Any]] = []
+        for idx, part in enumerate(preloaded_parts, start=1):
+            if not isinstance(part, dict):
+                continue
+            p_rid = str(part.get("rezka_id") or "").strip()
+            p_title = str(part.get("title") or "").strip()
+            p_year = int(part.get("year") or 0) if str(part.get("year") or "").isdigit() else 0
+            p_nt = _norm_title(p_title)
+            matched_cat = (
+                by_rezka_id.get(p_rid)
+                or (by_norm_title.get((p_nt, p_year)) if p_nt and p_year else None)
+                or (by_norm_title.get((p_nt, 0)) if p_nt else None)
+            )
+            enriched_cat = agg.enrich_item(matched_cat) if matched_cat else {}
+            kin_state = enriched_cat.get("kinorium") if isinstance(enriched_cat, dict) else None
+            if not kin_state and kin_enabled and hasattr(agg.kinorium, "get_status_for_item"):
+                try:
+                    kin_state = agg.kinorium.get_status_for_item(
+                        {
+                            "title": p_title,
+                            "orig_title": str(enriched_cat.get("orig_title") or ""),
+                            "year": p_year,
+                            "media_type": str(enriched_cat.get("media_type") or media_type or "movie"),
+                        }
+                    )
+                except Exception:
+                    kin_state = {}
+            is_cur = bool(
+                part.get("is_current")
+                or (rezka_id and p_rid and str(rezka_id) == p_rid)
+                or (item_id and enriched_cat.get("id") and str(enriched_cat.get("id")) == str(item_id))
+                or (not rezka_id and p_nt and p_nt == _norm_title(title) and (not year or not p_year or p_year == int(year)))
+            )
+            rating_str = str(
+                part.get("rating")
+                or (enriched_cat.get("ratings") or {}).get("kinorium")
+                or (enriched_cat.get("ratings") or {}).get("imdb")
+                or ""
+            ).strip()
+            items_out.append(
+                {
+                    "id": str(enriched_cat.get("id") or (f"rz_{p_rid}" if p_rid else f"fr_{idx}")),
+                    "num": int(part.get("num") or idx),
+                    "title": str(enriched_cat.get("title") or p_title),
+                    "orig_title": str(enriched_cat.get("orig_title") or ""),
+                    "year": p_year or enriched_cat.get("year") or "",
+                    "rating": rating_str,
+                    "ratings": enriched_cat.get("ratings") or ({"kinorium": rating_str} if rating_str else {}),
+                    "poster": str(enriched_cat.get("poster") or ""),
+                    "poster_en": str(enriched_cat.get("poster_en") or ""),
+                    "backdrop": str(enriched_cat.get("backdrop") or ""),
+                    "media_type": str(enriched_cat.get("media_type") or media_type or "movie"),
+                    "rezka_id": p_rid or str(enriched_cat.get("rezka_id") or ""),
+                    "rezka_url": str(part.get("rezka_url") or enriched_cat.get("rezka_url") or ""),
+                    "kinorium_id": str(enriched_cat.get("kinorium_id") or ""),
+                    "kinorium": kin_state or {},
+                    "is_current": is_cur,
+                }
+            )
+        if len(items_out) >= 2:
+            if not any(x.get("is_current") for x in items_out):
+                for x in items_out:
+                    if _norm_title(x.get("title", "")) == _norm_title(title):
+                        x["is_current"] = True
+                        break
+            return {"items": items_out, "source": "hdrezka"}
+
+    # Fallback: group franchise siblings from catalog by normalized root title
+    root_key = extract_franchise_root_key(title, orig_title)
+    if not root_key:
+        return {"items": [], "source": "none"}
+
+    seen_keys: Set[str] = set()
+    matched_siblings: List[Dict[str, Any]] = []
+    target_mt = str(media_type or "movie").strip().lower()
+    for cat_it in catalog_pool:
+        if not isinstance(cat_it, dict):
+            continue
+        c_mt = str(cat_it.get("media_type") or "movie").strip().lower()
+        if c_mt != target_mt:
+            continue
+        c_root = extract_franchise_root_key(str(cat_it.get("title") or ""), str(cat_it.get("orig_title") or ""))
+        if c_root != root_key:
+            continue
+        dedup_k = f"{_norm_title(str(cat_it.get('orig_title') or cat_it.get('title') or ''))}|{cat_it.get('year') or ''}"
+        if dedup_k in seen_keys:
+            continue
+        seen_keys.add(dedup_k)
+        matched_siblings.append(agg.enrich_item(cat_it))
+
+    if len(matched_siblings) < 2:
+        return {"items": [], "source": "none"}
+
+    matched_siblings.sort(
+        key=lambda x: (
+            int(x.get("year")) if str(x.get("year") or "").isdigit() else 9999,
+            str(x.get("title") or ""),
+        )
+    )
+    cat_out: List[Dict[str, Any]] = []
+    for idx, sib in enumerate(matched_siblings, start=1):
+        sib_id = str(sib.get("id") or "")
+        sib_yr = int(sib.get("year")) if str(sib.get("year") or "").isdigit() else 0
+        is_cur = bool(
+            (item_id and sib_id == str(item_id))
+            or (
+                _norm_title(str(sib.get("title") or "")) == _norm_title(title)
+                and (not year or not sib_yr or sib_yr == int(year))
+            )
+        )
+        r_obj = sib.get("ratings") or {}
+        r_str = str(r_obj.get("kinorium") or r_obj.get("imdb") or "")
+        cat_out.append(
+            {
+                "id": sib_id or f"fr_{idx}",
+                "num": idx,
+                "title": str(sib.get("title") or ""),
+                "orig_title": str(sib.get("orig_title") or ""),
+                "year": sib_yr or "",
+                "rating": r_str,
+                "ratings": r_obj,
+                "poster": str(sib.get("poster") or ""),
+                "poster_en": str(sib.get("poster_en") or ""),
+                "backdrop": str(sib.get("backdrop") or ""),
+                "media_type": str(sib.get("media_type") or target_mt),
+                "rezka_id": str(sib.get("rezka_id") or ""),
+                "rezka_url": str(sib.get("rezka_url") or ""),
+                "kinorium_id": str(sib.get("kinorium_id") or ""),
+                "kinorium": sib.get("kinorium") or {},
+                "is_current": is_cur,
+            }
+        )
+    return {"items": cat_out, "source": "catalog"}
 
 def _build_search_similar_items(
     agg,
@@ -722,11 +940,11 @@ def get_person_profile(
         agg._prewarm_en_metadata_for_items(all_items[:16], max_items=16)
         if len(all_items) > 16 and agg.en_meta is not None:
             tail_items = [dict(x) for x in all_items[16:44]]
-            threading.Thread(
-                target=agg._prewarm_en_metadata_for_items,
-                args=(tail_items, 28),
-                daemon=True,
-            ).start()
+            _DISCOVERY_BG_EXECUTOR.submit(
+                agg._prewarm_en_metadata_for_items,
+                tail_items,
+                28,
+            )
 
         def _apply_en_work_fields(work: Dict[str, Any]) -> None:
             orig_t = str(work.get("orig_title") or "").strip()
@@ -794,7 +1012,15 @@ def get_person_profile(
     photo_endpoint = f"/api/person-photo?name={urllib.parse.quote(ru_name)}" + (
         f"&url={urllib.parse.quote(photo_hint)}" if photo_hint else ""
     )
-    career_str = str(raw.get("career_roles") or "")
+    career_str = (
+        str(raw.get("career_roles") or "")
+        .replace("Актер", "Актёр")
+        .replace("актер", "актёр")
+        .replace("Режиссер", "Режиссёр")
+        .replace("режиссер", "режиссёр")
+        .replace("Монтажер", "Монтажёр")
+        .replace("монтажер", "монтажёр")
+    )
     career_list = [c.strip() for c in career_str.split(",") if c.strip()]
 
     out_name = ru_name
@@ -1089,15 +1315,13 @@ def get_release_calendar(
     all_events: List[Dict[str, Any]] = []
     seen_ev_keys: Set[Tuple[str, int, int]] = set()
     if tracked_series and agg.stremio is not None:
-        max_w = min(6, max(1, len(tracked_series)))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as pool:
-            for rows in pool.map(_fetch_series_schedule, tracked_series):
-                for ev in rows or []:
-                    ev_key = (str(ev.get("imdb_id") or ev.get("id") or ""), int(ev.get("season") or 0), int(ev.get("episode") or 0))
-                    if ev_key in seen_ev_keys:
-                        continue
-                    seen_ev_keys.add(ev_key)
-                    all_events.append(ev)
+        for rows in _DISCOVERY_BG_EXECUTOR.map(_fetch_series_schedule, tracked_series):
+            for ev in rows or []:
+                ev_key = (str(ev.get("imdb_id") or ev.get("id") or ""), int(ev.get("season") or 0), int(ev.get("episode") or 0))
+                if ev_key in seen_ev_keys:
+                    continue
+                seen_ev_keys.add(ev_key)
+                all_events.append(ev)
 
     upcoming = [ev for ev in all_events if ev["air_date"] >= today_iso]
     recent = [ev for ev in all_events if ev["air_date"] < today_iso]

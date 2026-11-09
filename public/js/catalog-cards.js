@@ -1,15 +1,15 @@
-// CineFlow Catalog Cards & Context Menu Subsystem
+// Velarium Catalog Cards & Context Menu Subsystem
 // Handles poster card rendering, poster image fallbacks, smart badges,
 // live trailer hover previews, and the card action context menu.
 
-import { state } from "./state.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
 import {
   displayPoster,
   displayTitle,
   formatCriticsRating,
   isEn,
   t,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -19,24 +19,24 @@ import {
   iconSvg,
   pluralRu,
   showToast,
-} from "./utils.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
 import {
   openPlayerModal,
-} from "./player.js?v=20261105v5";
+} from "./player.js?v=20261108v19";
 import {
   openTvCastModal,
-} from "./features.js?v=20261105v5";
+} from "./features.js?v=20261108v19";
 import {
   openQuickPeekModal,
-} from "./modals.js?v=20261105v5";
+} from "./modals.js?v=20261108v19";
 import {
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
   resolvePreferredPlayTab,
   getFriendsAverageScore,
   patchCatalogItemKinoriumInPlace,
-} from "./catalog-media-resolver.js?v=20261105v5";
-import { stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261105v5";
+} from "./catalog-media-resolver.js?v=20261108v19";
+import { stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261108v19";
 
 export function buildPosterBadgesHtml(item, precomputedEpInfo = null) {
   const offlineSaved = findOfflineDownloadForTitle(item);
@@ -106,7 +106,7 @@ export function buildPosterBadgesHtml(item, precomputedEpInfo = null) {
 }
 
 export function buildFallbackPosterSvg(title, year) {
-  const rawTitle = String(title || "CineFlow").trim();
+  const rawTitle = String(title || "Velarium").trim();
   const safeTitle = rawTitle
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -126,25 +126,45 @@ export function buildFallbackPosterSvg(title, year) {
 
 export function attachSmartPosterFallback(imgEl, title, year = "", altUrl = "") {
   if (!imgEl) return;
+  if (title && typeof title === "object") {
+    const itemObj = title;
+    title = displayTitle(itemObj) || itemObj.title || itemObj.orig_title || "Velarium";
+    year = year || itemObj.year || "";
+    altUrl = altUrl || itemObj.poster || itemObj.poster_ru || itemObj.poster_en || "";
+  }
   imgEl.referrerPolicy = "no-referrer";
-  const fallbackSvg = buildFallbackPosterSvg(title, year);
-  const tried = new Set();
+  let fallbackSvg = null;
+  const getFallbackSvg = () => {
+    if (!fallbackSvg) {
+      fallbackSvg = buildFallbackPosterSvg(title, year);
+    }
+    return fallbackSvg;
+  };
+  let tried = null;
   const initialSrc = imgEl.getAttribute("src") || "";
-  if (initialSrc) tried.add(initialSrc);
   const tryNext = (candidate) => {
-    if (!candidate || tried.has(candidate)) return false;
+    if (!candidate) return false;
+    if (!tried) {
+      tried = new Set();
+      if (initialSrc) tried.add(initialSrc);
+    }
+    if (tried.has(candidate)) return false;
     tried.add(candidate);
     imgEl.src = candidate;
     return true;
   };
   if (!initialSrc) {
     if (!tryNext(altUrl)) {
-      imgEl.src = fallbackSvg;
+      imgEl.src = getFallbackSvg();
     }
   }
   imgEl.onerror = () => {
     const cur = imgEl.src || "";
-    tried.add(cur);
+    if (!tried) {
+      tried = new Set();
+      if (initialSrc) tried.add(initialSrc);
+    }
+    if (cur) tried.add(cur);
     const candidates = [];
     if (cur.includes("ru-images.kinorium.com/movie/600/")) {
       candidates.push(cur.replace("ru-images.kinorium.com/movie/600/", "en-images.kinorium.com/movie/600/"));
@@ -170,7 +190,7 @@ export function attachSmartPosterFallback(imgEl, title, year = "", altUrl = "") 
       if (tryNext(c)) return;
     }
     imgEl.onerror = null;
-    imgEl.src = fallbackSvg;
+    imgEl.src = getFallbackSvg();
   };
 }
 
@@ -178,6 +198,7 @@ let _activeContextMenuEl = null;
 let _activeContextTriggerBtn = null;
 
 export function closeCardContextMenu({ restoreFocus = false } = {}) {
+  if (!_activeContextTriggerBtn && !_activeContextMenuEl) return;
   const prevTrigger = _activeContextTriggerBtn;
   _activeContextTriggerBtn = null;
   if (prevTrigger) {
@@ -239,12 +260,24 @@ export function openCardContextMenu(e, item, cardEl) {
   const inWatchlist = Boolean(kStatus.in_watchlist);
   const isWatched = Boolean(kStatus.watched);
   const cardTitle = displayTitle(item);
+  const frCount =
+    Number(item._franchiseCount) ||
+    (Array.isArray(item._cachedFranchiseItems) ? item._cachedFranchiseItems.length : 0);
+  const franchiseMenuHtml =
+    frCount >= 2
+      ? `<button type="button" role="menuitem" class="atv-context-menu-item" data-act="franchise">
+          ${iconSvg("layers", 14)}<span>${escapeHtml(
+            t(`Все части франшизы (${frCount})`, `Franchise Chronology (${frCount})`)
+          )}</span>
+        </button>`
+      : "";
 
   menu.innerHTML = `
     <div class="atv-context-menu-header" title="${escapeAttr(cardTitle)}">${escapeHtml(cardTitle)}</div>
     <button type="button" role="menuitem" class="atv-context-menu-item" data-act="peek">
       ${iconSvg("info", 14)}<span>${t("Быстрый просмотр", "Quick Details")}</span>
     </button>
+    ${franchiseMenuHtml}
     <button type="button" role="menuitem" class="atv-context-menu-item" data-act="trailer">
       ${iconSvg("film", 14)}<span>${t("Смотреть трейлер", "Watch Trailer")}</span>
     </button>
@@ -310,6 +343,8 @@ export function openCardContextMenu(e, item, cardEl) {
 
       if (act === "peek") {
         openQuickPeekModal(item);
+      } else if (act === "franchise") {
+        openQuickPeekModal(item, { scrollToFranchise: true });
       } else if (act === "trailer") {
         const info = resolveSeriesEpisodeInfo(item);
         openPlayerModal(item, "trailer", info.season, info.episode, info.currentTime);
@@ -424,8 +459,9 @@ export function openCardContextMenu(e, item, cardEl) {
   });
 }
 
-if (typeof window !== "undefined" && !window._cineflowContextMenuGlobalBound) {
-  window._cineflowContextMenuGlobalBound = true;
+let _scrollCloseCtxRaf = 0;
+if (typeof window !== "undefined" && !window._velariumContextMenuGlobalBound) {
+  window._velariumContextMenuGlobalBound = true;
   window.addEventListener("click", (e) => {
     if (!e.target.closest("#atv-card-context-menu") && !e.target.closest(".atv-poster-more-btn")) {
       closeCardContextMenu();
@@ -434,10 +470,14 @@ if (typeof window !== "undefined" && !window._cineflowContextMenuGlobalBound) {
   window.addEventListener(
     "scroll",
     () => {
-      closeCardContextMenu();
-      if (window.scrollY > 350) {
-        stopHeroAmbientTeaser();
-      }
+      if (_scrollCloseCtxRaf) return;
+      _scrollCloseCtxRaf = requestAnimationFrame(() => {
+        _scrollCloseCtxRaf = 0;
+        closeCardContextMenu();
+        if (window.scrollY > 350) {
+          stopHeroAmbientTeaser();
+        }
+      });
     },
     { passive: true }
   );
@@ -490,13 +530,7 @@ export function createPosterCardElement(item) {
     epInfo.totalSeasonEpisodes > 0 &&
     (epInfo.watchedInSeasonCount > 0 || kStatus.watching || epInfo.hasNewEpisode);
   const bottomEpCounterText = showBottomSeriesProgress
-    ? `${isEn() ? `S${epInfo.season}` : `С${epInfo.season}`} ${epInfo.watchedInSeasonCount}/${epInfo.totalSeasonEpisodes}${
-        !hasNewEpBadge && epInfo.hasNewEpisode && epInfo.episode
-          ? ` · ${isEn() ? `New Ep ${epInfo.episode}` : `Новая ${epInfo.episode} серия`}`
-          : epInfo.isCompleted
-          ? ` · ${t("Завершён", "Ended")}`
-          : ""
-      }`
+    ? `${isEn() ? `S${epInfo.season}` : `С${epInfo.season}`} · ${epInfo.watchedInSeasonCount}/${epInfo.totalSeasonEpisodes}`
     : "";
 
   if (item.media_type === "series" && epInfo.hasNewEpisode && epInfo.episode && !hasNewEpBadge && !bottomEpCounterText) {
@@ -507,7 +541,7 @@ export function createPosterCardElement(item) {
           : `Вышла ${epInfo.episode} серия`
       )}</span>`
     );
-  } else if (item.media_type === "series" && epInfo.isCompleted && !bottomEpCounterText.includes("Завершён") && !bottomEpCounterText.includes("Ended")) {
+  } else if (item.media_type === "series" && epInfo.isCompleted) {
     metaChunks.push(`<span class="atv-meta-ended">${escapeHtml(t("Завершён", "Ended"))}</span>`);
   }
   const counterTooltip = epInfo.hasNewEpisode && epInfo.episode
@@ -526,6 +560,21 @@ export function createPosterCardElement(item) {
     !kStatus.watched
       ? `<div class="atv-poster-season-bar" title="${escapeAttr(epInfo.seasonProgressText)} (${epInfo.seasonPct}%)"><div class="atv-poster-season-fill" style="width:${epInfo.seasonPct}%"></div></div>`
       : "";
+  const frCount =
+    Number(item._franchiseCount) ||
+    (Array.isArray(item._cachedFranchiseItems) ? item._cachedFranchiseItems.length : 0);
+  const franchiseBadgeLabel =
+    frCount >= 2
+      ? isEn()
+        ? `${frCount} parts`
+        : `${frCount} ${pluralRu(frCount, "часть", "части", "частей")}`
+      : "";
+  const posterFranchiseBadgeHtml =
+    frCount >= 2 && !posterBottomCounterHtml
+      ? `<button type="button" class="atv-poster-franchise-badge" title="${escapeAttr(
+          t("Открыть хронологию всех частей франшизы", "Open franchise chronology")
+        )}">${escapeHtml(franchiseBadgeLabel)}</button>`
+      : "";
 
   const cardTitle = displayTitle(item);
   const posterSrc = displayPoster(item);
@@ -538,15 +587,8 @@ export function createPosterCardElement(item) {
       <img src="${escapeAttr(posterSrc)}" alt="${escapeAttr(cardTitle)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
       ${badgesHtml}
       ${posterBottomCounterHtml}
+      ${posterFranchiseBadgeHtml}
       ${posterSeasonBarHtml}
-      <button
-        type="button"
-        class="atv-poster-peek-btn"
-        title="${t("Быстрый просмотр", "Quick Peek")}"
-        aria-label="${t("Быстрый просмотр", "Quick Peek")}"
-      >
-        ${iconSvg("info", 13)}
-      </button>
       <button
         type="button"
         class="atv-poster-more-btn"
@@ -568,25 +610,24 @@ export function createPosterCardElement(item) {
     </div>
     <div class="atv-poster-caption">
       <div class="atv-poster-title" title="${escapeAttr(cardTitle)}">${escapeHtml(cardTitle)}</div>
-      <div class="atv-poster-meta">${metaChunks.join(" · ") || "&nbsp;"}</div>
+      <div class="atv-poster-meta">${metaChunks.slice(0, 3).join(" · ") || "&nbsp;"}</div>
     </div>
   `;
   const imgEl = card.querySelector("img");
   attachSmartPosterFallback(imgEl, cardTitle, item.year, item.poster);
-
-  const peekBtn = card.querySelector(".atv-poster-peek-btn");
-  if (peekBtn) {
-    peekBtn.onclick = (e) => {
-      e.stopPropagation();
-      openQuickPeekModal(item);
-    };
-  }
 
   const moreBtn = card.querySelector(".atv-poster-more-btn");
   if (moreBtn) {
     moreBtn.onclick = (e) => {
       e.stopPropagation();
       openCardContextMenu(e, item, card);
+    };
+  }
+  const frBadgeBtn = card.querySelector(".atv-poster-franchise-badge");
+  if (frBadgeBtn) {
+    frBadgeBtn.onclick = (e) => {
+      e.stopPropagation();
+      openQuickPeekModal(item, { scrollToFranchise: true });
     };
   }
 
@@ -613,19 +654,18 @@ export function createPosterCardElement(item) {
   }
 
   card.onclick = () => {
+    stopActiveCardHoverPreview();
     openQuickPeekModal(item);
   };
   card.onkeydown = (e) => {
     if (e.target === card && (e.key === "Enter" || e.key === " ")) {
       e.preventDefault();
+      stopActiveCardHoverPreview();
       openQuickPeekModal(item);
     }
   };
 
-  // Live Hover Preview Video in Poster Frames (600ms debounce, strictly muted, loop)
-  let hoverPreviewTimer = null;
-  let previewVideoEl = null;
-
+  // Live Hover Preview Video in Poster Frames (600ms debounce, strictly muted, loop, singleton)
   card.addEventListener("pointerenter", () => {
     if (
       state.isPlayerOpen ||
@@ -634,8 +674,11 @@ export function createPosterCardElement(item) {
     ) {
       return;
     }
+    stopActiveCardHoverPreview();
+    const hoverAbort = new AbortController();
+    _activeHoverAbort = hoverAbort;
     hoverPreviewTimer = setTimeout(async () => {
-      if (!card.matches(":hover")) return;
+      if (hoverAbort.signal.aborted || !card.isConnected || !card.matches(":hover")) return;
       const frameEl = card.querySelector(".atv-poster-frame");
       if (!frameEl || frameEl.querySelector(".atv-poster-preview-video")) return;
 
@@ -643,7 +686,8 @@ export function createPosterCardElement(item) {
       if (!trailerUrl && item.id) {
         try {
           const res = await fetch(
-            `/api/trailer?id=${encodeURIComponent(item.id)}&title=${encodeURIComponent(item.title || "")}&year=${encodeURIComponent(item.year || 0)}&media_type=${encodeURIComponent(item.media_type || "movie")}`
+            `/api/trailer?id=${encodeURIComponent(item.id)}&title=${encodeURIComponent(item.title || "")}&year=${encodeURIComponent(item.year || 0)}&media_type=${encodeURIComponent(item.media_type || "movie")}`,
+            { signal: hoverAbort.signal }
           );
           if (res.ok) {
             const data = await res.json();
@@ -654,45 +698,58 @@ export function createPosterCardElement(item) {
         } catch (err) { window.logDebug?.("CatalogCards", err); }
       }
 
-      if (trailerUrl && card.matches(":hover") && !state.isPlayerOpen) {
-        previewVideoEl = document.createElement("video");
+      if (trailerUrl && !hoverAbort.signal.aborted && card.isConnected && card.matches(":hover") && !state.isPlayerOpen) {
+        const previewVideoEl = document.createElement("video");
         previewVideoEl.className = "atv-poster-preview-video";
         previewVideoEl.muted = true;
         previewVideoEl.playsInline = true;
         previewVideoEl.loop = true;
         previewVideoEl.preload = "auto";
         previewVideoEl.src = trailerUrl;
+        _activeHoverVideoEl = previewVideoEl;
         frameEl.appendChild(previewVideoEl);
         previewVideoEl
           .play()
           .then(() => {
-            previewVideoEl?.classList.add("is-visible");
+            if (!hoverAbort.signal.aborted && _activeHoverVideoEl === previewVideoEl) {
+              previewVideoEl.classList.add("is-visible");
+            }
           })
           .catch(() => {});
       }
     }, 600);
   });
 
-  const stopHoverPreview = () => {
-    if (hoverPreviewTimer) {
-      clearTimeout(hoverPreviewTimer);
-      hoverPreviewTimer = null;
-    }
-    if (previewVideoEl) {
-      try {
-        previewVideoEl.pause();
-        previewVideoEl.removeAttribute("src");
-        previewVideoEl.load();
-        previewVideoEl.remove();
-      } catch (err) { window.logDebug?.("CatalogCards", err); }
-      previewVideoEl = null;
-    }
-  };
-
-  card.addEventListener("pointerleave", stopHoverPreview);
-  card.addEventListener("pointercancel", stopHoverPreview);
+  card.addEventListener("pointerleave", stopActiveCardHoverPreview);
+  card.addEventListener("pointercancel", stopActiveCardHoverPreview);
 
   return card;
+}
+
+let hoverPreviewTimer = null;
+let _activeHoverAbort = null;
+let _activeHoverVideoEl = null;
+
+export function stopActiveCardHoverPreview() {
+  if (hoverPreviewTimer) {
+    clearTimeout(hoverPreviewTimer);
+    hoverPreviewTimer = null;
+  }
+  if (_activeHoverAbort) {
+    try {
+      _activeHoverAbort.abort();
+    } catch (_) {}
+    _activeHoverAbort = null;
+  }
+  if (_activeHoverVideoEl) {
+    try {
+      _activeHoverVideoEl.pause();
+      _activeHoverVideoEl.removeAttribute("src");
+      _activeHoverVideoEl.load();
+      _activeHoverVideoEl.remove();
+    } catch (err) { window.logDebug?.("CatalogCards", err); }
+    _activeHoverVideoEl = null;
+  }
 }
 
 export function buildPageNumbers(currentPage, totalPages) {
@@ -716,20 +773,42 @@ export function buildPageNumbers(currentPage, totalPages) {
 export function renderPosterCardsInto(gridEl, items) {
   const PAGE_SIZE = 12;
   const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
-  const pageStateKey = `${gridEl.id}:${state.kinoriumSection}:${state.kinoriumSubType}:${state.mediaTypeFilter}:${state.providerFilter}:${state.genreFilter}:${state.yearFilter}:${state.hideWatched}:${state.friendsFilter}:${state.selectedFriend}:${state.sortBy}:${state.searchQuery.trim()}`;
+  const pageStateKey = `${gridEl.id}:${state.kinoriumSection}:${state.kinoriumSubType}:${state.mediaTypeFilter}:${state.providerFilter}:${state.genreFilter}:${state.yearFilter}:${state.collectionFilter || "all"}:${state.hideWatched}:${state.friendsFilter}:${state.selectedFriend}:${state.sortBy}:${state.searchQuery.trim()}`;
   let currentPage = Math.max(1, Math.min(totalPages, state.gridPages[pageStateKey] || 1));
 
   const pagerContainerId = `${gridEl.id}-pagination`;
-  let existingPager = document.getElementById(pagerContainerId);
-  if (existingPager) existingPager.remove();
 
   function renderPage(pageNum, scrollToTop = false) {
+    stopActiveCardHoverPreview();
     currentPage = Math.max(1, Math.min(totalPages, pageNum));
+    const gpKeys = Object.keys(state.gridPages || {});
+    if (gpKeys.length > 60) {
+      delete state.gridPages[gpKeys[0]];
+    }
     state.gridPages[pageStateKey] = currentPage;
-    gridEl.innerHTML = "";
 
     const startIdx = (currentPage - 1) * PAGE_SIZE;
     const slice = items.slice(startIdx, startIdx + PAGE_SIZE);
+    const sliceSig = slice
+      .map((it) => {
+        const ks = it?.kinorium || {};
+        const hasOff = findOfflineDownloadForTitle(it) ? 1 : 0;
+        return `${it?.id || it?.title || ""}:${ks.watched ? 1 : 0}:${ks.in_watchlist ? 1 : 0}:${ks.watching ? 1 : 0}:${ks.has_new_episode ? 1 : 0}:${ks.user_rating || 0}:${ks.next_season || 0}:${ks.next_episode || 0}:${hasOff}`;
+      })
+      .join("|");
+    const gridRenderSig = `${pageStateKey}|p:${currentPage}/${totalPages}|n:${items.length}|l:${state.appLang || "ru"}|lv:${state.liveSeriesUpdatesVersion || 0}|${sliceSig}`;
+    if (gridEl._gridRenderSig === gridRenderSig && gridEl.childElementCount > 0) {
+      if (scrollToTop) {
+        const sectionEl = gridEl.closest(".atv-section");
+        if (sectionEl) {
+          sectionEl.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+      return;
+    }
+    gridEl._gridRenderSig = gridRenderSig;
+    gridEl.innerHTML = "";
+
     const frag = document.createDocumentFragment();
     slice.forEach((item) => {
       frag.appendChild(createPosterCardElement(item));
@@ -813,6 +892,7 @@ export function cancelPendingCardBatch() {
 
 export function appendPosterCardsProgressive(containerEl, items, { chunkSize = 24, onDone } = {}) {
   cancelPendingCardBatch();
+  stopActiveCardHoverPreview();
   if (!containerEl || !Array.isArray(items) || !items.length) {
     if (typeof onDone === "function") onDone();
     return;

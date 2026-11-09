@@ -1,5 +1,5 @@
 """
-CineFlow Server Lifecycle & Desktop Automation
+Velarium Server Lifecycle & Desktop Automation
 Encapsulates threading HTTP server, macOS AppleScript UI automation,
 background daemons (LAN IP watchdog, watching sync), stale port detection,
 and graceful signal termination handlers.
@@ -48,7 +48,7 @@ def trigger_macos_browser_fullscreen_key(is_running_fn: Optional[Callable[[], bo
 
     script = (
         'tell application "System Events"\n'
-        '  set browserList to {"zen", "Zen", "Zen Browser", "Firefox", "Safari", "Google Chrome", "Arc", "Brave Browser", "Microsoft Edge", "Opera", "Vivaldi", "Orion", "CineFlow", "WebKit"}\n'
+        '  set browserList to {"zen", "Zen", "Zen Browser", "Firefox", "Safari", "Google Chrome", "Arc", "Brave Browser", "Microsoft Edge", "Opera", "Vivaldi", "Orion", "Velarium", "WebKit"}\n'
         '  set frontApp to name of first application process whose frontmost is true\n'
         '  if frontApp is not in browserList then\n'
         '    repeat with bName in browserList\n'
@@ -87,9 +87,9 @@ def trigger_macos_browser_pip_key(engine: str = "", is_running_fn: Optional[Call
 
     gecko_first = engine == "gecko"
     browser_order = (
-        '{"zen", "Zen", "Zen Browser", "Firefox", "Safari", "Google Chrome", "Arc", "Brave Browser", "Microsoft Edge", "Opera", "Vivaldi", "Orion", "CineFlow", "WebKit"}'
+        '{"zen", "Zen", "Zen Browser", "Firefox", "Safari", "Google Chrome", "Arc", "Brave Browser", "Microsoft Edge", "Opera", "Vivaldi", "Orion", "Velarium", "WebKit"}'
         if gecko_first
-        else '{"Safari", "Google Chrome", "Arc", "Brave Browser", "Microsoft Edge", "Opera", "Vivaldi", "Orion", "CineFlow", "WebKit", "zen", "Zen", "Zen Browser", "Firefox"}'
+        else '{"Safari", "Google Chrome", "Arc", "Brave Browser", "Microsoft Edge", "Opera", "Vivaldi", "Orion", "Velarium", "WebKit", "zen", "Zen", "Zen Browser", "Firefox"}'
     )
     script = (
         'tell application "System Events"\n'
@@ -147,7 +147,7 @@ def start_lan_ip_watchdog_daemon(
             except Exception:
                 pass
 
-    t = threading.Thread(target=_lan_watchdog, name="CineFlowLanWatchdog", daemon=True)
+    t = threading.Thread(target=_lan_watchdog, name="VelariumLanWatchdog", daemon=True)
     t.start()
     return t
 
@@ -221,14 +221,14 @@ def start_background_watching_sync_daemon(
                 pass
             time.sleep(check_interval_sec)
 
-    t = threading.Thread(target=_worker, name="CineFlowWatchingSync", daemon=True)
+    t = threading.Thread(target=_worker, name="VelariumWatchingSync", daemon=True)
     t.start()
     return t
 
 
-def is_port_already_serving_cineflow(port: int, app_version: str = "") -> bool:
+def is_port_already_serving_velarium(port: int, app_version: str = "") -> bool:
     """
-    Checks if a local HTTP port is already actively serving CineFlow with the matching version.
+    Checks if a local HTTP port is already actively serving Velarium with the matching version.
     Used by --launchd, desktop webview, and startup scripts to prevent duplicate instances.
     """
     try:
@@ -237,7 +237,7 @@ def is_port_already_serving_cineflow(port: int, app_version: str = "") -> bool:
         with opener.open(req, timeout=0.8) as resp:
             if resp.status == 200:
                 data = json.loads(resp.read().decode("utf-8", errors="ignore"))
-                matches_app = isinstance(data, dict) and data.get("app") == "cineflow"
+                matches_app = isinstance(data, dict) and data.get("app") in ("velarium", "cineflow")
                 if not matches_app:
                     return False
                 if not app_version:
@@ -248,9 +248,9 @@ def is_port_already_serving_cineflow(port: int, app_version: str = "") -> bool:
     return False
 
 
-def stop_stale_cineflow_server_on_port(port: int, app_version: str = "") -> None:
+def stop_stale_velarium_server_on_port(port: int, app_version: str = "") -> None:
     """
-    Terminates any stale CineFlow server process occupying the designated port from an older version.
+    Terminates any stale Velarium server process occupying the designated port from an older version.
     """
     try:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -259,9 +259,9 @@ def stop_stale_cineflow_server_on_port(port: int, app_version: str = "") -> None
             if resp.status != 200:
                 return
             data = json.loads(resp.read().decode("utf-8", errors="ignore"))
-            if not isinstance(data, dict) or data.get("app") != "cineflow":
+            if not isinstance(data, dict) or data.get("app") not in ("velarium", "cineflow"):
                 return
-            if app_version and str(data.get("version") or "") == str(app_version):
+            if app_version and str(data.get("version") or "") == str(app_version) and data.get("app") == "velarium":
                 return
     except Exception:
         return
@@ -304,7 +304,7 @@ def install_graceful_termination_handlers() -> None:
             pass
 
 
-def run_cineflow_server(
+def run_velarium_server(
     port: int = 8765,
     server_runtime: Optional[Dict[str, Any]] = None,
     app_prefs: Optional[Dict[str, Any]] = None,
@@ -319,7 +319,7 @@ def run_cineflow_server(
     cleanup_callbacks: Optional[Sequence[Callable[[], Any]]] = None,
 ) -> None:
     """
-    Main orchestration loop for running the CineFlow HTTP server:
+    Main orchestration loop for running the Velarium HTTP server:
     cleans up stale instances, binds socket, launches background daemons,
     prints startup banner, registers signals, serves HTTP, and guarantees
     resource cleanup on shutdown.
@@ -327,7 +327,7 @@ def run_cineflow_server(
     runtime = server_runtime if server_runtime is not None else {}
     prefs = app_prefs if app_prefs is not None else {}
 
-    stop_stale_cineflow_server_on_port(port, app_version=app_version)
+    stop_stale_velarium_server_on_port(port, app_version=app_version)
     runtime["port"] = port
     runtime["running"] = True
 
@@ -345,7 +345,7 @@ def run_cineflow_server(
     if ensure_torrserver_fn is not None:
         threading.Thread(
             target=ensure_torrserver_fn,
-            name="CineFlowTorrServerBoot",
+            name="VelariumTorrServerBoot",
             daemon=True,
         ).start()
 
@@ -357,7 +357,7 @@ def run_cineflow_server(
 
     lan_ip = detect_lan_fn() if detect_lan_fn is not None else None
     print("============================================================")
-    print("CineFlow Unified Cinema (Apple TV Edition • Poland PL)")
+    print("Velarium Unified Cinema (Apple TV Edition • Poland PL)")
     print(f"Local Cinema Server running at: http://127.0.0.1:{port}")
     if prefs.get("lan_access") and lan_ip:
         print(f"Home Wi-Fi / LAN URL:           http://{lan_ip}:{port}")
@@ -384,4 +384,9 @@ def run_cineflow_server(
                     cleanup()
                 except Exception:
                     pass
+
+
+is_port_already_serving_cineflow = is_port_already_serving_velarium
+stop_stale_cineflow_server_on_port = stop_stale_velarium_server_on_port
+run_cineflow_server = run_velarium_server
 

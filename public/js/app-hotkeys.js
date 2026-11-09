@@ -1,11 +1,11 @@
 /**
- * CineFlow — Global Keyboard Shortcuts & Media Hotkeys Controller (`public/js/app-hotkeys.js`)
+ * Velarium — Global Keyboard Shortcuts & Media Hotkeys Controller (`public/js/app-hotkeys.js`)
  * Manages window focus/visibility tracking, modal Escape stack, Command Palette hotkey,
  * Mini-Player/PiP keyboard shortcuts, and full Player playback/audio/subtitle/crop/Ambilight hotkeys.
  */
 
-import { state } from "./state.js?v=20261105v5";
-import { t } from "./i18n.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
+import { t } from "./i18n.js?v=20261108v19";
 import {
   closeConfirmModal,
   closeCustomSelectMenu,
@@ -15,7 +15,7 @@ import {
   showVideoOsd,
   trapModalTabKey,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
 import {
   applyAudioBoostToVideo,
   applyVideoCropToVideo,
@@ -26,19 +26,19 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261105v5";
+} from "./audio-dsp.js?v=20261108v19";
 import {
   closeCardContextMenu,
   closeCommandPalette,
   closeMovieRouletteModal,
   openCommandPalette,
-} from "./catalog.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261105v5";
-import { jumpToAdjacentTimelineMarker } from "./player-ui-controls.js?v=20261105v5";
+} from "./modals.js?v=20261108v19";
+import { jumpToAdjacentTimelineMarker } from "./player-ui-controls.js?v=20261108v19";
 import {
   captureVideoScreenshot,
   clearAutoplayNextTimer,
@@ -61,10 +61,17 @@ import {
   toggleQuickOriginalAudio,
   toggleStageFullscreen,
   toggleVideoPlayPause,
+  toggleXRayPauseShelf,
   wakeVideoControls,
-} from "./player.js?v=20261105v5";
-import { closeSubtitleDictPopover } from "./subtitles.js?v=20261105v5";
-import { closeOnboardingModal } from "./settings.js?v=20261105v5";
+} from "./player.js?v=20261108v19";
+import { closeSubtitleDictPopover, closeVocabularyModal } from "./subtitles.js?v=20261108v19";
+import {
+  closeBookmarkNoteDialog,
+  closeBookmarksModal,
+  scrollActiveXRayList,
+  switchXRayTab,
+} from "./player-bookmarks.js?v=20261108v19";
+import { closeOnboardingModal } from "./settings.js?v=20261108v19";
 import {
   closeDownloadsModal,
   closeKidsPinModal,
@@ -73,7 +80,7 @@ import {
   closeProfilesModal,
   closeTvCastModal,
   handleTvSpatialKeydown,
-} from "./features.js?v=20261105v5";
+} from "./features.js?v=20261108v19";
 
 export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
   window.addEventListener("focus", () => {
@@ -91,6 +98,14 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
   });
 
   window.addEventListener("keydown", (e) => {
+    if (
+      !state.isAppWindowActive &&
+      !document.hidden &&
+      document.visibilityState === "visible" &&
+      (typeof document.hasFocus !== "function" || document.hasFocus())
+    ) {
+      state.isAppWindowActive = true;
+    }
     if (
       !e.isTrusted ||
       !state.isAppWindowActive ||
@@ -144,7 +159,7 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
         e.preventDefault();
         state.autoplayCancelledThisEpisode = true;
         clearAutoplayNextTimer();
-        showToast(t("Автопереход к следующей серии отменен", "Auto-play next episode cancelled"));
+        showToast(t("Автопереход к следующей серии отменён", "Auto-play next episode cancelled"));
         return;
       }
       const nextEpToast = document.getElementById("player-next-ep-toast");
@@ -202,6 +217,24 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
         closePlayerHandoffModal();
         return;
       }
+      const vocabMod = document.getElementById("vocab-modal");
+      if (vocabMod && !vocabMod.classList.contains("hidden")) {
+        e.preventDefault();
+        closeVocabularyModal();
+        return;
+      }
+      const bmNoteDialog = document.getElementById("atv-bookmark-dialog");
+      if (bmNoteDialog && !bmNoteDialog.classList.contains("hidden")) {
+        e.preventDefault();
+        closeBookmarkNoteDialog(true);
+        return;
+      }
+      const bookmarksMod = document.getElementById("bookmarks-modal");
+      if (bookmarksMod && !bookmarksMod.classList.contains("hidden")) {
+        e.preventDefault();
+        closeBookmarksModal();
+        return;
+      }
       const downloadsMod = document.getElementById("downloads-modal");
       if (downloadsMod && !downloadsMod.classList.contains("hidden")) {
         e.preventDefault();
@@ -214,6 +247,12 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
         if (typeof onRequestCloseSettings === "function") {
           onRequestCloseSettings();
         }
+        return;
+      }
+      const rouletteMod = document.getElementById("movie-roulette-modal");
+      if (rouletteMod && !rouletteMod.classList.contains("hidden")) {
+        e.preventDefault();
+        closeMovieRouletteModal();
         return;
       }
       const statsMod = document.getElementById("stats-modal");
@@ -232,12 +271,6 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
       if (qpMod && !qpMod.classList.contains("hidden")) {
         e.preventDefault();
         closeQuickPeekModal({ clearStack: false });
-        return;
-      }
-      const rouletteMod = document.getElementById("movie-roulette-modal");
-      if (rouletteMod && !rouletteMod.classList.contains("hidden")) {
-        e.preventDefault();
-        closeMovieRouletteModal();
         return;
       }
       const liveSearchPop = document.getElementById("search-live-popover");
@@ -294,7 +327,7 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
         return;
       }
       const xrayShelf = document.getElementById("xray-pause-shelf");
-      if (xrayShelf && !xrayShelf.classList.contains("hidden")) {
+      if (xrayShelf && !xrayShelf.classList.contains("hidden") && !xrayShelf.classList.contains("is-compact")) {
         e.preventDefault();
         hideXRayPauseShelf();
         return;
@@ -319,6 +352,11 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
         toggleStageFullscreen();
         return;
       }
+      if (state.isPlayerOpen && state.officialEmbedActive) {
+        e.preventDefault();
+        switchSourceTab(state.activeOfficialService || state.activeSourceTab, null, { embedMode: false });
+        return;
+      }
       if (state.isPlayerOpen && !state.isMiniPlayer && !state.isPipBackground) {
         e.preventDefault();
         closePlayerModal();
@@ -336,11 +374,31 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
       return;
     }
 
+    if (isTypingTarget || e.ctrlKey || e.metaKey || e.altKey || !state.isPlayerOpen) {
+      return;
+    }
+
+    if (!window._hotkeyModalDomCache) {
+      window._hotkeyModalDomCache = {};
+    }
+    const _getHotkeyModalEl = (id) => {
+      let el = window._hotkeyModalDomCache[id];
+      if (!el || !el.isConnected) {
+        el = document.getElementById(id);
+        if (el) window._hotkeyModalDomCache[id] = el;
+      }
+      return el;
+    };
     const hasTopCatalogModalOpen = [
       "kids-pin-modal",
       "confirm-modal",
+      "command-palette-modal",
       "onboarding-modal",
       "profiles-modal",
+      "tv-cast-modal",
+      "handoff-modal",
+      "vocab-modal",
+      "bookmarks-modal",
       "downloads-modal",
       "person-modal",
       "quick-peek-modal",
@@ -348,20 +406,15 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
       "settings-modal",
       "movie-roulette-modal",
     ].some((id) => {
-      const el = document.getElementById(id);
+      const el = _getHotkeyModalEl(id);
       return el && !el.classList.contains("hidden");
     });
+    if (hasTopCatalogModalOpen) {
+      return;
+    }
 
     // Hotkeys when floating Mini-Player or System PiP background mode is active
-    if (
-      state.isPlayerOpen &&
-      (state.isMiniPlayer || state.isPipBackground) &&
-      !hasTopCatalogModalOpen &&
-      !isTypingTarget &&
-      !e.ctrlKey &&
-      !e.metaKey &&
-      !e.altKey
-    ) {
+    if (state.isMiniPlayer || state.isPipBackground) {
       const miniKey = (e.key || "").toLowerCase();
       if (miniKey === "i" || miniKey === "ш" || e.code === "KeyI") {
         e.preventDefault();
@@ -381,51 +434,41 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
         toggleVideoPlayPause(false);
         return;
       }
+      return;
+    }
+
+    // Stage layout hotkeys (Fullscreen F / Wide Sidebar T) work on all Player tabs
+    const stageKey = (e.key || "").toLowerCase();
+    if (stageKey === "t" || stageKey === "е" || e.code === "KeyT") {
+      e.preventDefault();
+      togglePlayerSidebarCollapsed(true);
+      return;
+    }
+    if ((stageKey === "f" || stageKey === "а" || e.code === "KeyF") && !state.officialEmbedActive) {
+      e.preventDefault();
+      toggleStageFullscreen();
+      return;
     }
 
     // Player keyboard shortcuts ONLY when full Player Modal is active on a video tab and no top overlay is open
     if (
-      !state.isPlayerOpen ||
-      state.isPipBackground ||
-      state.isMiniPlayer ||
-      (state.activeSourceTab !== "hdrezka" &&
-        state.activeSourceTab !== "stremio" &&
-        state.activeSourceTab !== "backup4k" &&
-        state.activeSourceTab !== "offline") ||
-      e.ctrlKey ||
-      e.metaKey ||
-      e.altKey
+      state.activeSourceTab !== "hdrezka" &&
+      state.activeSourceTab !== "stremio" &&
+      state.activeSourceTab !== "backup4k" &&
+      state.activeSourceTab !== "offline"
     ) {
       return;
     }
-    const blockingOverlays = [
-      "kids-pin-modal",
-      "confirm-modal",
-      "onboarding-modal",
-      "profiles-modal",
-      "downloads-modal",
-      "person-modal",
-      "quick-peek-modal",
-      "stats-modal",
-      "settings-modal",
-      "movie-roulette-modal",
-      "kinorium-postwatch-overlay",
-      "atv-bookmark-dialog",
-      "bookmarks-modal",
-    ];
     if (
-      blockingOverlays.some((id) => {
-        const el = document.getElementById(id);
+      ["kinorium-postwatch-overlay", "atv-bookmark-dialog"].some((id) => {
+        const el = _getHotkeyModalEl(id);
         return el && !el.classList.contains("hidden");
       })
     ) {
       return;
     }
-    if (isTypingTarget) {
-      return;
-    }
 
-    const video = document.getElementById("native-video");
+    const video = _getHotkeyModalEl("native-video");
     if (!video) return;
     wakeVideoControls();
     const keyLow = (e.key || "").toLowerCase();
@@ -434,6 +477,39 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
         ".atv-info-sidebar, .atv-releases-list, .atv-episodes-strip, .atv-vc-popover, .atv-gear-popover"
       )
     );
+    const xrayShelfEl = _getHotkeyModalEl("xray-pause-shelf");
+    const isXRayExpanded = Boolean(
+      xrayShelfEl &&
+        !xrayShelfEl.classList.contains("hidden") &&
+        !xrayShelfEl.classList.contains("is-compact")
+    );
+    if (isXRayExpanded && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      if (e.key === "ArrowLeft" && tag !== "SELECT") {
+        e.preventDefault();
+        scrollActiveXRayList(-1);
+        return;
+      }
+      if (e.key === "ArrowRight" && tag !== "SELECT") {
+        e.preventDefault();
+        scrollActiveXRayList(1);
+        return;
+      }
+      if (e.key === "1") {
+        e.preventDefault();
+        switchXRayTab("cast");
+        return;
+      }
+      if (e.key === "2") {
+        e.preventDefault();
+        switchXRayTab("soundtrack");
+        return;
+      }
+      if (e.key === "3") {
+        e.preventDefault();
+        switchXRayTab("trivia");
+        return;
+      }
+    }
 
     if ((e.code === "Space" && !isInteractiveBtnTarget) || keyLow === "k" || keyLow === "л") {
       e.preventDefault();
@@ -561,6 +637,9 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
         stopAmbilightLoop(true);
         showVideoOsd("glow", t("Ambilight подсветка выключена", "Ambilight glow disabled"));
       }
+    } else if (keyLow === "x" || keyLow === "ч" || e.code === "KeyX") {
+      e.preventDefault();
+      toggleXRayPauseShelf();
     } else if (e.code === "BracketRight") {
       if (jumpToAdjacentTimelineMarker(1)) {
         e.preventDefault();

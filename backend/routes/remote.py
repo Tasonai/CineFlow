@@ -19,11 +19,17 @@ from __future__ import annotations
 
 import re
 import socket
+import threading
 import time
 import urllib.parse
 from typing import Any, Dict
 
 from backend.qrcode_svg import detect_lan_ipv4, generate_qr_svg
+
+try:
+    _LOCAL_HOSTNAME = socket.gethostname() or "Velarium"
+except Exception:
+    _LOCAL_HOSTNAME = "Velarium"
 
 
 def handle_tv_devices(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
@@ -80,7 +86,7 @@ def handle_tv_devices(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
     devices = ctx.dlna_manager.discover_devices(timeout_sec=1.5 if force_scan else 1.2, force_refresh=force_scan)
     k_tv_auth = (
         qs.get("k", [""])[0].strip()
-        or str(handler.headers.get("X-CineFlow-Key") or "").strip()
+        or str(handler.headers.get("X-Velarium-Key") or handler.headers.get("X-CineFlow-Key") or "").strip()
     )
     can_read_pair_token = bool(handler._is_loopback_client() or ctx.remote_broker.verify_key(k_tv_auth))
     qr_info = ctx.dlna_manager.build_tv_qr_payload(
@@ -146,7 +152,12 @@ def handle_remote_pairing_get(handler: Any, qs: Dict[str, Any], parsed: Any, ctx
     k_param = qs.get("k", [""])[0].strip()
     has_auth = is_local or ctx.remote_broker.verify_key(k_param)
     auto_lan = qs.get("auto_lan", ["0"])[0].strip().lower() in ("1", "true", "yes")
-    intent_ok = (handler.headers.get("X-CineFlow-Intent") or "").strip().lower() == "pair"
+    intent_ok = (
+        str(handler.headers.get("X-Velarium-Intent") or handler.headers.get("X-CineFlow-Intent") or "")
+        .strip()
+        .lower()
+        == "pair"
+    )
     if (
         is_local
         and auto_lan
@@ -265,7 +276,7 @@ def handle_tv_cast(handler: Any, qs: Dict[str, Any], parsed: Any, body: Dict[str
     control_url = str(body.get("control_url") or "").strip()
     raw_stream = str(body.get("stream_url") or "").strip()
     raw_sub = str(body.get("subtitle_url") or "").strip()
-    title_lbl = str(body.get("title") or "CineFlow").strip()
+    title_lbl = str(body.get("title") or "Velarium").strip()
     dev_name = str(body.get("device_name") or "Smart TV").strip()
     srv_type = str(body.get("service_type") or "urn:schemas-upnp-org:service:AVTransport:1").strip()
     start_pos = max(0.0, ctx.safe_float(body.get("start_sec"), 0.0))
@@ -303,7 +314,7 @@ def handle_tv_cast(handler: Any, qs: Dict[str, Any], parsed: Any, body: Dict[str
 
     if ctx.profile_manager.is_kids_mode_active():
         raw_cast_title = str(body.get("item_title") or "").strip()
-        if not raw_cast_title and title_lbl.lower() != "cineflow":
+        if not raw_cast_title and title_lbl.lower() not in ("velarium", "cineflow"):
             raw_cast_title = re.sub(r"\s*·\s*S\d+E\d+.*$", "", title_lbl, flags=re.I).strip()
         cand_cast = ctx.build_trusted_item_for_kids_check(
             item_id=str(body.get("id") or ""),
@@ -335,7 +346,16 @@ def handle_tv_cast(handler: Any, qs: Dict[str, Any], parsed: Any, body: Dict[str
             ctx.sync_lan_listener(True)
 
     burn_subs = bool(body.get("burn_subtitles") or body.get("burn_subs"))
-    lan_ip = ctx.detect_lan_ipv4()
+    lan_ip = (
+        ctx.detect_lan_ipv4()
+        or str(ctx.server_runtime.get("lan_bound_ip") or "").strip()
+    )
+    if not lan_ip or lan_ip in ("0.0.0.0", "127.0.0.1", "localhost"):
+        handler._send_json(
+            {"ok": False, "error": "Не удалось определить локальный IP-адрес компьютера в сети Wi-Fi/LAN для трансляции на ТВ."},
+            status=400,
+        )
+        return True
     port_num = int(ctx.server_runtime.get("port") or 8765)
     if raw_sub and burn_subs:
         remux_params = {
@@ -402,7 +422,7 @@ def handle_remote_state_post(handler: Any, qs: Dict[str, Any], parsed: Any, body
     if not handler._is_loopback_client():
         handler._send_json({"ok": False, "error": "Loopback only"}, status=403)
         return True
-    st_snap = ctx.remote_broker.update_desktop_state(body)
+    st_snap = ctx.remote_broker.update_desktop_state(body, include_state=False)
     handler._send_json(
         {
             "ok": True,
@@ -478,7 +498,11 @@ def handle_remote_command(handler: Any, qs: Dict[str, Any], parsed: Any, body: D
     client_ip = str((handler.client_address or ("", 0))[0] or "")
     cid = str(body.get("cid") or body.get("client_id") or "").strip()
     dev_name = str(body.get("device") or body.get("device_name") or "").strip()
-    snap_state = ctx.remote_broker.get_snapshot().get("state", {})
+    snap_state = (
+        ctx.remote_broker.get_state_flags()
+        if hasattr(ctx.remote_broker, "get_state_flags")
+        else ctx.remote_broker.get_snapshot().get("state", {})
+    )
     if (
         action == "toggle_fullscreen"
         and ctx.server_runtime.get("running")
@@ -584,7 +608,7 @@ def handle_handoff(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> b
             item_id,
             {
                 "id": item_id,
-                "title": title or "CineFlow",
+                "title": title or "Velarium",
                 "orig_title": orig_title,
                 "year": year,
                 "media_type": media_type,
@@ -617,7 +641,41 @@ def handle_handoff(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> b
     return True
 
 
+_SYNC_MERGE_LOCK = threading.Lock()
+
+
+class _StorageDbSyncStoreAdapter:
+    def __init__(self, db: Any) -> None:
+        self._db = db
+
+    def get(self, key: str, default: Any = None) -> Any:
+        try:
+            val = self._db.get_kv("lan_sync", key, default=default)
+            return default if val is None else val
+        except Exception:
+            return default
+
+    def set(self, key: str, value: Any) -> None:
+        try:
+            self._db.set_kv("lan_sync", key, value)
+        except Exception:
+            pass
+
+
+def _resolve_sync_store(ctx: Any) -> Any:
+    store = getattr(ctx, "store", None)
+    if store is not None and hasattr(store, "get"):
+        return store
+    db = getattr(ctx, "storage_db", None)
+    if db is not None and hasattr(db, "get_kv") and hasattr(db, "set_kv"):
+        return _StorageDbSyncStoreAdapter(db)
+    return None
+
+
 def handle_sync_state(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
+    req_auth = getattr(handler, "_require_authorized_client_if_lan", None)
+    if callable(req_auth) and not req_auth(None):
+        return True
     prof_id = getattr(getattr(ctx, "profile_manager", None), "get_active_profile_id", lambda: "main")()
     is_kids = bool(getattr(getattr(ctx, "profile_manager", None), "is_kids_mode_active", lambda: False)())
     lan_ip = ctx.detect_lan_ipv4() if hasattr(ctx, "detect_lan_ipv4") else detect_lan_ipv4()
@@ -626,7 +684,7 @@ def handle_sync_state(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
     if isinstance(server_addr, tuple) and len(server_addr) >= 2:
         port = int(server_addr[1])
 
-    store = getattr(ctx, "store", None)
+    store = _resolve_sync_store(ctx)
     state_payload = {
         "ok": True,
         "device_name": socket.gethostname(),
@@ -637,18 +695,27 @@ def handle_sync_state(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
         "sync_ts": time.time(),
         "watch_history": store.get(f"sync_history_{prof_id}", []) if store and hasattr(store, "get") else [],
         "bookmarks": store.get(f"sync_bookmarks_{prof_id}", []) if store and hasattr(store, "get") else [],
+        "preferred_studios": store.get(f"sync_studios_{prof_id}", {}) if store and hasattr(store, "get") else {},
     }
     handler._send_json(state_payload)
     return True
 
 
-def handle_sync_merge(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
-    try:
-        body = handler._read_json_body()
-    except Exception:
-        body = {}
+def handle_sync_merge(handler: Any, qs: Dict[str, Any], parsed: Any, body: Any = None, ctx: Any = None) -> bool:
+    if ctx is None and body is not None and not isinstance(body, dict):
+        ctx = body
+        body = None
+    if not isinstance(body, dict) or not body:
+        try:
+            body = handler._read_json_body()
+        except Exception:
+            body = {}
     if not isinstance(body, dict):
         body = {}
+
+    req_auth = getattr(handler, "_require_authorized_client_if_lan", None)
+    if callable(req_auth) and not req_auth(body):
+        return True
 
     prof_mgr = getattr(ctx, "profile_manager", None)
     is_kids = bool(getattr(prof_mgr, "is_kids_mode_active", lambda: False)())
@@ -656,55 +723,105 @@ def handle_sync_merge(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
 
     in_history = body.get("watch_history") or []
     in_bookmarks = body.get("bookmarks") or []
+    in_studios = body.get("preferred_studios") if isinstance(body.get("preferred_studios"), dict) else {}
 
     # If local device is in Kids mode, filter out non-kids-safe content
     if is_kids and prof_mgr and hasattr(prof_mgr, "is_item_kids_safe"):
         in_history = [it for it in in_history if isinstance(it, dict) and prof_mgr.is_item_kids_safe(it)]
         in_bookmarks = [it for it in in_bookmarks if isinstance(it, dict) and prof_mgr.is_item_kids_safe(it)]
 
-    store = getattr(ctx, "store", None)
+    store = _resolve_sync_store(ctx)
     merged_history_count = 0
     merged_bookmarks_count = 0
+    merged_studios_count = 0
+    merged_hist_list = list(in_history)[:300]
+    merged_bm_list = list(in_bookmarks)[:500]
+    merged_studios_map = dict(in_studios)
 
     if store and hasattr(store, "get") and hasattr(store, "set"):
-        hist_key = f"sync_history_{prof_id}"
-        bm_key = f"sync_bookmarks_{prof_id}"
-        cur_hist = list(store.get(hist_key, []) or [])
-        cur_bm = list(store.get(bm_key, []) or [])
+        with _SYNC_MERGE_LOCK:
+            hist_key = f"sync_history_{prof_id}"
+            bm_key = f"sync_bookmarks_{prof_id}"
+            st_key = f"sync_studios_{prof_id}"
+            cur_hist = list(store.get(hist_key, []) or [])
+            cur_bm = list(store.get(bm_key, []) or [])
+            cur_st = dict(store.get(st_key, {}) or {})
 
-        # Merge history by item id with last-write-wins
-        hist_map = {str(it.get("id") or it.get("title") or ""): it for it in cur_hist if isinstance(it, dict)}
-        for it in in_history:
-            if not isinstance(it, dict):
-                continue
-            iid = str(it.get("id") or it.get("title") or "")
-            if not iid:
-                continue
-            existing = hist_map.get(iid)
-            if not existing or (it.get("updatedAt", 0) or it.get("ts", 0)) >= (existing.get("updatedAt", 0) or existing.get("ts", 0)):
-                hist_map[iid] = it
-                merged_history_count += 1
-        store.set(hist_key, list(hist_map.values())[:300])
+            def _sync_ts(entry: Dict[str, Any], fallback_key: str = "ts") -> float:
+                raw = entry.get("updatedAt")
+                if raw is None:
+                    raw = entry.get(fallback_key, 0)
+                try:
+                    return float(raw or 0)
+                except (ValueError, TypeError):
+                    return 0.0
 
-        # Merge bookmarks by id or (itemId, time)
-        bm_map = {str(m.get("id") or f"{m.get('itemId')}_{m.get('time')}"): m for m in cur_bm if isinstance(m, dict)}
-        for m in in_bookmarks:
-            if not isinstance(m, dict):
-                continue
-            mid = str(m.get("id") or f"{m.get('itemId')}_{m.get('time')}")
-            if not mid:
-                continue
-            existing = bm_map.get(mid)
-            if not existing or (m.get("updatedAt", 0) or m.get("time", 0)) >= (existing.get("updatedAt", 0) or existing.get("time", 0)):
-                bm_map[mid] = m
-                merged_bookmarks_count += 1
-        store.set(bm_key, list(bm_map.values())[:500])
+            def _bm_key(m: Dict[str, Any]) -> str:
+                raw_mid = m.get("id")
+                if not raw_mid and m.get("itemId") is not None and m.get("time") is not None:
+                    raw_mid = f"{m.get('itemId')}_{m.get('time')}"
+                return str(raw_mid or "").strip()
+
+            # Merge history by item id with last-write-wins
+            hist_map = {str(it.get("id") or it.get("title") or ""): it for it in cur_hist if isinstance(it, dict) and str(it.get("id") or it.get("title") or "").strip()}
+            for it in in_history:
+                if not isinstance(it, dict):
+                    continue
+                iid = str(it.get("id") or it.get("title") or "").strip()
+                if not iid:
+                    continue
+                existing = hist_map.get(iid)
+                if not existing or _sync_ts(it, "ts") >= _sync_ts(existing, "ts"):
+                    hist_map[iid] = it
+                    merged_history_count += 1
+            merged_hist_list = sorted(hist_map.values(), key=lambda x: _sync_ts(x, "ts"), reverse=True)[:300]
+            store.set(hist_key, merged_hist_list)
+
+            # Merge bookmarks by id or (itemId, time)
+            bm_map = {}
+            for m in cur_bm:
+                if isinstance(m, dict):
+                    mk = _bm_key(m)
+                    if mk:
+                        bm_map[mk] = m
+            for m in in_bookmarks:
+                if not isinstance(m, dict):
+                    continue
+                mid = _bm_key(m)
+                if not mid:
+                    continue
+                existing = bm_map.get(mid)
+                if not existing or _sync_ts(m, "time") >= _sync_ts(existing, "time"):
+                    bm_map[mid] = m
+                    merged_bookmarks_count += 1
+            merged_bm_list = list(bm_map.values())[:500]
+            store.set(bm_key, merged_bm_list)
+
+            # Merge per-series preferred studios by key with last-write-wins
+            st_map = {str(k): v for k, v in cur_st.items() if isinstance(v, dict)}
+            for k, v in in_studios.items():
+                if not k or not isinstance(v, dict):
+                    continue
+                existing = st_map.get(str(k))
+                if not existing or _sync_ts(v, "updated_at") >= _sync_ts(existing, "updated_at"):
+                    st_map[str(k)] = v
+                    merged_studios_count += 1
+            merged_studios_map = st_map
+            store.set(st_key, merged_studios_map)
+    else:
+        merged_history_count = len([x for x in in_history if isinstance(x, dict)])
+        merged_bookmarks_count = len([x for x in in_bookmarks if isinstance(x, dict)])
+        merged_studios_count = len([v for v in in_studios.values() if isinstance(v, dict)])
 
     handler._send_json({
         "ok": True,
         "device_name": socket.gethostname(),
         "merged_history": merged_history_count,
         "merged_bookmarks": merged_bookmarks_count,
+        "merged_studios": merged_studios_count,
+        "watch_history": merged_hist_list,
+        "bookmarks": merged_bm_list,
+        "preferred_studios": merged_studios_map,
         "profile_id": prof_id,
         "sync_ts": time.time(),
     })
@@ -721,7 +838,7 @@ def handle_sync_peers(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
     peers = []
     # Local self-peer
     peers.append({
-        "name": f"{socket.gethostname()} (это устройство)",
+        "name": f"{_LOCAL_HOSTNAME} (это устройство)",
         "ip": lan_ip or "127.0.0.1",
         "port": port,
         "is_self": True,
@@ -730,17 +847,31 @@ def handle_sync_peers(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
 
     # Discovered DLNA/Smart TV devices
     dlna_mgr = getattr(ctx, "dlna_manager", None)
-    if dlna_mgr and hasattr(dlna_mgr, "discovered_renderers"):
-        for dev in list(getattr(dlna_mgr, "discovered_renderers", {}).values()):
-            if isinstance(dev, dict):
-                peers.append({
-                    "name": dev.get("name") or "Smart TV",
-                    "ip": dev.get("location") or dev.get("ip") or "",
-                    "port": 0,
-                    "is_self": False,
-                    "kind": "tv",
-                    "online": True,
-                })
+    if dlna_mgr:
+        if hasattr(dlna_mgr, "discovered_renderers") and isinstance(getattr(dlna_mgr, "discovered_renderers", None), dict):
+            for dev in list(getattr(dlna_mgr, "discovered_renderers", {}).values()):
+                if isinstance(dev, dict):
+                    peers.append({
+                        "name": dev.get("name") or "Smart TV",
+                        "ip": dev.get("location") or dev.get("ip") or dev.get("host") or "",
+                        "port": 0,
+                        "is_self": False,
+                        "kind": "tv",
+                        "online": True,
+                    })
+        elif hasattr(dlna_mgr, "_cached_devices"):
+            with getattr(dlna_mgr, "_lock", threading.Lock()):
+                cached_devs = list(getattr(dlna_mgr, "_cached_devices", []) or [])
+            for dev in cached_devs:
+                if isinstance(dev, dict):
+                    peers.append({
+                        "name": dev.get("name") or "Smart TV",
+                        "ip": dev.get("host") or dev.get("location") or dev.get("ip") or dev.get("location_url") or "",
+                        "port": 0,
+                        "is_self": False,
+                        "kind": "tv",
+                        "online": True,
+                    })
 
     handler._send_json({
         "ok": True,

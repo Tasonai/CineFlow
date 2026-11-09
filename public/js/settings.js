@@ -1,4 +1,5 @@
 import {
+  BOOKMARKS_STORAGE_KEY,
   EPISODE_PROGRESS_STORAGE_KEY,
   PLAYER_PREFS_STORAGE_KEY,
   PREFERRED_STUDIOS_STORAGE_KEY,
@@ -9,14 +10,14 @@ import {
   profileStorageKey,
   profileStorageKeyFor,
   state,
-} from "./state.js?v=20261105v5";
+} from "./state.js?v=20261108v19";
 import {
   applyStaticDomTranslations,
   displayAddonDescription,
   isEn,
   syncLanguageSegmentedControlUI,
   t,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   closeCustomSelectMenu,
   copyTextToClipboard,
@@ -32,31 +33,32 @@ import {
   syncAllCustomSelects,
   syncCustomSelect,
   syncScrollTopButton,
-} from "./utils.js?v=20261105v5";
-import { applyEnabledServicesVisibility, isServiceEnabled } from "./catalog-media-resolver.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
+import { applyEnabledServicesVisibility, isServiceEnabled } from "./catalog-media-resolver.js?v=20261108v19";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261105v5";
-import { renderHero } from "./catalog-hero.js?v=20261105v5";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261105v5";
+} from "./catalog-shelves.js?v=20261108v19";
+import { renderHero } from "./catalog-hero.js?v=20261108v19";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261108v19";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
-} from "./catalog-filters.js?v=20261105v5";
+} from "./catalog-filters.js?v=20261108v19";
 import {
+  clearCatalogFrontendCache,
   loadCatalog,
   renderLoginBannerIfNeeded,
   updateFriendsFilterDropdown,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261105v5";
-import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261105v5";
-import { loadStremioStreams } from "./player-streams.js?v=20261105v5";
-import { renderModalProvidersSidebar } from "./player-meta.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
+import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261108v19";
+import { loadStremioStreams } from "./player-streams.js?v=20261108v19";
+import { renderModalProvidersSidebar } from "./player-meta.js?v=20261108v19";
 import {
   refreshOpenPlayerLanguageUI,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261105v5";
+} from "./player.js?v=20261108v19";
 import {
   applyProfilesPayload,
   ensureKidsPinVerifiedForAdminAction,
@@ -69,12 +71,12 @@ import {
   renderProfilesModalUI,
   renderTvCastModalUI,
   startOneClickKinoriumLogin,
-} from "./features.js?v=20261105v5";
+} from "./features.js?v=20261108v19";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   syncDesktopConnectedRemotesUI,
-} from "./remote.js?v=20261105v5";
+} from "./remote.js?v=20261108v19";
 import {
   changeUserCountryInstant,
   closeOnboardingModal,
@@ -85,7 +87,7 @@ import {
   setOnboardingStep,
   skipOnboardingModal,
   submitOnboardingModal,
-} from "./settings-onboarding.js?v=20261105v5";
+} from "./settings-onboarding.js?v=20261108v19";
 import {
   buildFullBackupPayload,
   checkAppUpdates,
@@ -97,7 +99,7 @@ import {
   saveUpdaterSettingsImmediate,
   startAppUpdateDownload,
   updateBackupSummaryStat,
-} from "./settings-updater.js?v=20261105v5";
+} from "./settings-updater.js?v=20261108v19";
 
 export {
   buildFullBackupPayload,
@@ -145,7 +147,7 @@ export function applyAppLanguage(nextLang, options = {}) {
   renderLoginBannerIfNeeded();
   renderHero();
   renderContinueWatching();
-  renderCatalogShelves();
+  renderCatalogShelves({ skipHero: true });
   renderIntegrationsList();
   renderSettingsCountryUI();
   renderStremioAddonsList();
@@ -196,7 +198,7 @@ export function applyAppLanguage(nextLang, options = {}) {
   }
 
   try {
-    window.webkit?.messageHandlers?.cineflowNative?.postMessage({
+    window.webkit?.messageHandlers?.velariumNative?.postMessage({
       action: "appLangChanged",
       lang: norm,
     });
@@ -335,11 +337,12 @@ export async function toggleServiceEnabled(serviceId, isEnabled) {
       applyEnabledServicesVisibility();
       renderIntegrationsList();
       renderLoginBannerIfNeeded();
+      clearCatalogFrontendCache();
       await loadCatalog();
       showToast(
         isEnabled
-          ? t(`Сервис «${srvName}» включен`, `Service "${srvName}" enabled`)
-          : t(`Сервис «${srvName}» отключен и скрыт во всём приложении`, `Service "${srvName}" disabled and hidden`)
+          ? t(`Сервис «${srvName}» включён`, `Service "${srvName}" enabled`)
+          : t(`Сервис «${srvName}» отключён и скрыт во всём приложении`, `Service "${srvName}" disabled and hidden`)
       );
     }
   } catch (err) {
@@ -365,7 +368,18 @@ export function buildServiceToggleHtml(serviceId, isEnabled, serviceLabel = "") 
 export function renderIntegrationsList() {
   const listEl = document.getElementById("integrations-list");
   if (!listEl) return;
+  const activeAddonsCountSig = (state.stremioAddons || []).filter((a) => a && a.enabled !== false).length;
+  const acc = state.kinoriumAccount || {};
+  const integSig = `${state.appLang || "ru"}|${Boolean(state.kinoriumFormExpanded)}|${Boolean(state.systemStatus?.is_local_client)}|${acc.connected ? 1 : 0}:${acc.user_id || ""}:${acc.display_name || ""}:${acc.has_session_cookie ? 1 : 0}|${activeAddonsCountSig}|${Object.keys(state.pendingServiceLogins || {}).join(",")}|${JSON.stringify(state.integrations || {})}`;
+  if (listEl._integrationsSig === integSig && listEl.childElementCount > 0) {
+    return;
+  }
+  listEl._integrationsSig = integSig;
+  const prevPaidDetailsOpen = Boolean(
+    listEl.querySelector(".atv-paid-services-details")?.hasAttribute("open")
+  );
   listEl.innerHTML = "";
+  const integFrag = document.createDocumentFragment();
 
   const order = [
     "kinorium",
@@ -379,8 +393,13 @@ export function renderIntegrationsList() {
     "max",
     "playerpl",
   ];
+  const paidKeys = new Set(["appletv", "netflix", "prime", "disney", "max", "playerpl"]);
+  const anyPaidConnected = Array.from(paidKeys).some(
+    (k) => Boolean(state.integrations?.[k]?.logged_in)
+  );
   let renderedKinoriumGroup = false;
   let renderedVideoGroup = false;
+  let paidServicesBodyEl = null;
 
   order.forEach((key) => {
     const integ = state.integrations[key];
@@ -391,13 +410,31 @@ export function renderIntegrationsList() {
       const groupHead = document.createElement("div");
       groupHead.className = "integrations-group-label";
       groupHead.textContent = t("Профиль", "Profile");
-      listEl.appendChild(groupHead);
+      integFrag.appendChild(groupHead);
     } else if (key !== "kinorium" && !renderedVideoGroup) {
       renderedVideoGroup = true;
       const groupHead = document.createElement("div");
       groupHead.className = "integrations-group-label";
       groupHead.textContent = t("Источники видео", "Video Sources");
-      listEl.appendChild(groupHead);
+      integFrag.appendChild(groupHead);
+    }
+
+    if (paidKeys.has(key) && !paidServicesBodyEl) {
+      const paidDetails = document.createElement("details");
+      paidDetails.className = "atv-advanced-details atv-paid-services-details";
+      if (prevPaidDetailsOpen || anyPaidConnected) {
+        paidDetails.setAttribute("open", "");
+      }
+      const summary = document.createElement("summary");
+      summary.textContent = t(
+        "Официальные видеосервисы (по подписке)",
+        "Official Subscription Services"
+      );
+      paidDetails.appendChild(summary);
+      paidServicesBodyEl = document.createElement("div");
+      paidServicesBodyEl.className = "atv-paid-services-list";
+      paidDetails.appendChild(paidServicesBodyEl);
+      integFrag.appendChild(paidDetails);
     }
 
     const isEnabled = integ.enabled !== false;
@@ -501,7 +538,7 @@ export function renderIntegrationsList() {
               ? t(" · двусторонняя синхронизация", " · two-way sync")
               : t(" · списки и оценки", " · lists & ratings")
           }`
-        : t("Профиль не подключен", "Profile not connected");
+        : t("Профиль не подключён", "Profile not connected");
 
       row.innerHTML = `
         <div class="kin-card-top">
@@ -512,7 +549,13 @@ export function renderIntegrationsList() {
             </div>
           </div>
           <div class="integration-actions">
-            <button type="button" class="atv-btn-secondary atv-btn-xs btn-open-profiles-from-kin">${t("Домашние профили", "Profiles")}</button>
+            ${
+              isEnabled && !isConnected && !state.kinoriumFormExpanded
+                ? `<button type="button" class="atv-btn-primary atv-btn-xs btn-kin-one-click">
+                    <span>${t("Войти в 1 клик (авто)", "1-Click Sign In")}</span>
+                  </button>`
+                : ""
+            }
             ${
               isEnabled && isConnected && !showFullForm
                 ? `<button type="button" class="atv-btn-secondary atv-btn-xs btn-sync-kin-quick">${t("Синхронизировать", "Sync")}</button>
@@ -525,6 +568,38 @@ export function renderIntegrationsList() {
         ${
           !isEnabled || !showFullForm
             ? ""
+            : !isConnected && !state.kinoriumFormExpanded
+            ? `
+        <details class="atv-advanced-details kin-manual-details">
+          <summary>${t("Ввести ID или Session Cookie вручную", "Enter Profile ID or Cookie manually")}</summary>
+          <div class="kin-switcher-box">
+            <div class="kin-switcher-row">
+              <input
+                type="text"
+                class="kin-switcher-input"
+                id="kin-quick-user-input"
+                autocomplete="off"
+                aria-label="${escapeAttr(t("ID или ссылка на профиль", "Profile ID or URL"))}"
+                value="${escapeAttr(currentInputVal)}"
+                placeholder="${t("ID или ссылка на профиль (например 51670)", "Profile ID or URL (e.g. 51670)")}"
+              />
+              <input
+                type="password"
+                class="kin-switcher-input"
+                id="kin-quick-cookie-input"
+                autocomplete="off"
+                spellcheck="false"
+                aria-label="${escapeAttr(t("Session Cookie из браузера", "Browser Session Cookie"))}"
+                placeholder="${escapeAttr(cookiePlaceholder)}"
+              />
+            </div>
+            <div class="kin-switcher-row is-actions">
+              <button type="button" class="atv-btn-secondary atv-btn-xs btn-sync-kin">
+                <span>${t("По ID вручную", "Connect by ID")}</span>
+              </button>
+            </div>
+          </div>
+        </details>`
             : `
         <div class="kin-switcher-box">
           <div class="kin-switcher-row">
@@ -532,6 +607,8 @@ export function renderIntegrationsList() {
               type="text"
               class="kin-switcher-input"
               id="kin-quick-user-input"
+              autocomplete="off"
+              aria-label="${escapeAttr(t("ID или ссылка на профиль", "Profile ID or URL"))}"
               value="${escapeAttr(currentInputVal)}"
               placeholder="${t("ID или ссылка на профиль (например 51670)", "Profile ID or URL (e.g. 51670)")}"
             />
@@ -539,6 +616,9 @@ export function renderIntegrationsList() {
               type="password"
               class="kin-switcher-input"
               id="kin-quick-cookie-input"
+              autocomplete="off"
+              spellcheck="false"
+              aria-label="${escapeAttr(t("Session Cookie из браузера", "Browser Session Cookie"))}"
               placeholder="${escapeAttr(cookiePlaceholder)}"
             />
           </div>
@@ -608,11 +688,12 @@ export function renderIntegrationsList() {
           }
           renderIntegrationsList();
           syncSettingsFooterUI();
+          clearCatalogFrontendCache();
           await loadCatalog();
           if (data.sync?.error) {
             showToast(`${t("Ошибка", "Error")}: ${data.sync.error}`);
           } else {
-            const switchedNote = data.sync?.switched_user ? t("Профиль переключен! ", "Profile switched! ") : "";
+            const switchedNote = data.sync?.switched_user ? t("Профиль переключён! ", "Profile switched! ") : "";
             showToast(
               t(
                 `${switchedNote}Kinorium: ${data.sync?.display_name || rawInput} (Смотрю: ${
@@ -697,7 +778,7 @@ export function renderIntegrationsList() {
             title: t("Отключить профиль Kinorium?", "Disconnect Kinorium profile?"),
             message: t(
               "Списки «Смотрю», «Буду смотреть», «Просмотрено» и сохранённые куки будут отвязаны от приложения. Вы сможете подключить профиль заново в любой момент.",
-              "Your Watching, Watchlist, Watched lists and saved cookies will be unlinked from CineFlow. You can reconnect your profile anytime."
+              "Your Watching, Watchlist, Watched lists and saved cookies will be unlinked from Velarium. You can reconnect your profile anytime."
             ),
             confirmLabel: t("Отключить", "Disconnect"),
             cancelLabel: t("Отмена", "Cancel"),
@@ -730,8 +811,9 @@ export function renderIntegrationsList() {
             if (data.integrations) state.integrations = data.integrations;
             renderIntegrationsList();
             syncSettingsFooterUI();
+            clearCatalogFrontendCache();
             await loadCatalog();
-            showToast(t("Профиль Kinorium отключен и очищен для нового пользователя", "Kinorium profile disconnected"));
+            showToast(t("Профиль Kinorium отключён и очищен для нового пользователя", "Kinorium profile disconnected"));
           } catch (err) {
             if (btn.isConnected) {
               btn.textContent = prevText;
@@ -828,8 +910,13 @@ export function renderIntegrationsList() {
       };
     }
 
-    listEl.appendChild(row);
+    if (paidKeys.has(key) && paidServicesBodyEl) {
+      paidServicesBodyEl.appendChild(row);
+    } else {
+      integFrag.appendChild(row);
+    }
   });
+  listEl.appendChild(integFrag);
 }
 export function getNetworkSettingsSnapshot() {
   return {
@@ -903,7 +990,7 @@ export function syncSettingsFooterUI() {
     footerEl.classList.toggle("hidden", !dirty);
   }
   if (hintEl) {
-    hintEl.textContent = t("Есть несохраненные изменения", "Unsaved changes");
+    hintEl.textContent = t("Есть несохранённые изменения", "Unsaved changes");
   }
   if (resetBtn) {
     resetBtn.textContent = t("Сбросить", "Reset");
@@ -918,7 +1005,7 @@ export function renderTorrserverStatusText() {
   const hwTag = state.hwAccelSummary ? ` · ${state.hwAccelSummary}` : "";
   torrStatusEl.textContent = tConn
     ? t(
-        `TorrServer подключен${rAvail ? ` · ремукс активен${hwTag}` : ""}`,
+        `TorrServer подключён${rAvail ? ` · ремукс активен${hwTag}` : ""}`,
         `TorrServer connected${rAvail ? ` · remux active${hwTag}` : ""}`
       )
     : t(
@@ -1001,14 +1088,22 @@ export async function triggerLanSync() {
     const activeProf = state.activeProfileId || "main";
     let localHistory = [];
     try {
-      const stored = localStorage.getItem("cineflow_watch_progress") || localStorage.getItem("watch_history");
-      if (stored) localHistory = JSON.parse(stored);
+      localHistory = getWatchHistoryList();
     } catch (err) { window.logDebug?.("Settings", err); }
 
     let localBookmarks = [];
     try {
-      const bms = localStorage.getItem("cineflow_moments") || localStorage.getItem("saved_moments");
+      const bms =
+        localStorage.getItem(profileStorageKey(BOOKMARKS_STORAGE_KEY)) ||
+        localStorage.getItem("velarium_moments") ||
+        localStorage.getItem("saved_moments");
       if (bms) localBookmarks = JSON.parse(bms);
+    } catch (err) { window.logDebug?.("Settings", err); }
+
+    let localPreferredStudios = {};
+    try {
+      const rawStudios = localStorage.getItem(profileStorageKey(PREFERRED_STUDIOS_STORAGE_KEY));
+      if (rawStudios) localPreferredStudios = JSON.parse(rawStudios) || {};
     } catch (err) { window.logDebug?.("Settings", err); }
 
     let peers = [];
@@ -1027,10 +1122,32 @@ export async function triggerLanSync() {
         profile_id: activeProf,
         watch_history: Array.isArray(localHistory) ? localHistory : [],
         bookmarks: Array.isArray(localBookmarks) ? localBookmarks : [],
+        preferred_studios:
+          localPreferredStudios && typeof localPreferredStudios === "object" ? localPreferredStudios : {},
       }),
     });
 
     const mergeData = mergeRes.ok ? await mergeRes.json() : {};
+    try {
+      if (Array.isArray(mergeData.watch_history) && mergeData.watch_history.length > 0) {
+        localStorage.setItem(
+          profileStorageKey(WATCH_HISTORY_STORAGE_KEY),
+          JSON.stringify(mergeData.watch_history.slice(0, 150))
+        );
+      }
+      if (Array.isArray(mergeData.bookmarks) && mergeData.bookmarks.length > 0) {
+        localStorage.setItem(
+          profileStorageKey(BOOKMARKS_STORAGE_KEY),
+          JSON.stringify(mergeData.bookmarks.slice(0, 500))
+        );
+      }
+      if (mergeData.preferred_studios && typeof mergeData.preferred_studios === "object") {
+        localStorage.setItem(
+          profileStorageKey(PREFERRED_STUDIOS_STORAGE_KEY),
+          JSON.stringify(mergeData.preferred_studios)
+        );
+      }
+    } catch (err) { window.logDebug?.("Settings", err); }
 
     if (statusEl) {
       const countHist = mergeData.merged_history || 0;
@@ -1046,7 +1163,7 @@ export async function triggerLanSync() {
         peersCont.classList.remove("hidden");
         peersList.innerHTML = peers.map(p => `
           <div class="atv-lan-sync-peer-item">
-            <span class="atv-lan-sync-peer-name">${escapeHtml(p.name || p.device || "CineFlow Device")}</span>
+            <span class="atv-lan-sync-peer-name">${escapeHtml(p.name || p.device || "Velarium Device")}</span>
             <span class="atv-lan-sync-peer-ip">${escapeHtml(p.ip || "")}</span>
           </div>
         `).join("");
@@ -1085,7 +1202,7 @@ export async function toggleLanAccess(enabled) {
     showToast(
       enabled
         ? t(
-            `Доступ в домашней сети включен${data?.system?.lan_url ? `: ${data.system.lan_url}` : ""}`,
+            `Доступ в домашней сети включён${data?.system?.lan_url ? `: ${data.system.lan_url}` : ""}`,
             `Home Wi-Fi access enabled${data?.system?.lan_url ? `: ${data.system.lan_url}` : ""}`
           )
         : t("Доступ ограничен только этим компьютером (127.0.0.1)", "Access restricted to this computer (127.0.0.1)")
@@ -1118,14 +1235,16 @@ export async function toggleMacosAutostart(enabled) {
     const osLabel = isWinHost ? "Windows" : "macOS";
     showToast(
       enabled
-        ? t(`Автозапуск CineFlow при входе в ${osLabel} включен`, `CineFlow ${osLabel} login autostart enabled`)
-        : t(`Автозапуск CineFlow при входе в ${osLabel} отключен`, `CineFlow ${osLabel} login autostart disabled`)
+        ? t(`Автозапуск Velarium при входе в ${osLabel} включён`, `Velarium ${osLabel} login autostart enabled`)
+        : t(`Автозапуск Velarium при входе в ${osLabel} отключён`, `Velarium ${osLabel} login autostart disabled`)
     );
   } catch (_) {
     showToast(t("Не удалось обновить настройку автозапуска", "Failed to update login autostart setting"));
     renderSystemStatusUI();
   }
 }
+let _settingsLoadAbort = null;
+
 export async function openSettingsModal(initialTab = "integrations", focusKinoriumInput = false) {
   const settingsModEl = document.getElementById("settings-modal");
   const wasHidden = Boolean(settingsModEl && settingsModEl.classList.contains("hidden"));
@@ -1141,7 +1260,36 @@ export async function openSettingsModal(initialTab = "integrations", focusKinori
   if (wasHidden) {
     rememberModalTriggerFocus("settings-modal");
   }
-  const res = await fetch(`/api/settings?lang=${encodeURIComponent(state.appLang || "ru")}`);
+  if (focusKinoriumInput) {
+    state.kinoriumFormExpanded = true;
+  }
+  syncLanguageSegmentedControlUI();
+  renderSettingsCountryUI();
+  renderIntegrationsList();
+  renderStremioAddonsList();
+  switchSettingsTab(initialTab);
+  syncSettingsFooterUI();
+  document.getElementById("settings-modal")?.classList.remove("hidden");
+  syncScrollTopButton();
+
+  if (_settingsLoadAbort) {
+    try {
+      _settingsLoadAbort.abort();
+    } catch (_) {}
+  }
+  const settingsAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
+  _settingsLoadAbort = settingsAbort;
+  let res;
+  try {
+    res = await fetch(
+      `/api/settings?lang=${encodeURIComponent(state.appLang || "ru")}`,
+      settingsAbort ? { signal: settingsAbort.signal } : undefined
+    );
+  } catch (err) {
+    if (err && err.name === "AbortError") return;
+    res = { ok: false };
+  }
+  if (settingsAbort && settingsAbort.signal.aborted) return;
   const cfg = res.ok ? await res.json().catch(() => ({})) : {};
   if (cfg.integrations) {
     state.integrations = cfg.integrations;
@@ -1179,9 +1327,12 @@ export async function openSettingsModal(initialTab = "integrations", focusKinori
   if (typeof cfg.setup_completed === "boolean") {
     state.setupCompleted = cfg.setup_completed;
   }
-  document.getElementById("cfg-spoof-region").value = cfg.hdrezka?.spoof_region || "KZ";
-  document.getElementById("cfg-custom-mirror").value = cfg.hdrezka?.custom_mirror || "";
-  document.getElementById("cfg-proxy-url").value = cfg.hdrezka?.proxy_url || "";
+  const spoofRegionEl = document.getElementById("cfg-spoof-region");
+  if (spoofRegionEl) spoofRegionEl.value = cfg.hdrezka?.spoof_region || "KZ";
+  const customMirrorEl = document.getElementById("cfg-custom-mirror");
+  if (customMirrorEl) customMirrorEl.value = cfg.hdrezka?.custom_mirror || "";
+  const proxyUrlEl = document.getElementById("cfg-proxy-url");
+  if (proxyUrlEl) proxyUrlEl.value = cfg.hdrezka?.proxy_url || "";
   const cfWorkerEl = document.getElementById("cfg-cf-worker");
   if (cfWorkerEl) cfWorkerEl.value = cfg.hdrezka?.cf_worker_relay || "";
   const rawMode = cfg.backup_stream?.mode || "torrserver";
@@ -1191,9 +1342,11 @@ export async function openSettingsModal(initialTab = "integrations", focusKinori
         ? "realdebrid"
         : "torrserver"
       : rawMode;
-  document.getElementById("cfg-backup-mode").value = normMode;
+  const backupModeEl = document.getElementById("cfg-backup-mode");
+  if (backupModeEl) backupModeEl.value = normMode;
   const torrUrlVal = cfg.backup_stream?.torrserver_url || "http://127.0.0.1:8090";
-  document.getElementById("cfg-torrserver-url").value = torrUrlVal;
+  const torrUrlEl = document.getElementById("cfg-torrserver-url");
+  if (torrUrlEl) torrUrlEl.value = torrUrlVal;
   const detRezka = document.getElementById("details-net-hdrezka");
   if (detRezka) {
     detRezka.open = Boolean(
@@ -1212,7 +1365,7 @@ export async function openSettingsModal(initialTab = "integrations", focusKinori
   if (debridInp) {
     debridInp.value = "";
     debridInp.placeholder = cfg.backup_stream?.debrid_configured
-      ? t("Ключ сохранен (вставьте новый для замены)", "Key saved (paste new to replace)")
+      ? t("Ключ сохранён (вставьте новый для замены)", "Key saved (paste new to replace)")
       : t("Не требуется для TorrServer", "Not needed for TorrServer");
   }
   state.settingsBaseline = getNetworkSettingsSnapshot();
@@ -1232,11 +1385,7 @@ export async function openSettingsModal(initialTab = "integrations", focusKinori
   renderSettingsCountryUI();
   renderIntegrationsList();
   renderStremioAddonsList();
-  updateBackupSummaryStat();
-  switchSettingsTab(initialTab);
   syncSettingsFooterUI();
-  document.getElementById("settings-modal").classList.remove("hidden");
-  syncScrollTopButton();
 
   if (focusKinoriumInput) {
     setTimeout(() => {
@@ -1256,12 +1405,18 @@ export async function openSettingsModal(initialTab = "integrations", focusKinori
 export function renderStremioAddonsList() {
   const listEl = document.getElementById("stremio-addons-list");
   if (!listEl) return;
-  listEl.innerHTML = "";
   const addons = Array.isArray(state.stremioAddons) ? state.stremioAddons : [];
+  const addonsSig = `${state.appLang || "ru"}|${Boolean(state.systemStatus?.is_local_client)}|${addons.map((a) => `${a?.id}:${a?.enabled !== false ? 1 : 0}:${a?.name || ""}`).join("||")}`;
+  if (listEl._addonsSig === addonsSig && listEl.childElementCount > 0) {
+    return;
+  }
+  listEl._addonsSig = addonsSig;
+  listEl.innerHTML = "";
   if (addons.length === 0) {
     listEl.innerHTML = `<div class="atv-stremio-empty-addons">${t("Нет установленных аддонов", "No addons installed")}</div>`;
     return;
   }
+  const addonsFrag = document.createDocumentFragment();
   const isLocalHost = state.systemStatus?.is_local_client !== false;
   const resMap = {
     stream: t("Потоки", "Streams"),
@@ -1335,8 +1490,8 @@ export function renderStremioAddonsList() {
           }
           showToast(
             nextVal
-              ? t(`Аддон «${addon.name}» включен`, `Addon "${addon.name}" enabled`)
-              : t(`Аддон «${addon.name}» отключен`, `Addon "${addon.name}" disabled`)
+              ? t(`Аддон «${addon.name}» включён`, `Addon "${addon.name}" enabled`)
+              : t(`Аддон «${addon.name}» отключён`, `Addon "${addon.name}" disabled`)
           );
         } catch (_) {
           showToast(t("Не удалось изменить статус аддона", "Failed to toggle addon"));
@@ -1390,8 +1545,9 @@ export function renderStremioAddonsList() {
         }
       };
     }
-    listEl.appendChild(row);
+    addonsFrag.appendChild(row);
   });
+  listEl.appendChild(addonsFrag);
 }
 
 export async function addStremioAddonFromInput() {
@@ -1432,7 +1588,7 @@ export async function addStremioAddonFromInput() {
         loadStremioStreams(0);
       }
     }
-    showToast(t(`Аддон подключен: ${data.addon?.name || "Stremio"}`, `Addon installed: ${data.addon?.name || "Stremio"}`));
+    showToast(t(`Аддон подключён: ${data.addon?.name || "Stremio"}`, `Addon installed: ${data.addon?.name || "Stremio"}`));
   } catch (_) {
     showToast(t("Ошибка сети при подключении аддона Stremio", "Network error installing Stremio addon"));
   } finally {
@@ -1466,9 +1622,9 @@ export async function requestCloseSettingsModal() {
   if (!settingsModEl || settingsModEl.classList.contains("hidden")) return true;
   if (isNetworkSettingsDirty()) {
     const discard = await showConfirmModal({
-      title: t("Несохраненные изменения", "Unsaved changes"),
+      title: t("Несохранённые изменения", "Unsaved changes"),
       message: t(
-        "Вы изменили настройки, но еще не нажали «Сохранить изменения». Закрыть без сохранения?",
+        "Вы изменили настройки, но ещё не нажали «Сохранить изменения». Закрыть без сохранения?",
         "You have unsaved settings changes. Close without saving?"
       ),
       confirmLabel: t("Закрыть без сохранения", "Discard & Close"),
@@ -1477,6 +1633,12 @@ export async function requestCloseSettingsModal() {
     });
     if (!discard) return false;
     resetUnsavedSettingsInputs();
+  }
+  if (_settingsLoadAbort) {
+    try {
+      _settingsLoadAbort.abort();
+    } catch (_) {}
+    _settingsLoadAbort = null;
   }
   closeCustomSelectMenu({ restoreFocus: false });
   settingsModEl.classList.add("hidden");
@@ -1676,9 +1838,11 @@ export function initSettingsAndBackupBindings() {
         return;
       }
       if (data.integrations) state.integrations = data.integrations;
-      if (kinDirty && isServiceEnabled("kinorium") && kinQuickUser) {
+      const effKinUser = kinQuickUser || state.kinoriumAccount?.user_id || "";
+      if (kinDirty && isServiceEnabled("kinorium") && (effKinUser || kinQuickCookie)) {
         try {
-          const syncPayload = { user_id: kinQuickUser, ...adminPinFields };
+          const syncPayload = { ...adminPinFields };
+          if (effKinUser) syncPayload.user_id = effKinUser;
           if (kinQuickCookie) syncPayload.session_cookie = kinQuickCookie;
           const syncRes = await fetch("/api/kinorium/sync", {
             method: "POST",
@@ -1724,6 +1888,7 @@ export function initSettingsAndBackupBindings() {
       restoreModalTriggerFocus("settings-modal");
       applyEnabledServicesVisibility();
       renderLoginBannerIfNeeded();
+      clearCatalogFrontendCache();
       loadCatalog();
       showToast(t("Настройки сохранены", "Settings saved"));
     };
@@ -1788,8 +1953,8 @@ export function initSettingsAndBackupBindings() {
         } else {
           showToast(
             t(
-              "В буфере обмена нет корректного JSON резервной копии CineFlow",
-              "Clipboard does not contain a valid CineFlow backup JSON"
+              "В буфере обмена нет корректного JSON резервной копии Velarium",
+              "Clipboard does not contain a valid Velarium backup JSON"
             )
           );
         }

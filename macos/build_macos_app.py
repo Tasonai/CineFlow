@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Builds the self-contained Universal 2 (Apple Silicon arm64 + Intel x86_64) macOS application:
-  - `dist/CineFlow.app` (WKWebView + NSStatusBar Menu Bar + Now Playing + UNUserNotificationCenter + bundled runtime)
-  - `dist/CineFlow.dmg` (Drag-to-Applications UDZO disk image installer)
+  - `dist/Velarium.app` (WKWebView + NSStatusBar Menu Bar + Now Playing + UNUserNotificationCenter + bundled runtime)
+  - `dist/Velarium.dmg` (Drag-to-Applications UDZO disk image installer)
   - `backend/bin/kinorium_login_helper` (One-Click Kinorium WKWebView Auth Helper)
 """
 
@@ -16,8 +16,8 @@ import tempfile
 MACOS_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(MACOS_DIR)
 DIST_DIR = os.path.join(BASE_DIR, "dist")
-APP_BUNDLE = os.path.join(DIST_DIR, "CineFlow.app")
-DMG_PATH = os.path.join(DIST_DIR, "CineFlow.dmg")
+APP_BUNDLE = os.path.join(DIST_DIR, "Velarium.app")
+DMG_PATH = os.path.join(DIST_DIR, "Velarium.dmg")
 CONTENTS_DIR = os.path.join(APP_BUNDLE, "Contents")
 MACOS_BIN_DIR = os.path.join(CONTENTS_DIR, "MacOS")
 RESOURCES_DIR = os.path.join(CONTENTS_DIR, "Resources")
@@ -82,12 +82,12 @@ def build_app_icon_icns(src_png: str, dest_icns: str) -> bool:
 
 
 def main() -> None:
-    print("[CineFlow] Building Universal 2 kinorium_login_helper...")
+    print("[Velarium] Building Universal 2 kinorium_login_helper...")
     helper_src = os.path.join(MACOS_DIR, "kinorium_login_helper.swift")
     helper_out = os.path.join(BASE_DIR, "backend", "bin", "kinorium_login_helper")
     compile_universal_swift(helper_src, helper_out, ["Cocoa", "WebKit"])
 
-    print("[CineFlow] Preparing dist/CineFlow.app bundle...")
+    print("[Velarium] Preparing dist/Velarium.app bundle...")
     if os.path.exists(APP_BUNDLE):
         shutil.rmtree(APP_BUNDLE)
     os.makedirs(MACOS_BIN_DIR, exist_ok=True)
@@ -97,7 +97,7 @@ def main() -> None:
     icon_icns = os.path.join(RESOURCES_DIR, "AppIcon.icns")
     has_icon = build_app_icon_icns(icon_png, icon_icns)
 
-    print("[CineFlow] Embedding self-contained server.py, backend/, and public/ into CineFlow.app...")
+    print("[Velarium] Embedding self-contained server.py, backend/, and public/ into Velarium.app...")
     os.makedirs(BUNDLED_APP_DIR, exist_ok=True)
     shutil.copy2(os.path.join(BASE_DIR, "server.py"), os.path.join(BUNDLED_APP_DIR, "server.py"))
     rel_notes_src = os.path.join(BASE_DIR, "RELEASE_NOTES.md")
@@ -109,6 +109,10 @@ def main() -> None:
     os.makedirs(bundled_backend, exist_ok=True)
     for py_file in sorted(glob.glob(os.path.join(BASE_DIR, "backend", "*.py"))):
         shutil.copy2(py_file, os.path.join(bundled_backend, os.path.basename(py_file)))
+    bundled_routes = os.path.join(bundled_backend, "routes")
+    os.makedirs(bundled_routes, exist_ok=True)
+    for py_file in sorted(glob.glob(os.path.join(BASE_DIR, "backend", "routes", "*.py"))):
+        shutil.copy2(py_file, os.path.join(bundled_routes, os.path.basename(py_file)))
 
     src_bin_dir = os.path.join(BASE_DIR, "backend", "bin")
     if os.path.isdir(src_bin_dir):
@@ -139,19 +143,19 @@ def main() -> None:
         f.write("APPL????")
 
     info_plist = {
-        "CFBundleName": "CineFlow",
-        "CFBundleDisplayName": "CineFlow",
-        "CFBundleIdentifier": "app.cineflow.cinema",
-        "CFBundleVersion": "2700",
-        "CFBundleShortVersionString": "2.7.1",
+        "CFBundleName": "Velarium",
+        "CFBundleDisplayName": "Velarium",
+        "CFBundleIdentifier": "app.velarium.cinema",
+        "CFBundleVersion": "27110",
+        "CFBundleShortVersionString": "2.7.11",
         "CFBundlePackageType": "APPL",
-        "CFBundleExecutable": "CineFlow",
+        "CFBundleExecutable": "Velarium",
         "LSMinimumSystemVersion": "12.0",
         "NSHighResolutionCapable": True,
         "NSSupportsAutomaticGraphicsSwitching": True,
         "NSPrincipalClass": "NSApplication",
         "LSApplicationCategoryType": "public.app-category.entertainment",
-        "NSHumanReadableCopyright": "CineFlow Unified Home Cinema",
+        "NSHumanReadableCopyright": "Velarium Unified Home Cinema",
         "NSAppTransportSecurity": {
             "NSAllowsArbitraryLoads": True,
             "NSAllowsLocalNetworking": True,
@@ -163,28 +167,37 @@ def main() -> None:
     with open(os.path.join(CONTENTS_DIR, "Info.plist"), "wb") as pf:
         plistlib.dump(info_plist, pf)
 
-    print("[CineFlow] Compiling Universal 2 CineFlowApp.swift...")
-    app_src = os.path.join(MACOS_DIR, "CineFlowApp.swift")
-    app_bin = os.path.join(MACOS_BIN_DIR, "CineFlow")
+    print("[Velarium] Compiling Universal 2 VelariumApp.swift...")
+    app_src = os.path.join(MACOS_DIR, "VelariumApp.swift")
+    app_bin = os.path.join(MACOS_BIN_DIR, "Velarium")
     compile_universal_swift(
         app_src,
         app_bin,
         ["Cocoa", "WebKit", "MediaPlayer", "UserNotifications"],
     )
+    legacy_bin_link = os.path.join(MACOS_BIN_DIR, "CineFlow")
+    if not os.path.exists(legacy_bin_link):
+        os.symlink("Velarium", legacy_bin_link)
 
     subprocess.run(
         ["codesign", "--force", "--deep", "--sign", "-", APP_BUNDLE],
         capture_output=True,
         check=False,
     )
-    print(f"[CineFlow] Built standalone macOS bundle: {APP_BUNDLE}")
+    print(f"[Velarium] Built standalone macOS bundle: {APP_BUNDLE}")
 
     if os.path.isfile("/usr/bin/hdiutil"):
-        print("[CineFlow] Packaging compressed macOS disk image dist/CineFlow.dmg...")
+        print("[Velarium] Packaging compressed macOS disk image dist/Velarium.dmg...")
         if os.path.exists(DMG_PATH):
             os.remove(DMG_PATH)
         with tempfile.TemporaryDirectory() as dmg_stage:
-            shutil.copytree(APP_BUNDLE, os.path.join(dmg_stage, "CineFlow.app"), symlinks=True)
+            velarium_stage_app = os.path.join(dmg_stage, "Velarium.app")
+            legacy_stage_app = os.path.join(dmg_stage, "CineFlow.app")
+            shutil.copytree(APP_BUNDLE, velarium_stage_app, symlinks=True)
+            # Hidden hardlinked CineFlow.app bundle so existing CineFlow <= 2.7.1 OTA updaters
+            # find mnt/CineFlow.app, copy it to /Applications/CineFlow.app, and self-relocate to /Applications/Velarium.app
+            shutil.copytree(velarium_stage_app, legacy_stage_app, symlinks=True, copy_function=os.link)
+            subprocess.run(["/usr/bin/chflags", "hidden", legacy_stage_app], check=False)
             os.symlink("/Applications", os.path.join(dmg_stage, "Applications"))
             rel_notes_src = os.path.join(BASE_DIR, "RELEASE_NOTES.md")
             if os.path.isfile(rel_notes_src):
@@ -196,7 +209,7 @@ def main() -> None:
                     "-size",
                     "320m",
                     "-volname",
-                    "CineFlow",
+                    "Velarium",
                     "-srcfolder",
                     dmg_stage,
                     "-ov",
@@ -206,7 +219,7 @@ def main() -> None:
                 ],
                 check=True,
             )
-        print(f"[CineFlow] Built macOS installer DMG: {DMG_PATH}")
+        print(f"[Velarium] Built macOS installer DMG: {DMG_PATH}")
         write_update_manifest_files(DMG_PATH, info_plist["CFBundleShortVersionString"])
 
 

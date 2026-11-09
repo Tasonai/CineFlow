@@ -26,7 +26,7 @@ final class KinoriumLoginDelegate: NSObject, NSApplicationDelegate, NSWindowDele
             backing: .buffered,
             defer: false
         )
-        window.title = isEnglish ? "Sign in to Kinorium — CineFlow" : "Вход в Kinorium — CineFlow"
+        window.title = isEnglish ? "Sign in to Kinorium — Velarium" : "Вход в Kinorium — Velarium"
         window.center()
         window.delegate = self
         window.appearance = NSAppearance(named: .darkAqua)
@@ -294,7 +294,7 @@ final class KinoriumLoginDelegate: NSObject, NSApplicationDelegate, NSWindowDele
     private func emitResult(_ payload: [String: Any]) {
         if let data = try? JSONSerialization.data(withJSONObject: payload, options: []),
            let str = String(data: data, encoding: .utf8) {
-            print("CINEFLOW_KINORIUM_AUTH:\(str)")
+            print("VELARIUM_KINORIUM_AUTH:\(str)")
             fflush(stdout)
         }
     }

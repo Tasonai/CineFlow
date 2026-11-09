@@ -1,5 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="114" fill="#222222"/>
-  <path d="M367.25 155.29A140 140 0 1 0 367.25 356.71" fill="none" stroke="#F5F5F5" stroke-width="50" stroke-linecap="round"/>
-  <path d="M326 256L251 299.3V212.7Z" fill="#F5F5F5" stroke="#F5F5F5" stroke-width="30" stroke-linejoin="round"/>
+  <rect width="512" height="512" rx="115" fill="#222222"/>
+  <rect x="2" y="2" width="508" height="508" rx="113" fill="none" stroke="#383838" stroke-width="3"/>
+  <!-- Outer Right Ascending Blade -->
+  <path d="M 234 396 L 358 148 L 406 148 L 278 404 Z" fill="#ADADAD" stroke="#ADADAD" stroke-width="14" stroke-linejoin="round"/>
+  <!-- Inner Right Ascending Blade (Architectural Cascade) -->
+  <path d="M 204 316 L 298 128 L 342 128 L 248 316 Z" fill="#D6D6D6" stroke="#D6D6D6" stroke-width="14" stroke-linejoin="round"/>
+  <!-- Crease Shadow Cast by Foreground Left Ribbon -->
+  <path d="M 114 134 L 194 134 L 292 330 L 252 410 Z" fill="#141414" fill-opacity="0.55" stroke="#141414" stroke-opacity="0.55" stroke-width="16" stroke-linejoin="round"/>
+  <!-- Dominant Foreground Left Ribbon -->
+  <path d="M 106 128 L 186 128 L 284 324 L 244 404 Z" fill="#FAFAFA" stroke="#FAFAFA" stroke-width="16" stroke-linejoin="round"/>
 </svg>

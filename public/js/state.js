@@ -1,3 +1,20 @@
+(() => {
+  try {
+    if (typeof localStorage !== "undefined") {
+      const legacyPrefix = ["cine", "flow_"].join("");
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(legacyPrefix)) {
+          const newKey = "velarium_" + k.slice(legacyPrefix.length);
+          if (localStorage.getItem(newKey) === null) {
+            localStorage.setItem(newKey, localStorage.getItem(k) || "");
+          }
+        }
+      }
+    }
+  } catch (_) {}
+})();
+
 const _initialSetupCompleted = (() => {
   try {
     return document.documentElement?.getAttribute("data-setup-completed") !== "false";
@@ -14,7 +31,7 @@ const _initialAppLang = (() => {
     }
   } catch (err) { window.logDebug?.("State", err); }
   try {
-    const raw = localStorage.getItem("cineflow_ui_prefs");
+    const raw = localStorage.getItem("velarium_ui_prefs");
     const parsed = raw ? JSON.parse(raw) : null;
     if (parsed && (parsed.appLang === "en" || parsed.appLang === "ru")) {
       return parsed.appLang;
@@ -31,7 +48,7 @@ const _initialAppLang = (() => {
 
 export const state = {
   appLang: _initialAppLang,
-  appVersion: "2.7.1",
+  appVersion: "2.7.11",
   launchSeed: Math.floor(Math.random() * 0x7fffffff) || 1,
   providerFilter: "all",
   mediaTypeFilter: "all",
@@ -72,6 +89,8 @@ export const state = {
   cwExpanded: false,
   activeItem: null,
   activeSourceTab: "hdrezka",
+  activeOfficialService: "",
+  officialEmbedActive: false,
   activeSeason: 1,
   activeEpisode: 1,
   seasonsMap: {},
@@ -118,6 +137,9 @@ export const state = {
   videoCrop: "contain",
   subSize: "medium",
   subBg: "semi",
+  subFont: "sans",
+  subColor: "white",
+  subEdge: "soft",
   ambilightEnabled: true,
   ambilightTimerId: null,
   ambilightCanvas: null,
@@ -213,7 +235,7 @@ export const state = {
   episodesStripExpanded: true,
   epViewMode: (() => {
     try {
-      return localStorage.getItem("cineflow_ep_view_mode") === "grid" ? "grid" : "strip";
+      return localStorage.getItem("velarium_ep_view_mode") === "grid" ? "grid" : "strip";
     } catch (_) {
       return "strip";
     }
@@ -223,6 +245,20 @@ export const state = {
   remuxMeta: null,
   lastNonOriginalStudioId: "",
   forceEnableRuSubtitlesOnce: false,
+  seamlessEpisodeBridge: (() => {
+    try {
+      return localStorage.getItem("velarium_seamless_bridge") !== "false";
+    } catch (_) {
+      return true;
+    }
+  })(),
+  showXrayOnPause: (() => {
+    try {
+      return localStorage.getItem("velarium_xray_on_pause") !== "false";
+    } catch (_) {
+      return true;
+    }
+  })(),
   preloadedNextEpisode: null,
   preloadingNextKey: "",
   preloadedSkipSegments: null,
@@ -234,7 +270,7 @@ export const state = {
   profiles: [],
   activeProfileId: (() => {
     try {
-      const savedPid = String(localStorage.getItem("cineflow_active_profile_id") || "").trim();
+      const savedPid = String(localStorage.getItem("velarium_active_profile_id") || "").trim();
       return savedPid || "main";
     } catch (_) {
       return "main";
@@ -265,6 +301,15 @@ export const state = {
   verifiedKidsAdminPin: "",
   backupQualities: {},
   hlsQualities: {},
+  abrAutoMode: true,
+  abrTargetQuality: "",
+  abrCurrentQuality: "",
+  abrSwitching: false,
+  abrLastSwitchTs: 0,
+  abrStableTicks: 0,
+  abrLowBufferTicks: 0,
+  abrLastForwardBufferSec: 0,
+  abrPreloadVideo: null,
   streamMintedAt: 0,
   usedBackupUrls: null,
   tokenRefreshTimestamps: [],
@@ -299,24 +344,24 @@ export const state = {
   updaterAutoChecked: false,
   showCuratedShelves: (() => {
     try {
-      return localStorage.getItem("cineflow_curated_shelves") !== "false";
+      return localStorage.getItem("velarium_curated_shelves") !== "false";
     } catch (_) {
       return true;
     }
   })(),
 };
-export const ACTIVE_PROFILE_STORAGE_KEY = "cineflow_active_profile_id";
-export const PREFERRED_STUDIOS_STORAGE_KEY = "cineflow_preferred_studios";
-export const BOOKMARKS_STORAGE_KEY = "cineflow_moments_v1";
-export const PLAYER_PREFS_STORAGE_KEY = "cineflow_player_prefs";
-export const SEEN_NOTIFICATIONS_STORAGE_KEY = "cineflow_seen_notifications";
-export const NOTIF_DESKTOP_ALERTED_STORAGE_KEY = "cineflow_desktop_alerted_episodes_v1";
-export const UI_PREFS_STORAGE_KEY = "cineflow_ui_prefs";
-export const EPISODE_PROGRESS_STORAGE_KEY = "cineflow_episode_progress_v1";
-export const WATCH_HISTORY_STORAGE_KEY = "cineflow_watch_history_v1";
-export const EP_VIEW_MODE_STORAGE_KEY = "cineflow_ep_view_mode";
-export const RECENT_SEARCHES_STORAGE_KEY = "cineflow_recent_searches_v1";
-export const CURATED_SHELVES_STORAGE_KEY = "cineflow_curated_shelves";
+export const ACTIVE_PROFILE_STORAGE_KEY = "velarium_active_profile_id";
+export const PREFERRED_STUDIOS_STORAGE_KEY = "velarium_preferred_studios";
+export const BOOKMARKS_STORAGE_KEY = "velarium_moments_v1";
+export const PLAYER_PREFS_STORAGE_KEY = "velarium_player_prefs";
+export const SEEN_NOTIFICATIONS_STORAGE_KEY = "velarium_seen_notifications";
+export const NOTIF_DESKTOP_ALERTED_STORAGE_KEY = "velarium_desktop_alerted_episodes_v1";
+export const UI_PREFS_STORAGE_KEY = "velarium_ui_prefs";
+export const EPISODE_PROGRESS_STORAGE_KEY = "velarium_episode_progress_v1";
+export const WATCH_HISTORY_STORAGE_KEY = "velarium_watch_history_v1";
+export const EP_VIEW_MODE_STORAGE_KEY = "velarium_ep_view_mode";
+export const RECENT_SEARCHES_STORAGE_KEY = "velarium_recent_searches_v1";
+export const CURATED_SHELVES_STORAGE_KEY = "velarium_curated_shelves";
 
 export function profileStorageKeyFor(baseKey, profileId = "main") {
   const pid = String(profileId || "main").trim();

@@ -166,6 +166,11 @@ def fetch_series_episodes_state(
         }
         if parsed["episodes"] and self._profile_id == start_pid and (is_authed or not has_cookie):
             with self._episodes_lock:
+                if len(self._series_episodes_cache) >= 128 and kid_str not in self._series_episodes_cache:
+                    try:
+                        self._series_episodes_cache.pop(next(iter(self._series_episodes_cache)))
+                    except StopIteration:
+                        pass
                 self._series_episodes_cache[kid_str] = state_obj
         if is_authed and item_id and parsed["episodes"] and self._profile_id == start_pid:
             if self._merge_remote_episodes_into_local(kid_str, parsed["episodes"], item_id=item_id):
@@ -389,10 +394,10 @@ def reconcile_series_episodes(
 ) -> Dict[str, Any]:
     """
     Two-way synchronization of watched episodes & episode ratings for a single series:
-    1. Pulls all watched/rated episodes from `ru.kinorium.com/{kid}/episodes/` into CineFlow.
-    2. Pushes any locally watched/rated episodes from CineFlow to `kinorium.com`.
+    1. Pulls all watched/rated episodes from `ru.kinorium.com/{kid}/episodes/` into Velarium.
+    2. Pushes any locally watched/rated episodes from Velarium to `kinorium.com`.
     3. Automatically promotes the series from 'Буду смотреть' (`future`) to 'Смотрю' (`now`)
-       if episodes have been watched in CineFlow while the series is still incomplete.
+       if episodes have been watched in Velarium while the series is still incomplete.
     """
     start_pid = self._profile_id
     eff_kid = str(kid) if (kid and str(kid).isdigit()) else ""
@@ -613,7 +618,7 @@ def reconcile_series_episodes(
 def reconcile_local_statuses_to_remote(self) -> int:
     """
     Pushes local movie/series statuses (`ratings`, `watched`, `watching_local`, `watchlist`, `never_local`)
-    and offline removal tombstones from CineFlow to `kinorium.com` when an authenticated `session_cookie`
+    and offline removal tombstones from Velarium to `kinorium.com` when an authenticated `session_cookie`
     is present, completing bidirectional synchronization of movies and series in addition to episodes.
     """
     with self._state_lock:
@@ -973,7 +978,7 @@ def reconcile_all_local_episodes(self, pull_watching_limit: int = 0) -> Dict[str
         seen_targets.add(dedup)
         tasks.append((k_str, t_ru, t_orig, kid_cand))
 
-    # 2. Active series in Continue Watching & 'Смотрю' (pull remote Kinorium checkmarks into CineFlow)
+    # 2. Active series in Continue Watching & 'Смотрю' (pull remote Kinorium checkmarks into Velarium)
     pulled_extra = 0
     for cw in cw_snap:
         if pulled_extra >= pull_watching_limit:

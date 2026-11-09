@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Cross-platform Windows x64 Installer Builder for CineFlow 2.7.1 (Developer: Atoma).
+Cross-platform Windows x64 Installer Builder for Velarium 2.7.11 (Developer: Atoma).
 
 Builds:
-  1. windows/assets/cineflow.ico (multi-size 16..256px Windows icon)
+  1. windows/assets/velarium.ico (multi-size 16..256px Windows icon)
   2. windows/assets/wizard-welcome.bmp & wizard-header.bmp (NSIS MUI2 branding bitmaps)
   3. windows/installer/license_ru.txt & license_en.txt (UTF-8 BOM localized product & license docs)
-  4. dist/CineFlow.exe (native 64-bit Win32 GUI launcher with PE VERSIONINFO & Per-Monitor V2 DPI)
-  5. dist/CineFlow-Setup-2.7.1-x64.exe (standalone bilingual NSIS 3 Modern UI 2 installer bundling
+  4. dist/Velarium.exe (native 64-bit Win32 GUI launcher with PE VERSIONINFO & Per-Monitor V2 DPI)
+  5. dist/Velarium-Setup-2.7.11-x64.exe (standalone bilingual NSIS 3 Modern UI 2 installer bundling
      Python 3.11.9 Windows x64 runtime + TorrServer MatriX x64 + FFmpeg 9 x64)
 """
 
@@ -23,9 +23,9 @@ import zlib
 from typing import List, Optional, Tuple
 
 
-APP_NAME = "CineFlow"
-APP_VERSION = "2.7.1"
-APP_VERSION_QUAD = "2.7.1.0"
+APP_NAME = "Velarium"
+APP_VERSION = "2.7.11"
+APP_VERSION_QUAD = "2.7.11.0"
 APP_PUBLISHER = "Atoma"
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -46,10 +46,11 @@ URL_FFMPEG_WIN64 = "https://github.com/BtbN/FFmpeg-Builds/releases/download/late
 URL_NSIS_BUNDLE = "https://github.com/electron-userland/electron-builder-binaries/releases/download/nsis%402.0.2/nsis-bundle-3.12.tar.gz"
 URL_ZIG_MACOS_X64 = "https://ziglang.org/download/0.13.0/zig-macos-x86_64-0.13.0.tar.xz"
 URL_ZIG_MACOS_ARM64 = "https://ziglang.org/download/0.13.0/zig-macos-aarch64-0.13.0.tar.xz"
+URL_WEBVIEW2_NUPKG = "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2903.40"
 
 
 LICENSE_RU_TEXT = f"""==========================================================
-CINEFLOW — ЕДИНЫЙ ЛОКАЛЬНЫЙ ОНЛАЙН-КИНОТЕАТР ДЛЯ WINDOWS
+VELARIUM — ЕДИНЫЙ ЛОКАЛЬНЫЙ ОНЛАЙН-КИНОТЕАТР ДЛЯ WINDOWS
 Паспорт выпуска, конфиденциальность и условия использования
 ==========================================================
 
@@ -61,9 +62,12 @@ CINEFLOW — ЕДИНЫЙ ЛОКАЛЬНЫЙ ОНЛАЙН-КИНОТЕАТР Д�
   Целевая система:   Microsoft Windows 10 и Windows 11 (x64)
 
 1. НАЗНАЧЕНИЕ И ВОЗМОЖНОСТИ ПРИЛОЖЕНИЯ
-CineFlow объединяет вашу персональную коллекцию кино, потоковое воспроизведение высокой четкости и каталог стриминговых платформ в едином быстром интерфейсе:
+Velarium объединяет вашу персональную коллекцию кино, потоковое воспроизведение высокой четкости и каталог стриминговых платформ в едином быстром интерфейсе:
 
+• Доступ к недоступным в РФ ресурсам без VPN и сторонних программ: встроенный модуль сетевого обхода позволяет пользоваться заблокированными кинокаталогами, трекерами и зеркалами напрямую из приложения.
+• Официальные стриминговые сервисы (Netflix, Apple TV+, Prime Video, Max и другие) с локальной авторизацией через Cookie браузера: программа не запрашивает, не считывает и не хранит ваши логины и пароли.
 • Полная двусторонняя синхронизация с сервисом Kinorium и вход в один клик через встроенное окно без ручного копирования Cookie: списки «Буду смотреть», «Смотрю», «Просмотрено», история серий, оценки и лента друзей.
+• Интерактивная система X-Ray (как в Apple TV и Prime Video) с умным анализом текущей сцены: определение актёров в кадре и звучащего саундтрека на паузе, проверенные факты о съёмках и переход к полной фильмографии без выхода из полноэкранного режима.
 • Домашние профили («Личный», «Семейный», детский безопасный профиль «Детский» и пользовательские профили) с раздельными историями просмотра, настройками озвучки по умолчанию и независимыми аккаунтами Kinorium.
 • Менеджер офлайн-загрузок «Скачать в дорогу»: пакетное сохранение целых сезонов, оставшихся серий и фильмов в качестве 1080p и 4K с выбранной аудиодорожкой и субтитрами, а также безопасное автоудаление просмотренных файлов.
 • Прямое потоковое воспроизведение в качестве 1080p, 2K и 4K HDR без ручной установки сторонних кодеков или внешних видеоплееров.
@@ -73,20 +77,20 @@ CineFlow объединяет вашу персональную коллекци
 • Быстрое и отказоустойчивое локальное хранилище SQLite в режиме WAL и поддержка пользовательских расширений экосистемы Stremio с автопропуском заставок.
 
 2. ЛОКАЛЬНАЯ КОНФИДЕНЦИАЛЬНОСТЬ И БЕЗОПАСНОСТЬ
-• Все компоненты CineFlow работают локально на вашем компьютере по адресу 127.0.0.1:8765. Доступ из локальной сети открывается исключительно по вашему явному решению в настройках приложения.
+• Все компоненты Velarium работают локально на вашем компьютере по адресу 127.0.0.1:8765. Доступ из локальной сети открывается исключительно по вашему явному решению в настройках приложения.
 • Разработчик {APP_PUBLISHER} не собирает телеметрию, не отслеживает историю просмотра и не передает ваши учетные данные на сторонние серверы.
 • Все персональные настройки, резервные копии и сессии хранятся только локально в папке data внутри каталога установки приложения.
 
 3. ЛИЦЕНЗИОННЫЕ УСЛОВИЯ
-• Программное обеспечение CineFlow {APP_VERSION} предоставляется разработчиком {APP_PUBLISHER} для персонального некоммерческого использования по принципу «как есть» (AS IS) без каких-либо прямых или подразумеваемых гарантий.
-• CineFlow является локальным техническим агрегатором и клиентским интерфейсом. Приложение не размещает, не хранит и не распространяет защищенные авторским правом аудиовизуальные произведения на собственных серверах.
+• Программное обеспечение Velarium {APP_VERSION} предоставляется разработчиком {APP_PUBLISHER} для персонального некоммерческого использования по принципу «как есть» (AS IS) без каких-либо прямых или подразумеваемых гарантий.
+• Velarium является локальным техническим агрегатором и клиентским интерфейсом. Приложение не размещает, не хранит и не распространяет защищенные авторским правом аудиовизуальные произведения на собственных серверах.
 • В состав установочного пакета включены официально распространяемые среды выполнения с открытым исходным кодом (Python Software Foundation License, FFmpeg GPL, TorrServer MatriX), права на которые принадлежат их авторам.
 
 Copyright (C) 2026 {APP_PUBLISHER}. Все права защищены.
 """
 
 LICENSE_EN_TEXT = f"""==========================================================
-CINEFLOW — UNIFIED LOCAL CINEMA HUB FOR WINDOWS
+VELARIUM — UNIFIED LOCAL CINEMA HUB FOR WINDOWS
 Product Passport, Local Privacy & License Agreement
 ==========================================================
 
@@ -98,9 +102,12 @@ PRODUCT INFORMATION
   Target Platform: Microsoft Windows 10 & Windows 11 (x64)
 
 1. OVERVIEW & CORE CAPABILITIES
-CineFlow unifies your personal movie tracking library, high-bitrate streaming, and regional streaming availability inside a single matte-dark desktop interface:
+Velarium unifies your personal movie tracking library, high-bitrate streaming, and regional streaming availability inside a single matte-dark desktop interface:
 
+• Direct access to region-restricted catalogs and resources without external VPN software: built-in smart network routing connects to geo-restricted movie databases, mirrors, and indexers out of the box.
+• Official streaming services (Netflix, Apple TV+, Prime Video, Max, and more) with local browser Cookie session import: Velarium never asks for, reads, or stores your account passwords.
 • Two-way Kinorium synchronization with one-click built-in sign-in (zero manual cookie copying): Watchlist, Currently Watching, Watched history, episode progress, personal ratings, and friends' activity.
+• Interactive Scene-Aware X-Ray (inspired by Apple TV & Prime Video): identifies actors in the active scene and soundtrack cues on pause, surfaces verified behind-the-scenes trivia, and opens full actor filmographies without leaving Fullscreen.
 • Household Profiles ("Personal", "Family", safe "Kids" mode, and custom profiles) with isolated watch history, default audio preferences, and independent Kinorium accounts.
 • Offline Downloads manager ("Download to Go"): batch season and episode downloads in 1080p and 4K with selected audio, WebVTT subtitles, and safe auto-cleanup.
 • Instant 1080p, 2K, and 4K HDR playback with zero external codec packs or third-party media players required.
@@ -110,13 +117,13 @@ CineFlow unifies your personal movie tracking library, high-bitrate streaming, a
 • Crash-safe SQLite WAL local storage, community Stremio addons, and Intro Skip.
 
 2. LOCAL PRIVACY & SECURITY ARCHITECTURE
-• CineFlow runs strictly locally on your computer (127.0.0.1:8765) by default. LAN access is disabled until explicitly enabled by you in Settings.
+• Velarium runs strictly locally on your computer (127.0.0.1:8765) by default. LAN access is disabled until explicitly enabled by you in Settings.
 • {APP_PUBLISHER} collects zero telemetry, zero analytics, and never transmits your viewing history or session credentials to any external server.
 • All personal preferences, backups, and sync caches remain exclusively inside the local "data" directory on your machine.
 
 3. LICENSE TERMS
-• CineFlow {APP_VERSION} is provided by {APP_PUBLISHER} for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
-• CineFlow operates solely as a local client-side media interface and metadata aggregator and does not host or distribute media content on any server.
+• Velarium {APP_VERSION} is provided by {APP_PUBLISHER} for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
+• Velarium operates solely as a local client-side media interface and metadata aggregator and does not host or distribute media content on any server.
 • Bundled open-source runtime components (Python 3.11 Embeddable Runtime, FFmpeg 9 GPL, TorrServer MatriX) remain covered by their respective licenses.
 
 Copyright (C) 2026 {APP_PUBLISHER}. All rights reserved.
@@ -128,7 +135,7 @@ def _download_if_missing(url: str, dest_path: str, label: str) -> str:
         return dest_path
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
     print(f"[build] Downloading {label} from {url} ...")
-    req = urllib.request.Request(url, headers={"User-Agent": "CineFlow-Builder/2.7.1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Velarium-Builder/2.7.11"})
     tmp_path = f"{dest_path}.part"
     with urllib.request.urlopen(req, timeout=120) as resp, open(tmp_path, "wb") as out:
         shutil.copyfileobj(resp, out)
@@ -434,7 +441,7 @@ def generate_branding_and_docs() -> None:
     icon_png = os.path.join(ROOT_DIR, "public", "icons", "icon-512.png")
     src_w, src_h, src_rgba = decode_rgba_png(icon_png)
 
-    ico_path = os.path.join(ASSETS_DIR, "cineflow.ico")
+    ico_path = os.path.join(ASSETS_DIR, "velarium.ico")
     build_ico_file(src_w, src_h, src_rgba, ico_path)
 
     # NSIS Welcome/Finish sidebar bitmap (164x314) — flat matte dark #131417 with subtle hairline border
@@ -549,13 +556,30 @@ def ensure_makensis() -> str:
     raise RuntimeError("Unable to locate or bootstrap makensis")
 
 
+def ensure_webview2_loader() -> str:
+    dest_dll = os.path.join(ASSETS_DIR, "WebView2Loader.dll")
+    if os.path.isfile(dest_dll) and os.path.getsize(dest_dll) > 65536:
+        return dest_dll
+    nupkg = _download_if_missing(
+        URL_WEBVIEW2_NUPKG,
+        os.path.join(CACHE_DIR, "Microsoft.Web.WebView2.1.0.2903.40.nupkg"),
+        "Microsoft Edge WebView2 x64 Loader",
+    )
+    os.makedirs(ASSETS_DIR, exist_ok=True)
+    with zipfile.ZipFile(nupkg, "r") as zf:
+        with zf.open("build/native/x64/WebView2Loader.dll", "r") as src_f, open(dest_dll, "wb") as dst_f:
+            shutil.copyfileobj(src_f, dst_f)
+    return dest_dll
+
+
 def compile_windows_launcher(out_exe: str) -> None:
     out_exe = os.path.abspath(out_exe)
-    print("[build] Compiling native 64-bit Win32 GUI launcher CineFlow.exe ...")
+    ensure_webview2_loader()
+    print("[build] Compiling native 64-bit Win32 GUI launcher Velarium.exe ...")
     os.makedirs(os.path.dirname(out_exe), exist_ok=True)
-    c_src = os.path.join(LAUNCHER_DIR, "cineflow_launcher.c")
-    rc_src = os.path.join(LAUNCHER_DIR, "cineflow_launcher.rc")
-    res_obj = os.path.join(BUILD_DIR, "cineflow_launcher.res")
+    c_src = os.path.join(LAUNCHER_DIR, "velarium_launcher.c")
+    rc_src = os.path.join(LAUNCHER_DIR, "velarium_launcher.rc")
+    res_obj = os.path.join(BUILD_DIR, "velarium_launcher.res")
 
     mingw_gcc = shutil.which("x86_64-w64-mingw32-gcc")
     mingw_windres = shutil.which("x86_64-w64-mingw32-windres")
@@ -576,6 +600,8 @@ def compile_windows_launcher(out_exe: str) -> None:
                 "-lshell32",
                 "-ladvapi32",
                 "-luser32",
+                "-lgdi32",
+                "-lole32",
                 "-lkernel32",
             ],
             cwd=LAUNCHER_DIR,
@@ -610,6 +636,8 @@ def compile_windows_launcher(out_exe: str) -> None:
             "-lshell32",
             "-ladvapi32",
             "-luser32",
+            "-lgdi32",
+            "-lole32",
             "-lkernel32",
         ],
         cwd=LAUNCHER_DIR,
@@ -627,7 +655,9 @@ def stage_windows_payloads(launcher_exe: str) -> None:
     os.makedirs(STAGE_MEDIA_DIR, exist_ok=True)
 
     # 1. Core launcher & entrypoint
-    shutil.copy2(launcher_exe, os.path.join(STAGE_CORE_DIR, "CineFlow.exe"))
+    shutil.copy2(launcher_exe, os.path.join(STAGE_CORE_DIR, "Velarium.exe"))
+    wv2_dll = ensure_webview2_loader()
+    shutil.copy2(wv2_dll, os.path.join(STAGE_CORE_DIR, "WebView2Loader.dll"))
     shutil.copy2(os.path.join(ROOT_DIR, "server.py"), os.path.join(STAGE_CORE_DIR, "server.py"))
     if os.path.isfile(os.path.join(ROOT_DIR, "README.md")):
         shutil.copy2(os.path.join(ROOT_DIR, "README.md"), os.path.join(STAGE_CORE_DIR, "README.md"))
@@ -640,6 +670,14 @@ def stage_windows_payloads(launcher_exe: str) -> None:
         full = os.path.join(src_backend, entry)
         if os.path.isfile(full) and entry.endswith(".py"):
             shutil.copy2(full, os.path.join(stage_backend, entry))
+    src_routes = os.path.join(src_backend, "routes")
+    if os.path.isdir(src_routes):
+        stage_routes = os.path.join(stage_backend, "routes")
+        os.makedirs(stage_routes, exist_ok=True)
+        for entry in sorted(os.listdir(src_routes)):
+            full = os.path.join(src_routes, entry)
+            if os.path.isfile(full) and entry.endswith(".py"):
+                shutil.copy2(full, os.path.join(stage_routes, entry))
 
     # 3. Frontend public assets (exclude .DS_Store)
     def _ignore_junk(_dir: str, names: List[str]) -> List[str]:
@@ -675,7 +713,7 @@ def stage_windows_payloads(launcher_exe: str) -> None:
     with zipfile.ZipFile(py_zip, "r") as zf:
         zf.extractall(stage_runtime)
 
-    # Configure python311._pth so runtime\pythonw.exe imports .. (CineFlow root) cleanly
+    # Configure python311._pth so runtime\pythonw.exe imports .. (Velarium root) cleanly
     pth_path = os.path.join(stage_runtime, "python311._pth")
     with open(pth_path, "w", encoding="utf-8", newline="\r\n") as fh:
         fh.write("python311.zip\n.\n..\nimport site\n")
@@ -733,8 +771,8 @@ def stage_windows_payloads(launcher_exe: str) -> None:
 def build_nsis_installer() -> str:
     makensis_bin = ensure_makensis()
     os.makedirs(DIST_DIR, exist_ok=True)
-    out_installer = os.path.join(DIST_DIR, f"CineFlow-Setup-{APP_VERSION}-x64.exe")
-    nsi_script = os.path.join(INSTALLER_DIR, "cineflow.nsi")
+    out_installer = os.path.join(DIST_DIR, f"Velarium-Setup-{APP_VERSION}-x64.exe")
+    nsi_script = os.path.join(INSTALLER_DIR, "velarium.nsi")
 
     print(f"[build] Running NSIS compiler ({makensis_bin}) -> {out_installer} ...")
     cmd = [
@@ -758,7 +796,7 @@ def main() -> int:
 
     generate_branding_and_docs()
 
-    launcher_out = os.path.join(DIST_DIR, "CineFlow.exe")
+    launcher_out = os.path.join(DIST_DIR, "Velarium.exe")
     compile_windows_launcher(launcher_out)
 
     stage_windows_payloads(launcher_out)
@@ -830,15 +868,16 @@ def write_update_manifest_files(installer_path: str, version_str: str) -> None:
     with open(manifest_path, "w", encoding="utf-8") as mf:
         json.dump(manifest, mf, ensure_ascii=False, indent=2)
 
-    dev_dist = os.path.expanduser("~/Developer/CineFlow/dist")
-    try:
-        os.makedirs(dev_dist, exist_ok=True)
-        shutil.copy2(installer_path, os.path.join(dev_dist, exe_name))
-        shutil.copy2(sums_path, os.path.join(dev_dist, "SHA256SUMS.txt"))
-        shutil.copy2(manifest_path, os.path.join(dev_dist, "latest.json"))
-        print(f"[+] Synced Windows installer to local repository: {dev_dist}")
-    except Exception as exc:
-        print(f"[-] Note: could not copy to {dev_dist}: {exc}")
+    for repo_name in ("CineFlow", "Velarium"):
+        dev_dist = os.path.expanduser(f"~/Developer/{repo_name}/dist")
+        try:
+            os.makedirs(dev_dist, exist_ok=True)
+            shutil.copy2(installer_path, os.path.join(dev_dist, exe_name))
+            shutil.copy2(sums_path, os.path.join(dev_dist, "SHA256SUMS.txt"))
+            shutil.copy2(manifest_path, os.path.join(dev_dist, "latest.json"))
+            print(f"[+] Synced Windows installer to local repository: {dev_dist}")
+        except Exception as exc:
+            print(f"[-] Note: could not copy to {dev_dist}: {exc}")
 
 
 if __name__ == "__main__":

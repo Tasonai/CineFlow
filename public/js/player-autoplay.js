@@ -1,34 +1,69 @@
-import { state } from "./state.js?v=20261105v5";
-import { t, isEn } from "./i18n.js?v=20261105v5";
-import { showToast, pluralRu } from "./utils.js?v=20261105v5";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
+import { t, isEn, displayTitle } from "./i18n.js?v=20261108v19";
 import {
+  pluralRu,
+  showToast,
+  syncCustomSelect,
+} from "./utils.js?v=20261108v19";
+import {
+  attachSmartPosterFallback,
+  buildFallbackPosterSvg,
+} from "./catalog-cards.js?v=20261108v19";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261108v19";
+import {
+  filterReleasedEpisodesForSeason,
   resolveEffectiveSeasonsMap,
   getEpisodeDisplayMeta,
   stepEpisode,
-} from "./player-seasons.js?v=20261105v5";
+} from "./player-seasons.js?v=20261108v19";
+import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261108v19";
 
 let _nextEpTimer = null;
 let _nextEpSecondsLeft = 10;
+let _cachedNextEpKey = "";
+let _cachedNextEpVal = null;
 
 export function getNextEpisodeCoords() {
   if (!state.activeItem || state.activeItem.media_type !== "series") return null;
   const resolvedMap = resolveEffectiveSeasonsMap(state.activeItem, state.seasonsMap);
+  const mapCurEps = resolvedMap ? (resolvedMap[String(state.activeSeason)] || []).length : 0;
+  const mapSeasonsCnt = resolvedMap ? Object.keys(resolvedMap).length : 0;
+  const cacheKey = `${state.activeItem.id || state.activeItem.title || ""}|${state.activeSeason}|${state.activeEpisode}|${state.liveSeriesUpdatesVersion || 0}|${mapSeasonsCnt}|${mapCurEps}|${state.activeItem.latest_season || 0}|${state.activeItem.latest_episode || 0}`;
+  if (_cachedNextEpKey === cacheKey) {
+    return _cachedNextEpVal;
+  }
+
+  let result = null;
   if (resolvedMap) {
     const seasonNumbers = Object.keys(resolvedMap)
       .map((k) => parseInt(k, 10))
       .filter((n) => n > 0)
       .sort((a, b) => a - b);
-    const curSeasonEps = resolvedMap[String(state.activeSeason)] || [];
+    const curSeasonEps = filterReleasedEpisodesForSeason(
+      state.activeItem,
+      state.activeSeason,
+      resolvedMap[String(state.activeSeason)] || []
+    );
     const nextEpInCurSeason = curSeasonEps.find((ep) => ep > state.activeEpisode);
     if (nextEpInCurSeason) {
-      return { season: state.activeSeason, episode: nextEpInCurSeason };
+      result = { season: state.activeSeason, episode: nextEpInCurSeason };
+    } else {
+      for (const s of seasonNumbers) {
+        if (s <= state.activeSeason) continue;
+        const releasedForS = filterReleasedEpisodesForSeason(
+          state.activeItem,
+          s,
+          resolvedMap[String(s)] || []
+        );
+        if (releasedForS.length > 0) {
+          result = { season: s, episode: releasedForS[0] };
+          break;
+        }
+      }
     }
-    const nextSeason = seasonNumbers.find((s) => s > state.activeSeason && resolvedMap[String(s)]?.length > 0);
-    if (nextSeason) {
-      return { season: nextSeason, episode: resolvedMap[String(nextSeason)][0] };
-    }
-    return null;
+    _cachedNextEpKey = cacheKey;
+    _cachedNextEpVal = result;
+    return result;
   }
 
   // Fallback only if explicit seasons_count & episodes_per_season exist on curated item while stream metadata loads
@@ -36,13 +71,14 @@ export function getNextEpisodeCoords() {
   const explicitEps = Number(state.activeItem.episodes_per_season) || 0;
   if (explicitSeasons > 0 && explicitEps > 0) {
     if (state.activeEpisode < explicitEps) {
-      return { season: state.activeSeason, episode: state.activeEpisode + 1 };
-    }
-    if (state.activeSeason < explicitSeasons) {
-      return { season: state.activeSeason + 1, episode: 1 };
+      result = { season: state.activeSeason, episode: state.activeEpisode + 1 };
+    } else if (state.activeSeason < explicitSeasons) {
+      result = { season: state.activeSeason + 1, episode: 1 };
     }
   }
-  return null;
+  _cachedNextEpKey = cacheKey;
+  _cachedNextEpVal = result;
+  return result;
 }
 
 export function showPlayerNextEpisodeToast(coords) {
@@ -74,10 +110,28 @@ export function showPlayerNextEpisodeToast(coords) {
   const ringFill = document.getElementById("next-ep-ring-fill");
   const ringWrap = toast.querySelector(".atv-next-ep-ring-wrap");
 
-  if (thumbEl) thumbEl.src = thumb || "/icons/poster-placeholder.png";
+  if (thumbEl) {
+    thumbEl.src =
+      thumb ||
+      buildFallbackPosterSvg(
+        displayTitle(state.activeItem),
+        state.activeItem?.year
+      );
+    if (state.activeItem) {
+      attachSmartPosterFallback(thumbEl, state.activeItem);
+    }
+  }
   if (titleEl) titleEl.textContent = title;
   if (subEl) subEl.textContent = sub;
 
+  const bridgeBadge = document.getElementById("next-ep-bridge-badge");
+  const isPreloaded = Boolean(state.preloadedNextEpisode && state.preloadedNextEpisode.key);
+  if (bridgeBadge) {
+    bridgeBadge.classList.toggle("hidden", !isPreloaded || !state.seamlessEpisodeBridge);
+  }
+
+  document.getElementById("xray-pause-shelf")?.classList.add("hidden");
+  document.getElementById("skip-outro-btn")?.classList.add("hidden");
   toast.classList.remove("hidden");
 
   if (_nextEpTimer) {
@@ -149,17 +203,29 @@ export function setSleepTimer(mode) {
   const selectEl = document.getElementById("select-sleep-timer");
   if (selectEl && selectEl.value !== state.sleepTimerMode) {
     selectEl.value = state.sleepTimerMode;
+    syncCustomSelect(selectEl);
   }
   if (groupEl) {
     groupEl.classList.toggle("sleep-active", state.sleepTimerMode !== "off");
   }
   updatePlayerGearActiveDot();
+  scheduleDesktopRemoteStatePush(120);
 
   if (state.sleepTimerMode === "off") {
     if (state._preSleepVolume !== undefined && state._preSleepVolume !== null) {
       const vid = document.getElementById("native-video");
-      if (vid) vid.volume = state._preSleepVolume;
+      const restoredVol = state._preSleepVolume;
       state._preSleepVolume = null;
+      if (vid) {
+        state.internalMuteOverride = true;
+        try {
+          vid.volume = restoredVol;
+        } finally {
+          setTimeout(() => {
+            state.internalMuteOverride = false;
+          }, 50);
+        }
+      }
     }
     return;
   }
@@ -190,7 +256,14 @@ export function setSleepTimer(mode) {
         if (state._preSleepVolume === undefined || state._preSleepVolume === null) {
           state._preSleepVolume = vid.volume;
         }
-        vid.volume = Math.max(0, state._preSleepVolume * (state.sleepTimerSecondsLeft / 30));
+        state.internalMuteOverride = true;
+        try {
+          vid.volume = Math.max(0, state._preSleepVolume * (state.sleepTimerSecondsLeft / 30));
+        } finally {
+          setTimeout(() => {
+            state.internalMuteOverride = false;
+          }, 50);
+        }
       }
     }
     if (state.sleepTimerSecondsLeft <= 0) {
@@ -198,16 +271,28 @@ export function setSleepTimer(mode) {
       state.sleepTimerId = null;
       state.sleepTimerMode = "off";
       state.sleepAtEpisodeEnd = false;
-      if (selectEl) selectEl.value = "off";
+      if (selectEl) {
+        selectEl.value = "off";
+        syncCustomSelect(selectEl);
+      }
       if (groupEl) groupEl.classList.remove("sleep-active");
       updatePlayerGearActiveDot();
+      scheduleDesktopRemoteStatePush(120);
       const video = document.getElementById("native-video");
       if (video && !video.paused) {
         video.pause();
       }
       if (video && state._preSleepVolume !== undefined && state._preSleepVolume !== null) {
-        video.volume = state._preSleepVolume;
+        const restoredVol = state._preSleepVolume;
         state._preSleepVolume = null;
+        state.internalMuteOverride = true;
+        try {
+          video.volume = restoredVol;
+        } finally {
+          setTimeout(() => {
+            state.internalMuteOverride = false;
+          }, 50);
+        }
       }
       clearAutoplayNextTimer();
       showToast(
@@ -286,13 +371,17 @@ export function startAutoplayNextCountdown() {
   }
 
   const updateLabel = (paused = false) => {
+    const isPreloaded = Boolean(
+      state.preloadedNextEpisode && state.preloadedNextEpisode.key && state.seamlessEpisodeBridge
+    );
+    const bridgeNote = isPreloaded ? (isEn() ? " (seamless)" : " (бесшовно)") : "";
     if (fillEl) {
-      const pct = Math.max(0, Math.min(100, (state.autoplaySecondsLeft / totalSeconds) * 100));
-      fillEl.style.width = `${pct}%`;
+      const ratio = Math.max(0, Math.min(1, state.autoplaySecondsLeft / totalSeconds));
+      fillEl.style.transform = `scaleX(${ratio.toFixed(4)})`;
     }
     if (isEn()) {
       const pauseNote = paused ? " (paused)" : "";
-      textEl.textContent = `Auto-playing in ${state.autoplaySecondsLeft} ${state.autoplaySecondsLeft === 1 ? "second" : "seconds"}${pauseNote}...`;
+      textEl.textContent = `Auto-playing in ${state.autoplaySecondsLeft} ${state.autoplaySecondsLeft === 1 ? "second" : "seconds"}${bridgeNote}${pauseNote}...`;
       return;
     }
     const pauseNote = paused ? " (на паузе)" : "";
@@ -301,7 +390,7 @@ export function startAutoplayNextCountdown() {
       "секунду",
       "секунды",
       "секунд"
-    )}${pauseNote}...`;
+    )}${bridgeNote}${pauseNote}...`;
   };
   updateLabel(isPostwatchCardPausingAutoplay());
   card.classList.remove("hidden");

@@ -2,23 +2,23 @@
 chcp 65001 >nul
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
-title CineFlow 2.7.1 — Atoma
+title Velarium 2.7.11 — Atoma
 
 cd /d "%~dp0\.."
 
-if exist "%CD%\CineFlow.exe" (
-    start "" "%CD%\CineFlow.exe"
+if exist "%CD%\Velarium.exe" (
+    start "" "%CD%\Velarium.exe"
     exit /b 0
 )
 
 echo ============================================================
-echo Запуск CineFlow 2.7.1 для Windows (Разработчик: Atoma)
+echo Запуск Velarium 2.7.11 для Windows (Разработчик: Atoma)
 echo ============================================================
 
 if exist "%CD%\runtime\pythonw.exe" (
     start "" "%CD%\runtime\pythonw.exe" -X utf8 "%CD%\server.py" --launchd
 ) else (
-    start "CineFlow Backend" /min python -X utf8 server.py
+    start "Velarium Backend" /min python -X utf8 server.py
 )
 
 timeout /t 1 /nobreak >nul

@@ -1,5 +1,5 @@
 """
-CineFlow Network Security — Anti-SSRF Guards, IP Verification, and Safe HTTP Handlers.
+Velarium Network Security — Anti-SSRF Guards, IP Verification, and Safe HTTP Handlers.
 
 Protects against Server-Side Request Forgery (SSRF), DNS rebinding, private IP access,
 header injection, and unauthorized origin redirects with credential stripping.
@@ -96,16 +96,31 @@ def _is_disallowed_hostname(host: str) -> bool:
     return clean.endswith(_DISALLOWED_HOST_SUFFIXES)
 
 
+_VERIFIED_PUBLIC_IPS_CACHE: Dict[Tuple[str, int], Tuple[float, List[str]]] = {}
+_VERIFIED_PUBLIC_IPS_LOCK = threading.Lock()
+_VERIFIED_PUBLIC_IPS_TTL_SEC = 300.0
+
+
 def _resolve_verified_public_ips(host: str, port: int) -> List[str]:
     clean_host = (host or "").strip().rstrip(".")
     if clean_host.startswith("[") and clean_host.endswith("]"):
         clean_host = clean_host[1:-1]
     if _is_disallowed_hostname(clean_host):
         raise urllib.error.URLError(f"Blocked non-public host: {host!r}")
+
+    now = time.monotonic()
+    cache_key = (clean_host.lower(), int(port))
+    with _VERIFIED_PUBLIC_IPS_LOCK:
+        cached = _VERIFIED_PUBLIC_IPS_CACHE.get(cache_key)
+        if cached and (now - cached[0]) < _VERIFIED_PUBLIC_IPS_TTL_SEC:
+            return list(cached[1])
+
     try:
         ipaddress.ip_address(clean_host)
         if not _is_valid_public_ip_addr(clean_host):
             raise urllib.error.URLError(f"Blocked non-public IP literal: {clean_host}")
+        with _VERIFIED_PUBLIC_IPS_LOCK:
+            _VERIFIED_PUBLIC_IPS_CACHE[cache_key] = (now, [clean_host])
         return [clean_host]
     except ValueError:
         pass
@@ -135,6 +150,16 @@ def _resolve_verified_public_ips(host: str, port: int) -> List[str]:
         raise urllib.error.URLError(f"No public IP addresses resolved for {clean_host}")
     # Prioritize IPv4 addresses first: avoids 8-21s timeouts on Windows where IPv6 is unrouted
     verified.sort(key=lambda ip: 1 if ":" in ip else 0)
+
+    with _VERIFIED_PUBLIC_IPS_LOCK:
+        if len(_VERIFIED_PUBLIC_IPS_CACHE) > 1024:
+            expired = [k for k, v in _VERIFIED_PUBLIC_IPS_CACHE.items() if (now - v[0]) >= _VERIFIED_PUBLIC_IPS_TTL_SEC]
+            for k in expired:
+                _VERIFIED_PUBLIC_IPS_CACHE.pop(k, None)
+            if len(_VERIFIED_PUBLIC_IPS_CACHE) > 1024:
+                _VERIFIED_PUBLIC_IPS_CACHE.clear()
+        _VERIFIED_PUBLIC_IPS_CACHE[cache_key] = (now, list(verified))
+
     return verified
 
 
@@ -287,23 +312,14 @@ def connect_strictly_public_socket(
     target_host = str(host or "").strip()
     if not target_host:
         raise urllib.error.URLError("Empty host")
-    try:
-        infos = socket.getaddrinfo(target_host, port, type=socket.SOCK_STREAM)
-    except Exception as exc:
-        raise urllib.error.URLError(f"DNS resolution failed for {target_host}: {exc}")
-    public_addrs = []
-    for family, socktype, proto, canonname, sockaddr in infos:
-        cand_ip = str(sockaddr[0]).split("%", 1)[0]
-        if not is_strictly_public_ip_obj(cand_ip):
-            raise urllib.error.URLError(f"Disallowed non-public DNS target IP: {cand_ip}")
-        public_addrs.append((family, socktype, proto, sockaddr))
-    if not public_addrs:
-        raise urllib.error.URLError("No public address found")
+    verified_ips = _resolve_verified_public_ips(target_host, int(port))
     last_err: Optional[Exception] = None
-    for family, socktype, proto, sockaddr in public_addrs:
+    for cand_ip in verified_ips:
+        family = socket.AF_INET6 if ":" in cand_ip else socket.AF_INET
+        sockaddr = (cand_ip, int(port), 0, 0) if family == socket.AF_INET6 else (cand_ip, int(port))
         s = None
         try:
-            s = socket.socket(family, socktype, proto)
+            s = socket.socket(family, socket.SOCK_STREAM)
             if timeout is not socket._GLOBAL_DEFAULT_TIMEOUT and timeout is not None:
                 s.settimeout(timeout)
             if source_address:
@@ -541,21 +557,35 @@ def open_safe_public_url(
         ):
             opener = _DEFAULT_SAFE_PUBLIC_OPENER
         else:
-            opener = urllib.request.build_opener(
-                urllib.request.ProxyHandler({}),
-                SafePublicRedirectHandler(
-                    allow_torrserver_loopback=allow_torrserver_loopback,
-                    torrserver_url=torrserver_url,
-                    own_port=own_port,
-                    net_client=net_client,
-                ),
-                SafePublicHTTPHandler(),
-                SafePublicHTTPSHandler(context=_SHARED_VERIFIED_SSL_CTX),
+            cache_key = (
+                bool(allow_torrserver_loopback),
+                str(torrserver_url or ""),
+                int(own_port or 0),
+                id(net_client) if net_client is not None else 0,
             )
+            with _ALLOWED_MEDIA_HOST_LOCK:
+                opener = _SAFE_PUBLIC_OPENER_CACHE.get(cache_key)
+            if opener is None:
+                opener = urllib.request.build_opener(
+                    urllib.request.ProxyHandler({}),
+                    SafePublicRedirectHandler(
+                        allow_torrserver_loopback=allow_torrserver_loopback,
+                        torrserver_url=torrserver_url,
+                        own_port=own_port,
+                        net_client=net_client,
+                    ),
+                    SafePublicHTTPHandler(),
+                    SafePublicHTTPSHandler(context=_SHARED_VERIFIED_SSL_CTX),
+                )
+                with _ALLOWED_MEDIA_HOST_LOCK:
+                    if len(_SAFE_PUBLIC_OPENER_CACHE) > 32:
+                        _SAFE_PUBLIC_OPENER_CACHE.clear()
+                    _SAFE_PUBLIC_OPENER_CACHE[cache_key] = opener
     req = urllib.request.Request(url, headers=headers or {})
     return opener.open(req, timeout=timeout)
 
 
+_SAFE_PUBLIC_OPENER_CACHE: Dict[Tuple[bool, str, int, int], urllib.request.OpenerDirector] = {}
 _open_safe_public_url = open_safe_public_url
 
 

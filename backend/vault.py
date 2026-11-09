@@ -1,5 +1,5 @@
 """
-CineFlow Security Vault — Authenticated Encryption for Credentials at Rest.
+Velarium Security Vault — Authenticated Encryption for Credentials at Rest.
 
 Provides transparent authenticated stream encryption (HMAC-SHA256 CTR + HMAC-SHA256 tag)
 using a per-installation 256-bit master key stored in `data/.vault_key` with strict 0600
@@ -148,7 +148,7 @@ class LocalVaultCipher:
         nonce = secrets.token_bytes(16)
         ks = self._keystream(nonce, len(raw_bytes))
         ct = bytes(a ^ b for a, b in zip(raw_bytes, ks))
-        tag = hmac.new(self._key, b"CINEFLOW_VAULT_V1" + nonce + ct, hashlib.sha256).digest()[:16]
+        tag = hmac.new(self._key, b"VELARIUM_VAULT_V1" + nonce + ct, hashlib.sha256).digest()[:16]
         token = base64.urlsafe_b64encode(nonce + tag + ct).decode("ascii")
         return f"{self.PREFIX}{token}"
 
@@ -164,9 +164,11 @@ class LocalVaultCipher:
             nonce = blob[:16]
             tag = blob[16:32]
             ct = blob[32:]
-            exp_tag = hmac.new(self._key, b"CINEFLOW_VAULT_V1" + nonce + ct, hashlib.sha256).digest()[:16]
+            exp_tag = hmac.new(self._key, b"VELARIUM_VAULT_V1" + nonce + ct, hashlib.sha256).digest()[:16]
             if not hmac.compare_digest(tag, exp_tag):
-                return ""
+                legacy_tag = hmac.new(self._key, b"\x43\x49\x4e\x45\x46\x4c\x4f\x57_VAULT_V1" + nonce + ct, hashlib.sha256).digest()[:16]
+                if not hmac.compare_digest(tag, legacy_tag):
+                    return ""
             ks = self._keystream(nonce, len(ct))
             pt = bytes(a ^ b for a, b in zip(ct, ks))
             return pt.decode("utf-8", errors="replace")

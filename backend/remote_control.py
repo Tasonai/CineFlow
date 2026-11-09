@@ -9,7 +9,7 @@ from typing import Any, Deque, Dict, List, Optional
 
 class DesktopRemoteBroker:
     """
-    Zero-dependency, low-latency bidirectional broker between the desktop CineFlow
+    Zero-dependency, low-latency bidirectional broker between the desktop Velarium
     instance (normal window, fullscreen, miniplayer, PiP, or TV Mode) and one or more
     paired smartphones on the home Wi-Fi network.
     """
@@ -26,6 +26,7 @@ class DesktopRemoteBroker:
         "set_studio",
         "set_quality",
         "set_subtitle",
+        "set_source_tab",
         "sub_offset",
         "step_episode",
         "prev_ep",
@@ -42,6 +43,19 @@ class DesktopRemoteBroker:
         "ping_desktop",
         "rate_active",
         "toggle_watched",
+        "toggle_bookmark",
+        "add_bookmark_note",
+        "delete_bookmark",
+        "jump_marker",
+        "set_playback_rate",
+        "set_sleep_timer",
+        "open_person",
+        "toggle_xray",
+        "set_audio_preset",
+        "set_video_crop",
+        "toggle_ambilight",
+        "cycle_subtitle",
+        "cycle_audio",
     }
 
     def __init__(self, initial_token: str = "") -> None:
@@ -82,6 +96,18 @@ class DesktopRemoteBroker:
             "has_skip_intro": False,
             "has_next_ep": False,
             "has_prev_ep": False,
+            "bookmarks": [],
+            "chapters": [],
+            "active_chapter": "",
+            "seasons_map": {},
+            "watched_episodes": {},
+            "sleep_timer_mode": "off",
+            "sleep_timer_rem_sec": 0,
+            "xray_open": False,
+            "audio_preset": "flat",
+            "audio_boost": 1.0,
+            "video_crop": "contain",
+            "ambilight_enabled": True,
             "native_fs_ready": False,
             "native_pip_ready": False,
             "active_profile_id": "main",
@@ -158,39 +184,49 @@ class DesktopRemoteBroker:
         with self._cond:
             return self._prune_clients_locked(now)
 
+    def _touch_remote_client_locked(
+        self,
+        now: float,
+        client_id: str = "",
+        device_name: str = "",
+        client_ip: str = "",
+    ) -> bool:
+        key = str(client_id or "").strip()[:64]
+        if not key:
+            if not client_ip or client_ip in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"):
+                return False
+            key = f"ip:{str(client_ip)[:48]}"
+        was_new = key not in self._connected_clients
+        if was_new and len(self._connected_clients) >= 64:
+            self._prune_clients_locked(now)
+            if len(self._connected_clients) >= 64:
+                oldest_cid = min(
+                    self._connected_clients.keys(),
+                    key=lambda k: float(self._connected_clients[k].get("last_seen", 0.0)),
+                )
+                self._connected_clients.pop(oldest_cid, None)
+        prev = self._connected_clients.get(key) or {}
+        self._connected_clients[key] = {
+            "client_id": key,
+            "device_name": str(device_name or prev.get("device_name") or "Phone").strip()[:64],
+            "client_ip": str(client_ip or prev.get("client_ip") or ""),
+            "last_seen": now,
+        }
+        self._prune_clients_locked(now)
+        if was_new:
+            self._state_version += 1
+            self._cond.notify_all()
+        return was_new
+
     def touch_remote_client(
         self,
         client_id: str = "",
         device_name: str = "",
         client_ip: str = "",
     ) -> None:
-        key = str(client_id or "").strip()[:64]
-        if not key:
-            if not client_ip or client_ip in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"):
-                return
-            key = f"ip:{str(client_ip)[:48]}"
         now = time.time()
         with self._cond:
-            was_new = key not in self._connected_clients
-            if was_new and len(self._connected_clients) >= 64:
-                self._prune_clients_locked(now)
-                if len(self._connected_clients) >= 64:
-                    oldest_cid = min(
-                        self._connected_clients.keys(),
-                        key=lambda k: float(self._connected_clients[k].get("last_seen", 0.0)),
-                    )
-                    self._connected_clients.pop(oldest_cid, None)
-            prev = self._connected_clients.get(key) or {}
-            self._connected_clients[key] = {
-                "client_id": key,
-                "device_name": str(device_name or prev.get("device_name") or "Phone").strip()[:64],
-                "client_ip": str(client_ip or prev.get("client_ip") or ""),
-                "last_seen": now,
-            }
-            self._prune_clients_locked(now)
-            if was_new:
-                self._state_version += 1
-                self._cond.notify_all()
+            self._touch_remote_client_locked(now, client_id=client_id, device_name=device_name, client_ip=client_ip)
 
     def set_app_lang(self, lang: str) -> None:
         norm = "en" if str(lang or "").strip().lower().startswith("en") else "ru"
@@ -233,35 +269,47 @@ class DesktopRemoteBroker:
         "poster",
         "watched",
         "user_rating",
+        "bookmarks",
+        "chapters",
+        "active_chapter",
+        "seasons_map",
+        "watched_episodes",
+        "sleep_timer_mode",
+        "sleep_timer_rem_sec",
         "native_fs_ready",
         "native_pip_ready",
         "active_profile_id",
         "kids_mode",
     }
 
-    def update_desktop_state(self, patch: Dict[str, Any]) -> Dict[str, Any]:
+    def update_desktop_state(self, patch: Dict[str, Any], include_state: bool = True) -> Dict[str, Any]:
         if not isinstance(patch, dict):
             return self.get_snapshot()
         now = time.time()
         now_ms = int(now * 1000)
         with self._cond:
+            prev_seen = self._desktop_last_seen
             self._desktop_last_seen = now
+            state_changed = False
             for key, val in patch.items():
                 k_str = str(key or "")
                 if not k_str or k_str in ("k", "pin", "pair_token", "session_cookie"):
                     continue
                 if k_str in self.ALLOWED_STATE_KEYS:
-                    self._state[k_str] = copy.deepcopy(val)
-            self._state["updated_at_ms"] = now_ms
-            self._state_version += 1
-            self._cond.notify_all()
-            return self._snapshot_locked(now)
+                    if self._state.get(k_str) != val:
+                        self._state[k_str] = copy.deepcopy(val)
+                        state_changed = True
+            if state_changed or (now - prev_seen) >= 1.5:
+                self._state["updated_at_ms"] = now_ms
+                self._state_version += 1
+                self._cond.notify_all()
+            return self._snapshot_locked(now, include_state=include_state)
 
-    def _snapshot_locked(self, now: Optional[float] = None) -> Dict[str, Any]:
+    def _snapshot_locked(self, now: Optional[float] = None, include_state: bool = True) -> Dict[str, Any]:
         ts = now if now is not None else time.time()
         remotes = self._prune_clients_locked(ts)
         desktop_online = (ts - self._desktop_last_seen) < 30.0
-        return {
+        snap: Dict[str, Any] = {
             "ok": True,
             "seq": self._state_version,
             "state_version": self._state_version,
@@ -269,12 +317,21 @@ class DesktopRemoteBroker:
             "connected_remotes": remotes,
             "connected_count": len(remotes),
             "server_now_ms": int(ts * 1000),
-            "state": copy.deepcopy(self._state),
         }
+        if include_state:
+            snap["state"] = copy.deepcopy(self._state)
+        return snap
 
     def get_snapshot(self) -> Dict[str, Any]:
         with self._cond:
             return self._snapshot_locked()
+
+    def get_state_flags(self) -> Dict[str, Any]:
+        with self._cond:
+            return {
+                "native_fs_ready": bool(self._state.get("native_fs_ready")),
+                "native_pip_ready": bool(self._state.get("native_pip_ready")),
+            }
 
     def wait_for_state(
         self,
@@ -288,12 +345,12 @@ class DesktopRemoteBroker:
         target_ver = int(since_seq) if since_seq is not None else int(after_ver)
         wait_s = max(0.0, min(25.0, float(timeout or 0.0)))
         is_local_wait = not client_ip or client_ip in ("127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost")
+        deadline = time.monotonic() + wait_s
+        now = time.time()
         with self._cond:
             ver_before_touch = self._state_version
-        if client_id or not is_local_wait:
-            self.touch_remote_client(client_id=client_id, device_name=device_name, client_ip=client_ip)
-        deadline = time.monotonic() + wait_s
-        with self._cond:
+            if client_id or not is_local_wait:
+                self._touch_remote_client_locked(now, client_id=client_id, device_name=device_name, client_ip=client_ip)
             if target_ver == ver_before_touch and self._state_version == ver_before_touch + 1:
                 target_ver = self._state_version
             start_epoch = self._token_epoch

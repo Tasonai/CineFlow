@@ -127,7 +127,7 @@ from .kinorium_profile import (
 
 class KinoriumService:
     """
-    Live Kinorium Integration for CineFlow:
+    Live Kinorium Integration for Velarium:
     - Connects to real Kinorium user profiles (e.g., https://en.kinorium.com/user/51670/ -> Andrei Crustillio).
     - Automatically solves Kinorium's anti-bot JS challenge to fetch:
       1. All watched & rated movies/series of the user (/user/{id}/ratings/).
@@ -250,6 +250,8 @@ class KinoriumService:
         self.premieres_cache_file = os.path.join(self.storage_dir, "online_premieres_cache.json")
         self.similar_cache_file = os.path.join(self.storage_dir, "kinorium_similar_cache.json")
         self._state_lock = threading.RLock()
+        self._save_io_lock = threading.Lock()
+        self._healed_series_keys: set = set()
         self._cookie_lock = threading.Lock()
         self._cookie_refresh_lock = threading.Lock()
         self._episodes_lock = threading.Lock()
@@ -270,6 +272,7 @@ class KinoriumService:
         self._ip_blocked_proxy_sig: str = ""
         self._state_version: int = 1
         self._integrations_cache: Optional[Dict[str, Any]] = None
+        self._sections_counts_cache: Optional[Tuple[Tuple[int, int, int], Dict[str, int]]] = None
         self._save_dirty: bool = False
         self._save_timer: Optional[threading.Timer] = None
         self._online_premieres_mem: List[Dict[str, Any]] = []
@@ -726,18 +729,56 @@ class KinoriumService:
             state_dict["account"]["never_count"] = len(rem_never)
         return changed
 
+    def _prepare_state_snapshot_locked(self) -> Tuple[str, Dict[str, Any], Dict[str, str]]:
+        desc_map = self.state.get("descriptions_by_kid")
+        if isinstance(desc_map, dict) and len(desc_map) > 2000:
+            keep_keys = list(desc_map.keys())[-2000:]
+            self.state["descriptions_by_kid"] = {k: desc_map[k] for k in keep_keys}
+        crit_map = self.state.get("critics_by_kid")
+        if isinstance(crit_map, dict) and len(crit_map) > 4000:
+            keep_ck = list(crit_map.keys())[-4000:]
+            self.state["critics_by_kid"] = {k: crit_map[k] for k in keep_ck}
+        state_snapshot = {
+            str(k): (dict(v) if isinstance(v, dict) else (list(v) if isinstance(v, list) else v))
+            for k, v in list(self.state.items())
+        }
+        self._save_dirty = False
+        return self._profile_id, state_snapshot, dict(self._section_hashes)
+
+    def _persist_state_snapshot(
+        self,
+        profile_id: str,
+        state_snapshot: Dict[str, Any],
+        prev_hashes: Dict[str, str],
+    ) -> None:
+        try:
+            with self._save_io_lock:
+                next_hashes = self._db.save_profile_state(
+                    profile_id,
+                    state_snapshot,
+                    prev_hashes,
+                )
+            with self._state_lock:
+                if self._profile_id == profile_id:
+                    self._section_hashes = next_hashes
+        except Exception:
+            with self._state_lock:
+                self._save_dirty = True
+                if self._save_timer is None:
+                    t = threading.Timer(3.0, self._flush_dirty_state)
+                    t.daemon = True
+                    self._save_timer = t
+                    t.start()
+
     def _write_state_file_locked(self) -> None:
         try:
-            desc_map = self.state.get("descriptions_by_kid")
-            if isinstance(desc_map, dict) and len(desc_map) > 2000:
-                keep_keys = list(desc_map.keys())[-2000:]
-                self.state["descriptions_by_kid"] = {k: desc_map[k] for k in keep_keys}
-            self._section_hashes = self._db.save_profile_state(
-                self._profile_id,
-                self.state,
-                self._section_hashes,
-            )
-            self._save_dirty = False
+            pid, state_snapshot, prev_hashes = self._prepare_state_snapshot_locked()
+            with self._save_io_lock:
+                self._section_hashes = self._db.save_profile_state(
+                    pid,
+                    state_snapshot,
+                    prev_hashes,
+                )
         except Exception:
             # e.g. "dictionary changed size during iteration" while another thread mutates state:
             # keep the change dirty and retry shortly instead of silently losing it.
@@ -749,10 +790,16 @@ class KinoriumService:
                 t.start()
 
     def _flush_dirty_state(self) -> None:
+        snap_tuple = None
         with self._state_lock:
             self._save_timer = None
             if self._save_dirty:
-                self._write_state_file_locked()
+                try:
+                    snap_tuple = self._prepare_state_snapshot_locked()
+                except Exception:
+                    self._save_dirty = True
+        if snap_tuple is not None:
+            self._persist_state_snapshot(*snap_tuple)
 
     def _flush_state_on_exit(self) -> None:
         with self._state_lock:
@@ -763,15 +810,21 @@ class KinoriumService:
                 self._write_state_file_locked()
 
     def _save_state(self, immediate: bool = True, bump_version: bool = True):
+        snap_tuple = None
         with self._state_lock:
             self._integrations_cache = None
+            self._cached_account_summary = None
+            self._local_status_idx_key = None
             if bump_version:
                 self._state_version += 1
             if immediate:
                 if self._save_timer is not None:
                     self._save_timer.cancel()
                     self._save_timer = None
-                self._write_state_file_locked()
+                try:
+                    snap_tuple = self._prepare_state_snapshot_locked()
+                except Exception:
+                    self._save_dirty = True
             else:
                 self._save_dirty = True
                 if self._save_timer is None:
@@ -779,6 +832,8 @@ class KinoriumService:
                     t.daemon = True
                     self._save_timer = t
                     t.start()
+        if snap_tuple is not None:
+            self._persist_state_snapshot(*snap_tuple)
 
     def _build_lookup_indices(self):
         """
@@ -910,6 +965,7 @@ class KinoriumService:
             self._live_meta_by_id = live_meta_by_id
             self._live_meta_by_ru = live_meta_by_ru
             self._live_meta_by_orig = live_meta_by_orig
+            self._state_version = getattr(self, "_state_version", 0) + 1
 
     def switch_state_file(
         self,
@@ -1069,7 +1125,7 @@ class KinoriumService:
                 uid = str(u.get("id") or "").strip()
                 title = str(u.get("title") or "").strip()
                 orig_title = str(u.get("orig_title") or "").strip()
-                year_val = int(u.get("year") or 0)
+                year_val = _safe_year_int(u.get("year"))
                 r_url = str(u.get("rezka_url") or "").strip()
                 if title.lower() in ("фильм", "сериал", "movie", "series"):
                     title = ""
@@ -1127,12 +1183,14 @@ class KinoriumService:
                     and (now_ts - float(existing.get("last_new_release_ts") or 0.0) < 604800.0)
                 )
                 last_rel_ts = now_ts if is_new_air else float(existing.get("last_new_release_ts") or 0.0)
+                had_valid_existing = bool(existing and not existing.get("not_found") and old_s > 0 and old_e > 0)
+                is_not_found = False if had_valid_existing else bool(u.get("not_found", False))
                 entry = {
                     "id": eff_uid,
                     "kinorium_id": str(kid) if kid else "",
                     "title": title or str(existing.get("title") or ""),
                     "orig_title": orig_title or str(existing.get("orig_title") or ""),
-                    "year": year_val or int(existing.get("year") or 0),
+                    "year": year_val or _safe_year_int(existing.get("year")),
                     "rezka_id": str(u.get("rezka_id") or existing.get("rezka_id") or ""),
                     "rezka_url": str(r_url or existing.get("rezka_url") or ""),
                     "latest_season": new_s,
@@ -1142,7 +1200,7 @@ class KinoriumService:
                     "series_status_text": status_txt,
                     "studios_summary": str(u.get("studios_summary") or "HDRezka"),
                     "studios_count": int(u.get("studios_count") or 0),
-                    "not_found": bool(u.get("not_found", False)),
+                    "not_found": is_not_found,
                     "has_actual_new_release": has_act_rel,
                     "last_new_release_ts": last_rel_ts,
                     "updated_at": float(u.get("updated_at") or now_ts),
@@ -1162,7 +1220,7 @@ class KinoriumService:
                     self._live_meta_by_orig[no] = entry
                 changed = True
             if changed:
-                self._save_state()
+                self._save_state(immediate=False, bump_version=True)
 
     def _resolve_remote_item(
         self,
@@ -1301,6 +1359,10 @@ class KinoriumService:
         # Only a real title match (>=80 title points + bonuses) is trusted: these ids drive
         # status / rating writes on the user's real Kinorium account.
         if best_kid and best_entry is not None and best_score >= 100:
+            ru_t_val = str(best_entry.get("name") or title)
+            orig_t_val = str(best_entry.get("name_orig") or best_entry.get("orig") or orig_title)
+            fnr = _norm_title(ru_t_val)
+            fno = _norm_title(orig_t_val)
             with self._state_lock:
                 fkt = self.state.setdefault("friend_known_titles", {})
                 if len(fkt) > 2000:
@@ -1308,10 +1370,13 @@ class KinoriumService:
                         fkt.pop(k_ev, None)
                 fkt[best_kid] = {
                     "kinorium_id": best_kid,
-                    "ru_title": str(best_entry.get("name") or title),
-                    "orig_title": str(best_entry.get("name_orig") or best_entry.get("orig") or orig_title),
+                    "ru_title": ru_t_val,
+                    "orig_title": orig_t_val,
                 }
-            self._build_lookup_indices()
+                if fnr:
+                    self._friend_kid_by_ru[fnr] = str(best_kid)
+                if fno:
+                    self._friend_kid_by_orig[fno] = str(best_kid)
             return best_kid
         return None
 
@@ -1356,11 +1421,17 @@ class KinoriumService:
             for idx, cand in enumerate(s_res.get("persons") or []):
                 cn_ru = _norm_title(str(cand.get("name") or ""))
                 cn_en = _norm_title(str(cand.get("orig_name") or ""))
-                sc = (60 if cand.get("has_image") else 0) + (20 if cand.get("birth_date") else 0) - idx * 3
+                name_bonus = 0
                 if q_norm and (q_norm == cn_ru or q_norm == cn_en):
-                    sc += 120
-                elif q_norm and (q_norm in cn_ru or q_norm in cn_en or cn_ru in q_norm or (cn_en and cn_en in q_norm)):
-                    sc += 65
+                    name_bonus = 120
+                elif q_norm and (
+                    (cn_ru and (q_norm in cn_ru or cn_ru in q_norm))
+                    or (cn_en and (q_norm in cn_en or cn_en in q_norm))
+                ):
+                    name_bonus = 65
+                if name_bonus <= 0:
+                    continue
+                sc = name_bonus + (60 if cand.get("has_image") else 0) + (20 if cand.get("birth_date") else 0) - idx * 3
                 if sc > best_sc:
                     best_sc = sc
                     best_p = cand
@@ -1417,6 +1488,49 @@ class KinoriumService:
         watchlist_arr = self.state.get("watchlist") or []
         watching_local_arr = self.state.get("watching_local") or []
         never_local_arr = self.state.get("never_local") or []
+        unwatched_watchlist = self.state.get("watchlist_removed") or []
+        watching_removed = self.state.get("watching_removed") or []
+        never_removed = self.state.get("never_removed") or []
+        cw_arr = self.state.get("continue_watching") or []
+
+        idx_key = (
+            getattr(self, "_state_version", 0),
+            id(watchlist_arr), len(watchlist_arr),
+            id(watching_local_arr), len(watching_local_arr),
+            id(never_local_arr), len(never_local_arr),
+            id(unwatched_watchlist), len(unwatched_watchlist),
+            id(watching_removed), len(watching_removed),
+            id(never_removed), len(never_removed),
+            id(cw_arr), len(cw_arr),
+        )
+        local_idx = getattr(self, "_local_status_idx_val", None)
+        if local_idx is None or getattr(self, "_local_status_idx_key", None) != idx_key:
+            cw_ids = set()
+            cw_nrs = set()
+            for cw_it in cw_arr:
+                if isinstance(cw_it, dict):
+                    cid = cw_it.get("id")
+                    if cid:
+                        cw_ids.add(cid)
+                    ctitle = cw_it.get("title")
+                    if ctitle:
+                        cnr = _norm_title(ctitle)
+                        if cnr:
+                            cw_nrs.add(cnr)
+            local_idx = (
+                set(watchlist_arr),
+                set(watching_local_arr),
+                set(never_local_arr),
+                set(unwatched_watchlist),
+                set(watching_removed),
+                set(never_removed),
+                cw_ids,
+                cw_nrs,
+            )
+            self._local_status_idx_key = idx_key
+            self._local_status_idx_val = local_idx
+
+        wl_set, w_loc_set, n_loc_set, wl_rem_set, w_rem_set, n_rem_set, cw_ids_set, cw_nrs_set = local_idx
 
         local_watched = None
         for lk in lookup_ids:
@@ -1428,9 +1542,9 @@ class KinoriumService:
             if lk in ratings_dict:
                 local_rating = ratings_dict[lk]
                 break
-        local_in_watchlist = any(lk in watchlist_arr for lk in lookup_ids)
-        local_watching = any(lk in watching_local_arr for lk in lookup_ids)
-        local_never = any(lk in never_local_arr for lk in lookup_ids)
+        local_in_watchlist = any(lk in wl_set for lk in lookup_ids)
+        local_watching = any(lk in w_loc_set for lk in lookup_ids)
+        local_never = any(lk in n_loc_set for lk in lookup_ids)
 
         if local_watched is not None:
             is_watched = bool(local_watched.get("watched"))
@@ -1462,8 +1576,7 @@ class KinoriumService:
         no_vars = _title_variants(orig_title)
         nr = nr_vars[0] if nr_vars else ""
 
-        unwatched_watchlist = self.state.get("watchlist_removed") or []
-        is_wl_removed = any(lk in unwatched_watchlist for lk in lookup_ids)
+        is_wl_removed = any(lk in wl_rem_set for lk in lookup_ids)
         in_watchlist = bool(
             not is_wl_removed
             and (
@@ -1474,8 +1587,7 @@ class KinoriumService:
             )
         )
 
-        watching_removed = self.state.get("watching_removed") or []
-        is_w_removed = any(lk in watching_removed for lk in lookup_ids)
+        is_w_removed = any(lk in w_rem_set for lk in lookup_ids)
         is_watching = bool(
             not is_watched
             and not is_w_removed
@@ -1487,8 +1599,7 @@ class KinoriumService:
             )
         )
 
-        never_removed = self.state.get("never_removed") or []
-        is_n_removed = any(lk in never_removed for lk in lookup_ids)
+        is_n_removed = any(lk in n_rem_set for lk in lookup_ids)
         not_watching = bool(
             not is_watched
             and not user_score
@@ -1504,46 +1615,52 @@ class KinoriumService:
         # 3. Resolve real friends' ratings and per-season watched episodes map first
         kid = kid_early or None
         friends_ratings: List[Dict[str, Any]] = []
+        we_map: Dict[str, List[int]] = {}
+        ep_ratings_map: Dict[str, Dict[str, Any]] = {}
+        cw_match = None
+        lookup_keys = [k for k in (item_id, f"kin_{kid}" if kid else "") if k]
         with self._state_lock:
             if kid:
                 friends_ratings = list((self.state.get("friends_ratings_by_kid") or {}).get(str(kid), []))
-            raw_we_snap = dict(self.state.get("watched_episodes") or {})
-            raw_er_snap = dict(self.state.get("episode_ratings") or {})
-            cw_list_snap = [dict(x) for x in (self.state.get("continue_watching") or []) if isinstance(x, dict)]
+            raw_we_store = self.state.get("watched_episodes") or {}
+            for k_lookup in lookup_keys:
+                sub_map = raw_we_store.get(k_lookup)
+                if isinstance(sub_map, dict):
+                    for s_k, ep_list in sub_map.items():
+                        if isinstance(ep_list, list):
+                            merged_eps = sorted(
+                                set(we_map.get(str(s_k), []) + [int(x) for x in ep_list if str(x).isdigit()])
+                            )
+                            we_map[str(s_k)] = merged_eps
 
-        we_map: Dict[str, List[int]] = {}
-        for k_lookup in filter(None, [item_id, f"kin_{kid}" if kid else ""]):
-            sub_map = raw_we_snap.get(k_lookup) or {}
-            if isinstance(sub_map, dict):
-                for s_k, ep_list in sub_map.items():
-                    if isinstance(ep_list, list):
-                        merged_eps = sorted(
-                            set(we_map.get(str(s_k), []) + [int(x) for x in ep_list if str(x).isdigit()])
-                        )
-                        we_map[str(s_k)] = merged_eps
+            raw_er_store = self.state.get("episode_ratings") or {}
+            for k_lookup in lookup_keys:
+                sub_er = raw_er_store.get(k_lookup)
+                if isinstance(sub_er, dict):
+                    for ep_k, ep_val in sub_er.items():
+                        if isinstance(ep_val, dict):
+                            ep_ratings_map[str(ep_k)] = dict(ep_val)
 
-        ep_ratings_map: Dict[str, Dict[str, Any]] = {}
-        for k_lookup in filter(None, [item_id, f"kin_{kid}" if kid else ""]):
-            sub_er = raw_er_snap.get(k_lookup) or {}
-            if isinstance(sub_er, dict):
-                for ep_k, ep_val in sub_er.items():
-                    if isinstance(ep_val, dict):
-                        ep_ratings_map[str(ep_k)] = dict(ep_val)
+            if (
+                item_id in cw_ids_set
+                or (kid and f"kin_{kid}" in cw_ids_set)
+                or (nr and nr in cw_nrs_set)
+            ):
+                for cw_it in (self.state.get("continue_watching") or []):
+                    if not isinstance(cw_it, dict):
+                        continue
+                    if (
+                        cw_it.get("id") == item_id
+                        or (kid and cw_it.get("id") == f"kin_{kid}")
+                        or (nr and _norm_title(cw_it.get("title", "")) == nr)
+                    ):
+                        cw_match = dict(cw_it)
+                        break
 
         # 4. Unified Season & Episode resolution across Continue Watching, Poster Grid, Notifications & Player
         mtype_val = (remote_item.get("media_type") if remote_item else "series") or "series"
         has_new_episode = False
         all_released_episodes_watched = False
-
-        cw_match = None
-        for cw_it in cw_list_snap:
-            if (
-                cw_it.get("id") == item_id
-                or (kid and cw_it.get("id") == f"kin_{kid}")
-                or (nr and _norm_title(cw_it.get("title", "")) == nr)
-            ):
-                cw_match = cw_it
-                break
 
         live_meta = self.get_series_live_meta(item_id=item_id, title=title, orig_title=orig_title, kid=kid)
         next_season = 1
@@ -1556,7 +1673,7 @@ class KinoriumService:
         cw_s_num = max(1, int(cw_match.get("season") or 1)) if cw_match else 0
         cw_e_num = max(1, int(cw_match.get("episode") or 1)) if cw_match else 0
         cw_ep_already_watched = bool(
-            cw_match and cw_e_num in [int(x) for x in (we_map.get(str(cw_s_num)) or []) if str(x).isdigit()]
+            cw_match and cw_e_num in (we_map.get(str(cw_s_num)) or [])
         )
         has_mid_episode_resume = bool(
             cw_match
@@ -1581,7 +1698,7 @@ class KinoriumService:
             numeric_seasons_all = sorted(
                 int(k) for k in we_map.keys() if str(k).isdigit() and we_map.get(k)
             )
-            watched_in_latest_all = [int(x) for x in (we_map.get(str(latest_season)) or []) if str(x).isdigit()]
+            watched_in_latest_all = list(we_map.get(str(latest_season)) or [])
             max_prev_s = max(numeric_seasons_all) if numeric_seasons_all else 0
             has_unwatched_season = bool(latest_season and max_prev_s and latest_season > max_prev_s)
             has_unwatched_in_latest = bool(latest_season and latest_episode and watched_in_latest_all and max(watched_in_latest_all) < latest_episode)
@@ -1639,7 +1756,24 @@ class KinoriumService:
             is_watched = True
             is_watching = False
             has_new_episode = False
-            if was_watching_now or (kid and str(kid) in (self.state.get("remote_watching_items") or {})):
+            heal_sig = f"{self._state_version}:{item_id}:{kid or ''}"
+            if heal_sig not in self._healed_series_keys:
+                with self._state_lock:
+                    if len(self._healed_series_keys) > 4096:
+                        self._healed_series_keys.clear()
+                    self._healed_series_keys.add(heal_sig)
+                    rem_w_map = self.state.get("remote_watching_items") or {}
+                    in_rem_w = bool(kid and str(kid) in rem_w_map)
+                    already_auto = bool(
+                        isinstance((self.state.get("watched") or {}).get(item_id), dict)
+                        and (self.state.get("watched") or {}).get(item_id, {}).get("auto_scrobbled")
+                        and item_id not in (self.state.get("watching_local") or [])
+                        and not in_rem_w
+                    )
+            else:
+                in_rem_w = False
+                already_auto = True
+            if (was_watching_now or in_rem_w) and not already_auto:
                 now_str_auto = time.strftime("%Y-%m-%d %H:%M")
                 auto_entry = {
                     "item_id": item_id,
@@ -1701,7 +1835,7 @@ class KinoriumService:
             numeric_seasons = sorted(
                 int(k) for k in we_map.keys() if str(k).isdigit() and we_map.get(k)
             )
-            watched_in_latest = [int(x) for x in (we_map.get(str(latest_season)) or []) if str(x).isdigit()]
+            watched_in_latest = list(we_map.get(str(latest_season)) or [])
             if is_watched and not is_watching and not has_new_episode:
                 next_season = latest_season
                 next_episode = latest_episode
@@ -1710,7 +1844,7 @@ class KinoriumService:
                 max_s = max(numeric_seasons)
                 has_new_episode = False
                 next_season = max_s
-                next_episode = max(int(x) for x in we_map[str(max_s)] if str(x).isdigit())
+                next_episode = max(we_map[str(max_s)])
             elif watched_in_latest:
                 max_watched_ep = max(watched_in_latest)
                 if max_watched_ep >= latest_episode:
@@ -1808,7 +1942,7 @@ class KinoriumService:
             "user_rating": user_score,
             "user_comment": user_comment,
             "friends_ratings": friends_ratings,
-            "profile_name": self.get_account_summary().get("display_name") or "Киноман",
+            "profile_name": (self.state.get("account") or {}).get("display_name") or "Киноман",
         }
 
     @staticmethod
@@ -1858,6 +1992,10 @@ class KinoriumService:
         if premieres_count is None:
             premieres_count = self.get_online_premieres_count(allow_network=False)
         cur_yr = time.localtime().tm_year
+        cache_key = (self._state_version, cur_yr, int(premieres_count or 0))
+        cached = self._sections_counts_cache
+        if cached and cached[0] == cache_key:
+            return dict(cached[1])
         with self._state_lock:
             wl_items = list((self.state.get("remote_watchlist_items") or {}).values())
             watched_cnt = len(self.state.get("remote_watched_items") or {})
@@ -1871,13 +2009,15 @@ class KinoriumService:
             and (_safe_year_int(v.get("year")) == 0 or _safe_year_int(v.get("year")) <= cur_yr)
         )
         watching_items = self.get_section_catalog_items(section="watching", media_type_filter="all", query="")
-        return {
+        res = {
             "premieres": int(premieres_count),
             "watching": len(watching_items),
             "watchlist": wl_online_count,
             "watched": watched_cnt,
             "never": never_cnt,
         }
+        self._sections_counts_cache = (cache_key, res)
+        return dict(res)
 
     def get_section_catalog_items(
         self,
@@ -1892,7 +2032,7 @@ class KinoriumService:
         - `watchlist` / `future` («Буду смотреть»)
         - `watched` / `done` («Просмотрено»)
         - `never` / `not_watching` («Не буду смотреть»)
-        into full, playable CineFlow catalog items with high-resolution Kinorium posters.
+        into full, playable Velarium catalog items with high-resolution Kinorium posters.
         """
         sec_map = {
             "watching": "remote_watching_items",
@@ -1908,12 +2048,14 @@ class KinoriumService:
         if not state_key:
             return []
 
-        raw_dict = self.state.get(state_key) or {}
+        with self._state_lock:
+            raw_dict = self.state.get(state_key) or {}
+            raw_entries = list(raw_dict.items())
         q_norm = _norm_title(query)
         items_out: List[Dict[str, Any]] = []
 
         cur_yr = time.localtime().tm_year
-        for kid, entry in list(raw_dict.items()):
+        for kid, entry in raw_entries:
             # In 'watchlist' («Буду смотреть»), hide movies/series that are not yet released online
             if section in ("watchlist", "future"):
                 yr_check = int(entry.get("year") or 0)
@@ -2379,6 +2521,7 @@ class KinoriumService:
                                 stash.pop(f"title:{nr}", None)
             is_milestone = bool(just_scrobbled or just_scrobbled_episode or auto_completed_series or promoted_to_watching)
             self._save_state(immediate=is_milestone, bump_version=is_milestone)
+            cw_snap = list(self.state["continue_watching"])
         if should_mark_watched:
             eff_remote_synced = remote_ep_synced if media_type == "series" else remote_movie_synced
         elif promoted_to_watching:
@@ -2392,12 +2535,13 @@ class KinoriumService:
             "reason": reason or ("watched_threshold" if should_mark_watched else ""),
             "just_scrobbled": just_scrobbled,
             "just_scrobbled_episode": just_scrobbled_episode,
+            "auto_scrobbled": bool(just_scrobbled or just_scrobbled_episode),
             "auto_completed_series": auto_completed_series,
             "promoted_to_watching": promoted_to_watching,
             "remote_synced": eff_remote_synced,
             "scrobbled_season": int(season),
             "scrobbled_episode": int(episode),
-            "continue_watching": list(self.state["continue_watching"]),
+            "continue_watching": cw_snap,
             "kinorium_status": self.get_item_status(item_id, title=title, orig_title=orig_title),
         }
         if just_scrobbled or auto_completed_series or promoted_to_watching:

@@ -4,9 +4,11 @@ Zero third-party dependencies — generates crisp, high-contrast vector SVG QR c
 for LAN URLs (e.g. `http://192.168.1.25:8765`) scannable by iOS, iPadOS, Android, and Smart TVs.
 """
 
+import functools
 import html
 import ipaddress
 import socket
+import time
 from typing import List, Optional, Tuple
 
 # Version 1..6 parameters:
@@ -358,6 +360,7 @@ def build_qr_matrix(text: str) -> List[List[int]]:
     return best_grid or base
 
 
+@functools.lru_cache(maxsize=64)
 def generate_qr_svg(
     text: str,
     quiet_zone: int = 3,
@@ -425,11 +428,21 @@ def _classify_lan_candidate_ip(ip_str: str) -> int:
     return 0
 
 
+_ORIG_SOCKET = socket.socket
+_LAN_IPV4_CACHE: Tuple[float, str] = (0.0, "")
+
+
 def detect_lan_ipv4() -> str:
     """
     Detects the primary active LAN IPv4 address of the host (e.g. `192.168.1.42`)
     without sending any network packets, avoiding virtual VPN TUN (`198.18.x.x`) and APIPA (`169.254.x.x`).
     """
+    global _LAN_IPV4_CACHE
+    now = time.monotonic()
+    use_cache = socket.socket is _ORIG_SOCKET
+    if use_cache and _LAN_IPV4_CACHE[0] > 0.0 and (now - _LAN_IPV4_CACHE[0]) < 5.0:
+        return _LAN_IPV4_CACHE[1]
+
     fallback_cgnat = ""
     probe_targets = (
         ("192.168.1.1", 80),
@@ -446,6 +459,8 @@ def detect_lan_ipv4() -> str:
             ip = sock.getsockname()[0]
             rank = _classify_lan_candidate_ip(ip)
             if rank == 2:
+                if use_cache:
+                    _LAN_IPV4_CACHE = (now, ip)
                 return ip
             if rank == 1 and not fallback_cgnat:
                 fallback_cgnat = ip
@@ -460,9 +475,13 @@ def detect_lan_ipv4() -> str:
             ip = info[4][0]
             rank = _classify_lan_candidate_ip(ip)
             if rank == 2:
+                if use_cache:
+                    _LAN_IPV4_CACHE = (now, ip)
                 return ip
             if rank == 1 and not fallback_cgnat:
                 fallback_cgnat = ip
     except OSError:
         pass
+    if use_cache:
+        _LAN_IPV4_CACHE = (now, fallback_cgnat)
     return fallback_cgnat

@@ -4,8 +4,8 @@ import MediaPlayer
 import UserNotifications
 
 final class NativeBridgeProxy: NSObject, WKScriptMessageHandler {
-    weak var owner: CineFlowAppController?
-    init(owner: CineFlowAppController) {
+    weak var owner: VelariumAppController?
+    init(owner: VelariumAppController) {
         self.owner = owner
         super.init()
     }
@@ -49,7 +49,8 @@ final class ServerDaemonSupervisor {
             if let http = resp as? HTTPURLResponse, http.statusCode == 200,
                let d = data,
                let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-               (obj["app"] as? String) == "cineflow" {
+               let appName = obj["app"] as? String,
+               (appName == "velarium" || appName == "cineflow") {
                 let runningVer = (obj["version"] as? String) ?? ""
                 if requireMatchingVersion && !expectedVer.isEmpty && !runningVer.isEmpty && runningVer != expectedVer {
                     completion(false, true)
@@ -84,7 +85,7 @@ final class ServerDaemonSupervisor {
 
         let targetDataDir = dataDir.isEmpty ? (projectRoot as NSString).appendingPathComponent("data") : dataDir
         try? FileManager.default.createDirectory(atPath: targetDataDir, withIntermediateDirectories: true)
-        let logPath = (targetDataDir as NSString).appendingPathComponent("cineflow-macos.log")
+        let logPath = (targetDataDir as NSString).appendingPathComponent("velarium-macos.log")
         if !FileManager.default.fileExists(atPath: logPath) {
             FileManager.default.createFile(atPath: logPath, contents: nil)
         }
@@ -100,7 +101,7 @@ final class ServerDaemonSupervisor {
         let binDir = (projectRoot as NSString).appendingPathComponent("backend/bin")
         let curPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         env["PATH"] = "\(binDir):/opt/homebrew/bin:/usr/local/bin:\(curPath)"
-        env["CINEFLOW_DATA_DIR"] = targetDataDir
+        env["VELARIUM_DATA_DIR"] = targetDataDir
         env["PYTHONUNBUFFERED"] = "1"
         proc.environment = env
 
@@ -115,7 +116,7 @@ final class ServerDaemonSupervisor {
             self.serverProcess = proc
             self.spawnedServerOurselves = true
         } catch {
-            NSLog("[CineFlow] Failed to spawn server.py: \(error)")
+            NSLog("[Velarium] Failed to spawn server.py: \(error)")
         }
     }
 
@@ -148,9 +149,16 @@ final class ServerDaemonSupervisor {
         if !hadSpawnedProc && isLaunchAgentInstalled {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            p.arguments = ["kickstart", "-k", "gui/\(getuid())/com.cineflow.server"]
+            p.arguments = ["kickstart", "-k", "gui/\(getuid())/app.velarium.cinema"]
             try? p.run()
             p.waitUntilExit()
+
+            // Also kick legacy label if present during upgrade
+            let pLegacy = Process()
+            pLegacy.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            pLegacy.arguments = ["bootout", "gui/\(getuid())/app.cineflow.cinema"]
+            try? pLegacy.run()
+            pLegacy.waitUntilExit()
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.ensureBackendServerRunning(onReady: onReady)
@@ -189,7 +197,7 @@ final class KinoriumAuthSheetController: NSObject, NSWindowDelegate, WKNavigatio
             backing: .buffered,
             defer: false
         )
-        win.title = isEnglish ? "Sign in to Kinorium — CineFlow" : "Вход в Kinorium — CineFlow"
+        win.title = isEnglish ? "Sign in to Kinorium — Velarium" : "Вход в Kinorium — Velarium"
         win.appearance = NSAppearance(named: .darkAqua)
         win.backgroundColor = NSColor(calibratedRed: 0.04, green: 0.04, blue: 0.05, alpha: 1.0)
         win.titlebarAppearsTransparent = true
@@ -268,6 +276,14 @@ final class KinoriumAuthSheetController: NSObject, NSWindowDelegate, WKNavigatio
                 if resolvedUid.isEmpty || (Int(resolvedUid) ?? 0) <= 0 {
                     for c in validCookies where c.name == "auth" {
                         let decoded = c.value.removingPercentEncoding ?? c.value
+                        if let data = decoded.data(using: .utf8),
+                           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                            let rawId = String(describing: obj["user_id"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                            if let n = Int(rawId), n > 0 {
+                                resolvedUid = String(n)
+                                break
+                            }
+                        }
                         if let pipeIdx = decoded.firstIndex(of: "|") {
                             let cand = String(decoded[..<pipeIdx]).trimmingCharacters(in: .whitespacesAndNewlines)
                             if let n = Int(cand), n > 0 {
@@ -307,11 +323,13 @@ final class KinoriumAuthSheetController: NSObject, NSWindowDelegate, WKNavigatio
             kinAuthTimer?.invalidate()
             kinAuthTimer = nil
             kinAuthWindow = nil
+            kinAuthWebView?.navigationDelegate = nil
+            kinAuthWebView?.uiDelegate = nil
             kinAuthWebView = nil
             if wasCancelled {
                 DispatchQueue.main.async { [weak self] in
                     self?.ownerWebView?.evaluateJavaScript(
-                        "if (window.__cineflowOnNativeKinoriumAuth) { window.__cineflowOnNativeKinoriumAuth({ cancelled: true }); }",
+                        "if (window.__velariumOnNativeKinoriumAuth) { window.__velariumOnNativeKinoriumAuth({ cancelled: true }); }",
                         completionHandler: nil
                     )
                 }
@@ -329,7 +347,7 @@ final class KinoriumAuthSheetController: NSObject, NSWindowDelegate, WKNavigatio
               let jsonStr = String(data: data, encoding: .utf8) else { return }
         DispatchQueue.main.async { [weak self] in
             self?.ownerWebView?.evaluateJavaScript(
-                "if (window.__cineflowOnNativeKinoriumAuth) { window.__cineflowOnNativeKinoriumAuth(\(jsonStr)); }",
+                "if (window.__velariumOnNativeKinoriumAuth) { window.__velariumOnNativeKinoriumAuth(\(jsonStr)); }",
                 completionHandler: nil
             )
         }
@@ -340,11 +358,13 @@ final class KinoriumAuthSheetController: NSObject, NSWindowDelegate, WKNavigatio
         kinAuthTimer = nil
         kinAuthWindow?.close()
         kinAuthWindow = nil
+        kinAuthWebView?.navigationDelegate = nil
+        kinAuthWebView?.uiDelegate = nil
         kinAuthWebView = nil
     }
 }
 
-final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, UNUserNotificationCenterDelegate {
+final class VelariumAppController: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, UNUserNotificationCenterDelegate {
     private let serverPort: Int = 8765
     private var projectRoot: String = ""
     private var dataDir: String = ""
@@ -356,6 +376,8 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
     private var mainWindow: NSWindow!
     private var webView: WKWebView!
+    private var embeddedStreamWebView: WKWebView?
+    private var embeddedStreamCurrentUrl: String = ""
     private var loadingOverlay: NSView?
     private var loadingLabel: NSTextField?
     private var statusItem: NSStatusItem!
@@ -408,31 +430,37 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
     private static func defaultStandaloneDataDir() -> String {
         let fm = FileManager.default
-        if let envData = ProcessInfo.processInfo.environment["CINEFLOW_DATA_DIR"],
+        if let envData = ProcessInfo.processInfo.environment["VELARIUM_DATA_DIR"] ?? ProcessInfo.processInfo.environment["CINEFLOW_DATA_DIR"],
            !envData.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return envData
         }
         if let appSup = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
-            return appSup.appendingPathComponent("CineFlow/data").path
+            let newDir = appSup.appendingPathComponent("Velarium/data").path
+            let legacyDir = appSup.appendingPathComponent("CineFlow/data").path
+            if !fm.fileExists(atPath: newDir) && fm.fileExists(atPath: legacyDir) {
+                try? fm.createDirectory(atPath: appSup.appendingPathComponent("Velarium").path, withIntermediateDirectories: true)
+                try? fm.moveItem(atPath: legacyDir, toPath: newDir)
+            }
+            return newDir
         }
-        return (NSHomeDirectory() as NSString).appendingPathComponent("Library/Application Support/CineFlow/data")
+        return (NSHomeDirectory() as NSString).appendingPathComponent("Library/Application Support/Velarium/data")
     }
 
     private static func resolveRuntimePaths() -> (root: String, dataDir: String) {
         let fm = FileManager.default
         let env = ProcessInfo.processInfo.environment
-        if let envRoot = env["CINEFLOW_ROOT"],
+        if let envRoot = env["VELARIUM_ROOT"],
            fm.fileExists(atPath: (envRoot as NSString).appendingPathComponent("server.py")) {
-            let dDir = env["CINEFLOW_DATA_DIR"] ?? (envRoot as NSString).appendingPathComponent("data")
+            let dDir = env["VELARIUM_DATA_DIR"] ?? (envRoot as NSString).appendingPathComponent("data")
             return (envRoot, dDir)
         }
-        // Check if CineFlow.app sits inside a local workspace (e.g., dist/CineFlow.app -> ../server.py)
+        // Check if Velarium.app sits inside a local workspace (e.g., dist/Velarium.app -> ../server.py)
         let bundlePath = Bundle.main.bundlePath
         let parent1 = (bundlePath as NSString).deletingLastPathComponent
         let parent2 = (parent1 as NSString).deletingLastPathComponent
         for cand in [parent1, parent2] {
             if fm.fileExists(atPath: (cand as NSString).appendingPathComponent("server.py")) {
-                let dDir = env["CINEFLOW_DATA_DIR"] ?? (cand as NSString).appendingPathComponent("data")
+                let dDir = env["VELARIUM_DATA_DIR"] ?? (cand as NSString).appendingPathComponent("data")
                 return (cand, dDir)
             }
         }
@@ -446,27 +474,27 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
             if let saved = try? String(contentsOfFile: ptrFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
                !saved.isEmpty,
                fm.fileExists(atPath: (saved as NSString).appendingPathComponent("server.py")) {
-                let dDir = env["CINEFLOW_DATA_DIR"] ?? (saved as NSString).appendingPathComponent("data")
+                let dDir = env["VELARIUM_DATA_DIR"] ?? (saved as NSString).appendingPathComponent("data")
                 return (saved, dDir)
             }
         }
         let cwd = fm.currentDirectoryPath
-        return (cwd, env["CINEFLOW_DATA_DIR"] ?? (cwd as NSString).appendingPathComponent("data"))
+        return (cwd, env["VELARIUM_DATA_DIR"] ?? (cwd as NSString).appendingPathComponent("data"))
     }
 
     private func loadReleaseNotesMarkdown(currentVer: String) -> String {
         let fallbackRu = """
-        **Что нового в CineFlow \(currentVer):**
+        **Что нового в Velarium \(currentVer):**
         • **Живой Markdown-список изменений в установщике и приложении**: окно обновления `.dmg` на macOS, мастер установки Windows и вкладка «О программе» теперь отображают актуальный форматированный список изменений из `RELEASE_NOTES.md`.
-        • **Бесшовное обновление по воздуху (OTA) в 1 клик**: автоматическая проверка новых релизов на GitHub (`Tasonai/CineFlow`), фоновая загрузка с проверкой контрольной суммы `SHA-256`, автоматическая замена старого фонового процесса `server.py` на порту `8765` и установка новой версии в `/Applications/CineFlow.app` в 1 клик.
+        • **Бесшовное обновление по воздуху (OTA) в 1 клик**: автоматическая проверка новых релизов на GitHub, фоновая загрузка с проверкой контрольной суммы `SHA-256`, автоматическая замена старого фонового процесса `server.py` на порту `8765` и установка новой версии в `/Applications/Velarium.app` в 1 клик.
         • **Защита от блокировки IP на Кинориуме (`403 Forbidden`)**: добавлен умный ограничитель частоты запросов (Rate Limiter) и автоматический предохранитель при временных блокировках, исключающий перегрузку серверов Кинориума фоновыми проверками старых сериалов.
         • **Гарантированная доотправка отметок и оценок**: все отметки просмотров фильмов, сериалов и оценки эпизодов, поставленные во время офлайна или временной блокировки сети, автоматически доотправляются в ваш профиль Кинориума при восстановлении связи.
         • **Точное определение актёров «В кадре» (X-Ray)** и мгновенный запуск локального сервера.
         """
         let fallbackEn = """
-        **What's new in CineFlow \(currentVer):**
+        **What's new in Velarium \(currentVer):**
         • **Live Markdown Release Notes in Installer & App**: the macOS `.dmg` upgrade dialog, Windows setup wizard, and the in-app "About" updater card now render formatted release notes directly from `RELEASE_NOTES.md`.
-        • **Seamless 1-Click Over-The-Air (OTA) Updates**: automatic release checks via GitHub (`Tasonai/CineFlow`), background installer download with `SHA-256` verification, automatic replacement of stale `server.py` processes on port `8765`, and 1-click installation into `/Applications/CineFlow.app`.
+        • **Seamless 1-Click Over-The-Air (OTA) Updates**: automatic release checks via GitHub, background installer download with `SHA-256` verification, automatic replacement of stale `server.py` processes on port `8765`, and 1-click installation into `/Applications/Velarium.app`.
         • **Kinorium IP Ban Protection (`403 Forbidden`)**: smart request rate limiter and automatic 10-minute circuit breaker preventing background episode sync storms across historical series.
         • **Guaranteed Offline & Unblock Resync**: all watched marks and episode ratings made while offline or during a temporary IP block are automatically pushed to your Kinorium profile once connectivity is restored.
         • **Accurate "In Scene" (X-Ray) Cast Detection** and instant local server startup.
@@ -552,16 +580,18 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
         if startInBackground { return false }
         let fm = FileManager.default
         let currentBundlePath = (Bundle.main.bundlePath as NSString).standardizingPath
-        let targetAppPath = "/Applications/CineFlow.app"
+        let targetAppPath = "/Applications/Velarium.app"
+        let legacyAppPath = "/Applications/CineFlow.app"
         if currentBundlePath == targetAppPath { return false }
         // Only prompt when launched from mounted DMG (/Volumes/...) or Downloads
         let isFromDmgOrDownloads = currentBundlePath.hasPrefix("/Volumes/") || currentBundlePath.contains("/Downloads/")
         if !isFromDmgOrDownloads { return false }
-        guard fm.fileExists(atPath: targetAppPath) else { return false }
+        let existingPath = fm.fileExists(atPath: targetAppPath) ? targetAppPath : (fm.fileExists(atPath: legacyAppPath) ? legacyAppPath : "")
+        guard !existingPath.isEmpty else { return false }
 
-        let currentVer = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.7.1"
+        let currentVer = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.7.10"
         var installedVer = "2.5.x"
-        let targetPlistPath = (targetAppPath as NSString).appendingPathComponent("Contents/Info.plist")
+        let targetPlistPath = (existingPath as NSString).appendingPathComponent("Contents/Info.plist")
         if let plistData = try? Data(contentsOf: URL(fileURLWithPath: targetPlistPath)),
            let plistObj = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any],
            let ver = plistObj["CFBundleShortVersionString"] as? String, !ver.isEmpty {
@@ -571,12 +601,12 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = tr(
-            "Обнаружена установленная версия CineFlow (\(installedVer))",
-            "Installed CineFlow (\(installedVer)) Detected"
+            "Обнаружена установленная версия Velarium (\(installedVer))",
+            "Installed Velarium (\(installedVer)) Detected"
         )
         alert.informativeText = tr(
-            "Хотите обновить установленное приложение CineFlow в папке /Applications до версии \(currentVer)? Все ваши профили, списки Kinorium, история просмотра и загрузки сохранятся.",
-            "Would you like to update CineFlow in /Applications to version \(currentVer)? All your profiles, Kinorium lists, watch history, and downloads will be preserved."
+            "Хотите обновить установленное приложение Velarium в папке /Applications до версии \(currentVer)? Все ваши профили, списки Kinorium, история просмотра и загрузки сохранятся.",
+            "Would you like to update Velarium in /Applications to version \(currentVer)? All your profiles, Kinorium lists, watch history, and downloads will be preserved."
         )
         alert.addButton(withTitle: tr("Обновить до \(currentVer)", "Update to \(currentVer)"))
         alert.addButton(withTitle: tr("Запустить без обновления", "Run Without Updating"))
@@ -603,15 +633,20 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
         if resp == .alertFirstButtonReturn {
             do {
                 daemonSupervisor.killStaleServerOnPort()
-                let killTask = Process()
-                killTask.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-                killTask.arguments = ["-f", "/Applications/CineFlow.app/Contents/"]
-                try? killTask.run()
-                killTask.waitUntilExit()
+                for procPattern in ["/Applications/Velarium.app/Contents/", "/Applications/CineFlow.app/Contents/"] {
+                    let killTask = Process()
+                    killTask.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+                    killTask.arguments = ["-f", procPattern]
+                    try? killTask.run()
+                    killTask.waitUntilExit()
+                }
                 Thread.sleep(forTimeInterval: 0.5)
 
                 if fm.fileExists(atPath: targetAppPath) {
                     try fm.removeItem(atPath: targetAppPath)
+                }
+                if fm.fileExists(atPath: legacyAppPath) {
+                    try? fm.removeItem(atPath: legacyAppPath)
                 }
                 try fm.copyItem(atPath: currentBundlePath, toPath: targetAppPath)
                 NSWorkspace.shared.openApplication(
@@ -624,7 +659,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
             } catch {
                 let errAlert = NSAlert()
                 errAlert.alertStyle = .warning
-                errAlert.messageText = tr("Не удалось обновить /Applications/CineFlow.app", "Could not update /Applications/CineFlow.app")
+                errAlert.messageText = tr("Не удалось обновить /Applications/Velarium.app", "Could not update /Applications/Velarium.app")
                 errAlert.informativeText = error.localizedDescription
                 errAlert.runModal()
             }
@@ -632,7 +667,48 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
         return false
     }
 
+    private func relocateLegacyApplicationBundleIfNeeded() -> Bool {
+        let fm = FileManager.default
+        let currentBundlePath = (Bundle.main.bundlePath as NSString).standardizingPath
+        let legacyAppPath = "/Applications/CineFlow.app"
+        let targetAppPath = "/Applications/Velarium.app"
+        guard currentBundlePath == legacyAppPath else { return false }
+
+        _ = Self.defaultStandaloneDataDir()
+        do {
+            if fm.fileExists(atPath: targetAppPath) {
+                try? fm.removeItem(atPath: targetAppPath)
+            }
+            try fm.moveItem(atPath: legacyAppPath, toPath: targetAppPath)
+            let chflagsTask = Process()
+            chflagsTask.executableURL = URL(fileURLWithPath: "/usr/bin/chflags")
+            chflagsTask.arguments = ["nohidden", targetAppPath]
+            try? chflagsTask.run()
+            chflagsTask.waitUntilExit()
+
+            let xattrTask = Process()
+            xattrTask.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+            xattrTask.arguments = ["-cr", targetAppPath]
+            try? xattrTask.run()
+            xattrTask.waitUntilExit()
+
+            NSWorkspace.shared.openApplication(
+                at: URL(fileURLWithPath: targetAppPath),
+                configuration: NSWorkspace.OpenConfiguration(),
+                completionHandler: nil
+            )
+            NSApp.terminate(nil)
+            return true
+        } catch {
+            NSLog("[Velarium] Could not auto-relocate /Applications/CineFlow.app to /Applications/Velarium.app: \(error)")
+            return false
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if relocateLegacyApplicationBundleIfNeeded() {
+            return
+        }
         NSApp.setActivationPolicy(startInBackground ? .accessory : .regular)
         if checkAndOfferApplicationsUpgradeIfNeeded() {
             return
@@ -647,7 +723,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
         ensureBackendServerRunning { [weak self] in
             DispatchQueue.main.async {
-                self?.loadCineFlowUI()
+                self?.loadVelariumUI()
             }
         }
 
@@ -663,6 +739,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
     func applicationWillTerminate(_ notification: Notification) {
         isQuitting = true
+        closeEmbeddedStreamWebView()
         kinoriumAuthSheet?.closeIfOpen()
         stopSpawnedServerIfNeeded()
     }
@@ -675,14 +752,14 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
         let appMenu = NSMenu()
-        let aboutItem = NSMenuItem(title: tr("О программе CineFlow", "About CineFlow"), action: #selector(openAboutFromMenu), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: tr("О программе Velarium", "About Velarium"), action: #selector(openAboutFromMenu), keyEquivalent: "")
         aboutItem.target = self
         appMenu.addItem(aboutItem)
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: tr("Настройки…", "Settings…"), action: #selector(openSettingsFromMenu), keyEquivalent: ",")
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(withTitle: tr("Скрыть CineFlow", "Hide CineFlow"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: tr("Выйти из CineFlow", "Quit CineFlow"), action: #selector(quitAppCompletely), keyEquivalent: "q")
+        appMenu.addItem(withTitle: tr("Скрыть Velarium", "Hide Velarium"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: tr("Выйти из Velarium", "Quit Velarium"), action: #selector(quitAppCompletely), keyEquivalent: "q")
         appMenuItem.submenu = appMenu
 
         let editMenuItem = NSMenuItem()
@@ -728,22 +805,22 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
     private func setupStatusBarMenu() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let btn = statusItem.button {
-            if #available(macOS 11.0, *), let img = NSImage(systemSymbolName: "play.tv.fill", accessibilityDescription: "CineFlow") {
+            if #available(macOS 11.0, *), let img = NSImage(systemSymbolName: "play.tv.fill", accessibilityDescription: "Velarium") {
                 img.isTemplate = true
                 btn.image = img
             } else {
-                btn.title = "CF"
+                btn.title = "VL"
             }
-            btn.toolTip = tr("CineFlow — Домашний кинотеатр", "CineFlow — Unified Home Cinema")
+            btn.toolTip = tr("Velarium — Домашний кинотеатр", "Velarium — Unified Home Cinema")
         }
 
         let menu = NSMenu()
-        nowPlayingMenuItem = NSMenuItem(title: tr("CineFlow • Сервер активен", "CineFlow • Server Active"), action: nil, keyEquivalent: "")
+        nowPlayingMenuItem = NSMenuItem(title: tr("Velarium • Сервер активен", "Velarium • Server Active"), action: nil, keyEquivalent: "")
         nowPlayingMenuItem.isEnabled = false
         menu.addItem(nowPlayingMenuItem)
         menu.addItem(NSMenuItem.separator())
 
-        let openItem = NSMenuItem(title: tr("Открыть CineFlow", "Open CineFlow"), action: #selector(showMainWindow), keyEquivalent: "o")
+        let openItem = NSMenuItem(title: tr("Открыть Velarium", "Open Velarium"), action: #selector(showMainWindow), keyEquivalent: "o")
         openItem.target = self
         menu.addItem(openItem)
         statusOpenItem = openItem
@@ -782,7 +859,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
         menu.addItem(NSMenuItem.separator())
 
-        let quitItem = NSMenuItem(title: tr("Выйти из CineFlow", "Quit CineFlow"), action: #selector(quitAppCompletely), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: tr("Выйти из Velarium", "Quit Velarium"), action: #selector(quitAppCompletely), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
         statusQuitItem = quitItem
@@ -792,23 +869,23 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
     private func refreshLocalizedMenus() {
         setupApplicationMenu()
-        statusItem?.button?.toolTip = tr("CineFlow — Домашний кинотеатр", "CineFlow — Unified Home Cinema")
-        statusOpenItem?.title = tr("Открыть CineFlow", "Open CineFlow")
+        statusItem?.button?.toolTip = tr("Velarium — Домашний кинотеатр", "Velarium — Unified Home Cinema")
+        statusOpenItem?.title = tr("Открыть Velarium", "Open Velarium")
         statusPlayPauseItem?.title = tr("Воспроизведение / Пауза", "Play / Pause")
         statusDownloadsItem?.title = tr("Офлайн-загрузки («Скачать в дорогу»)", "Offline Downloads")
         statusTvModeItem?.title = tr("Переключить режим ТВ (TV Mode)", "Toggle TV Mode")
         statusBrowserItem?.title = tr("Открыть в браузере", "Open in Default Browser")
         autostartMenuItem?.title = tr("Запускать при входе в macOS", "Launch at macOS Login")
         statusRestartItem?.title = tr("Перезапустить фоновый сервер", "Restart Background Server")
-        statusQuitItem?.title = tr("Выйти из CineFlow", "Quit CineFlow")
-        loadingLabel?.stringValue = tr("CineFlow • Запуск домашнего кинотеатра…", "CineFlow • Starting Home Cinema…")
+        statusQuitItem?.title = tr("Выйти из Velarium", "Quit Velarium")
+        loadingLabel?.stringValue = tr("Velarium • Запуск домашнего кинотеатра…", "Velarium • Starting Home Cinema…")
         refreshNowPlayingMenuTitle()
     }
 
     private func refreshNowPlayingMenuTitle() {
         guard let item = nowPlayingMenuItem else { return }
         if !lastNowPlayingActive || lastNowPlayingTitle.isEmpty {
-            item.title = tr("CineFlow • Сервер активен", "CineFlow • Server Active")
+            item.title = tr("Velarium • Сервер активен", "Velarium • Server Active")
             return
         }
         let statePrefix = lastNowPlayingPlaying ? tr("Смотрит", "Playing") : tr("Пауза", "Paused")
@@ -830,7 +907,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
             backing: .buffered,
             defer: false
         )
-        mainWindow.title = "CineFlow"
+        mainWindow.title = "Velarium"
         mainWindow.minSize = NSSize(width: 920, height: 600)
         mainWindow.appearance = NSAppearance(named: .darkAqua)
         mainWindow.backgroundColor = NSColor(calibratedRed: 0.04, green: 0.04, blue: 0.05, alpha: 1.0)
@@ -841,10 +918,10 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
         let contentController = WKUserContentController()
         let bridge = NativeBridgeProxy(owner: self)
-        contentController.add(bridge, name: "cineflowNative")
+        contentController.add(bridge, name: "velariumNative")
 
         let bootScript = WKUserScript(
-            source: "window.__CINEFLOW_MACOS_APP__ = true;",
+            source: "window.__VELARIUM_MACOS_APP__ = true;",
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true
         )
@@ -876,7 +953,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
         overlay.autoresizingMask = [.width, .height]
         overlay.wantsLayer = true
         overlay.layer?.backgroundColor = NSColor(calibratedRed: 0.04, green: 0.04, blue: 0.05, alpha: 1.0).cgColor
-        let lbl = NSTextField(labelWithString: tr("CineFlow • Запуск домашнего кинотеатра…", "CineFlow • Starting Home Cinema…"))
+        let lbl = NSTextField(labelWithString: tr("Velarium • Запуск домашнего кинотеатра…", "Velarium • Starting Home Cinema…"))
         lbl.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
         lbl.textColor = NSColor(calibratedWhite: 0.85, alpha: 1.0)
         lbl.alignment = .center
@@ -903,8 +980,12 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if sender === mainWindow && !isQuitting {
+            embeddedStreamWebView?.evaluateJavaScript(
+                "try { document.querySelectorAll('video,audio').forEach(m => m.pause()); } catch(_){}",
+                completionHandler: nil
+            )
             webView?.evaluateJavaScript(
-                "(function(){ try { const v = document.getElementById('native-video'); if (v && !v.paused && !document.pictureInPictureElement && v.webkitPresentationMode !== 'picture-in-picture') { v.pause(); } } catch(_){} })();",
+                "(function(){ try { const v = document.getElementById('video-player') || document.getElementById('native-video'); if (v && !v.paused && !document.pictureInPictureElement && v.webkitPresentationMode !== 'picture-in-picture') { v.pause(); } } catch(_){} })();",
                 completionHandler: nil
             )
             mainWindow.orderOut(nil)
@@ -913,7 +994,18 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
         return true
     }
 
-    private func loadCineFlowUI() {
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        webView?.evaluateJavaScript("try { window.dispatchEvent(new Event('resize')); } catch(_){}", completionHandler: nil)
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        webView?.evaluateJavaScript(
+            "(function(){ try { const st = document.getElementById('video-stage'); if (st) st.classList.remove('is-stage-pseudo-fullscreen'); document.body.classList.remove('is-stage-pseudo-fullscreen-body'); window.dispatchEvent(new Event('resize')); } catch(_){} })();",
+            completionHandler: nil
+        )
+    }
+
+    private func loadVelariumUI() {
         guard let url = URL(string: "http://127.0.0.1:\(serverPort)/") else { return }
         webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15))
     }
@@ -926,6 +1018,14 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
     }
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if webView === embeddedStreamWebView, navigationAction.targetFrame == nil {
+            if let targetUrl = navigationAction.request.url,
+               let scheme = targetUrl.scheme?.lowercased(),
+               (scheme == "https" || scheme == "http") {
+                webView.load(navigationAction.request)
+            }
+            return nil
+        }
         if let targetUrl = navigationAction.request.url {
             NSWorkspace.shared.open(targetUrl)
         }
@@ -943,7 +1043,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
                 return
             }
         }
-        if navigationAction.shouldPerformDownload {
+        if webView === self.webView && navigationAction.shouldPerformDownload {
             decisionHandler(.download, preferences)
             return
         }
@@ -959,6 +1059,10 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        guard webView === self.webView else {
+            decisionHandler(.allow)
+            return
+        }
         if let http = navigationResponse.response as? HTTPURLResponse {
             let disp = (http.value(forHTTPHeaderField: "Content-Disposition") ?? "").lowercased()
             if disp.contains("attachment") {
@@ -966,7 +1070,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
                 return
             }
         }
-        if !navigationResponse.canShowMIMEType {
+        if navigationResponse.isForMainFrame && !navigationResponse.canShowMIMEType {
             decisionHandler(.download)
             return
         }
@@ -988,7 +1092,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
         try? fm.createDirectory(at: downloadsDir, withIntermediateDirectories: true)
 
         let rawName = suggestedFilename.trimmingCharacters(in: .whitespacesAndNewlines)
-        let safeBase = (rawName.isEmpty ? "CineFlow-Export" : rawName)
+        let safeBase = (rawName.isEmpty ? "Velarium-Export" : rawName)
             .replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ":", with: "-")
         let ext = (safeBase as NSString).pathExtension
@@ -1095,8 +1199,11 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
     private func dispatchPlayerCommand(_ cmd: String, value: Double = 0.0) {
         DispatchQueue.main.async { [weak self] in
-            let js = "if (window.__cineflowHandleNativeMediaCommand) { window.__cineflowHandleNativeMediaCommand('\(cmd)', \(value)); }"
-            self?.webView?.evaluateJavaScript(js, completionHandler: nil)
+            guard let self = self, let wv = self.webView else { return }
+            guard let argsData = try? JSONSerialization.data(withJSONObject: [cmd, value]),
+                  let argsJson = String(data: argsData, encoding: .utf8) else { return }
+            let js = "if (window.__velariumHandleNativeMediaCommand) { window.__velariumHandleNativeMediaCommand.apply(null, \(argsJson)); }"
+            wv.evaluateJavaScript(js, completionHandler: nil)
         }
     }
 
@@ -1114,7 +1221,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
             return
         }
 
-        let title = (payload["title"] as? String) ?? "CineFlow"
+        let title = (payload["title"] as? String) ?? "Velarium"
         let subtitle = (payload["subtitle"] as? String) ?? ""
         let duration = (payload["duration"] as? Double) ?? 0.0
         let currentTime = (payload["currentTime"] as? Double) ?? 0.0
@@ -1124,7 +1231,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: title,
-            MPMediaItemPropertyArtist: subtitle.isEmpty ? "CineFlow" : subtitle,
+            MPMediaItemPropertyArtist: subtitle.isEmpty ? "Velarium" : subtitle,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? rate : 0.0
         ]
@@ -1187,7 +1294,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
                 NSWorkspace.shared.open(u)
             }
         case "notifyEpisode":
-            let nTitle = (body["title"] as? String) ?? "CineFlow"
+            let nTitle = (body["title"] as? String) ?? "Velarium"
             let nBody = (body["body"] as? String) ?? ""
             let nKey = (body["key"] as? String) ?? UUID().uuidString
             deliverNativeEpisodeNotification(title: nTitle, body: nBody, identifier: nKey)
@@ -1200,9 +1307,109 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
                     win.toggleFullScreen(nil)
                 }
             }
+        case "openEmbeddedStream":
+            let uStr = (body["url"] as? String) ?? ""
+            let rectDict = (body["rect"] as? [String: Any]) ?? [:]
+            DispatchQueue.main.async { [weak self] in
+                self?.openOrUpdateEmbeddedStream(urlString: uStr, rectDict: rectDict)
+            }
+        case "syncEmbeddedStreamRect":
+            let rectDict = (body["rect"] as? [String: Any]) ?? [:]
+            DispatchQueue.main.async { [weak self] in
+                self?.syncEmbeddedStreamFrame(rectDict: rectDict)
+            }
+        case "reloadEmbeddedStream":
+            DispatchQueue.main.async { [weak self] in
+                self?.embeddedStreamWebView?.reload()
+            }
+        case "backEmbeddedStream":
+            DispatchQueue.main.async { [weak self] in
+                if let wv = self?.embeddedStreamWebView, wv.canGoBack {
+                    wv.goBack()
+                }
+            }
+        case "closeEmbeddedStream":
+            DispatchQueue.main.async { [weak self] in
+                self?.closeEmbeddedStreamWebView()
+            }
         default:
             break
         }
+    }
+
+    private func computeEmbeddedStreamNSRect(from rectDict: [String: Any]) -> NSRect? {
+        guard let rootView = mainWindow?.contentView else { return nil }
+        let hidden = (rectDict["hidden"] as? Bool) ?? false
+        if hidden { return nil }
+        let domX = (rectDict["x"] as? Double) ?? 0.0
+        let domY = (rectDict["y"] as? Double) ?? 0.0
+        let domW = (rectDict["width"] as? Double) ?? 0.0
+        let domH = (rectDict["height"] as? Double) ?? 0.0
+        guard domW >= 80.0, domH >= 60.0 else { return nil }
+        let bounds = rootView.bounds
+        let vw = max(1.0, (rectDict["vw"] as? Double) ?? Double(bounds.width))
+        let vh = max(1.0, (rectDict["vh"] as? Double) ?? Double(bounds.height))
+        let scaleX = Double(bounds.width) / vw
+        let scaleY = Double(bounds.height) / vh
+        let scaledX = domX * scaleX
+        let scaledW = domW * scaleX
+        let scaledH = domH * scaleY
+        let flippedY = Double(bounds.height) - ((domY * scaleY) + scaledH)
+        return NSRect(x: scaledX, y: max(0.0, flippedY), width: scaledW, height: scaledH)
+    }
+
+    private func openOrUpdateEmbeddedStream(urlString: String, rectDict: [String: Any]) {
+        guard let rootView = mainWindow?.contentView,
+              let targetUrl = URL(string: urlString),
+              let scheme = targetUrl.scheme?.lowercased(),
+              scheme == "https" || scheme == "http" else { return }
+
+        if embeddedStreamWebView == nil {
+            let cfg = WKWebViewConfiguration()
+            cfg.websiteDataStore = .default()
+            cfg.allowsAirPlayForMediaPlayback = true
+            cfg.mediaTypesRequiringUserActionForPlayback = []
+            cfg.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
+            if #available(macOS 12.3, *) {
+                cfg.preferences.isElementFullscreenEnabled = true
+            }
+            let wv = WKWebView(frame: .zero, configuration: cfg)
+            wv.navigationDelegate = self
+            wv.uiDelegate = self
+            wv.wantsLayer = true
+            wv.layer?.cornerRadius = 10.0
+            wv.layer?.masksToBounds = true
+            wv.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15"
+            rootView.addSubview(wv)
+            embeddedStreamWebView = wv
+        }
+
+        syncEmbeddedStreamFrame(rectDict: rectDict)
+        if embeddedStreamCurrentUrl != urlString {
+            embeddedStreamCurrentUrl = urlString
+            embeddedStreamWebView?.load(URLRequest(url: targetUrl))
+        }
+    }
+
+    private func syncEmbeddedStreamFrame(rectDict: [String: Any]) {
+        guard let wv = embeddedStreamWebView else { return }
+        if let frame = computeEmbeddedStreamNSRect(from: rectDict) {
+            wv.isHidden = false
+            wv.frame = frame
+        } else {
+            wv.isHidden = true
+        }
+    }
+
+    private func closeEmbeddedStreamWebView() {
+        embeddedStreamCurrentUrl = ""
+        guard let wv = embeddedStreamWebView else { return }
+        wv.evaluateJavaScript("try { document.querySelectorAll('video,audio').forEach(m => m.pause()); } catch(_){}", completionHandler: nil)
+        wv.stopLoading()
+        wv.navigationDelegate = nil
+        wv.uiDelegate = nil
+        wv.removeFromSuperview()
+        embeddedStreamWebView = nil
     }
 
     private func deliverNativeEpisodeNotification(title: String, body: String, identifier: String) {
@@ -1214,7 +1421,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
             content.title = title
             content.body = body
             content.sound = .default
-            let req = UNNotificationRequest(identifier: "cineflow.ep.\(identifier)", content: content, trigger: nil)
+            let req = UNNotificationRequest(identifier: "velarium.ep.\(identifier)", content: content, trigger: nil)
             center.add(req, withCompletionHandler: nil)
         }
     }
@@ -1234,7 +1441,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
         completionHandler()
     }
 
-    // MARK: - Built-in One-Click Kinorium Login Sheet inside CineFlow.app
+    // MARK: - Built-in One-Click Kinorium Login Sheet inside Velarium.app
 
     private func openBuiltInKinoriumLoginWindow(isEnglish: Bool) {
         kinoriumAuthSheet?.open(isEnglish: isEnglish)
@@ -1247,6 +1454,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
     // MARK: - Menu Actions
 
     @objc private func reloadWebView() {
+        closeEmbeddedStreamWebView()
         webView?.reload()
     }
 
@@ -1311,7 +1519,7 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
     }
 
     private func isLaunchAgentInstalled() -> Bool {
-        let plist = (NSHomeDirectory() as NSString).appendingPathComponent("Library/LaunchAgents/app.cineflow.cinema.plist")
+        let plist = (NSHomeDirectory() as NSString).appendingPathComponent("Library/LaunchAgents/app.velarium.cinema.plist")
         return FileManager.default.fileExists(atPath: plist)
     }
 
@@ -1347,6 +1555,6 @@ final class CineFlowAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
 let bgFlag = CommandLine.arguments.contains("--background")
 let app = NSApplication.shared
-let controller = CineFlowAppController(startInBackground: bgFlag)
+let controller = VelariumAppController(startInBackground: bgFlag)
 app.delegate = controller
 app.run()

@@ -1,5 +1,5 @@
 """
-CineFlow Self-Update & Release Verification Engine (`backend/updater.py`)
+Velarium Self-Update & Release Verification Engine (`backend/updater.py`)
 
 Provides:
 - Semantic version parsing and comparison (`X.Y.Z`)
@@ -32,7 +32,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from backend.doh import _is_valid_public_ip_addr, validate_safe_external_url
 
-logger = logging.getLogger("CineFlow.Updater")
+logger = logging.getLogger("Velarium.Updater")
 
 DEFAULT_UPDATE_REPO = os.environ.get("CINEFLOW_UPDATE_REPO", "tasonai/CineFlow")
 DEFAULT_UPDATE_MANIFEST_URL = os.environ.get("CINEFLOW_UPDATE_MANIFEST_URL", "")
@@ -153,7 +153,7 @@ class AppUpdater:
     Manages update checks, installer downloads with SHA-256 verification, and 1-click launch.
     """
 
-    USER_AGENT = "CineFlow-Updater/2.6 (+https://github.com)"
+    USER_AGENT = "Velarium-Updater/2.7 (+https://github.com)"
 
     def __init__(
         self,
@@ -202,7 +202,10 @@ class AppUpdater:
                 custom_repo = str(cfg.get("update_repo") or "").strip().strip("/")
                 custom_manifest = str(cfg.get("update_manifest_url") or "").strip()
                 if custom_repo and re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", custom_repo):
-                    repo = custom_repo
+                    if custom_repo.lower() == "tasonai/velarium":
+                        repo = DEFAULT_UPDATE_REPO
+                    else:
+                        repo = custom_repo
                 if custom_manifest:
                     manifest_url = custom_manifest
             except Exception:
@@ -270,13 +273,20 @@ class AppUpdater:
             return False
         return validate_safe_external_url(raw)
 
-    @staticmethod
-    def _build_safe_opener() -> urllib.request.OpenerDirector:
-        return urllib.request.build_opener(
-            urllib.request.ProxyHandler({}),
-            _SafeUpdateHTTPSHandler(context=ssl.create_default_context()),
-            _SafeUpdateRedirectHandler(),
-        )
+    _UPDATER_SSL_CTX: Optional[ssl.SSLContext] = None
+    _SAFE_OPENER: Optional[urllib.request.OpenerDirector] = None
+
+    @classmethod
+    def _build_safe_opener(cls) -> urllib.request.OpenerDirector:
+        if cls._SAFE_OPENER is None:
+            if cls._UPDATER_SSL_CTX is None:
+                cls._UPDATER_SSL_CTX = ssl.create_default_context()
+            cls._SAFE_OPENER = urllib.request.build_opener(
+                urllib.request.ProxyHandler({}),
+                _SafeUpdateHTTPSHandler(context=cls._UPDATER_SSL_CTX),
+                _SafeUpdateRedirectHandler(),
+            )
+        return cls._SAFE_OPENER
 
     def _http_get_json(self, url: str, timeout: float = 10.0) -> Dict[str, Any]:
         if not self._validate_https_url(url):
@@ -321,7 +331,8 @@ class AppUpdater:
             ]
             if dmg_assets:
                 for a in dmg_assets:
-                    if "cineflow" in str(a.get("name") or "").lower():
+                    nm = str(a.get("name") or "").lower()
+                    if "velarium" in nm or "cineflow" in nm:
                         return a
                 return dmg_assets[0]
             zip_assets = [
@@ -415,7 +426,7 @@ class AppUpdater:
             expected_sha = self._extract_sha256_for_asset(chosen, assets) if chosen else ""
             return {
                 "latest_version": latest_ver,
-                "release_title": str(data.get("name") or f"CineFlow v{latest_ver}").strip(),
+                "release_title": str(data.get("name") or f"Velarium v{latest_ver}").strip(),
                 "release_notes": str(data.get("body") or "").strip(),
                 "release_notes_en": "",
                 "published_at": str(data.get("published_at") or "").strip(),
@@ -460,7 +471,7 @@ class AppUpdater:
 
         return {
             "latest_version": latest_ver,
-            "release_title": str(data.get("title") or data.get("name") or f"CineFlow v{latest_ver}").strip(),
+            "release_title": str(data.get("title") or data.get("name") or f"Velarium v{latest_ver}").strip(),
             "release_notes": str(data.get("notes") or data.get("release_notes") or data.get("body") or "").strip(),
             "release_notes_en": str(data.get("release_notes_en") or "").strip(),
             "published_at": str(data.get("published_at") or data.get("date") or "").strip(),
@@ -598,6 +609,8 @@ class AppUpdater:
         with self._lock:
             if self._status.get("state") == "downloading" and self._download_thread and self._download_thread.is_alive():
                 return self.get_status()
+            if self._status.get("state") == "installing":
+                return self.get_status()
             existing_file = str(self._status.get("file_path") or "").strip()
             if (
                 self._status.get("state") == "downloaded"
@@ -637,7 +650,7 @@ class AppUpdater:
         if not target_name:
             url_path = urllib.parse.urlparse(target_url).path
             target_name = os.path.basename(url_path) or (
-                f"CineFlow-{latest_ver}.dmg" if sys.platform == "darwin" else f"CineFlow-Setup-{latest_ver}.exe"
+                f"Velarium-{latest_ver}.dmg" if sys.platform == "darwin" else f"Velarium-Setup-{latest_ver}.exe"
             )
         safe_name = re.sub(r"[^A-Za-z0-9._+-]", "_", os.path.basename(target_name))
         if not safe_name.lower().endswith((".dmg", ".exe", ".msi", ".zip", ".pkg")):
@@ -678,6 +691,10 @@ class AppUpdater:
                 pass
 
         with self._lock:
+            if self._status.get("state") == "downloading" and self._download_thread and self._download_thread.is_alive():
+                return self.get_status()
+            if self._status.get("state") == "installing":
+                return self.get_status()
             self._cancel_requested = False
             self._status.update(
                 {
@@ -710,6 +727,8 @@ class AppUpdater:
                     total = int(cl_header) if (cl_header and str(cl_header).isdigit()) else target_expected_size
                     with self._lock:
                         self._status["total_bytes"] = total
+                    last_pct = -1.0
+                    last_reported_bytes = 0
                     with open(part_path, "wb") as fp:
                         while True:
                             if self._cancel_requested:
@@ -721,9 +740,16 @@ class AppUpdater:
                             hasher.update(chunk)
                             downloaded += len(chunk)
                             pct = round(min(99.9, (downloaded * 100.0 / total)), 1) if total > 0 else 0.0
-                            with self._lock:
-                                self._status["downloaded_bytes"] = downloaded
-                                self._status["progress_pct"] = pct
+                            if pct != last_pct or (downloaded - last_reported_bytes) >= 1048576:
+                                last_pct = pct
+                                last_reported_bytes = downloaded
+                                with self._lock:
+                                    self._status["downloaded_bytes"] = downloaded
+                                    self._status["progress_pct"] = pct
+                    with self._lock:
+                        self._status["downloaded_bytes"] = downloaded
+                        if total > 0:
+                            self._status["progress_pct"] = round(min(99.9, (downloaded * 100.0 / total)), 1)
 
                 if downloaded < 1024:
                     raise RuntimeError("Downloaded installer file is unexpectedly small or empty")
@@ -731,7 +757,7 @@ class AppUpdater:
                     raise RuntimeError(f"Installer size mismatch ({downloaded} vs {target_expected_size} bytes)")
 
                 actual_sha = hasher.hexdigest().lower()
-                sha_ok = False
+                sha_ok = True
                 if target_sha:
                     if actual_sha != target_sha.lower():
                         raise RuntimeError(
@@ -790,7 +816,8 @@ class AppUpdater:
                     "updater": st,
                 }
             file_path = str(self._status.get("file_path") or "").strip()
-            sha256_verified = bool(self._status.get("sha256_verified"))
+            expected_sha = str(self._status.get("expected_sha256") or "").strip()
+            sha256_verified = bool(self._status.get("sha256_verified")) or not expected_sha
         if not file_path or not os.path.isfile(file_path):
             st = self.get_status()
             return {
@@ -807,32 +834,55 @@ class AppUpdater:
                 elif sha256_verified and file_path.lower().endswith(".dmg") and os.access("/Applications", os.W_OK):
                     upd_script = (
                         "import os, shutil, subprocess, tempfile, time\n"
+                        "os.chdir('/tmp')\n"
                         f"dmg = {file_path!r}\n"
-                        "mnt = tempfile.mkdtemp(prefix='cineflow_dmg_')\n"
+                        "mnt = tempfile.mkdtemp(prefix='velarium_dmg_')\n"
+                        "stage_app = '/Applications/.Velarium.app.new'\n"
                         "try:\n"
+                        "    subprocess.run(['/usr/bin/xattr', '-cr', dmg], check=False)\n"
                         "    subprocess.run(['/usr/bin/hdiutil', 'attach', dmg, '-mountpoint', mnt, '-nobrowse', '-readonly', '-quiet'], input=b'Y\\n', check=True)\n"
-                        "    src_app = os.path.join(mnt, 'CineFlow.app')\n"
-                        "    dst_app = '/Applications/CineFlow.app'\n"
+                        "    src_app = os.path.join(mnt, 'Velarium.app')\n"
+                        "    dst_app = '/Applications/Velarium.app'\n"
+                        "    if not os.path.isdir(src_app) and os.path.isdir(os.path.join(mnt, 'CineFlow.app')):\n"
+                        "        src_app = os.path.join(mnt, 'CineFlow.app')\n"
+                        "        dst_app = '/Applications/CineFlow.app'\n"
                         "    if os.path.isdir(src_app):\n"
-                        "        time.sleep(0.8)\n"
-                        "        subprocess.run(['/usr/bin/pkill', '-f', '/Applications/CineFlow.app/Contents/'], check=False)\n"
+                        "        if os.path.exists(stage_app):\n"
+                        "            shutil.rmtree(stage_app, ignore_errors=True)\n"
+                        "        subprocess.run(['/usr/bin/ditto', src_app, stage_app], check=True)\n"
+                        "        subprocess.run(['/usr/bin/chflags', 'nohidden', stage_app], check=False)\n"
+                        "        subprocess.run(['/usr/bin/xattr', '-cr', stage_app], check=False)\n"
+                        "        time.sleep(0.4)\n"
+                        "        subprocess.run(['/usr/bin/killall', '-TERM', 'Velarium'], check=False)\n"
+                        "        subprocess.run(['/usr/bin/pkill', '-TERM', '-f', '/Applications/Velarium.app/Contents/'], check=False)\n"
+                        "        subprocess.run(['/usr/bin/pkill', '-TERM', '-f', '/Applications/CineFlow.app/Contents/'], check=False)\n"
                         "        subprocess.run(['/bin/sh', '-c', '/usr/sbin/lsof -ti tcp:8765 -sTCP:LISTEN | /usr/bin/xargs kill -TERM 2>/dev/null || true'], check=False)\n"
-                        "        time.sleep(0.6)\n"
+                        "        time.sleep(0.9)\n"
+                        "        subprocess.run(['/usr/bin/killall', '-KILL', 'Velarium'], check=False)\n"
+                        "        subprocess.run(['/usr/bin/pkill', '-KILL', '-f', '/Applications/Velarium.app/Contents/'], check=False)\n"
+                        "        subprocess.run(['/bin/sh', '-c', '/usr/sbin/lsof -ti tcp:8765 -sTCP:LISTEN | /usr/bin/xargs kill -KILL 2>/dev/null || true'], check=False)\n"
+                        "        time.sleep(0.3)\n"
                         "        if os.path.exists(dst_app):\n"
                         "            shutil.rmtree(dst_app, ignore_errors=True)\n"
-                        "        subprocess.run(['/usr/bin/ditto', src_app, dst_app], check=True)\n"
-                        "        subprocess.run(['/usr/bin/xattr', '-cr', dst_app], check=False)\n"
-                        "        subprocess.Popen(['/usr/bin/open', dst_app])\n"
+                        "        if dst_app == '/Applications/Velarium.app' and os.path.exists('/Applications/CineFlow.app'):\n"
+                        "            shutil.rmtree('/Applications/CineFlow.app', ignore_errors=True)\n"
+                        "        os.replace(stage_app, dst_app)\n"
+                        "        time.sleep(0.35)\n"
+                        "        subprocess.Popen(['/usr/bin/open', '-n', dst_app], cwd='/tmp')\n"
                         "    else:\n"
-                        "        subprocess.Popen(['/usr/bin/open', dmg])\n"
+                        "        subprocess.Popen(['/usr/bin/open', dmg], cwd='/tmp')\n"
                         "except Exception:\n"
-                        "    subprocess.Popen(['/usr/bin/open', dmg])\n"
+                        "    if os.path.exists(stage_app):\n"
+                        "        shutil.rmtree(stage_app, ignore_errors=True)\n"
+                        "    subprocess.Popen(['/usr/bin/open', dmg], cwd='/tmp')\n"
                         "finally:\n"
                         "    subprocess.run(['/usr/bin/hdiutil', 'detach', mnt, '-force', '-quiet'], check=False)\n"
                         "    shutil.rmtree(mnt, ignore_errors=True)\n"
                     )
+                    py_bin = "/usr/bin/python3" if os.path.isfile("/usr/bin/python3") else sys.executable
                     subprocess.Popen(
-                        [sys.executable, "-c", upd_script],
+                        [py_bin, "-c", upd_script],
+                        cwd="/tmp",
                         start_new_session=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,

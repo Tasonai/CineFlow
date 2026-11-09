@@ -1,5 +1,5 @@
 """
-CineFlow Application Factory and Service Container
+Velarium Application Factory and Service Container
 Constructs and wires all domain services, engines, databases,
 settings managers, and runtime state dictionaries into a cohesive container.
 """
@@ -34,8 +34,8 @@ from backend.updater import AppUpdater
 
 
 @dataclass
-class CineFlowServices:
-    """Container holding all initialized CineFlow services and shared state."""
+class VelariumServices:
+    """Container holding all initialized Velarium services and shared state."""
 
     storage_db: Any
     net_client: DoHSplitNetworkClient
@@ -78,16 +78,16 @@ class CineFlowServices:
         )
 
 
-def create_cineflow_services(
+def create_velarium_services(
     base_dir: str,
     data_dir: str,
-    app_version: str = "2.6.11",
+    app_version: str = "2.7.3",
     safe_log_fn: Optional[Callable[[str, bool], None]] = None,
     register_atexit_hooks: bool = True,
-) -> CineFlowServices:
+) -> VelariumServices:
     """
     Instantiates and wires all domain services, engines, databases, and managers
-    into a CineFlowServices container with persisted settings loaded.
+    into a VelariumServices container with persisted settings loaded.
     """
     settings_path = os.path.join(data_dir, "server_settings.json")
 
@@ -190,7 +190,7 @@ def create_cineflow_services(
     )
     settings_manager.load_persisted_server_settings()
 
-    return CineFlowServices(
+    return VelariumServices(
         storage_db=storage_db,
         net_client=net_client,
         rezka_client=rezka_client,
@@ -213,3 +213,7 @@ def create_cineflow_services(
         server_runtime=server_runtime,
         resolve_offline_stream_fn=_resolve_offline_stream,
     )
+
+
+CineFlowServices = VelariumServices
+create_cineflow_services = create_velarium_services

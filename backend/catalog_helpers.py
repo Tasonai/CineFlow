@@ -1,5 +1,5 @@
 """
-CineFlow Catalog & Title Metadata Helpers.
+Velarium Catalog & Title Metadata Helpers.
 
 Provides magnet link parsing, description validation, fallback lookups,
 kids-safety metadata normalization, future episode release detection,

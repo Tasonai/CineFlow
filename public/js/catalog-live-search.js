@@ -2,14 +2,17 @@ import {
   RECENT_SEARCHES_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261105v5";
+} from "./state.js?v=20261108v19";
 import {
   displayPoster,
   displayTitle,
+  hasCyrillicText,
   isEn,
   secondaryTitle,
   t,
-} from "./i18n.js?v=20261105v5";
+  translateCareer,
+  transliterateRuToEn,
+} from "./i18n.js?v=20261108v19";
 import {
   clampFloatingPopover,
   closeFloatingPopovers,
@@ -17,8 +20,9 @@ import {
   escapeHtml,
   iconSvg,
   logDebug,
+  syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
 import {
   attachSmartPosterFallback,
   getDefaultPlayableSourceTab,
@@ -26,13 +30,13 @@ import {
   loadCatalog,
   resolveSeriesEpisodeInfo,
   updateActiveFiltersBadge,
-} from "./catalog.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
 import {
   buildFallbackAvatarSvg,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261105v5";
-import { openPlayerModal } from "./player.js?v=20261105v5";
+} from "./modals.js?v=20261108v19";
+import { openPlayerModal } from "./player.js?v=20261108v19";
 
 let liveSearchReqId = 0;
 let debounceTimer = null;
@@ -100,15 +104,28 @@ export const syncLiveSearchActiveHighlight = () => {
   }
 };
 
+let _recentSearchesCache = null;
+let _recentSearchesKey = "";
+
 export const getRecentSearches = () => {
+  const sKey = profileStorageKey(RECENT_SEARCHES_STORAGE_KEY);
+  if (_recentSearchesCache && _recentSearchesKey === sKey) {
+    return _recentSearchesCache;
+  }
   try {
-    const raw = localStorage.getItem(profileStorageKey(RECENT_SEARCHES_STORAGE_KEY));
+    const raw = localStorage.getItem(sKey);
     const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) return [];
-    return parsed
+    if (!Array.isArray(parsed)) {
+      _recentSearchesKey = sKey;
+      _recentSearchesCache = [];
+      return _recentSearchesCache;
+    }
+    _recentSearchesKey = sKey;
+    _recentSearchesCache = parsed
       .map((x) => String(x || "").trim())
       .filter((x) => x.length >= 2)
       .slice(0, 7);
+    return _recentSearchesCache;
   } catch (err) {
     logDebug("GetRecentSearches", err);
     return [];
@@ -119,9 +136,12 @@ export const saveRecentSearchQuery = (rawQuery) => {
   const clean = String(rawQuery || "").trim();
   if (clean.length < 2) return;
   try {
+    const sKey = profileStorageKey(RECENT_SEARCHES_STORAGE_KEY);
     const lower = clean.toLowerCase();
     const next = [clean, ...getRecentSearches().filter((q) => q.toLowerCase() !== lower)].slice(0, 7);
-    localStorage.setItem(profileStorageKey(RECENT_SEARCHES_STORAGE_KEY), JSON.stringify(next));
+    _recentSearchesKey = sKey;
+    _recentSearchesCache = next;
+    localStorage.setItem(sKey, JSON.stringify(next));
   } catch (err) {
     logDebug("SaveRecentSearch", err);
   }
@@ -131,8 +151,11 @@ export const removeRecentSearchQuery = (rawQuery) => {
   const lower = String(rawQuery || "").trim().toLowerCase();
   if (!lower) return;
   try {
+    const sKey = profileStorageKey(RECENT_SEARCHES_STORAGE_KEY);
     const next = getRecentSearches().filter((q) => q.toLowerCase() !== lower);
-    localStorage.setItem(profileStorageKey(RECENT_SEARCHES_STORAGE_KEY), JSON.stringify(next));
+    _recentSearchesKey = sKey;
+    _recentSearchesCache = next;
+    localStorage.setItem(sKey, JSON.stringify(next));
   } catch (err) {
     logDebug("RemoveRecentSearch", err);
   }
@@ -140,7 +163,10 @@ export const removeRecentSearchQuery = (rawQuery) => {
 
 export const clearRecentSearches = () => {
   try {
-    localStorage.removeItem(profileStorageKey(RECENT_SEARCHES_STORAGE_KEY));
+    const sKey = profileStorageKey(RECENT_SEARCHES_STORAGE_KEY);
+    _recentSearchesKey = sKey;
+    _recentSearchesCache = [];
+    localStorage.removeItem(sKey);
   } catch (err) {
     logDebug("ClearRecentSearches", err);
   }
@@ -175,6 +201,7 @@ export const renderEmptySearchSuggestions = () => {
   searchLivePopover.classList.remove("hidden");
   searchInput?.setAttribute("aria-expanded", "true");
   searchInput?.removeAttribute("aria-activedescendant");
+  const hitsFrag = document.createDocumentFragment();
 
   if (recent.length > 0) {
     const head = document.createElement("div");
@@ -189,7 +216,7 @@ export const renderEmptySearchSuggestions = () => {
       renderEmptySearchSuggestions();
       searchInput?.focus();
     });
-    searchLivePopover.appendChild(head);
+    hitsFrag.appendChild(head);
 
     const listEl = document.createElement("div");
     listEl.className = "atv-search-recent-list";
@@ -219,7 +246,7 @@ export const renderEmptySearchSuggestions = () => {
       });
       listEl.appendChild(row);
     });
-    searchLivePopover.appendChild(listEl);
+    hitsFrag.appendChild(listEl);
   }
 
   const randomBtn = document.createElement("button");
@@ -236,7 +263,8 @@ export const renderEmptySearchSuggestions = () => {
     searchInput?.blur();
     document.getElementById("btn-random-pick")?.click();
   };
-  searchLivePopover.appendChild(randomBtn);
+  hitsFrag.appendChild(randomBtn);
+  searchLivePopover.appendChild(hitsFrag);
   clampFloatingPopover(searchLivePopover, { isHeader: true });
 };
 
@@ -261,6 +289,7 @@ export const renderLiveSearchHits = (queryText, itemsList, isLoading = false, pe
       ? t("Поиск по каталогу, персонам и источникам...", "Searching catalog, people & sources...")
       : t("Быстрый переход (стрелки и Enter)", "Quick jump (Arrow keys and Enter)")
   }</div>`;
+  const hitsFrag = document.createDocumentFragment();
 
   const topPersons = (personsList || []).slice(0, 3);
   const maxItems = topPersons.length > 0 ? Math.max(4, 7 - topPersons.length) : 6;
@@ -281,20 +310,24 @@ export const renderLiveSearchHits = (queryText, itemsList, isLoading = false, pe
       "Совпадений не найдено — нажмите Enter для полного поиска",
       "No matches found — press Enter for full search"
     );
-    searchLivePopover.appendChild(emptyDiv);
+    hitsFrag.appendChild(emptyDiv);
   } else {
     let rowCursor = 0;
     topPersons.forEach((p) => {
       const idx = rowCursor++;
       const isAct = idx === liveSearchActiveIdx;
-      const pName = p.name || p.orig_name || "";
+      const rawName = p.name || p.orig_name || "";
+      const pName = isEn()
+        ? p.orig_name || (hasCyrillicText(rawName) ? transliterateRuToEn(rawName) : rawName)
+        : rawName;
+      const roleLbl = p.role ? translateCareer(p.role) : t("Персона", "Person");
       const pSub =
-        p.orig_name && p.orig_name.toLowerCase() !== pName.toLowerCase()
-          ? `${p.role || t("Персона", "Person")} · ${p.orig_name}`
-          : p.role || t("Персона", "Person");
+        !isEn() && p.orig_name && p.orig_name.toLowerCase() !== pName.toLowerCase()
+          ? `${roleLbl} · ${p.orig_name}`
+          : roleLbl;
       const photoSrc =
         p.photo_endpoint ||
-        (p.photo ? `/api/person-photo?name=${encodeURIComponent(pName)}&url=${encodeURIComponent(p.photo)}` : `/api/person-photo?name=${encodeURIComponent(pName)}`);
+        (p.photo ? `/api/person-photo?name=${encodeURIComponent(rawName)}&url=${encodeURIComponent(p.photo)}` : `/api/person-photo?name=${encodeURIComponent(rawName)}`);
       const row = document.createElement("div");
       row.id = `live-search-opt-${idx}`;
       row.setAttribute("role", "option");
@@ -322,7 +355,7 @@ export const renderLiveSearchHits = (queryText, itemsList, isLoading = false, pe
         closeLiveSearchPopover();
         openPersonModal(p);
       };
-      searchLivePopover.appendChild(row);
+      hitsFrag.appendChild(row);
     });
 
     const kinOn = isServiceEnabled("kinorium");
@@ -378,7 +411,7 @@ export const renderLiveSearchHits = (queryText, itemsList, isLoading = false, pe
         closeLiveSearchPopover();
         openQuickPeekModal(hit);
       };
-      searchLivePopover.appendChild(row);
+      hitsFrag.appendChild(row);
     });
   }
 
@@ -402,34 +435,57 @@ export const renderLiveSearchHits = (queryText, itemsList, isLoading = false, pe
     state.searchQuery = qClean;
     loadCatalog({ showLoading: true });
   };
-  searchLivePopover.appendChild(showAllBtn);
+  hitsFrag.appendChild(showAllBtn);
+  searchLivePopover.appendChild(hitsFrag);
   syncLiveSearchActiveHighlight();
   clampFloatingPopover(searchLivePopover, { isHeader: true });
 };
 
 export function resetCatalogFiltersForGlobalSearch() {
   state.kinoriumSection = "all";
+  state.kinoriumSubType = "all";
   state.providerFilter = "all";
   state.mediaTypeFilter = "all";
   state.genreFilter = "all";
   state.yearFilter = "all";
+  state.collectionFilter = "all";
   state.friendsFilter = false;
   state.selectedFriend = "all";
   document.querySelectorAll(".kin-sec-pill").forEach((b) => {
-    b.classList.toggle("active", b.dataset.ksec === "all");
+    const isAll = b.dataset.ksec === "all";
+    b.classList.toggle("active", isAll);
+    b.setAttribute("aria-selected", isAll ? "true" : "false");
   });
   document.querySelectorAll(".atv-pill").forEach((b) => {
-    b.classList.toggle("active", b.dataset.provider === "all");
+    const isAll = b.dataset.provider === "all";
+    b.classList.toggle("active", isAll);
+    b.setAttribute("aria-pressed", isAll ? "true" : "false");
   });
   document.querySelectorAll(".type-pill").forEach((b) => {
-    b.classList.toggle("active", b.dataset.type === "all");
+    const isAll = b.dataset.type === "all";
+    b.classList.toggle("active", isAll);
+    b.setAttribute("aria-selected", isAll ? "true" : "false");
   });
   const gSel = document.getElementById("select-catalog-genre");
-  if (gSel) gSel.value = "all";
+  if (gSel && gSel.value !== "all") {
+    gSel.value = "all";
+    syncCustomSelect(gSel);
+  }
   const ySel = document.getElementById("select-catalog-year");
-  if (ySel) ySel.value = "all";
+  if (ySel && ySel.value !== "all") {
+    ySel.value = "all";
+    syncCustomSelect(ySel);
+  }
+  const cSel = document.getElementById("select-catalog-collection");
+  if (cSel && cSel.value !== "all") {
+    cSel.value = "all";
+    syncCustomSelect(cSel);
+  }
   const fSel = document.getElementById("select-friend-filter");
-  if (fSel) fSel.value = "all";
+  if (fSel && fSel.value !== "all") {
+    fSel.value = "all";
+    syncCustomSelect(fSel);
+  }
   document.getElementById("btn-friends-filter")?.classList.remove("active");
   updateActiveFiltersBadge();
 }
@@ -470,37 +526,83 @@ export function initCatalogLiveSearch() {
     const qLow = trimmed.toLowerCase();
     const localPersons = [];
     const seenLocalPerson = new Set();
-    const localMatches = (state.catalogItems || []).filter((it) => {
-      const titleHit =
-        (it.title || "").toLowerCase().includes(qLow) ||
-        (it.orig_title || "").toLowerCase().includes(qLow);
-      let castHit = false;
-      if (trimmed.length >= 3) {
-        const dirs = isEn() && it.directors_en?.length ? it.directors_en : it.directors || [];
-        const acts = isEn() && it.actors_en?.length ? it.actors_en : it.actors || [];
-        dirs.forEach((d) => {
-          if (String(d || "").toLowerCase().includes(qLow)) {
-            castHit = true;
-            const k = String(d).trim().toLowerCase();
-            if (!seenLocalPerson.has(k)) {
-              seenLocalPerson.add(k);
-              localPersons.push({ name: d, role: t("Режиссёр", "Director"), hint_title: it.title || "" });
-            }
+    const localMatches = [];
+    const catalogList = state.catalogItems || [];
+    const curCatVer = `${state.catalogIndexVersion || 0}|${catalogList.length}|${state.appLang || "ru"}`;
+    if (state._catalogPersonIndexVer !== curCatVer) {
+      const pIdx = [];
+      const seenIdx = new Set();
+      const useEn = isEn();
+      for (let i = 0; i < catalogList.length; i++) {
+        const it = catalogList[i];
+        if (!it) continue;
+        const dirs = useEn && it.directors_en?.length ? it.directors_en : it.directors || [];
+        const acts = useEn && it.actors_en?.length ? it.actors_en : it.actors || [];
+        const hintTitle = it.title || "";
+        for (let di = 0; di < dirs.length; di++) {
+          const d = dirs[di];
+          const k = String(d || "").trim().toLowerCase();
+          if (k && !seenIdx.has(k)) {
+            seenIdx.add(k);
+            pIdx.push({ keyLow: k, name: d, roleKey: "dir", hint_title: hintTitle });
           }
-        });
-        acts.forEach((a) => {
-          if (String(a || "").toLowerCase().includes(qLow)) {
-            castHit = true;
-            const k = String(a).trim().toLowerCase();
-            if (!seenLocalPerson.has(k)) {
-              seenLocalPerson.add(k);
-              localPersons.push({ name: a, role: t("Актёр", "Actor"), hint_title: it.title || "" });
-            }
+        }
+        for (let ai = 0; ai < acts.length; ai++) {
+          const a = acts[ai];
+          const k = String(a || "").trim().toLowerCase();
+          if (k && !seenIdx.has(k)) {
+            seenIdx.add(k);
+            pIdx.push({ keyLow: k, name: a, roleKey: "act", hint_title: hintTitle });
           }
-        });
+        }
       }
-      return titleHit || castHit;
-    });
+      state._catalogPersonIndex = pIdx;
+      state._catalogPersonIndexVer = curCatVer;
+    }
+    if (trimmed.length >= 3 && Array.isArray(state._catalogPersonIndex)) {
+      const pIdx = state._catalogPersonIndex;
+      for (let pi = 0; pi < pIdx.length; pi++) {
+        const pEntry = pIdx[pi];
+        if (pEntry.keyLow.includes(qLow) && !seenLocalPerson.has(pEntry.keyLow)) {
+          seenLocalPerson.add(pEntry.keyLow);
+          localPersons.push({
+            name: pEntry.name,
+            role: pEntry.roleKey === "dir" ? t("Режиссёр", "Director") : t("Актёр", "Actor"),
+            hint_title: pEntry.hint_title,
+          });
+          if (localPersons.length >= 4) break;
+        }
+      }
+    }
+    for (let i = 0; i < catalogList.length; i++) {
+      const it = catalogList[i];
+      if (!it) continue;
+      let tLow = it._searchTitleLow;
+      if (tLow === undefined) {
+        tLow = `${it.title || ""}\0${it.orig_title || ""}`.toLowerCase();
+        it._searchTitleLow = tLow;
+      }
+      const titleHit = tLow.includes(qLow);
+      let castHit = false;
+      if (!titleHit && trimmed.length >= 3) {
+        let castBlob = it._searchCastLow;
+        if (castBlob === undefined) {
+          const allNames = [
+            ...(Array.isArray(it.directors) ? it.directors : []),
+            ...(Array.isArray(it.directors_en) ? it.directors_en : []),
+            ...(Array.isArray(it.actors) ? it.actors : []),
+            ...(Array.isArray(it.actors_en) ? it.actors_en : []),
+          ];
+          castBlob = allNames.map((n) => String(n || "").toLowerCase()).join("\n");
+          it._searchCastLow = castBlob;
+        }
+        castHit = Boolean(castBlob && castBlob.includes(qLow));
+      }
+      if (titleHit || castHit) {
+        localMatches.push(it);
+        if (localMatches.length >= 12) break;
+      }
+    }
     renderLiveSearchHits(trimmed, localMatches, true, localPersons);
 
     debounceTimer = setTimeout(async () => {

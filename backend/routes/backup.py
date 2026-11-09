@@ -54,8 +54,8 @@ def handle_backup_export(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any
             main_kin_state["account"] = main_acc
     handler._send_json(
         {
-            "app": "CineFlow",
-            "version": "2.6",
+            "app": "Velarium",
+            "version": "2.7",
             "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "app_lang": ctx.app_prefs.get("app_lang", "ru"),
             "user_country": ctx.app_prefs.get("user_country", "PL"),

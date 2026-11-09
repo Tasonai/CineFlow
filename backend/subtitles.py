@@ -17,6 +17,10 @@ from backend.stremio import StremioAddonEngine, convert_srt_or_vtt_to_webvtt
 _ASS_TAG_RE = re.compile(r"\{[^}]*\}")
 _ASS_DRAW_STATE_RE = re.compile(r"\\p(\d+)(?![a-zA-Z])")
 _ASS_TS_RE = re.compile(r"^(\d+):(\d{2}):(\d{2})[.,](\d{1,3})$")
+_VTT_TS_DOT_RE = re.compile(r"(\d{2}:\d{2}:\d{2})\.(\d{3})")
+_MICRODVD_PROBE_RE = re.compile(r"^\s*\{\d+\}\{\d+\}", re.MULTILINE)
+_CYR_WORD_RUN_RE = re.compile(rb"[\xc0-\xff\xa3\xa8\xb3\xb8]{3,}")
+_LATIN_ACCENT_MIX_RE = re.compile(rb"[A-Za-z][\xc0-\xff]|[\xc0-\xff][A-Za-z]")
 _MAX_SUBTITLE_DECODED_BYTES = 8 * 1024 * 1024
 
 
@@ -72,7 +76,7 @@ def convert_vtt_to_srt(vtt_text: str) -> str:
                 started = True
                 out.append(str(cue_idx))
                 cue_idx += 1
-                clean_ts = re.sub(r"(\d{2}:\d{2}:\d{2})\.(\d{3})", r"\1,\2", stripped)
+                clean_ts = _VTT_TS_DOT_RE.sub(r"\1,\2", stripped)
                 parts = clean_ts.split(" --> ")
                 if len(parts) == 2:
                     out.append(f"{parts[0].strip().split(' ')[0]} --> {parts[1].strip().split(' ')[0]}")
@@ -84,7 +88,7 @@ def convert_vtt_to_srt(vtt_text: str) -> str:
                 out.append("")
                 out.append(str(cue_idx))
                 cue_idx += 1
-                clean_ts = re.sub(r"(\d{2}:\d{2}:\d{2})\.(\d{3})", r"\1,\2", stripped)
+                clean_ts = _VTT_TS_DOT_RE.sub(r"\1,\2", stripped)
                 parts = clean_ts.split(" --> ")
                 if len(parts) == 2:
                     out.append(f"{parts[0].strip().split(' ')[0]} --> {parts[1].strip().split(' ')[0]}")
@@ -162,10 +166,11 @@ def decode_subtitle_bytes(raw_bytes: bytes) -> str:
         pass
 
     # Distinguish Cyrillic CP1251 / KOI8-R (contiguous 0xC0..0xFF words) from Western CP1252/Latin-1
-    high_bytes = [b for b in data if b >= 0x80]
+    probe_bytes = data[:65536]
+    high_bytes = [b for b in probe_bytes if b >= 0x80]
     cyr_range = sum(1 for b in high_bytes if 0xC0 <= b <= 0xFF or b in (0xA3, 0xA8, 0xB3, 0xB8))
-    cyr_word_runs = len(re.findall(rb"[\xc0-\xff\xa3\xa8\xb3\xb8]{3,}", data))
-    latin_accent_mix = len(re.findall(rb"[A-Za-z][\xc0-\xff]|[\xc0-\xff][A-Za-z]", data))
+    cyr_word_runs = len(_CYR_WORD_RUN_RE.findall(probe_bytes))
+    latin_accent_mix = len(_LATIN_ACCENT_MIX_RE.findall(probe_bytes))
     if (
         cyr_word_runs >= 2
         or (cyr_word_runs >= 1 and cyr_word_runs > latin_accent_mix)
@@ -295,6 +300,53 @@ def convert_ass_to_webvtt(raw_text: str, offset_sec: float = 0.0) -> str:
     return "WEBVTT\n\n" + "\n\n".join(out_blocks) + "\n"
 
 
+_MICRODVD_LINE_RE = re.compile(r"^\s*\{(\d+)\}\{(\d+)\}(.*)$")
+_MICRODVD_FPS_RE = re.compile(r"^\s*(\d{2}(?:[.,]\d{1,4})?)\s*$")
+
+
+def convert_microdvd_to_webvtt(raw_text: str, offset_sec: float = 0.0) -> str:
+    """
+    Converts MicroDVD (.sub) frame-based subtitles (`{start}{end}Text|Line2`) to WebVTT,
+    adopting the file's FPS header cue (`{1}{1}25.000`) when present instead of rendering it.
+    """
+    if not raw_text:
+        return "WEBVTT\n\n"
+    text = raw_text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
+    shift = max(0.0, float(offset_sec or 0.0))
+    fps = 23.976
+    out_blocks: List[str] = []
+    for raw_line in text.split("\n"):
+        m = _MICRODVD_LINE_RE.match(raw_line)
+        if not m:
+            continue
+        s_frame = int(m.group(1))
+        e_frame = int(m.group(2))
+        body = m.group(3).strip()
+        if s_frame <= 1 and e_frame <= 1:
+            m_fps = _MICRODVD_FPS_RE.match(body)
+            if m_fps:
+                try:
+                    parsed_fps = float(m_fps.group(1).replace(",", "."))
+                    if 10.0 <= parsed_fps <= 120.0:
+                        fps = parsed_fps
+                        continue
+                except Exception:
+                    pass
+        if e_frame <= s_frame:
+            e_frame = s_frame + int(round(fps * 2.0))
+        s_sec = (s_frame / fps) - shift
+        e_sec = (e_frame / fps) - shift
+        if e_sec <= 0.05 or e_sec <= s_sec:
+            continue
+        s_sec = max(0.0, s_sec)
+        cleaned_body = _ASS_TAG_RE.sub("", body)
+        lines = [ln.strip().replace("-->", "--&gt;") for ln in cleaned_body.split("|") if ln.strip()]
+        if not lines:
+            continue
+        out_blocks.append(f"{_fmt_vtt_ts(s_sec)} --> {_fmt_vtt_ts(e_sec)}\n" + "\n".join(lines))
+    return "WEBVTT\n\n" + "\n\n".join(out_blocks) + "\n"
+
+
 def convert_any_subtitle_to_webvtt(
     raw_input: Union[bytes, str],
     offset_sec: float = 0.0,
@@ -305,6 +357,10 @@ def convert_any_subtitle_to_webvtt(
     probe = text[:4096].lower()
     if "[script info]" in probe or "[v4+ styles]" in probe or "\ndialogue:" in probe or probe.startswith("dialogue:"):
         vtt = convert_ass_to_webvtt(text, offset_sec=offset_sec)
+        if "-->" in vtt:
+            return vtt
+    if _MICRODVD_PROBE_RE.search(text[:2048]):
+        vtt = convert_microdvd_to_webvtt(text, offset_sec=offset_sec)
         if "-->" in vtt:
             return vtt
     return convert_srt_or_vtt_to_webvtt(text, offset_sec=offset_sec)
@@ -366,6 +422,7 @@ class SubtitleSearchService:
         self._lock = threading.Lock()
         self._cache: Dict[str, tuple] = {}
         self._translate_cache: Dict[str, Dict[str, Any]] = {}
+        self._search_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
     _BUILTIN_EN_RU: Dict[str, tuple] = {
         "hello": ("привет", ["здравствуйте", "алло"]),
@@ -430,6 +487,12 @@ class SubtitleSearchService:
         "monster": ("чудовище", ["монстр"]),
     }
 
+    _BUILTIN_RU_EN: Dict[str, str] = {}
+    for _en_k, (_ru_v, _alt_list) in _BUILTIN_EN_RU.items():
+        _BUILTIN_RU_EN.setdefault(_ru_v, _en_k)
+        for _alt_w in _alt_list:
+            _BUILTIN_RU_EN.setdefault(_alt_w, _en_k)
+
     def translate_subtitle_word(
         self,
         word: str,
@@ -464,48 +527,46 @@ class SubtitleSearchService:
         if tl == "ru" and w_low in self._BUILTIN_EN_RU:
             primary, alt_list = self._BUILTIN_EN_RU[w_low]
             alternatives = list(alt_list)
-        elif tl == "en":
-            for en_k, (ru_v, alt_list) in self._BUILTIN_EN_RU.items():
-                if w_low == ru_v or w_low in alt_list:
-                    primary = en_k
-                    break
+        elif tl == "en" and w_low in self._BUILTIN_RU_EN:
+            primary = self._BUILTIN_RU_EN[w_low]
 
-        try:
-            q_url = (
-                "https://translate.googleapis.com/translate_a/single"
-                f"?client=gtx&sl=auto&tl={ urllib.parse.quote(tl, safe='') }"
-                f"&dt=t&dt=bd&q={ urllib.parse.quote(clean_word, safe='') }"
-            )
-            status = 0
-            raw = ""
-            if hasattr(self.net, "fetch_text"):
-                status, raw = self.net.fetch_text(q_url, headers={"Accept": "application/json"}, timeout=2.5)
-            elif hasattr(self.net, "request"):
-                status, raw, _ = self.net.request(
-                    q_url,
-                    headers={"Accept": "application/json"},
-                    spoof_geo_country="DIRECT",
-                    timeout=2.5,
+        if not primary:
+            try:
+                q_url = (
+                    "https://translate.googleapis.com/translate_a/single"
+                    f"?client=gtx&sl=auto&tl={ urllib.parse.quote(tl, safe='') }"
+                    f"&dt=t&dt=bd&q={ urllib.parse.quote(clean_word, safe='') }"
                 )
-            if status == 200 and raw:
-                parsed = json.loads(raw)
-                if isinstance(parsed, list) and parsed:
-                    if isinstance(parsed[0], list) and parsed[0]:
-                        segs = [str(seg[0]) for seg in parsed[0] if isinstance(seg, list) and seg and seg[0]]
-                        joined = "".join(segs).strip()
-                        if joined:
-                            primary = joined
-                    if len(parsed) > 1 and isinstance(parsed[1], list):
-                        for pos_block in parsed[1]:
-                            if isinstance(pos_block, list) and len(pos_block) >= 2 and isinstance(pos_block[1], list):
-                                for cand in pos_block[1]:
-                                    c_str = str(cand or "").strip()
-                                    if c_str and c_str.lower() != primary.lower() and c_str not in alternatives:
-                                        alternatives.append(c_str)
-                                        if len(alternatives) >= 5:
-                                            break
-        except Exception:
-            pass
+                status = 0
+                raw = ""
+                if hasattr(self.net, "fetch_text"):
+                    status, raw = self.net.fetch_text(q_url, headers={"Accept": "application/json"}, timeout=2.5)
+                elif hasattr(self.net, "request"):
+                    status, raw, _ = self.net.request(
+                        q_url,
+                        headers={"Accept": "application/json"},
+                        spoof_geo_country="DIRECT",
+                        timeout=2.5,
+                    )
+                if status == 200 and raw:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list) and parsed:
+                        if isinstance(parsed[0], list) and parsed[0]:
+                            segs = [str(seg[0]) for seg in parsed[0] if isinstance(seg, list) and seg and seg[0]]
+                            joined = "".join(segs).strip()
+                            if joined:
+                                primary = joined
+                        if len(parsed) > 1 and isinstance(parsed[1], list):
+                            for pos_block in parsed[1]:
+                                if isinstance(pos_block, list) and len(pos_block) >= 2 and isinstance(pos_block[1], list):
+                                    for cand in pos_block[1]:
+                                        c_str = str(cand or "").strip()
+                                        if c_str and c_str.lower() != primary.lower() and c_str not in alternatives:
+                                            alternatives.append(c_str)
+                                            if len(alternatives) >= 5:
+                                                break
+            except Exception:
+                pass
 
         if clean_context and clean_context.lower() != clean_word.lower():
             try:
@@ -545,11 +606,12 @@ class SubtitleSearchService:
             "context": clean_context,
             "context_translation": context_tr,
         }
-        with self._lock:
-            if len(self._translate_cache) >= 512:
-                for k_old in list(self._translate_cache.keys())[:128]:
-                    self._translate_cache.pop(k_old, None)
-            self._translate_cache[cache_key] = res
+        if primary.lower() != clean_word.lower() or alternatives or context_tr:
+            with self._lock:
+                if len(self._translate_cache) >= 512:
+                    for k_old in list(self._translate_cache.keys())[:128]:
+                        self._translate_cache.pop(k_old, None)
+                self._translate_cache[cache_key] = res
         return copy.deepcopy(res)
 
     def _query_addon(self, base_url: str, addon_name: str, st_type: str, video_id: str) -> List[Dict[str, Any]]:
@@ -671,7 +733,11 @@ class SubtitleSearchService:
                 endpoints.append((b_url, str(addon.get("name") or "Addon")))
 
         raw_tracks: List[Dict[str, Any]] = []
-        pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(4, len(endpoints))))
+        pool = getattr(self, "_search_executor", None)
+        own_pool = False
+        if pool is None:
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(4, len(endpoints))))
+            own_pool = True
         try:
             futs = [
                 pool.submit(self._query_addon, b_url, a_name, st_type, video_id)
@@ -684,7 +750,8 @@ class SubtitleSearchService:
                 except Exception:
                     pass
         finally:
-            pool.shutdown(wait=False, cancel_futures=True)
+            if own_pool:
+                pool.shutdown(wait=False, cancel_futures=True)
 
         ru_bucket: List[Dict[str, Any]] = []
         en_bucket: List[Dict[str, Any]] = []
@@ -734,9 +801,10 @@ class SubtitleSearchService:
             "video_id": video_id,
             "subtitles": final_subs,
         }
-        with self._lock:
-            if len(self._cache) >= 80:
-                for k_old in list(self._cache.keys())[:20]:
-                    self._cache.pop(k_old, None)
-            self._cache[cache_key] = (now, payload)
+        if final_subs:
+            with self._lock:
+                if len(self._cache) >= 80:
+                    for k_old in list(self._cache.keys())[:20]:
+                        self._cache.pop(k_old, None)
+                self._cache[cache_key] = (now, payload)
         return copy.deepcopy(payload)

@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261105v5";
-import { t, isEn, displayTitle, hasCyrillicText } from "./i18n.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
+import { t, isEn, displayTitle, hasCyrillicText } from "./i18n.js?v=20261108v19";
 import {
   escapeHtml,
   iconSvg,
@@ -8,44 +8,68 @@ import {
   pluralRu,
   genitiveAfterIz,
   expandRussianDateText,
+  findAllOfflineDownloadsForTitle,
   findOfflineDownloadForTitle,
   getEpisodeProgress,
   saveEpisodeProgress,
   syncCustomSelect,
-} from "./utils.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
 import {
   isEpisodeWatched,
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261105v5";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261105v5";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261105v5";
-import { sweepPendingDownloadCleanups } from "./features.js?v=20261105v5";
-import { syncCustomVideoControlsUI } from "./player-ui-controls.js?v=20261105v5";
-import { closeSubtitleDictPopover, syncSubtitleOffsetUI } from "./subtitles.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261108v19";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261108v19";
+import { sweepPendingDownloadCleanups } from "./features.js?v=20261108v19";
+import { syncCustomVideoControlsUI } from "./player-ui-controls.js?v=20261108v19";
+import { closeSubtitleDictPopover, syncSubtitleOffsetUI } from "./subtitles.js?v=20261108v19";
 import {
   getNextEpisodeCoords,
   clearAutoplayNextTimer,
   dismissPlayerNextEpisodeToast,
-} from "./player-autoplay.js?v=20261105v5";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261105v5";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261105v5";
-import { reportScrobbleProgress } from "./player-scrobble.js?v=20261105v5";
+} from "./player-autoplay.js?v=20261108v19";
+
+const _RU_MONTH_MAP = {
+  января: "Jan",
+  февраля: "Feb",
+  марта: "Mar",
+  апреля: "Apr",
+  мая: "May",
+  июня: "Jun",
+  июля: "Jul",
+  августа: "Aug",
+  сентября: "Sep",
+  октября: "Oct",
+  ноября: "Nov",
+  декабря: "Dec",
+};
+const _RU_MONTH_RE = new RegExp(Object.keys(_RU_MONTH_MAP).join("|"), "gi");
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261108v19";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261108v19";
+import { reportScrobbleProgress } from "./player-scrobble.js?v=20261108v19";
 import {
   loadBackup4KReleases,
   loadHDRezkaStream,
+  loadOfficialServiceTab,
   loadOfflineStreamForActiveTitle,
   loadStremioStreams,
   resetVideoElementForStreamChange,
   switchSourceTab,
-} from "./player-streams.js?v=20261105v5";
-import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261105v5";
+} from "./player-streams.js?v=20261108v19";
+import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261108v19";
 import {
+  OFFICIAL_STREAMING_SERVICES,
   syncMediaSessionMetadata,
   updateModalKinoriumHeader,
-} from "./player-meta.js?v=20261105v5";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261105v5";
+} from "./player-meta.js?v=20261108v19";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261108v19";
+import {
+  hideXRayPauseShelf,
+  closeBookmarkNoteDialog,
+  renderTimelineBookmarks,
+} from "./player-bookmarks.js?v=20261108v19";
 
 export function hasStartedWatchingCurrentEpisode(item, seasonNum, epNum) {
   if (state.creditsOverlayShownThisEpisode) return true;
@@ -111,23 +135,7 @@ export function getEpisodeDisplayMeta(seasonNum, epNum) {
     : "";
   let airDate = expandRussianDateText(metaObj?.air_date || "");
   if (isEn() && airDate && hasCyrillicText(airDate)) {
-    const ruMonths = {
-      января: "Jan",
-      февраля: "Feb",
-      марта: "Mar",
-      апреля: "Apr",
-      мая: "May",
-      июня: "Jun",
-      июля: "Jul",
-      августа: "Aug",
-      сентября: "Sep",
-      октября: "Oct",
-      ноября: "Nov",
-      декабря: "Dec",
-    };
-    Object.entries(ruMonths).forEach(([ruM, enM]) => {
-      airDate = airDate.replace(new RegExp(ruM, "gi"), enM);
-    });
+    airDate = airDate.replace(_RU_MONTH_RE, (m) => _RU_MONTH_MAP[m.toLowerCase()] || m);
     airDate = airDate.replace(/\bгода\b/gi, "").replace(/\s{2,}/g, " ").trim();
     if (hasCyrillicText(airDate)) airDate = "";
   }
@@ -183,20 +191,15 @@ export function updateCurrentEpisodeBar(item, seasonNum, epNum, isPreview = fals
   titleEl.classList.toggle("hidden", !epMeta.realTitle);
 
   const subParts = [];
-  if (epMeta.origTitle) subParts.push(epMeta.origTitle);
-  if (epMeta.airDate) subParts.push(epMeta.airDate);
   if (isPreview && previewEpRating?.score) {
     subParts.push(t(`Оценка: ${previewEpRating.score}/10`, `Rating: ${previewEpRating.score}/10`));
   }
   if (isPreview && isWatched) {
     subParts.push(t("Просмотрено", "Watched"));
   } else if (!isWatched && epProg && epProg.current_time > 5) {
-    subParts.push(
-      t(
-        `Остановились на ${formatTime(epProg.current_time)} (${epProg.pct || 0}%)`,
-        `Paused at ${formatTime(epProg.current_time)} (${epProg.pct || 0}%)`
-      )
-    );
+    subParts.push(`${formatTime(epProg.current_time)} (${epProg.pct || 0}%)`);
+  } else if (epMeta.airDate) {
+    subParts.push(epMeta.airDate);
   }
   if (subEl) {
     if (subParts.length > 0) {
@@ -220,7 +223,7 @@ export function updateCurrentEpisodeBar(item, seasonNum, epNum, isPreview = fals
         "Episode marked as watched on Kinorium (click to unmark)"
       );
     } else {
-      watchLbl.textContent = t("Отметить серию", "Mark episode");
+      watchLbl.textContent = t("Отметить", "Mark");
       watchBtn.classList.remove("is-watched");
       watchBtn.title = t(
         "Отметить эту серию просмотренной в Kinorium",
@@ -230,19 +233,22 @@ export function updateCurrentEpisodeBar(item, seasonNum, epNum, isPreview = fals
   }
   if (rateBtn && rateLbl) {
     if (activeEpRating && activeEpRating.score) {
-      rateLbl.textContent = t(
-        `Серия: ${activeEpRating.score}/10`,
-        `Episode: ${activeEpRating.score}/10`
-      );
+      rateLbl.textContent = `${activeEpRating.score}/10`;
       rateBtn.classList.add("is-rated");
     } else {
-      rateLbl.textContent = t("Оценить серию", "Rate episode");
+      rateLbl.textContent = t("Оценить", "Rate");
       rateBtn.classList.remove("is-rated");
     }
   }
 }
 
 export function resolveEffectiveSeasonsMap(item, passedSeasonsMap = null) {
+  if (!item && !passedSeasonsMap) return null;
+  const itemKey = item?.id ? String(item.id) : (item?.title || "");
+  const hasPassed = Boolean(passedSeasonsMap && typeof passedSeasonsMap === "object");
+  if (!hasPassed && item && item._effSeasonsMap && item._effSeasonsEpoch === state.liveSeriesUpdatesVersion) {
+    return item._effSeasonsMap;
+  }
   const candidates = [
     passedSeasonsMap,
     state.seasonsMap,
@@ -264,6 +270,10 @@ export function resolveEffectiveSeasonsMap(item, passedSeasonsMap = null) {
       }
     });
     if (Object.keys(valid).length > 0) {
+      if (!hasPassed && item) {
+        item._effSeasonsMap = valid;
+        item._effSeasonsEpoch = state.liveSeriesUpdatesVersion || 0;
+      }
       return valid;
     }
   }
@@ -281,11 +291,48 @@ export function resolveEffectiveSeasonsMap(item, passedSeasonsMap = null) {
     1
   );
   if (latestEp > 0) {
-    return {
+    const fallbackRes = {
       [String(latestS || 1)]: Array.from({ length: latestEp }, (_, idx) => idx + 1),
     };
+    if (!hasPassed && item) {
+      item._effSeasonsMap = fallbackRes;
+      item._effSeasonsEpoch = state.liveSeriesUpdatesVersion || 0;
+    }
+    return fallbackRes;
   }
   return null;
+}
+
+const _ISO_DATE_PREFIX_RE = /^\d{4}-\d{2}-\d{2}/;
+let _cachedTodayIso = "";
+let _cachedTodayIsoTs = 0;
+
+function getTodayIsoDate() {
+  const now = Date.now();
+  if (!_cachedTodayIso || now - _cachedTodayIsoTs > 60000) {
+    _cachedTodayIso = new Date(now).toISOString().slice(0, 10);
+    _cachedTodayIsoTs = now;
+  }
+  return _cachedTodayIso;
+}
+
+export function filterReleasedEpisodesForSeason(item, sNum, rawSeasonEps) {
+  if (!Array.isArray(rawSeasonEps)) return [];
+  const todayIso = getTodayIsoDate();
+  const sKey = String(sNum || 1);
+  const metaForSeason = state.episodesMeta?.[sKey] || {};
+  const effLatestS = Number(item?.latest_season || item?.kinorium?.latest_season || 0);
+  const effLatestE = Number(item?.latest_episode || item?.kinorium?.latest_episode || 0);
+  return rawSeasonEps.filter((e) => {
+    const rawEpMeta = metaForSeason[String(e)] || {};
+    const airDateStr = String(rawEpMeta.air_date || rawEpMeta.airDate || "");
+    if (_ISO_DATE_PREFIX_RE.test(airDateStr) && airDateStr.slice(0, 10) > todayIso) return false;
+    if (rawEpMeta.is_future === true || rawEpMeta.is_released === false) return false;
+    if (effLatestS > 0 && effLatestE > 0 && Number(sNum) === effLatestS && e > effLatestE) {
+      return false;
+    }
+    return true;
+  });
 }
 
 export function populateSeasonEpisodeSelectors(item, seasonsMap = null) {
@@ -349,20 +396,22 @@ export function populateSeasonEpisodeSelectors(item, seasonsMap = null) {
 
   if (seasonSel) {
     seasonSel.innerHTML = "";
+    const seasonFrag = document.createDocumentFragment();
     seasonNumbers.forEach((s) => {
       const opt = document.createElement("option");
       opt.value = String(s);
       opt.textContent = `${s}`;
       if (s === state.activeSeason) opt.selected = true;
-      seasonSel.appendChild(opt);
+      seasonFrag.appendChild(opt);
     });
+    seasonSel.appendChild(seasonFrag);
     seasonSel.value = String(state.activeSeason);
     seasonSel.disabled = isSingleSeason;
     seasonSel.classList.toggle("hidden", isSingleSeason);
     syncCustomSelect(seasonSel);
   }
 
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = getTodayIsoDate();
   const curSeasonKey = String(state.activeSeason || 1);
   const metaForActiveSeason = state.episodesMeta?.[curSeasonKey] || {};
   const effLatestS = Number(item.latest_season || item.kinorium?.latest_season || 0);
@@ -374,17 +423,7 @@ export function populateSeasonEpisodeSelectors(item, seasonsMap = null) {
       ? resolvedMap[curSeasonKey]
       : Array.from({ length: fallbackEpsCount }, (_, idx) => idx + 1);
 
-  // Exclude unreleased episodes (future air date or beyond confirmed latest released episode)
-  const seasonEps = rawSeasonEps.filter((e) => {
-    const rawEpMeta = metaForActiveSeason[String(e)] || {};
-    const airDateStr = String(rawEpMeta.air_date || rawEpMeta.airDate || "");
-    if (/^\d{4}-\d{2}-\d{2}/.test(airDateStr) && airDateStr.slice(0, 10) > todayIso) return false;
-    if (rawEpMeta.is_future === true || rawEpMeta.is_released === false) return false;
-    if (effLatestS > 0 && effLatestE > 0 && state.activeSeason === effLatestS && e > effLatestE) {
-      return false;
-    }
-    return true;
-  });
+  const seasonEps = filterReleasedEpisodesForSeason(item, state.activeSeason, rawSeasonEps);
 
   if (!seasonEps.includes(state.activeEpisode)) {
     state.activeEpisode = seasonEps[0] || 1;
@@ -399,7 +438,6 @@ export function populateSeasonEpisodeSelectors(item, seasonsMap = null) {
   if (hoverTipEl) hoverTipEl.classList.add("hidden");
 
   if (epStripBar) {
-    epStripBar.innerHTML = "";
     epStripBar.classList.toggle("ep-grid-mode", isGridMode);
     if (epStripRow) epStripRow.classList.toggle("ep-grid-row", isGridMode);
     epStripBar.onmouseleave = () => {
@@ -421,201 +459,213 @@ export function populateSeasonEpisodeSelectors(item, seasonsMap = null) {
       allSeasonEpNumsSet.add(pEp);
     }
     const allSeasonEps = Array.from(allSeasonEpNumsSet).sort((a, b) => a - b);
+    const offlineSavedEpsArr =
+      Array.isArray(state.downloadsItems) && state.downloadsItems.length > 0
+        ? findAllOfflineDownloadsForTitle(item, null, null, ["completed"])
+            .filter((dl) => Number(dl.season) === Number(state.activeSeason))
+            .map((dl) => Number(dl.episode))
+        : [];
+    const offlineSavedEpsSet = new Set(offlineSavedEpsArr);
 
-    let activePillEl = null;
-    allSeasonEps.forEach((e) => {
-      const rawEpMeta = metaForActiveSeason[String(e)] || {};
-      const airDateStr = String(rawEpMeta.air_date || rawEpMeta.airDate || "");
-      const isDateFuture = /^\d{4}-\d{2}-\d{2}/.test(airDateStr) && airDateStr.slice(0, 10) > todayIso;
-      const isPastLatest = Boolean(effLatestS > 0 && effLatestE > 0 && state.activeSeason === effLatestS && e > effLatestE);
-      const isFutureMeta = Boolean(rawEpMeta.is_future === true || rawEpMeta.is_released === false || isDateFuture || isPastLatest);
-      const isUnreleased = isFutureMeta || !releasedEpsSet.has(e);
-      const isWatched = !isUnreleased && isEpisodeWatched(item, state.activeSeason, e);
-      const isActive = !isUnreleased && e === state.activeEpisode;
-      const epProg = !isUnreleased ? getEpisodeProgress(item, state.activeSeason, e) : null;
-      const epMeta = getEpisodeDisplayMeta(state.activeSeason, e);
-      const epRating = !isUnreleased ? getEpisodeRatingEntry(item, state.activeSeason, e) : null;
-      const epBtn = document.createElement("button");
-      epBtn.type = "button";
-      if (isUnreleased) {
-        epBtn.disabled = true;
-      }
-      if (isActive) activePillEl = epBtn;
-      const progHint =
-        epProg && epProg.current_time > 5
-          ? t(
-              ` · Остановились на ${formatTime(epProg.current_time)} (${epProg.pct || 0}%)`,
-              ` · Paused at ${formatTime(epProg.current_time)} (${epProg.pct || 0}%)`
-            )
-          : "";
-      const tooltipTitlePart = epMeta.realTitle
-        ? isEn()
-          ? `Episode ${e}: "${epMeta.realTitle}"${epMeta.origTitle ? ` (${epMeta.origTitle})` : ""}`
-          : `Серия ${e}: «${epMeta.realTitle}»${epMeta.origTitle ? ` (${epMeta.origTitle})` : ""}`
-        : t(`Серия ${e}`, `Episode ${e}`);
-      const dateHint = isUnreleased
-        ? epMeta.airDate
-          ? t(` · Выйдет: ${epMeta.airDate}`, ` · Airs: ${epMeta.airDate}`)
-          : t(" · Ещё не вышла", " · Not released yet")
-        : epMeta.airDate
-        ? ` · ${epMeta.airDate}`
-        : "";
-      const rateHint = epRating?.score
-        ? t(` · Ваша оценка: ${epRating.score}/10`, ` · Your rating: ${epRating.score}/10`)
-        : "";
-      const epSavedOffline =
-        !isUnreleased &&
-        Boolean(findOfflineDownloadForTitle(item, state.activeSeason, e, ["completed"]));
-      const offlineHint = epSavedOffline ? t(" · Доступно офлайн", " · Saved offline") : "";
-      epBtn.title = `${t(`Сезон ${state.activeSeason}`, `Season ${state.activeSeason}`)} · ${tooltipTitlePart}${dateHint}${
-        isWatched ? t(" · Просмотрено", " · Watched") : ""
-      }${offlineHint}${rateHint}${progHint}`;
-
-      const barHtml =
-        epProg && epProg.pct > 0 && !isWatched
-          ? `<span class="atv-ep-pill-progress" style="width:${Math.min(100, epProg.pct)}%"></span>`
-          : "";
-
-      if (isGridMode) {
-        epBtn.className = `atv-ep-card${isWatched ? " watched" : ""}${isActive ? " active" : ""}${
-          epSavedOffline ? " is-saved-offline" : ""
-        }${isUnreleased ? " is-unreleased" : ""}`;
-        const metaRight = isUnreleased
-          ? epMeta.airDate
-            ? `${t("Выйдет", "Airs")}: ${epMeta.airDate}`
-            : t("Скоро", "Upcoming")
-          : epRating?.score
-          ? `${epRating.score}/10`
-          : epMeta.airDate || (isWatched ? t("Просмотрено", "Watched") : epSavedOffline ? t("Офлайн", "Offline") : "");
-        const cardTitle = epMeta.realTitle || "";
-        epBtn.innerHTML = `
-          <div class="atv-ep-card-top">
-            <span class="atv-ep-card-num">${isWatched ? iconSvg("check", 10) : ""}<span>${t(`Серия ${e}`, `Episode ${e}`)}</span></span>
-            <span class="atv-ep-card-meta">${escapeHtml(metaRight)}</span>
-          </div>
-          ${cardTitle ? `<div class="atv-ep-card-title">${escapeHtml(cardTitle)}</div>` : ""}
-          ${barHtml}
-        `;
-      } else {
-        epBtn.className = `atv-ep-pill${isWatched ? " watched" : ""}${isActive ? " active" : ""}${
-          epSavedOffline ? " is-saved-offline" : ""
-        }${isUnreleased ? " is-unreleased" : ""}`;
-        const unreleasedDateBadge =
-          isUnreleased && epMeta.airDate
-            ? `<span class="atv-ep-pill-airdate">${escapeHtml(epMeta.airDate)}</span>`
-            : "";
-        epBtn.innerHTML = `<span class="atv-ep-pill-num">${e}</span>${unreleasedDateBadge}${barHtml}`;
-      }
-
-      if (isUnreleased) {
-        epStripBar.appendChild(epBtn);
-        return;
-      }
-
-      epBtn.onmouseenter = () => {
-        if (!isGridMode && hoverTipEl && epStripRow) {
-          const rowRect = epStripRow.getBoundingClientRect();
-          const btnRect = epBtn.getBoundingClientRect();
-          const headLine = epMeta.realTitle
-            ? isEn()
-              ? `Episode ${e} · "${epMeta.realTitle}"`
-              : `Серия ${e} · «${epMeta.realTitle}»`
-            : t(`Серия ${e}`, `Episode ${e}`);
-          const subLineParts = [];
-          if (epMeta.airDate) subLineParts.push(epMeta.airDate);
-          if (epSavedOffline) subLineParts.push(t("Офлайн", "Offline"));
-          if (isWatched) subLineParts.push(t("Просмотрено", "Watched"));
-          else if (epProg && epProg.pct > 0) subLineParts.push(`${epProg.pct}%`);
-          if (epRating?.score) {
-            subLineParts.push(t(`Оценка ${epRating.score}/10`, `Rating ${epRating.score}/10`));
-          }
-          hoverTipEl.innerHTML = `<strong>${escapeHtml(headLine)}</strong>${
-            subLineParts.length
-              ? `<span class="atv-ep-hover-tooltip-sub">${escapeHtml(subLineParts.join(" · "))}</span>`
-              : ""
-          }`;
-          hoverTipEl.style.left = "0px";
-          hoverTipEl.style.top = "0px";
-          hoverTipEl.style.bottom = "auto";
-          hoverTipEl.classList.remove("hidden");
-          const tipRect = hoverTipEl.getBoundingClientRect();
-          const tipW = Math.ceil(tipRect.width) || hoverTipEl.offsetWidth || 160;
-          const tipH = Math.ceil(tipRect.height) || hoverTipEl.offsetHeight || 34;
-          const maxLeft = Math.max(0, Math.floor(rowRect.width - tipW - 2));
-          const rawLeft = btnRect.left - rowRect.left + btnRect.width / 2 - tipW / 2;
-          const clampedLeft = Math.max(0, Math.min(maxLeft, Math.round(rawLeft)));
-          hoverTipEl.style.top = `${Math.round(btnRect.top - rowRect.top - tipH - 6)}px`;
-          hoverTipEl.style.left = `${clampedLeft}px`;
-          hoverTipEl.classList.add("hidden");
-          void hoverTipEl.offsetHeight;
-          hoverTipEl.classList.remove("hidden");
-        }
-      };
-      epBtn.onclick = async () => {
-        if (state.activeEpisode === e) return;
-        const prevSeason = state.activeSeason;
-        const prevEpisode = state.activeEpisode;
-        const nextCoords = getNextEpisodeCoords();
-        if (
-          nextCoords &&
-          prevSeason === nextCoords.season &&
-          e === nextCoords.episode &&
-          hasStartedWatchingCurrentEpisode(item, prevSeason, prevEpisode)
-        ) {
-          markOutgoingEpisodeWatched(item, prevSeason, prevEpisode);
-        }
-        if (hoverTipEl) hoverTipEl.classList.add("hidden");
-        document.getElementById("kinorium-postwatch-overlay")?.classList.add("hidden");
-        clearAutoplayNextTimer();
-        state.autoplayCancelledThisEpisode = false;
-        state.introSkippedThisEpisode = false;
-        state.probeCreditsStartSec = 0;
-        state.subtitleOffsetSec = 0;
-        state.customExternalSubtitles = [];
-        closeSubtitleDictPopover(false);
-        syncSubtitleOffsetUI();
-        state.activeEpisode = e;
-        populateSeasonEpisodeSelectors(item, resolvedMap);
-        updateMiniPlayerTitle();
-        sweepPendingDownloadCleanups();
-        pushDesktopRemoteStateNow();
-        const savedEpProg = getEpisodeProgress(item, state.activeSeason, e);
-        const startSec =
-          savedEpProg &&
-          savedEpProg.current_time > 10 &&
-          savedEpProg.pct < 95 &&
-          !isEpisodeWatched(item, state.activeSeason, e)
-            ? savedEpProg.current_time
-            : 0;
-        if (state.activeSourceTab === "stremio" || state.activeSourceTab === "backup4k" || state.activeSourceTab === "offline") {
-          resetVideoElementForStreamChange();
-        }
-        if (state.activeSourceTab === "offline") {
-          await loadOfflineStreamForActiveTitle(startSec);
-        } else if (state.activeSourceTab === "stremio") {
-          await loadStremioStreams(startSec);
-        } else if (state.activeSourceTab === "backup4k") {
-          await loadBackup4KReleases(startSec);
-        } else {
-          const offlineEp = findOfflineDownloadForTitle(item, state.activeSeason, e);
-          if (offlineEp && typeof navigator !== "undefined" && navigator.onLine === false) {
-            await switchSourceTab("offline", startSec);
-            return;
-          }
-          await loadHDRezkaStream(startSec);
-        }
-        if (state.activeSourceTab !== "offline" && (typeof navigator === "undefined" || navigator.onLine !== false)) {
-          await loadSkipIntroSegments();
-        }
-      };
-      epStripBar.appendChild(epBtn);
+    const watchedSigParts = [];
+    const progSigParts = [];
+    const epStateMap = new Map();
+    allSeasonEps.forEach((epN) => {
+      const w = Boolean(isEpisodeWatched(item, state.activeSeason, epN));
+      if (w) watchedSigParts.push(epN);
+      const pr = getEpisodeProgress(item, state.activeSeason, epN);
+      if (pr && pr.pct > 0) progSigParts.push(`${epN}:${pr.pct}`);
+      const rt = getEpisodeRatingEntry(item, state.activeSeason, epN);
+      if (rt?.score) progSigParts.push(`${epN}r${rt.score}`);
+      epStateMap.set(epN, { isWatched: w, epProg: pr, epRating: rt });
     });
-    if (activePillEl && state.episodesStripExpanded) {
-      requestAnimationFrame(() => {
-        try {
-          activePillEl.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-        } catch (err) { window.logDebug?.("PlayerSeasons", err); }
+    const metaKeysLen = Object.keys(metaForActiveSeason).length;
+    const epStripSeasonSig = `${item.id || item.title || ""}|s:${state.activeSeason}|m:${isGridMode ? "g" : "s"}|l:${state.appLang || "ru"}|all:${allSeasonEps.join(",")}|rel:${seasonEps.join(",")}|mk:${metaKeysLen}|off:${offlineSavedEpsArr.join(",")}|w:${watchedSigParts.join(",")}|p:${progSigParts.join(",")}`;
+    const epStripRenderSig = `${epStripSeasonSig}|ae:${state.activeEpisode}`;
+
+    epStripBar._epCtx = { item, resolvedMap, hoverTipEl, epStripRow, isGridMode };
+    if (!epStripBar._epStripDelegatedBound) {
+      epStripBar._epStripDelegatedBound = true;
+      epStripBar.addEventListener("mouseover", (ev) => {
+        const ctx = epStripBar._epCtx;
+        if (!ctx || ctx.isGridMode || !ctx.hoverTipEl || !ctx.epStripRow) return;
+        const btn = ev.target?.closest?.("button[data-ep]");
+        if (!btn || btn.disabled || !epStripBar.contains(btn)) return;
+        if (epStripBar._lastHoverEpBtn === btn && !ctx.hoverTipEl.classList.contains("hidden")) return;
+        epStripBar._lastHoverEpBtn = btn;
+        const rowRect = ctx.epStripRow.getBoundingClientRect();
+        const btnRect = btn.getBoundingClientRect();
+        const headLine = btn.dataset.tipHead || "";
+        const subLine = btn.dataset.tipSub || "";
+        const estChars = Math.max(headLine.length, subLine.length);
+        const tipW = Math.min(280, Math.max(120, estChars * 7 + 24));
+        const tipH = subLine ? 40 : 26;
+        const maxLeft = Math.max(0, Math.floor(rowRect.width - tipW - 2));
+        const rawLeft = btnRect.left - rowRect.left + btnRect.width / 2 - tipW / 2;
+        const clampedLeft = Math.max(0, Math.min(maxLeft, Math.round(rawLeft)));
+        ctx.hoverTipEl.innerHTML = `<strong>${escapeHtml(headLine)}</strong>${
+          subLine ? `<span class="atv-ep-hover-tooltip-sub">${escapeHtml(subLine)}</span>` : ""
+        }`;
+        ctx.hoverTipEl.style.bottom = "auto";
+        ctx.hoverTipEl.style.top = `${Math.round(btnRect.top - rowRect.top - tipH - 6)}px`;
+        ctx.hoverTipEl.style.left = `${clampedLeft}px`;
+        ctx.hoverTipEl.classList.remove("hidden");
       });
+      epStripBar.addEventListener("mouseleave", () => {
+        epStripBar._lastHoverEpBtn = null;
+      });
+      epStripBar.addEventListener("click", async (ev) => {
+        const btn = ev.target?.closest?.("button[data-ep]");
+        if (!btn || btn.disabled || !epStripBar.contains(btn)) return;
+        const e = Number(btn.dataset.ep);
+        if (!e || state.activeEpisode === e) return;
+        await switchToSeriesSeasonEpisode(state.activeSeason, e);
+      });
+    }
+
+    if (epStripBar.dataset.renderSig === epStripRenderSig && epStripBar.childElementCount > 0) {
+      // Already rendered with identical state; skip DOM rebuild
+    } else if (epStripBar.dataset.seasonSig === epStripSeasonSig && epStripBar.childElementCount > 0) {
+      epStripBar.dataset.renderSig = epStripRenderSig;
+      let activePillEl = null;
+      const children = epStripBar.children;
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        const epNum = Number(child.dataset.ep);
+        const isAct = !child.disabled && epNum === state.activeEpisode;
+        child.classList.toggle("active", isAct);
+        if (isAct) activePillEl = child;
+      }
+      if (activePillEl && state.episodesStripExpanded) {
+        requestAnimationFrame(() => {
+          try {
+            activePillEl.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+          } catch (err) { window.logDebug?.("PlayerSeasons", err); }
+        });
+      }
+    } else {
+      epStripBar.dataset.seasonSig = epStripSeasonSig;
+      epStripBar.dataset.renderSig = epStripRenderSig;
+      epStripBar.innerHTML = "";
+      const epFrag = document.createDocumentFragment();
+
+      let activePillEl = null;
+      let watchedInSeasonCount = 0;
+      allSeasonEps.forEach((e) => {
+        const rawEpMeta = metaForActiveSeason[String(e)] || {};
+        const airDateStr = String(rawEpMeta.air_date || rawEpMeta.airDate || "");
+        const isDateFuture = _ISO_DATE_PREFIX_RE.test(airDateStr) && airDateStr.slice(0, 10) > todayIso;
+        const isPastLatest = Boolean(effLatestS > 0 && effLatestE > 0 && state.activeSeason === effLatestS && e > effLatestE);
+        const isFutureMeta = Boolean(rawEpMeta.is_future === true || rawEpMeta.is_released === false || isDateFuture || isPastLatest);
+        const isUnreleased = isFutureMeta || !releasedEpsSet.has(e);
+        const cachedEpState = epStateMap.get(e);
+        const isWatched = !isUnreleased && Boolean(cachedEpState ? cachedEpState.isWatched : isEpisodeWatched(item, state.activeSeason, e));
+        if (isWatched) watchedInSeasonCount++;
+        const isActive = !isUnreleased && e === state.activeEpisode;
+        const epProg = !isUnreleased ? (cachedEpState ? cachedEpState.epProg : getEpisodeProgress(item, state.activeSeason, e)) : null;
+        const epMeta = getEpisodeDisplayMeta(state.activeSeason, e);
+        const epRating = !isUnreleased ? (cachedEpState ? cachedEpState.epRating : getEpisodeRatingEntry(item, state.activeSeason, e)) : null;
+        const epBtn = document.createElement("button");
+        epBtn.type = "button";
+        epBtn.dataset.ep = String(e);
+        if (isUnreleased) {
+          epBtn.disabled = true;
+        }
+        if (isActive) activePillEl = epBtn;
+        const progHint =
+          epProg && epProg.current_time > 5
+            ? t(
+                ` · Остановились на ${formatTime(epProg.current_time)} (${epProg.pct || 0}%)`,
+                ` · Paused at ${formatTime(epProg.current_time)} (${epProg.pct || 0}%)`
+              )
+            : "";
+        const tooltipTitlePart = epMeta.realTitle
+          ? isEn()
+            ? `Episode ${e}: "${epMeta.realTitle}"${epMeta.origTitle ? ` (${epMeta.origTitle})` : ""}`
+            : `Серия ${e}: «${epMeta.realTitle}»${epMeta.origTitle ? ` (${epMeta.origTitle})` : ""}`
+          : t(`Серия ${e}`, `Episode ${e}`);
+        const dateHint = isUnreleased
+          ? epMeta.airDate
+            ? t(` · Выйдет: ${epMeta.airDate}`, ` · Airs: ${epMeta.airDate}`)
+            : t(" · Ещё не вышла", " · Not released yet")
+          : epMeta.airDate
+          ? ` · ${epMeta.airDate}`
+          : "";
+        const rateHint = epRating?.score
+          ? t(` · Ваша оценка: ${epRating.score}/10`, ` · Your rating: ${epRating.score}/10`)
+          : "";
+        const epSavedOffline = !isUnreleased && offlineSavedEpsSet.has(Number(e));
+        const offlineHint = epSavedOffline ? t(" · Доступно офлайн", " · Saved offline") : "";
+        epBtn.title = `${t(`Сезон ${state.activeSeason}`, `Season ${state.activeSeason}`)} · ${tooltipTitlePart}${dateHint}${
+          isWatched ? t(" · Просмотрено", " · Watched") : ""
+        }${offlineHint}${rateHint}${progHint}`;
+
+        const barHtml =
+          epProg && epProg.pct > 0 && !isWatched
+            ? `<span class="atv-ep-pill-progress" style="width:${Math.min(100, epProg.pct)}%"></span>`
+            : "";
+
+        if (isGridMode) {
+          epBtn.className = `atv-ep-card${isWatched ? " watched" : ""}${isActive ? " active" : ""}${
+            epSavedOffline ? " is-saved-offline" : ""
+          }${isUnreleased ? " is-unreleased" : ""}`;
+          const metaRight = isUnreleased
+            ? epMeta.airDate
+              ? `${t("Выйдет", "Airs")}: ${epMeta.airDate}`
+              : t("Скоро", "Upcoming")
+            : epRating?.score
+            ? `${epRating.score}/10`
+            : epMeta.airDate || (isWatched ? t("Просмотрено", "Watched") : epSavedOffline ? t("Офлайн", "Offline") : "");
+          const cardTitle = epMeta.realTitle || "";
+          epBtn.innerHTML = `
+            <div class="atv-ep-card-top">
+              <span class="atv-ep-card-num">${isWatched ? iconSvg("check", 10) : ""}<span>${t(`Серия ${e}`, `Episode ${e}`)}</span></span>
+              <span class="atv-ep-card-meta">${escapeHtml(metaRight)}</span>
+            </div>
+            ${cardTitle ? `<div class="atv-ep-card-title">${escapeHtml(cardTitle)}</div>` : ""}
+            ${barHtml}
+          `;
+        } else {
+          epBtn.className = `atv-ep-pill${isWatched ? " watched" : ""}${isActive ? " active" : ""}${
+            epSavedOffline ? " is-saved-offline" : ""
+          }${isUnreleased ? " is-unreleased" : ""}`;
+          const unreleasedDateBadge =
+            isUnreleased && epMeta.airDate
+              ? `<span class="atv-ep-pill-airdate">${escapeHtml(epMeta.airDate)}</span>`
+              : "";
+          epBtn.innerHTML = `<span class="atv-ep-pill-num">${e}</span>${unreleasedDateBadge}${barHtml}`;
+        }
+
+        if (isUnreleased) {
+          epFrag.appendChild(epBtn);
+          return;
+        }
+
+        const headLine = epMeta.realTitle
+          ? isEn()
+            ? `Episode ${e} · "${epMeta.realTitle}"`
+            : `Серия ${e} · «${epMeta.realTitle}»`
+          : t(`Серия ${e}`, `Episode ${e}`);
+        const subLineParts = [];
+        if (epMeta.airDate) subLineParts.push(epMeta.airDate);
+        if (epSavedOffline) subLineParts.push(t("Офлайн", "Offline"));
+        if (isWatched) subLineParts.push(t("Просмотрено", "Watched"));
+        else if (epProg && epProg.pct > 0) subLineParts.push(`${epProg.pct}%`);
+        if (epRating?.score) {
+          subLineParts.push(t(`Оценка ${epRating.score}/10`, `Rating ${epRating.score}/10`));
+        }
+        epBtn.dataset.tipHead = headLine;
+        epBtn.dataset.tipSub = subLineParts.join(" · ");
+        epFrag.appendChild(epBtn);
+      });
+      epStripBar.appendChild(epFrag);
+      if (activePillEl && state.episodesStripExpanded) {
+        requestAnimationFrame(() => {
+          try {
+            activePillEl.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+          } catch (err) { window.logDebug?.("PlayerSeasons", err); }
+        });
+      }
     }
   }
 
@@ -649,31 +699,36 @@ export function populateSeasonEpisodeSelectors(item, seasonsMap = null) {
 
   if (seasonProgBox && seasonProgText && seasonProgFill) {
     if (isServiceEnabled("kinorium") && seasonEps.length > 0) {
-      const watchedCount = seasonEps.filter((epNum) => isEpisodeWatched(item, state.activeSeason, epNum)).length;
       const releasedCount = seasonEps.length;
       const totalPlanned = Math.max(
         Number(item.episodes_per_season) || 0,
         Number(item.kinorium?.episodes_per_season) || 0,
         releasedCount
       );
-      const pct = Math.min(100, Math.round((watchedCount / releasedCount) * 100));
-      let progMsg = isEn()
-        ? `Watched ${watchedCount} of ${releasedCount} ${releasedCount === 1 ? "episode" : "episodes"}`
-        : `Просмотрено ${watchedCount} из ${releasedCount} ${genitiveAfterIz(
-            releasedCount,
-            "серии",
-            "серий"
-          )}`;
-      if (totalPlanned > releasedCount) {
-        progMsg += isEn()
-          ? ` (${releasedCount} of ${totalPlanned} released)`
-          : ` (вышло ${releasedCount} из ${totalPlanned})`;
+      const watchedCount = seasonEps.filter((epNum) => isEpisodeWatched(item, state.activeSeason, epNum)).length;
+      const progSig = `${item.id || item.title || ""}|s:${state.activeSeason}|w:${watchedCount}|r:${releasedCount}|p:${totalPlanned}|l:${state.appLang || "ru"}`;
+      if (seasonProgBox.dataset.progSig !== progSig) {
+        seasonProgBox.dataset.progSig = progSig;
+        const pct = Math.min(100, Math.round((watchedCount / releasedCount) * 100));
+        let progMsg = isEn()
+          ? `Watched ${watchedCount} of ${releasedCount} ${releasedCount === 1 ? "episode" : "episodes"}`
+          : `Просмотрено ${watchedCount} из ${releasedCount} ${genitiveAfterIz(
+              releasedCount,
+              "серии",
+              "серий"
+            )}`;
+        if (totalPlanned > releasedCount) {
+          progMsg += isEn()
+            ? ` (${releasedCount} of ${totalPlanned} released)`
+            : ` (вышло ${releasedCount} из ${totalPlanned})`;
+        }
+        seasonProgText.textContent = progMsg;
+        seasonProgFill.style.width = `${pct}%`;
+        seasonProgBox.title = `${t(`Сезон ${state.activeSeason}`, `Season ${state.activeSeason}`)} · ${progMsg} (${pct}%)`;
       }
-      seasonProgText.textContent = progMsg;
-      seasonProgFill.style.width = `${pct}%`;
-      seasonProgBox.title = `${t(`Сезон ${state.activeSeason}`, `Season ${state.activeSeason}`)} · ${progMsg} (${pct}%)`;
       seasonProgBox.classList.remove("hidden");
     } else {
+      seasonProgBox.dataset.progSig = "";
       seasonProgBox.classList.add("hidden");
     }
   }
@@ -701,17 +756,33 @@ export async function switchToSeriesSeasonEpisode(targetSeason, targetEpisode) {
   }
   document.getElementById("ep-pill-hover-tooltip")?.classList.add("hidden");
   document.getElementById("kinorium-postwatch-overlay")?.classList.add("hidden");
+  document.getElementById("video-stage")?.classList.remove("has-postwatch-open");
+  state.postwatchManual = false;
+  state.postwatchHovered = false;
+  document.getElementById("skip-intro-btn")?.classList.add("hidden");
+  const skipOutroEl = document.getElementById("skip-outro-btn");
+  if (skipOutroEl) {
+    skipOutroEl.classList.add("hidden");
+    skipOutroEl.classList.remove("is-preloaded");
+    skipOutroEl.removeAttribute("title");
+    skipOutroEl.querySelector(".atv-preload-ready-dot")?.remove();
+  }
   clearAutoplayNextTimer();
+  state._nextEpToastDismissed = false;
   state.autoplayCancelledThisEpisode = false;
   state.introSkippedThisEpisode = false;
   state.probeCreditsStartSec = 0;
+  state._lastPreloadDoneKey = "";
   state.subtitleOffsetSec = 0;
   state.customExternalSubtitles = [];
   closeSubtitleDictPopover(false);
+  hideXRayPauseShelf();
+  closeBookmarkNoteDialog(false);
   syncSubtitleOffsetUI();
   state.activeSeason = sNum;
   state.activeEpisode = eNum;
   state.vcPreviewSeason = sNum;
+  renderTimelineBookmarks();
   const resolvedMap = resolveEffectiveSeasonsMap(item, state.seasonsMap);
   populateSeasonEpisodeSelectors(item, resolvedMap);
   updateMiniPlayerTitle();
@@ -726,7 +797,24 @@ export async function switchToSeriesSeasonEpisode(targetSeason, targetEpisode) {
     !isEpisodeWatched(item, sNum, eNum)
       ? savedEpProg.current_time
       : 0;
-  if (state.activeSourceTab === "stremio" || state.activeSourceTab === "backup4k" || state.activeSourceTab === "offline") {
+  if (state.officialEmbedActive && OFFICIAL_STREAMING_SERVICES.has(state.activeSourceTab)) {
+    await loadOfficialServiceTab(state.activeSourceTab, { embedMode: true });
+    return;
+  }
+  const hasPreloadedTarget = Boolean(
+    state.preloadedNextEpisode &&
+      state.preloadedNextEpisode.key &&
+      nextCoords &&
+      sNum === nextCoords.season &&
+      eNum === nextCoords.episode
+  );
+  if (
+    !hasPreloadedTarget &&
+    (state.activeSourceTab === "hdrezka" ||
+      state.activeSourceTab === "stremio" ||
+      state.activeSourceTab === "backup4k" ||
+      state.activeSourceTab === "offline")
+  ) {
     resetVideoElementForStreamChange();
   }
   if (state.activeSourceTab === "offline") {
@@ -742,6 +830,9 @@ export async function switchToSeriesSeasonEpisode(targetSeason, targetEpisode) {
       return;
     }
     await loadHDRezkaStream(startSec);
+  }
+  if (state.activeOfficialService && !state.officialEmbedActive) {
+    loadOfficialServiceTab(state.activeOfficialService, { embedMode: false }).catch(() => {});
   }
   if (state.activeSourceTab !== "offline" && (typeof navigator === "undefined" || navigator.onLine !== false)) {
     await loadSkipIntroSegments();
@@ -785,10 +876,11 @@ export async function stepEpisode(delta) {
       : Array.from({ length: fallbackSeasonsCount }, (_, idx) => idx + 1);
 
   const fallbackEpsCount = Math.max(state.activeEpisode || 1, Number(state.activeItem.episodes_per_season) || 1);
-  const curSeasonEps =
+  const rawCurSeasonEps =
     resolvedMap && resolvedMap[String(state.activeSeason)] && resolvedMap[String(state.activeSeason)].length > 0
       ? resolvedMap[String(state.activeSeason)]
       : Array.from({ length: fallbackEpsCount }, (_, idx) => idx + 1);
+  const curSeasonEps = filterReleasedEpisodesForSeason(state.activeItem, state.activeSeason, rawCurSeasonEps);
 
   const epIdx = curSeasonEps.indexOf(state.activeEpisode);
   const seasonIdx = seasonNumbers.indexOf(state.activeSeason);
@@ -802,9 +894,17 @@ export async function stepEpisode(delta) {
     if (epIdx >= 0 && epIdx + 1 < curSeasonEps.length) {
       state.activeEpisode = curSeasonEps[epIdx + 1];
     } else if (seasonIdx >= 0 && seasonIdx + 1 < seasonNumbers.length) {
-      state.activeSeason = seasonNumbers[seasonIdx + 1];
-      const nextSeasonEps = resolvedMap?.[String(state.activeSeason)];
-      state.activeEpisode = Array.isArray(nextSeasonEps) && nextSeasonEps.length > 0 ? nextSeasonEps[0] : 1;
+      const nextS = seasonNumbers[seasonIdx + 1];
+      const nextSeasonEps = filterReleasedEpisodesForSeason(
+        state.activeItem,
+        nextS,
+        resolvedMap?.[String(nextS)] || []
+      );
+      if (nextSeasonEps.length === 0 && resolvedMap?.[String(nextS)]) {
+        return;
+      }
+      state.activeSeason = nextS;
+      state.activeEpisode = nextSeasonEps.length > 0 ? nextSeasonEps[0] : 1;
     } else {
       return;
     }
@@ -815,10 +915,15 @@ export async function stepEpisode(delta) {
     if (epIdx > 0) {
       state.activeEpisode = curSeasonEps[epIdx - 1];
     } else if (seasonIdx > 0) {
-      state.activeSeason = seasonNumbers[seasonIdx - 1];
-      const prevSeasonEps = resolvedMap?.[String(state.activeSeason)];
+      const prevS = seasonNumbers[seasonIdx - 1];
+      const prevSeasonEps = filterReleasedEpisodesForSeason(
+        state.activeItem,
+        prevS,
+        resolvedMap?.[String(prevS)] || []
+      );
+      state.activeSeason = prevS;
       state.activeEpisode =
-        Array.isArray(prevSeasonEps) && prevSeasonEps.length > 0
+        prevSeasonEps.length > 0
           ? prevSeasonEps[prevSeasonEps.length - 1]
           : Math.max(1, Number(state.activeItem.episodes_per_season) || 1);
     } else {
@@ -828,18 +933,31 @@ export async function stepEpisode(delta) {
 
   state.introSkippedThisEpisode = false;
   state.probeCreditsStartSec = 0;
+  state._lastPreloadDoneKey = "";
   state.subtitleOffsetSec = 0;
   state.customExternalSubtitles = [];
   closeSubtitleDictPopover(false);
+  hideXRayPauseShelf();
+  closeBookmarkNoteDialog(false);
   syncSubtitleOffsetUI();
+  renderTimelineBookmarks();
   populateSeasonEpisodeSelectors(state.activeItem, state.seasonsMap);
   updateMiniPlayerTitle();
   syncMediaSessionMetadata();
   sweepPendingDownloadCleanups();
   pushDesktopRemoteStateNow();
-  document.getElementById("skip-outro-btn")?.classList.add("hidden");
+  document.getElementById("skip-intro-btn")?.classList.add("hidden");
+  const skipOutroEl = document.getElementById("skip-outro-btn");
+  if (skipOutroEl) {
+    skipOutroEl.classList.add("hidden");
+    skipOutroEl.classList.remove("is-preloaded");
+    skipOutroEl.removeAttribute("title");
+    skipOutroEl.querySelector(".atv-preload-ready-dot")?.remove();
+  }
   document.getElementById("kinorium-postwatch-overlay")?.classList.add("hidden");
+  document.getElementById("video-stage")?.classList.remove("has-postwatch-open");
   state.postwatchManual = false;
+  state.postwatchHovered = false;
   const curEpMeta = getEpisodeDisplayMeta(state.activeSeason, state.activeEpisode);
   showToast(
     curEpMeta.realTitle
@@ -867,7 +985,7 @@ export async function stepEpisode(delta) {
       state.activeSourceTab === "stremio" ||
       state.activeSourceTab === "backup4k");
 
-  if (!hasPreloadedNext && (state.activeSourceTab === "stremio" || state.activeSourceTab === "backup4k" || state.activeSourceTab === "offline")) {
+  if (!hasPreloadedNext && (state.activeSourceTab === "stremio" || state.activeSourceTab === "backup4k" || state.activeSourceTab === "hdrezka" || state.activeSourceTab === "offline")) {
     resetVideoElementForStreamChange();
   }
   if (state.activeSourceTab === "offline") {

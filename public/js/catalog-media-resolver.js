@@ -2,24 +2,41 @@ import {
   PREFERRED_STUDIOS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261105v5";
-import { isEn, t } from "./i18n.js?v=20261105v5";
+} from "./state.js?v=20261108v19";
+import { isEn, t } from "./i18n.js?v=20261108v19";
 import {
+  escapeHtml,
   findOfflineDownloadForTitle,
   formatTime,
+  genitiveAfterIz,
   getEpisodeProgress,
+  getLocalProgressEpoch,
+  iconSvg,
   pluralRu,
-} from "./utils.js?v=20261105v5";
-import { switchSourceTab } from "./player.js?v=20261105v5";
-import { renderHero } from "./catalog-hero.js?v=20261105v5";
+  syncCustomSelect,
+} from "./utils.js?v=20261108v19";
+import { getPlayerPrefs } from "./audio-dsp.js?v=20261108v19";
+import {
+  renderModalProvidersSidebar,
+  switchSourceTab,
+} from "./player.js?v=20261108v19";
+import { renderHero } from "./catalog-hero.js?v=20261108v19";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261105v5";
+} from "./catalog-shelves.js?v=20261108v19";
 import {
   clearCatalogFrontendCache,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
+
+const paidOfficialSet = new Set(["appletv", "netflix", "prime", "disney", "max", "playerpl"]);
+
+function _hasOwnKeys(obj) {
+  if (!obj || typeof obj !== "object") return false;
+  for (const _ in obj) return true;
+  return false;
+}
 
 export function isEpisodeWatched(item, seasonNum, epNum) {
   if (!item || item.media_type !== "series") return false;
@@ -29,7 +46,7 @@ export function isEpisodeWatched(item, seasonNum, epNum) {
   if (Array.isArray(seasonList)) {
     return seasonList.includes(Number(epNum));
   }
-  if (Object.keys(weMap).length > 0) {
+  if (_hasOwnKeys(weMap)) {
     return false;
   }
   if (ks.watched && !ks.has_new_episode && !ks.watching) return true;
@@ -42,19 +59,132 @@ export function isEpisodeWatched(item, seasonNum, epNum) {
   }
   return false;
 }
+export function normalizeStudioBrand(studioName) {
+  let s = String(studioName || "").trim().toLowerCase();
+  if (!s) return "";
+  s = s
+    .replace(/\b(hdrezka\s*studio|rezka\s*studio|hdrezka)\b/gi, "hdrezka studio")
+    .replace(/\((?:субтитры|subtitles|subs|1080p|4k|uhd|original|оригинал)\)/gi, "")
+    .replace(/\[(?:субтитры|subtitles|subs|1080p|4k|uhd)\]/gi, "")
+    .replace(/[^\p{L}\p{N}\s+.&-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const knownBrands = [
+    ["red head sound", "red head sound"],
+    ["rhs", "red head sound"],
+    ["lostfilm", "lostfilm"],
+    ["лостфильм", "lostfilm"],
+    ["tvshows", "tvshows"],
+    ["hdrezka studio", "hdrezka studio"],
+    ["newstudio", "newstudio"],
+    ["ньюстудио", "newstudio"],
+    ["кубик в кубе", "кубик в кубе"],
+    ["kubik v kube", "кубик в кубе"],
+    ["jaskier", "jaskier"],
+    ["яскьер", "jaskier"],
+    ["alexfilm", "alexfilm"],
+    ["алексфильм", "alexfilm"],
+    ["пифагор", "пифагор"],
+    ["pifagor", "пифагор"],
+    ["apple tv", "apple tv"],
+    ["дубляж", "дубляж"],
+    ["оригинал", "оригинал"],
+    ["original", "оригинал"],
+  ];
+  for (const [needle, canonical] of knownBrands) {
+    if (s === needle || s.includes(needle)) {
+      return canonical;
+    }
+  }
+  return s;
+}
+
+export function getItemStudioPreferenceKeys(item) {
+  if (!item || typeof item !== "object") return [];
+  const keys = [];
+  const addKey = (k) => {
+    const clean = String(k || "").trim();
+    if (clean && !keys.includes(clean)) keys.push(clean);
+  };
+  addKey(item.id);
+  const kid = String(item.kinorium_id || item.kinorium?.kinorium_id || "").trim();
+  if (kid) addKey(kid.startsWith("kin_") ? kid : `kin_${kid}`);
+  const rid = String(item.rezka_id || "").trim();
+  if (rid) addKey(rid.startsWith("rezka_") ? rid : `rezka_${rid}`);
+  const imdb = String(item.imdb_id || "").trim();
+  if (imdb) addKey(imdb);
+  const titleLow = String(item.title || "").trim().toLowerCase();
+  if (titleLow) addKey(titleLow);
+  const origLow = String(item.orig_title || "").trim().toLowerCase();
+  if (origLow) addKey(origLow);
+  return keys;
+}
+
+export function matchPreferredStudioInList(studiosList, savedPref) {
+  if (!savedPref || !Array.isArray(studiosList) || studiosList.length === 0) return null;
+  const prefId = String(savedPref.id || "").trim();
+  const prefNameLow = String(savedPref.name || "").trim().toLowerCase();
+  const prefBrand = String(savedPref.brand || normalizeStudioBrand(savedPref.name || "")).trim();
+  if (prefId) {
+    const byId = studiosList.find((st) => st && String(st.id || "").trim() === prefId);
+    if (byId) return byId;
+  }
+  if (prefNameLow) {
+    const byExactName = studiosList.find(
+      (st) => st && String(st.name || "").trim().toLowerCase() === prefNameLow
+    );
+    if (byExactName) return byExactName;
+  }
+  if (prefBrand) {
+    const byBrand = studiosList.find(
+      (st) => st && normalizeStudioBrand(st.name || "") === prefBrand
+    );
+    if (byBrand) return byBrand;
+  }
+  return null;
+}
+
+let _preferredStudiosCache = null;
+let _preferredStudiosCacheKey = "";
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (ev) => {
+    if (!ev || !ev.key || ev.key.includes(PREFERRED_STUDIOS_STORAGE_KEY)) {
+      _preferredStudiosCache = null;
+      _preferredStudiosCacheKey = "";
+    }
+  });
+}
+
+function _getPreferredStudiosMap() {
+  const storageKey = profileStorageKey(PREFERRED_STUDIOS_STORAGE_KEY);
+  if (_preferredStudiosCache && _preferredStudiosCacheKey === storageKey) {
+    return _preferredStudiosCache;
+  }
+  const raw = typeof localStorage !== "undefined" ? localStorage.getItem(storageKey) : null;
+  const parsed = raw ? JSON.parse(raw) || {} : {};
+  const map = parsed && typeof parsed === "object" ? parsed : {};
+  _preferredStudiosCacheKey = storageKey;
+  _preferredStudiosCache = map;
+  return map;
+}
+
 export function getPreferredStudioForItem(item) {
   if (!item) return null;
   try {
-    const raw = localStorage.getItem(profileStorageKey(PREFERRED_STUDIOS_STORAGE_KEY));
-    if (!raw) return null;
-    const map = JSON.parse(raw) || {};
-    const idKey = String(item.id || "").trim();
-    const titleKey = String(item.title || "").trim().toLowerCase();
-    const pref = (idKey && map[idKey]) || (titleKey && map[titleKey]) || null;
-    if (pref && (/premium/i.test(pref.name || "") || pref.is_prem_locked || pref.is_premium)) {
-      return null;
+    const map = _getPreferredStudiosMap();
+    const candidateKeys = getItemStudioPreferenceKeys(item);
+    let bestPref = null;
+    for (const k of candidateKeys) {
+      const candidate = map[k];
+      if (!candidate || typeof candidate !== "object") continue;
+      if (/premium/i.test(candidate.name || "") || candidate.is_prem_locked || candidate.is_premium) {
+        continue;
+      }
+      if (!bestPref || (Number(candidate.updated_at) || 0) > (Number(bestPref.updated_at) || 0)) {
+        bestPref = candidate;
+      }
     }
-    return pref;
+    return bestPref;
   } catch (_) {
     return null;
   }
@@ -64,46 +194,104 @@ export function savePreferredStudioForItem(item, studioId, studioName) {
   if (/premium/i.test(String(studioName || ""))) return;
   try {
     const storageKey = profileStorageKey(PREFERRED_STUDIOS_STORAGE_KEY);
-    const raw = localStorage.getItem(storageKey);
-    const map = raw ? JSON.parse(raw) || {} : {};
+    const map = { ..._getPreferredStudiosMap() };
     const entry = {
       id: String(studioId || ""),
       name: String(studioName || ""),
+      brand: normalizeStudioBrand(studioName),
       updated_at: Date.now(),
     };
-    const idKey = String(item.id || "").trim();
-    const titleKey = String(item.title || "").trim().toLowerCase();
-    if (idKey) map[idKey] = entry;
-    if (titleKey) map[titleKey] = entry;
+    const candidateKeys = getItemStudioPreferenceKeys(item);
+    for (const k of candidateKeys) {
+      map[k] = entry;
+    }
+    _preferredStudiosCacheKey = storageKey;
+    _preferredStudiosCache = map;
     localStorage.setItem(storageKey, JSON.stringify(map));
   } catch (err) { window.logDebug?.("CatalogMediaResolver", err); }
 }
 let _cwIndexRef = null;
 let _cwById = new Map();
 let _cwByTitle = new Map();
+let _cwIndexLen = -1;
+let _cwIndexTopStamp = "";
 let _catIndexRef = null;
+let _catIndexVer = -1;
 let _catById = new Map();
 let _catByTitle = new Map();
 
+let _cwFastArrRef = null;
+let _cwFastLen = -1;
+let _cwFastFirstKey = "";
+let _cwFastLastKey = "";
+let _cwFastStampVal = "";
+
+function _computeCwStamp(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return "0";
+  const first = arr[0];
+  const last = arr[arr.length - 1];
+  const firstKey = first
+    ? `${first.id || first.title || ""}:${first.season || 0}:${first.episode || 0}:${Math.floor(Number(first.current_time || 0))}:${first.updated_at || 0}`
+    : "";
+  const lastKey = last
+    ? `${last.id || last.title || ""}:${last.season || 0}:${last.episode || 0}:${Math.floor(Number(last.current_time || 0))}:${last.updated_at || 0}`
+    : "";
+  if (
+    arr === _cwFastArrRef &&
+    arr.length === _cwFastLen &&
+    firstKey === _cwFastFirstKey &&
+    lastKey === _cwFastLastKey &&
+    _cwFastStampVal
+  ) {
+    return _cwFastStampVal;
+  }
+  let stamp = `${arr.length}`;
+  for (let i = 0; i < arr.length; i++) {
+    const c = arr[i];
+    if (c) {
+      stamp += `|${c.id || c.title || ""}:${c.season || 0}:${c.episode || 0}:${Math.floor(Number(c.current_time || 0))}:${c.updated_at || 0}`;
+    }
+  }
+  _cwFastArrRef = arr;
+  _cwFastLen = arr.length;
+  _cwFastFirstKey = firstKey;
+  _cwFastLastKey = lastKey;
+  _cwFastStampVal = stamp;
+  return stamp;
+}
+
 function _ensureCwLookup() {
   const arr = state.continueWatching;
-  if (arr === _cwIndexRef) return;
+  const curLen = Array.isArray(arr) ? arr.length : -1;
+  const topStamp = _computeCwStamp(arr);
+  if (arr === _cwIndexRef && curLen === _cwIndexLen && topStamp === _cwIndexTopStamp) return;
   _cwIndexRef = arr;
+  _cwIndexLen = curLen;
+  _cwIndexTopStamp = topStamp;
   _cwById = new Map();
   _cwByTitle = new Map();
   if (!Array.isArray(arr)) return;
   for (const cw of arr) {
     if (!cw) continue;
     if (cw.id && !_cwById.has(cw.id)) _cwById.set(cw.id, cw);
+    const kId = cw.kinorium_id || cw.kinorium?.kinorium_id;
+    if (kId) {
+      const kPref = `kin_${kId}`;
+      if (!_cwById.has(kPref)) _cwById.set(kPref, cw);
+    }
     const tl = String(cw.title || "").trim().toLowerCase();
     if (tl && !_cwByTitle.has(tl)) _cwByTitle.set(tl, cw);
+    const ol = String(cw.orig_title || "").trim().toLowerCase();
+    if (ol && !_cwByTitle.has(ol)) _cwByTitle.set(ol, cw);
   }
 }
 
 function _ensureCatalogLookup() {
   const arr = state.catalogItems;
-  if (arr === _catIndexRef) return;
+  const curVer = Number(state.catalogIndexVersion) || 0;
+  if (arr === _catIndexRef && curVer === _catIndexVer) return;
   _catIndexRef = arr;
+  _catIndexVer = curVer;
   _catById = new Map();
   _catByTitle = new Map();
   if (!Array.isArray(arr)) return;
@@ -118,11 +306,14 @@ function _ensureCatalogLookup() {
 export function findSavedProgress(item) {
   if (!item || !state.continueWatching || state.continueWatching.length === 0) return null;
   _ensureCwLookup();
-  const kid = item.kinorium?.kinorium_id ? `kin_${item.kinorium.kinorium_id}` : "";
+  const kidRaw = item.kinorium?.kinorium_id || item.kinorium_id;
+  const kid = kidRaw ? `kin_${kidRaw}` : "";
   if (item.id && _cwById.has(item.id)) return _cwById.get(item.id);
   if (kid && _cwById.has(kid)) return _cwById.get(kid);
   const tLow = (item.title || "").trim().toLowerCase();
   if (tLow && _cwByTitle.has(tLow)) return _cwByTitle.get(tLow);
+  const oLow = (item.orig_title || "").trim().toLowerCase();
+  if (oLow && _cwByTitle.has(oLow)) return _cwByTitle.get(oLow);
   return null;
 }
 export function isServiceEnabled(serviceId) {
@@ -165,21 +356,102 @@ export function resolvePreferredPlayTab(item, season = null, episode = null) {
   return getDefaultPlayableSourceTab();
 }
 export function getLiveSeriesUpdateForItem(item) {
-  if (!item) return null;
+  if (!item || !state.liveSeriesUpdates) return null;
+  const su = state.liveSeriesUpdates;
+  if (item.id && su[item.id]) return su[item.id];
   const ks = item.kinorium || {};
-  const keys = [
-    item.id,
-    ks.kinorium_id ? `kin_${ks.kinorium_id}` : "",
-    ks.kinorium_id ? String(ks.kinorium_id) : "",
-    (item.title || "").trim().toLowerCase(),
-    (item.orig_title || "").trim().toLowerCase(),
-  ].filter(Boolean);
-  for (const k of keys) {
-    if (state.liveSeriesUpdates[k]) return state.liveSeriesUpdates[k];
+  if (ks.kinorium_id) {
+    const kinK = `kin_${ks.kinorium_id}`;
+    if (su[kinK]) return su[kinK];
+    const sKin = String(ks.kinorium_id);
+    if (su[sKin]) return su[sKin];
+  }
+  if (item.title) {
+    const tLow = item.title.trim().toLowerCase();
+    if (tLow && su[tLow]) return su[tLow];
+  }
+  if (item.orig_title) {
+    const oLow = item.orig_title.trim().toLowerCase();
+    if (oLow && su[oLow]) return su[oLow];
   }
   return null;
 }
+let _epInfoCacheEpoch = "";
+let _epInfoWeakMap = new WeakMap();
+
+function _computeEpInfoEpochKey() {
+  const cwStamp = _computeCwStamp(state.continueWatching);
+  const liveEpoch = state.liveSeriesUpdatesVersion || 0;
+  const locEpoch = getLocalProgressEpoch();
+  return `${state.appLang || "ru"}|${state.catalogReqId || 0}|${state.catalogIndexVersion || 0}|${cwStamp}|${liveEpoch}|${locEpoch}`;
+}
+
 export function resolveSeriesEpisodeInfo(item) {
+  if (!item || typeof item !== "object") {
+    return {
+      season: 1,
+      episode: 1,
+      currentTime: 0,
+      hasNewEpisode: false,
+      isMidEpisodeResume: false,
+      episodeVerified: true,
+      studio: "HDRezka",
+      watchedInSeasonCount: 0,
+      totalSeasonEpisodes: 0,
+      seasonPct: 0,
+      hasSeasonProgress: false,
+      seasonProgressText: "",
+      seasonShortText: "",
+    };
+  }
+  const curEpoch = _computeEpInfoEpochKey();
+  if (curEpoch !== _epInfoCacheEpoch) {
+    _epInfoCacheEpoch = curEpoch;
+    _epInfoWeakMap = new WeakMap();
+  }
+  const ks = item.kinorium || {};
+  let weCount = 0;
+  if (ks.watched_episodes && typeof ks.watched_episodes === "object") {
+    if (typeof ks.watched_episodes._weTotal === "number") {
+      weCount = ks.watched_episodes._weTotal;
+    } else {
+      for (const sKey in ks.watched_episodes) {
+        if (Object.prototype.hasOwnProperty.call(ks.watched_episodes, sKey)) {
+          const arr = ks.watched_episodes[sKey];
+          if (Array.isArray(arr)) weCount += arr.length;
+        }
+      }
+      ks.watched_episodes._weTotal = weCount;
+    }
+  }
+  let seasonsMapCount = 0;
+  if (item.seasons_map && typeof item.seasons_map === "object") {
+    if (typeof item.seasons_map._keysCount === "number") {
+      seasonsMapCount = item.seasons_map._keysCount;
+    } else {
+      seasonsMapCount = Object.keys(item.seasons_map).length;
+      item.seasons_map._keysCount = seasonsMapCount;
+    }
+  }
+  const compFlag = item.is_series_completed === true || ks.is_completed === true ? 1 : 0;
+  const isActiveInPlayer =
+    state.isPlayerOpen &&
+    state.activeItem &&
+    (state.activeItem === item || (item.id && state.activeItem.id === item.id));
+  const activePlayerStamp = isActiveInPlayer ? `:${state.activeSeason || 1}:${state.activeEpisode || 1}` : "";
+  const itemStamp = `${item.media_type || "movie"}:${ks.watched ? 1 : 0}:${ks.watching ? 1 : 0}:${ks.has_new_episode ? 1 : 0}:${ks.next_season || 0}:${ks.next_episode || 0}:${ks.latest_season || 0}:${ks.latest_episode || 0}:${weCount}:${seasonsMapCount}:${compFlag}${activePlayerStamp}`;
+  const cachedEntry = !isActiveInPlayer ? _epInfoWeakMap.get(item) : null;
+  if (cachedEntry && cachedEntry.stamp === itemStamp) {
+    return cachedEntry.value;
+  }
+  const computed = _resolveSeriesEpisodeInfoUncached(item);
+  if (!isActiveInPlayer) {
+    _epInfoWeakMap.set(item, { stamp: itemStamp, value: computed });
+  }
+  return computed;
+}
+
+function _resolveSeriesEpisodeInfoUncached(item) {
   if (!item || item.media_type !== "series") {
     const cw = findSavedProgress(item);
     const localProg = !cw && item ? getEpisodeProgress(item, 1, 1) : null;
@@ -389,8 +661,8 @@ export function resolveSeriesEpisodeInfo(item) {
   } else {
     const maxEpToCheck = Math.max(totalSeasonEpisodes, watchedSet.size, finalEpisode);
     let countWatched = 0;
-    for (let e = 1; e <= maxEpToCheck; e++) {
-      if (watchedSet.has(e) || isEpisodeWatched(item, finalSeason, e)) {
+    for (const epNum of watchedSet) {
+      if (epNum >= 1 && epNum <= maxEpToCheck) {
         countWatched++;
       }
     }
@@ -513,11 +785,15 @@ export function formatRemainingTime(seconds) {
 }
 
 export function applyEnabledServicesVisibility(activeItem = state.activeItem) {
-  // 1. Top Navigation Channel Bar (#provider-filter-bar)
-  // Display streaming catalogs & playback channels that are enabled in user settings (no login required to browse catalogs)
+  // 1. Source Channel Bar (#provider-filter-bar inside #catalog-filters-drawer)
+  // Core sources are visible when enabled; paid subscription services only appear once connected/logged in.
   const isTopBarProviderVisible = (prov) => {
     if (!prov || prov === "all") return true;
-    return isServiceEnabled(prov);
+    if (!isServiceEnabled(prov)) return false;
+    if (paidOfficialSet.has(prov)) {
+      return Boolean(state.integrations?.[prov]?.logged_in);
+    }
+    return true;
   };
   let visibleChannelsCount = 0;
   document.querySelectorAll("#provider-filter-bar .atv-pill").forEach((pill) => {
@@ -685,6 +961,9 @@ export function getFriendsAverageScore(item) {
     const sc = parseFloat(matched?.score);
     return !Number.isNaN(sc) && sc > 0 ? Math.round(sc * 10) / 10 : 0;
   }
+  if (typeof item._cachedFriendsAvg === "number") {
+    return item._cachedFriendsAvg;
+  }
   let sum = 0;
   let count = 0;
   for (const fr of list) {
@@ -694,13 +973,16 @@ export function getFriendsAverageScore(item) {
       count += 1;
     }
   }
-  return count > 0 ? Math.round((sum / count) * 10) / 10 : 0;
+  const avg = count > 0 ? Math.round((sum / count) * 10) / 10 : 0;
+  item._cachedFriendsAvg = avg;
+  return avg;
 }
 
 export function patchCatalogItemKinoriumInPlace(item, kStatus) {
   if (!item || !kStatus) return;
   clearCatalogFrontendCache();
   item.kinorium = kStatus;
+  delete item._cachedFriendsAvg;
   if (kStatus.kinorium_counts) {
     state.kinoriumCounts = { ...state.kinoriumCounts, ...kStatus.kinorium_counts };
     updateKinoriumSectionCounters();
@@ -718,11 +1000,13 @@ export function patchCatalogItemKinoriumInPlace(item, kStatus) {
     arr.forEach((entry) => {
       if (isSameEntry(entry)) {
         entry.kinorium = { ...(entry.kinorium || {}), ...kStatus };
+        delete entry._cachedFriendsAvg;
       }
     });
   };
   patchList(state.catalogItems);
   patchList(state.similarPool);
+  state.catalogIndexVersion = (state.catalogIndexVersion || 0) + 1;
   if (
     Array.isArray(state.continueWatching) &&
     (kStatus.watched || kStatus.not_watching || kStatus.all_released_episodes_watched || (item.media_type === "series" && !kStatus.watching && !kStatus.has_new_episode))
@@ -744,7 +1028,7 @@ export function patchCatalogItemKinoriumInPlace(item, kStatus) {
   } else {
     renderHero();
     renderContinueWatching();
-    renderCatalogShelves();
+    renderCatalogShelves({ skipHero: true });
   }
 }
 

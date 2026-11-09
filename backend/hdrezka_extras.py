@@ -207,8 +207,25 @@ def get_trailer_for_title(
         rezka_yt_id = ""
         rezka_embed = ""
 
-    ru_vid = rezka_yt_id or client._search_youtube_video_id(ru_query)
-    en_vid = client._search_youtube_video_id(en_query) or ru_vid
+    if rezka_yt_id:
+        ru_vid = rezka_yt_id
+        en_vid = client._search_youtube_video_id(en_query) or ru_vid
+    else:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut_ru = pool.submit(client._search_youtube_video_id, ru_query)
+            fut_en = pool.submit(client._search_youtube_video_id, en_query)
+            try:
+                ru_vid = fut_ru.result(timeout=5.5) or ""
+            except Exception:
+                ru_vid = ""
+            try:
+                en_vid = fut_en.result(timeout=5.5) or ""
+            except Exception:
+                en_vid = ""
+        if not ru_vid and en_vid:
+            ru_vid = en_vid
+        elif not en_vid and ru_vid:
+            en_vid = ru_vid
 
     ru_embed = (
         f"https://www.youtube.com/embed/{ru_vid}?autoplay=1&rel=0"
@@ -220,17 +237,21 @@ def get_trailer_for_title(
         if en_vid
         else ru_embed
     )
+    primary_vid = ru_vid or en_vid
+    primary_embed = ru_embed or en_embed
 
     result = {
         "ok": bool(ru_vid or en_vid or rezka_embed),
         "title": title,
         "orig_title": orig_title,
         "year": year,
+        "youtube_id": primary_vid,
+        "embed_url": primary_embed,
         "ru_video_id": ru_vid,
         "en_video_id": en_vid,
         "ru_embed_url": ru_embed,
         "en_embed_url": en_embed,
-        "default_embed_url": ru_embed or en_embed,
+        "default_embed_url": primary_embed,
         "ru_youtube_url": (
             f"https://www.youtube.com/watch?v={ru_vid}"
             if ru_vid
@@ -255,7 +276,7 @@ def _fetch_wiki_json(client, url: str, timeout: float = 2.8) -> Dict[str, Any]:
         st, body, _ = client.net.request(
             url,
             headers={
-                "User-Agent": "CineFlow/2.0 (AppleTV Local Media Center)",
+                "User-Agent": "Velarium/2.0 (AppleTV Local Media Center)",
                 "Accept": "application/json",
             },
             spoof_geo_country="DIRECT",
@@ -270,31 +291,205 @@ def _fetch_wiki_json(client, url: str, timeout: float = 2.8) -> Dict[str, Any]:
     return {}
 
 def resolve_person_photo(client, name: str) -> str:
+    from .en_metadata import _names_match_ru_en, transliterate_cyrillic
+
     clean = (name or "").strip()
     if not clean:
         return ""
     key = clean.lower()
+    key_yo = key.replace("ё", "е")
     with client._cache_lock:
-        cached_ph = client.person_photo_by_name.get(key)
-    if cached_ph:
+        cached_ph = client.person_photo_by_name.get(key) or client.person_photo_by_name.get(key_yo)
+        if not cached_ph:
+            for k_cand, v_url in client.person_photo_by_name.items():
+                if not v_url:
+                    continue
+                if k_cand.replace("ё", "е") == key_yo:
+                    cached_ph = v_url
+                    break
+                if _names_match_ru_en(clean, k_cand) >= 0.85:
+                    cached_ph = v_url
+                    break
+    if cached_ph and client._is_valid_person_photo_url(cached_ph):
         return cached_ph
-    for wiki_lang in ("ru", "en"):
+
+    has_cyr = bool(re.search(r"[а-яёА-ЯЁ]", clean))
+    wiki_langs = ("ru", "en") if has_cyr else ("en", "ru")
+
+    def _cache_and_return(url_val: str) -> str:
+        with client._cache_lock:
+            if len(client.person_photo_by_name) > 1500:
+                for k_ev in list(client.person_photo_by_name.keys())[:375]:
+                    client.person_photo_by_name.pop(k_ev, None)
+            client.person_photo_by_name[key] = url_val
+            client.person_photo_by_name[key_yo] = url_val
+        return url_val
+
+    def _person_title_matches(target_name: str, raw_wiki_title: str) -> bool:
+        t_raw = str(raw_wiki_title or "").strip()
+        if not t_raw:
+            return False
+        t_low = t_raw.lower()
+        if t_low.startswith(("фильмография ", "список ", "дискография ", "filmography of ", "list of ")):
+            return False
+        norm_t = _normalize_wiki_person_title(t_raw)
+        if _names_match_ru_en(target_name, norm_t) >= 0.72:
+            return True
+        # Handle compound surnames ("Леонардо ДиКаприо" vs "Леонардо Ди Каприо", "Шэйн МакРей" vs "Шейн Макрей")
+        t_parts = target_name.split()
+        n_parts = norm_t.split()
+        if len(t_parts) >= 2 and len(n_parts) >= 2:
+            compact_target = f"{t_parts[0]} {''.join(t_parts[1:])}"
+            compact_norm = f"{n_parts[0]} {''.join(n_parts[1:])}"
+            if _names_match_ru_en(compact_target, compact_norm) >= 0.72:
+                return True
+        return False
+
+    _PHONETIC_WORD_MAP = {
+        "шэйн": "Shane",
+        "шейн": "Shane",
+        "макрей": "McRae",
+        "остин": "Austin",
+        "зак": "Zach",
+        "уолтер": "Walter",
+        "пол": "Paul",
+        "хаузер": "Hauser",
+        "эми": "Amy",
+        "мэдиган": "Madigan",
+        "креггер": "Cregger",
+        "черри": "Cherry",
+        "кали": "Kali",
+        "реис": "Reis",
+        "джош": "Josh",
+        "джулия": "Julia",
+        "джулианна": "Julianne",
+        "николсон": "Nicholson",
+        "бенедикт": "Benedict",
+        "олден": "Alden",
+        "майкл": "Michael",
+        "дэвид": "David",
+        "джеймс": "James",
+        "джон": "John",
+        "крис": "Chris",
+        "кристофер": "Christopher",
+        "мэттью": "Matthew",
+        "мэтт": "Matt",
+        "райан": "Ryan",
+        "рэйчел": "Rachel",
+        "рейчел": "Rachel",
+        "стивен": "Steven",
+        "эндрю": "Andrew",
+        "энтони": "Anthony",
+        "уильям": "William",
+        "чарльз": "Charles",
+        "ричард": "Richard",
+        "джессика": "Jessica",
+        "дженнифер": "Jennifer",
+        "кейт": "Kate",
+        "кэтрин": "Katherine",
+    }
+
+    def _phonetic_en_name(raw_cyr: str) -> str:
+        words = [w for w in raw_cyr.strip().split() if w]
+        out_words = []
+        for w in words:
+            w_low = w.lower().replace("ё", "е")
+            if w_low in _PHONETIC_WORD_MAP:
+                out_words.append(_PHONETIC_WORD_MAP[w_low])
+            elif w_low.startswith("мак") and len(w_low) > 4:
+                rest = transliterate_cyrillic(w[3:])
+                out_words.append("Mc" + (rest[:1].upper() + rest[1:] if rest else ""))
+            else:
+                out_words.append(transliterate_cyrillic(w))
+        return " ".join(out_words)
+
+    discovered_en_names = []
+    if has_cyr:
+        phon_en = _phonetic_en_name(clean)
+        if phon_en and phon_en not in discovered_en_names:
+            discovered_en_names.append(phon_en)
+
+    for wiki_lang in wiki_langs:
+        query_name = (
+            (discovered_en_names[0] if discovered_en_names else transliterate_cyrillic(clean))
+            if (wiki_lang == "en" and has_cyr)
+            else clean
+        )
         try:
-            slug = urllib.parse.quote(clean.replace(" ", "_"))
+            slug = urllib.parse.quote(query_name.replace(" ", "_"))
             payload = client._fetch_wiki_json(
                 f"https://{wiki_lang}.wikipedia.org/api/rest_v1/page/summary/{slug}",
                 timeout=3.0,
             )
-            if payload.get("type") == "disambiguation":
-                continue
-            thumb = (payload.get("thumbnail") or {}).get("source") or ""
-            if thumb.startswith("http"):
-                with client._cache_lock:
-                    if len(client.person_photo_by_name) > 1500:
-                        for k_ev in list(client.person_photo_by_name.keys())[:375]:
-                            client.person_photo_by_name.pop(k_ev, None)
-                    client.person_photo_by_name[key] = thumb
-                return thumb
+            if payload.get("type") != "disambiguation":
+                thumb = (payload.get("thumbnail") or {}).get("source") or ""
+                if thumb.startswith("http") and client._is_valid_person_photo_url(thumb):
+                    return _cache_and_return(thumb)
+        except Exception:
+            pass
+        try:
+            q_enc = urllib.parse.quote(query_name)
+            search_data = client._fetch_wiki_json(
+                f"https://{wiki_lang}.wikipedia.org/w/api.php?action=query&generator=search"
+                f"&gsrsearch={q_enc}&gsrlimit=4&prop=pageimages|langlinks&lllang=en&pithumbsize=400&format=json",
+                timeout=3.0,
+            )
+            pages = (search_data.get("query") or {}).get("pages") or {}
+            if isinstance(pages, dict) and pages:
+                sorted_pages = sorted(
+                    pages.values(),
+                    key=lambda p: int(p.get("index", 999)) if isinstance(p, dict) else 999,
+                )
+                for pg in sorted_pages:
+                    if not isinstance(pg, dict):
+                        continue
+                    if not _person_title_matches(clean, str(pg.get("title") or "")):
+                        continue
+                    lls = pg.get("langlinks") or []
+                    if lls and isinstance(lls[0], dict):
+                        en_ll_raw = str(lls[0].get("*") or lls[0].get("title") or "").strip()
+                        en_ll_clean = _normalize_wiki_person_title(en_ll_raw)
+                        if en_ll_clean and en_ll_clean not in discovered_en_names:
+                            discovered_en_names.insert(0, en_ll_clean)
+                    thumb = ((pg.get("thumbnail") or {}).get("source") or "").strip()
+                    if thumb.startswith("http") and client._is_valid_person_photo_url(thumb):
+                        return _cache_and_return(thumb)
+        except Exception:
+            pass
+
+    # Fallback: IMDb public suggestion CDN (studio headshots on m.media-amazon.com)
+    imdb_queries = []
+    for cand_q in (
+        discovered_en_names
+        + ([transliterate_cyrillic(clean)] if has_cyr else [clean])
+    ):
+        cq = (cand_q or "").strip()
+        if cq and cq.lower() not in [x.lower() for x in imdb_queries]:
+            imdb_queries.append(cq)
+
+    for iq in imdb_queries[:3]:
+        try:
+            imdb_url = f"https://v3.sg.media-imdb.com/suggestion/x/{urllib.parse.quote(iq.lower())}.json"
+            st_im, body_im, _ = client.net.request(
+                imdb_url,
+                headers={"User-Agent": client.net.default_ua, "Accept": "application/json"},
+                spoof_geo_country="DIRECT",
+                timeout=2.8,
+            )
+            if st_im == 200 and body_im:
+                im_data = json.loads(body_im)
+                for entry in im_data.get("d") or []:
+                    if not isinstance(entry, dict):
+                        continue
+                    if not str(entry.get("id") or "").startswith("nm"):
+                        continue
+                    label = str(entry.get("l") or "").strip()
+                    if not _person_title_matches(clean, label) and not _person_title_matches(iq, label):
+                        continue
+                    img_u = str((entry.get("i") or {}).get("imageUrl") or "").strip()
+                    if img_u.startswith("http") and client._is_valid_person_photo_url(img_u):
+                        img_u = re.sub(r"\._V1_[^/]*\.jpg$", "._V1_UX320_.jpg", img_u)
+                        return _cache_and_return(img_u)
         except Exception:
             pass
     return ""
@@ -355,7 +550,7 @@ def get_person_details(client, name: str, hint_url: str = "") -> Dict[str, Any]:
     sections: List[Dict[str, Any]] = []
 
     ua_hdrs = {
-        "User-Agent": "CineFlow/2.0 (AppleTV Local Media Center)",
+        "User-Agent": "Velarium/2.0 (AppleTV Local Media Center)",
         "Accept": "application/json",
     }
 
@@ -578,7 +773,14 @@ def get_person_details(client, name: str, hint_url: str = "") -> Dict[str, Any]:
                 val_txt = html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", row_html))).strip()
                 val_txt = re.sub(r"\s*,\s*", ", ", val_txt)
                 if "карьер" in rt_low:
-                    career_roles = val_txt
+                    career_roles = (
+                        val_txt.replace("Актер", "Актёр")
+                        .replace("актер", "актёр")
+                        .replace("Режиссер", "Режиссёр")
+                        .replace("режиссер", "режиссёр")
+                        .replace("Монтажер", "Монтажёр")
+                        .replace("монтажер", "монтажёр")
+                    )
                 elif "дата рожд" in rt_low:
                     birth_date = val_txt
                 elif "место рожд" in rt_low:

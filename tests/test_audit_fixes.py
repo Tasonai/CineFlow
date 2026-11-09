@@ -46,7 +46,7 @@ class TestAuditFixes(unittest.TestCase):
                 allow_torrserver_loopback=False,
             )
         )
-        # Arbitrary localhost ports, CineFlow's own port, private LAN IPs, link-local, and non-HTTP schemes MUST be rejected
+        # Arbitrary localhost ports, Velarium's own port, private LAN IPs, link-local, and non-HTTP schemes MUST be rejected
         for forbidden in (
             "http://127.0.0.1:8765/api/settings",
             "http://localhost:8765/api/system/status",
@@ -479,6 +479,7 @@ class TestAuditFixes(unittest.TestCase):
             self.assertEqual(hit["title_en"], "Fool's Day")
             self.assertIn("en-images.kinorium.com/movie/600/10765001.jpg", hit["poster_en"])
 
+            resolver.resolve_english_meta = lambda it, *a, **kw: it
             doh = DoHSplitNetworkClient()
             doh.fetch_text = lambda *a, **kw: ""
             rezka = HDRezkaClient(doh)
@@ -486,6 +487,8 @@ class TestAuditFixes(unittest.TestCase):
             stremio = StremioAddonEngine(tmp, None)
             stremio.search_cinemeta = lambda q: []
             kin = KinoriumService(doh, tmp)
+            kin.fetch_online_premieres = lambda: []
+            kin.get_similar_catalog_items = lambda *a, **kw: []
             kin.search_persons_and_movies = lambda q: {
                 "persons": [
                     {
@@ -523,6 +526,10 @@ class TestAuditFixes(unittest.TestCase):
                 ],
             }
             agg = UnifiedCinemaAggregator(doh, rezka, kin, stremio, resolver)
+            agg._get_online_premieres = lambda: []
+            agg._search_justwatch_poland = lambda q: []
+            agg._search_hdrezka_live = lambda q: []
+            agg._build_search_similar_items = lambda *a, **kw: []
             sug = agg.unified_search("Кристофер Нолан", mode="suggest")
             self.assertEqual(sug.get("mode"), "suggest")
             self.assertGreaterEqual(len(sug.get("persons") or []), 1)
@@ -756,8 +763,8 @@ class TestAuditFixes(unittest.TestCase):
             bs = BackupStreamingEngine(DoHSplitNetworkClient(), HDRezkaClient(DoHSplitNetworkClient()), tmp)
             self.assertEqual(bs._find_torrserver_binary(is_windows=True), fake_torr)
 
-            # Verify Windows autostart command prefers CineFlow.exe --background
-            fake_launcher = os.path.join(tmp, "CineFlow.exe")
+            # Verify Windows autostart command prefers Velarium.exe --background
+            fake_launcher = os.path.join(tmp, "Velarium.exe")
             self._write_bytes(fake_launcher, b"MZ")
             win_cmd = server._build_windows_autostart_command(base_dir=tmp)
             self.assertEqual(win_cmd, f'"{fake_launcher}" --background')
@@ -795,16 +802,23 @@ class TestAuditFixes(unittest.TestCase):
             server.APP_PREFS["setup_completed"] = prev_setup
 
         # Verify NSIS installer script metadata, installer language dialog, and app language custom page
-        nsi_path = os.path.join(root, "windows", "installer", "cineflow.nsi")
+        nsi_path = os.path.join(root, "windows", "installer", "velarium.nsi")
         nsi_txt = self._read_text(nsi_path)
-        self.assertIn('!define APP_VERSION "2.7.1"', nsi_txt)
+        self.assertIn('!define APP_VERSION "2.7.11"', nsi_txt)
         self.assertIn('!define APP_PUBLISHER "Atoma"', nsi_txt)
         self.assertIn("!insertmacro MUI_LANGDLL_DISPLAY", nsi_txt)
         self.assertIn("Page custom AppLangPageCreate AppLangPageLeave", nsi_txt)
+
+        # Verify Windows launcher uses native Win32 + WebView2 host window (single native titlebar, Windhawk compatible)
+        launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
+        self.assertIn("run_native_webview2_window", launcher_c)
+        self.assertIn("CreateCoreWebView2EnvironmentWithOptions", launcher_c)
+        self.assertIn("apply_dark_titlebar", launcher_c)
+        self.assertIn("VelariumDesktopWindow", launcher_c)
         self.assertIn('!insertmacro MUI_LANGUAGE "Russian"', nsi_txt)
         self.assertIn('!insertmacro MUI_LANGUAGE "English"', nsi_txt)
 
-        dist_launcher = os.path.join(root, "dist", "CineFlow.exe")
+        dist_launcher = os.path.join(root, "dist", "Velarium.exe")
         if os.path.isfile(dist_launcher):
             import struct
 
@@ -812,7 +826,7 @@ class TestAuditFixes(unittest.TestCase):
                 pe_head = fh.read(4096)
             pe_off = struct.unpack_from("<I", pe_head, 0x3C)[0]
             subsys = struct.unpack_from("<H", pe_head, pe_off + 24 + 68)[0]
-            self.assertEqual(subsys, 2, "CineFlow.exe must use IMAGE_SUBSYSTEM_WINDOWS_GUI (2), not console (3)")
+            self.assertEqual(subsys, 2, "Velarium.exe must use IMAGE_SUBSYSTEM_WINDOWS_GUI (2), not console (3)")
 
     def test_european_50_countries_onboarding_and_bypass_enforcement(self):
         from backend.backup_stream import BackupStreamingEngine
@@ -1064,7 +1078,7 @@ class TestAuditFixes(unittest.TestCase):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         gear_css = self._read_text(os.path.join(root, "public", "css", "settings-and-episodes.css"))
         vc_css = self._read_text(os.path.join(root, "public", "css", "video-controls-and-person.css"))
-        launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "cineflow_launcher.c"))
+        launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
         self.assertIn("calc(100% - 84px)", gear_css)
         self.assertIn("min(300px, 46dvh)", vc_css)
         self.assertNotIn("calc(100% - 84px)", vc_css)
@@ -1454,7 +1468,7 @@ class TestAuditFixes(unittest.TestCase):
         from unittest.mock import patch
         from backend.downloads import parse_http_byte_range
         from backend.profiles import ProfileManager
-        from backend.storage_db import CineFlowStorageDB
+        from backend.storage_db import VelariumStorageDB
 
         # 1. _open_safe_public_url fails closed on non-public / non-HTTP proxy URLs
         with self.assertRaises(urllib.error.URLError):
@@ -1663,7 +1677,7 @@ class TestAuditFixes(unittest.TestCase):
         from unittest.mock import patch
 
         # 1. DesktopRemoteBroker preserves native_fs_ready, native_pip_ready, active_profile_id, kids_mode
-        broker = server.DesktopRemoteBroker(tempfile.mkdtemp(prefix="cineflow_rm_p6_"))
+        broker = server.DesktopRemoteBroker(tempfile.mkdtemp(prefix="velarium_rm_p6_"))
         snap = broker.update_desktop_state(
             {
                 "is_player_open": True,
@@ -1679,7 +1693,7 @@ class TestAuditFixes(unittest.TestCase):
         self.assertTrue(snap["state"]["kids_mode"])
 
         # 2. KinoriumService reflects non-kin_ items in section counts and catalog items immediately
-        with tempfile.TemporaryDirectory(prefix="cineflow_kin_p6_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="velarium_kin_p6_") as tmpdir:
             kin = KinoriumService(server.net_client, tmpdir)
             with patch.object(kin, "_run_remote_sync_bg", return_value=False):
                 st_wl = kin.toggle_watchlist("tt8887776", title="Тестовый фильм", orig_title="Test Movie", year=2025, media_type="movie")
@@ -1801,11 +1815,11 @@ class TestAuditFixes(unittest.TestCase):
         from backend.kinorium import _safe_year_int
         from backend.profiles import ProfileManager
         from backend.remote_control import DesktopRemoteBroker
-        from backend.storage_db import CineFlowStorageDB
+        from backend.storage_db import VelariumStorageDB
 
         # 1. P9-01 & P9-17: OfflineDownloadManager.enqueue_download clears pending_cleanup and saves index without AttributeError
         #    and delete_profile_downloads removes tasks belonging to a deleted profile
-        with tempfile.TemporaryDirectory(prefix="cineflow_dl_p9_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="velarium_dl_p9_") as tmpdir:
             fake_remux = unittest.mock.MagicMock()
             fake_remux.is_available.return_value = True
             dm = OfflineDownloadManager(tmpdir, fake_remux, _DummyNetClient())
@@ -1859,7 +1873,7 @@ class TestAuditFixes(unittest.TestCase):
         self.assertEqual(_safe_year_int(None, 2025), 2025)
 
         # 3. P9-04: KinoriumService.switch_state_file(force_reload=True, discard_dirty=True) reloads disk/DB state
-        with tempfile.TemporaryDirectory(prefix="cineflow_kin_p9_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="velarium_kin_p9_") as tmpdir:
             kin = KinoriumService(_DummyNetClient(), tmpdir)
             with kin._state_lock:
                 kin.state["watched"]["old_dirty"] = {"id": "old_dirty", "title": "Dirty"}
@@ -1871,7 +1885,7 @@ class TestAuditFixes(unittest.TestCase):
             self.assertIn("fresh_disk", kin.state.get("watched", {}))
 
         # 4. P9-06: DesktopRemoteBroker.wait_for_commands returns immediately without 30s block when since_seq < 0 or > _cmd_seq
-        with tempfile.TemporaryDirectory(prefix="cineflow_rm_p9_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="velarium_rm_p9_") as tmpdir:
             broker = DesktopRemoteBroker(tmpdir)
             broker.enqueue_command("toggle_play", {})
             t0 = time.time()
@@ -1890,8 +1904,8 @@ class TestAuditFixes(unittest.TestCase):
                 server._connect_strictly_public_socket("rebind-evil.example.com", 80, 2.0)
 
         # 6. P9-19: StorageDB.set_cache_entries_batch writes multiple entries in one transaction
-        with tempfile.TemporaryDirectory(prefix="cineflow_db_p9_") as tmpdir:
-            db = CineFlowStorageDB(os.path.join(tmpdir, "test.sqlite3"))
+        with tempfile.TemporaryDirectory(prefix="velarium_db_p9_") as tmpdir:
+            db = VelariumStorageDB(os.path.join(tmpdir, "test.sqlite3"))
             db.set_cache_entries_batch("en_meta", {"k1": {"title": "One"}, "k2": {"title": "Two"}})
             loaded_batch = db.load_cache_dict("en_meta")
             self.assertEqual(loaded_batch["k1"]["title"], "One")
@@ -2081,11 +2095,11 @@ class TestAuditFixes(unittest.TestCase):
     def test_pass11_fullstack_audit_fixes(self):
         import time
         from backend.remote_control import DesktopRemoteBroker
-        from backend.storage_db import CineFlowStorageDB
+        from backend.storage_db import VelariumStorageDB
 
-        # 1. DB-01 & DB-03: CineFlowStorageDB handles NaN/Inf/set/bytes and preserves cache TTL on unchanged keys
-        with tempfile.TemporaryDirectory(prefix="cineflow_p11_db_") as tmpdir:
-            db = CineFlowStorageDB(tmpdir)
+        # 1. DB-01 & DB-03: VelariumStorageDB handles NaN/Inf/set/bytes and preserves cache TTL on unchanged keys
+        with tempfile.TemporaryDirectory(prefix="velarium_p11_db_") as tmpdir:
+            db = VelariumStorageDB(tmpdir)
             db.set_kv("test_ns", "nan_test", {"val": float("nan"), "inf": float("inf"), "tags": {"a", "b"}})
             loaded = db.get_kv("test_ns", "nan_test")
             self.assertIsNone(loaded["val"])
@@ -2129,7 +2143,7 @@ class TestAuditFixes(unittest.TestCase):
         )
 
         # 3. RC-01: DesktopRemoteBroker brute-force lockout & immediate wait_for_state on negative since_seq
-        with tempfile.TemporaryDirectory(prefix="cineflow_p11_rc_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="velarium_p11_rc_") as tmpdir:
             broker = DesktopRemoteBroker(tmpdir)
             for _ in range(30):
                 self.assertFalse(broker.verify_key("wrong_token", is_loopback=False))
@@ -2142,7 +2156,7 @@ class TestAuditFixes(unittest.TestCase):
             self.assertIn("seq", st_snap)
 
         # 4. BE-02, BE-03, BE-05: Kinorium cw_dismissed cleanup, cross-season advance, and redacted backup import
-        with tempfile.TemporaryDirectory(prefix="cineflow_p11_kin_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="velarium_p11_kin_") as tmpdir:
             kin = KinoriumService(_DummyNetClient(), tmpdir)
             with kin._state_lock:
                 kin.state.setdefault("account", {})["session_cookie"] = "secret_cookie_val"
@@ -2186,7 +2200,7 @@ class TestAuditFixes(unittest.TestCase):
         import hashlib
         from backend.downloads import OfflineDownloadManager
         from backend.profiles import ProfileManager
-        from backend.storage_db import CineFlowStorageDB
+        from backend.storage_db import VelariumStorageDB
         from backend.updater import (
             AppUpdater,
             is_newer_version,
@@ -2196,19 +2210,19 @@ class TestAuditFixes(unittest.TestCase):
 
         # 1. AppUpdater semver comparison, manifest parsing & GitHub release parsing
         self.assertEqual(parse_semver("v2.6.6"), (2, 6, 6, 0))
-        self.assertEqual(normalize_version_str("v2.7.1-beta1"), "2.7.1")
+        self.assertEqual(normalize_version_str("v2.7.10-beta1"), "2.7.10")
         self.assertTrue(is_newer_version("2.6.11", "2.6.6"))
-        self.assertTrue(is_newer_version("2.7.1", "2.6.119"))
+        self.assertTrue(is_newer_version("2.7.10", "2.6.119"))
         self.assertFalse(is_newer_version("2.6.6", "2.6.6"))
         self.assertFalse(is_newer_version("2.6.5", "2.6.6"))
 
-        with tempfile.TemporaryDirectory(prefix="cineflow_p12_upd_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="velarium_p12_upd_") as tmpdir:
             upd = AppUpdater(
                 current_version="2.6.6",
                 storage_dir=tmpdir,
                 settings_getter=lambda: {
                     "auto_check_updates": True,
-                    "update_repo": "crustillio/cineflow",
+                    "update_repo": "tasonai/Velarium",
                     "update_manifest_url": "",
                 },
             )
@@ -2218,14 +2232,14 @@ class TestAuditFixes(unittest.TestCase):
                 "notes": "Автоматическое обновление в 1 клик",
                 "platforms": {
                     "macos": {
-                        "url": "https://example.com/CineFlow-2.6.11.dmg",
-                        "name": "CineFlow-2.6.11.dmg",
+                        "url": "https://example.com/Velarium-2.6.11.dmg",
+                        "name": "Velarium-2.6.11.dmg",
                         "sha256": "a" * 64,
                         "size": 123456,
                     },
                     "windows": {
-                        "url": "https://example.com/CineFlow-Setup-2.6.11.exe",
-                        "name": "CineFlow-Setup-2.6.11.exe",
+                        "url": "https://example.com/Velarium-Setup-2.6.11.exe",
+                        "name": "Velarium-Setup-2.6.11.exe",
                         "sha256": "b" * 64,
                         "size": 234567,
                     },
@@ -2234,26 +2248,26 @@ class TestAuditFixes(unittest.TestCase):
             parsed_m = upd._parse_manifest_payload(sample_manifest, "macos")
             self.assertIsNotNone(parsed_m)
             self.assertEqual(parsed_m["latest_version"], "2.6.11")
-            self.assertIn("CineFlow", parsed_m["asset_name"])
+            self.assertIn("Velarium", parsed_m["asset_name"])
             self.assertEqual(len(parsed_m["expected_sha256"]), 64)
 
-            fake_body = b"fake-installer-binary-payload-cineflow"
+            fake_body = b"fake-installer-binary-payload-velarium"
             expected_sha = hashlib.sha256(fake_body).hexdigest()
             sample_gh_release = {
                 "tag_name": "v2.6.11",
                 "published_at": "2026-11-02T19:00:00Z",
-                "html_url": "https://github.com/crustillio/cineflow/releases/tag/v2.6.11",
+                "html_url": "https://github.com/tasonai/Velarium/releases/tag/v2.6.11",
                 "body": "## Что нового\n- Быстрое обновление\n",
                 "assets": [
                     {
-                        "name": "CineFlow.dmg",
-                        "browser_download_url": "https://github.com/crustillio/cineflow/releases/download/v2.6.11/CineFlow.dmg",
+                        "name": "Velarium.dmg",
+                        "browser_download_url": "https://github.com/tasonai/Velarium/releases/download/v2.6.11/Velarium.dmg",
                         "size": len(fake_body),
                         "digest": f"sha256:{expected_sha}",
                     },
                     {
-                        "name": "CineFlow-Setup-2.6.11.exe",
-                        "browser_download_url": "https://github.com/crustillio/cineflow/releases/download/v2.6.11/CineFlow-Setup-2.6.11.exe",
+                        "name": "Velarium-Setup-2.6.11.exe",
+                        "browser_download_url": "https://github.com/tasonai/Velarium/releases/download/v2.6.11/Velarium-Setup-2.6.11.exe",
                         "size": len(fake_body),
                         "digest": f"sha256:{expected_sha}",
                     },
@@ -2266,7 +2280,7 @@ class TestAuditFixes(unittest.TestCase):
             self.assertEqual(parsed_gh["expected_sha256"], expected_sha)
 
         # 2. SRV-01: ProfileManager.verify_any_kids_pin verifies across all profiles with kids_pin
-        with tempfile.TemporaryDirectory(prefix="cineflow_p12_prof_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="velarium_p12_prof_") as tmpdir:
             pm = ProfileManager(tmpdir)
             pm.save_profile(profile_id="kids1", name="Kids 1", kids_mode=True, kids_pin="4321")
             self.assertTrue(pm.has_any_kids_pin())
@@ -2275,8 +2289,8 @@ class TestAuditFixes(unittest.TestCase):
             self.assertFalse(pm.verify_any_kids_pin(""))
 
         # 3. DB-01: StorageDB.save_profile_state rewrites all sections when db_prev is None even if caller_prev has hashes
-        with tempfile.TemporaryDirectory(prefix="cineflow_p12_db_") as tmpdir:
-            db = CineFlowStorageDB(tmpdir)
+        with tempfile.TemporaryDirectory(prefix="velarium_p12_db_") as tmpdir:
+            db = VelariumStorageDB(tmpdir)
             sample_state = {"watched": {"100": {"title": "Movie"}}, "watchlist": {"200": {"title": "Watch"}}}
             h1 = db.save_profile_state("prof_test", sample_state)
             self.assertTrue(h1)
@@ -2292,7 +2306,7 @@ class TestAuditFixes(unittest.TestCase):
 
         # 4. DL-02: OfflineDownloadManager.handle_watched_scrobble isolates auto-delete by profile_id
         from unittest.mock import MagicMock
-        with tempfile.TemporaryDirectory(prefix="cineflow_p12_dl_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="velarium_p12_dl_") as tmpdir:
             fake_remux = MagicMock()
             fake_remux.is_available.return_value = True
             dm = OfflineDownloadManager(
@@ -2331,6 +2345,69 @@ class TestAuditFixes(unittest.TestCase):
             self.assertIn("dl_prof_a", res_scrobble["cleaned"])
             self.assertNotIn("dl_prof_b", res_scrobble["cleaned"])
             self.assertIn("dl_prof_b", dm._items)
+
+    def test_pass13_streaming_main_module_and_context_regressions(self):
+        import glob
+        import re
+        import sys
+        import server
+        from backend.routes import streaming as streaming_routes
+
+        # 1. server.py registers itself in sys.modules["server"]
+        self.assertIs(sys.modules.get("server"), server)
+
+        # 2. Even if sys.modules["server"] is absent (simulating standalone __main__ execution),
+        #    _check_allowed_media_source_url and _check_strictly_public_ip_obj must work for 4K / Stremio remux
+        saved_srv = sys.modules.pop("server", None)
+        try:
+            self.assertTrue(
+                streaming_routes._check_allowed_media_source_url(
+                    "http://127.0.0.1:8090/stream/fname?link=abc123456&index=1&play",
+                    allow_torrserver_loopback=True,
+                )
+            )
+            self.assertFalse(
+                streaming_routes._check_allowed_media_source_url(
+                    "http://127.0.0.1:8090/stream/fname?link=abc123456&index=1&play",
+                    allow_torrserver_loopback=False,
+                )
+            )
+            self.assertTrue(streaming_routes._check_strictly_public_ip_obj("93.184.216.34"))
+            self.assertFalse(streaming_routes._check_strictly_public_ip_obj("127.0.0.1"))
+        finally:
+            if saved_srv is not None:
+                sys.modules["server"] = saved_srv
+
+        # 3. Every ctx.<attr> accessed in backend/routes/*.py resolves on server.SERVER_CONTEXT
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        ctx = server.SERVER_CONTEXT
+        route_files = glob.glob(os.path.join(root, "backend", "routes", "*.py"))
+        ctx_attrs = set()
+        for rf in route_files:
+            txt = self._read_text(rf)
+            for m in re.finditer(r"\bctx\.([a-zA-Z_][a-zA-Z0-9_]*)", txt):
+                ctx_attrs.add(m.group(1))
+        self.assertGreater(len(ctx_attrs), 30)
+        for attr in sorted(ctx_attrs):
+            val = getattr(ctx, attr)
+            self.assertIsNotNone(val, f"SERVER_CONTEXT.{attr} resolved to None")
+
+        # 4. 4K and Stremio frontend stream guards + magnet tracker enrichment
+        from backend.backup_stream import _enrich_magnet_trackers
+        rutor_mag = _enrich_magnet_trackers(
+            "magnet:?xt=urn:btih:9c1cf8aa4f0a00fda70d149238e7d0fe0b352a00&dn=rutor.info&tr=udp://opentor.net:6969"
+        )
+        self.assertIn("tracker.opentrackr.org", rutor_mag)
+        self.assertIn("open.stealth.si", rutor_mag)
+        self.assertIn("open.demonii.com", rutor_mag)
+
+        p4k_js = self._read_text(os.path.join(root, "public", "js", "player-streams-4k.js"))
+        ps_js = self._read_text(os.path.join(root, "public", "js", "player-streams.js"))
+        self.assertIn("syncActive4KQualityOption", p4k_js)
+        self.assertIn("st.stream_id || st.id || st.info_hash", p4k_js)
+        self.assertIn("_backup4kCandidates", p4k_js)
+        self.assertIn("_launchBackup4kCandidate", ps_js)
+        self.assertIn("isLoopbackMediaUrl", ps_js)
 
 
 if __name__ == "__main__":

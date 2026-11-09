@@ -1,5 +1,5 @@
-import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261105v5";
-import { isEn, t } from "./i18n.js?v=20261105v5";
+import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261108v19";
+import { isEn, t } from "./i18n.js?v=20261108v19";
 import {
   clampFloatingPopover,
   closeCustomSelectMenu,
@@ -16,14 +16,14 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
   applyVideoCropToVideo,
   getPlayerPrefs,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261105v5";
+} from "./audio-dsp.js?v=20261108v19";
 import {
   applyEnabledServicesVisibility,
   clearCatalogFrontendCache,
@@ -32,23 +32,23 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261105v5";
-import { closePlayerModal } from "./player.js?v=20261105v5";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261105v5";
+} from "./modals.js?v=20261108v19";
+import { closePlayerModal } from "./player.js?v=20261108v19";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261108v19";
 import {
   renderIntegrationsList,
   updateBackupSummaryStat,
-} from "./settings.js?v=20261105v5";
+} from "./settings.js?v=20261108v19";
 import {
   refreshDownloadsState,
   syncDownloadsHeaderBadge,
-} from "./features-downloads.js?v=20261105v5";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261105v5";
+} from "./features-downloads.js?v=20261108v19";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261108v19";
 
 export const PROFILE_COLOR_SWATCHES = [
   "#0A84FF",
@@ -276,6 +276,17 @@ export function renderHeaderProfileSwitcher() {
   const dynHost = document.getElementById("profile-switcher-dynamic") || pop;
   if (!dynHost) return;
   const list = Array.isArray(state.profiles) && state.profiles.length > 0 ? state.profiles : [active];
+  const profSwitcherSig = `${state.appLang || "ru"}|${state.activeProfileId || "main"}|${state.tvMode ? 1 : 0}|${state.kinoriumAccount?.user_id || ""}|${state.kinoriumAccount?.display_name || ""}|${list.map((p) => `${p.id}:${p.name || ""}:${p.custom_name || ""}:${p.avatar_color || ""}:${p.kids_mode ? 1 : 0}:${p.has_kids_pin ? 1 : 0}:${p.default_audio_pref || ""}`).join("|")}`;
+  if (pop && pop._profSwitcherSig === profSwitcherSig && dynHost.children.length > 0) {
+    const tvStateEl = document.getElementById("prof-menu-tv-state");
+    if (tvStateEl) {
+      tvStateEl.textContent = state.tvMode ? t("Вкл", "On") : t("Выкл", "Off");
+      tvStateEl.classList.toggle("is-on", Boolean(state.tvMode));
+    }
+    syncDownloadsHeaderBadge();
+    return;
+  }
+  if (pop) pop._profSwitcherSig = profSwitcherSig;
   const audioPrefText = (pref) => {
     if (pref === "original") return t("Оригинал", "Original");
     if (pref === "ru_dub") return t("Дубляж", "Dubbed");
@@ -389,6 +400,9 @@ export function reloadProfileLocalPlayerPrefs() {
   state.videoCrop = prefs.videoCrop;
   state.subSize = prefs.subSize;
   state.subBg = prefs.subBg;
+  state.subFont = prefs.subFont || "sans";
+  state.subColor = prefs.subColor || "white";
+  state.subEdge = prefs.subEdge || "soft";
   state.autoSkipIntro = prefs.autoSkipIntro;
 
   const autoNextEl = document.getElementById("auto-next-ep-toggle");
@@ -410,6 +424,12 @@ export function reloadProfileLocalPlayerPrefs() {
   if (subSizeSel) subSizeSel.value = state.subSize || "medium";
   const subBgSel = document.getElementById("select-sub-bg");
   if (subBgSel) subBgSel.value = state.subBg || "semi";
+  const subFontSel = document.getElementById("select-sub-font");
+  if (subFontSel) subFontSel.value = state.subFont || "sans";
+  const subColorSel = document.getElementById("select-sub-color");
+  if (subColorSel) subColorSel.value = state.subColor || "white";
+  const subEdgeSel = document.getElementById("select-sub-edge");
+  if (subEdgeSel) subEdgeSel.value = state.subEdge || "soft";
   document.getElementById("audio-boost-group")?.classList.toggle("boost-active", (state.audioBoost || 1) > 1.01);
   document.getElementById("audio-eq-group")?.classList.toggle("eq-active", state.audioPreset !== "flat");
   document.getElementById("video-crop-group")?.classList.toggle("crop-active", (state.videoCrop || "contain") !== "contain");
@@ -422,7 +442,7 @@ export function reloadProfileLocalPlayerPrefs() {
     applyAudioBoostToVideo(video, state.audioBoost, state.audioPreset);
   }
   applyVideoCropToVideo(video, state.videoCrop);
-  applySubtitleStylePrefs(state.subSize, state.subBg);
+  applySubtitleStylePrefs(state.subSize, state.subBg, state.subFont, state.subColor, state.subEdge);
   updatePlayerGearActiveDot();
   syncAllCustomSelects();
 }
@@ -729,6 +749,11 @@ export async function openProfilesModal(editProfileId = "") {
   if (wasHidden) {
     rememberModalTriggerFocus("profiles-modal");
   }
+  _editingProfileId = editProfileId || state.activeProfileId || "main";
+  renderProfilesModalUI(_editingProfileId);
+  modal.classList.remove("hidden");
+  syncScrollTopButton();
+
   try {
     const res = await fetch(`/api/profiles?lang=${encodeURIComponent(state.appLang || "ru")}`);
     if (res.ok) {
@@ -786,71 +811,77 @@ export function renderProfilesModalUI(editProfileId = _editingProfileId) {
   const target = _editingProfileId === "new" ? null : list.find((p) => p.id === _editingProfileId) || null;
   _editingProfileColor = target?.avatar_color || PROFILE_COLOR_SWATCHES[list.length % PROFILE_COLOR_SWATCHES.length];
 
-  cardsEl.innerHTML =
-    list
-      .map((p) => {
-        const isAct = p.id === state.activeProfileId;
-        const isSel = p.id === _editingProfileId;
-        const pLabel = getProfileDisplayLabel(p);
-        const pAvatarUrl = getProfileAvatarUrl(p);
-        const pInit = _computeInitialsFromName(pLabel);
-        const cCls = _profileColorClass(p.avatar_color);
-        return `
-          <div class="atv-prof-card${isSel ? " is-editing" : ""}${isAct ? " is-active-prof" : ""}" data-prof-card="${escapeAttr(p.id)}" tabindex="0" role="button">
-            <div class="atv-profile-avatar is-lg ${cCls}${pAvatarUrl ? " has-avatar-img" : ""}">${_renderAvatarInnerHtml(pAvatarUrl, pInit, pLabel)}</div>
-            <div class="atv-prof-card-name">${escapeHtml(pLabel)}</div>
-            <div class="atv-prof-card-badges">
-              ${isAct ? `<span class="atv-prof-active-tag">${t("Активен", "Active")}</span>` : ""}
-              ${p.kids_mode ? `<span class="atv-kids-pill">${t("Дети", "Kids")}${p.has_kids_pin ? ` ${iconSvg("lock", 10)}` : ""}</span>` : ""}
+  const cardsSig = `${state.appLang}:${state.activeProfileId}:${_editingProfileId}:` + list
+    .map((p) => `${p.id}|${getProfileDisplayLabel(p)}|${getProfileAvatarUrl(p)}|${p.avatar_color || ""}|${p.kids_mode ? 1 : 0}|${p.has_kids_pin ? 1 : 0}`)
+    .join(";");
+  if (cardsEl._profModalSig !== cardsSig) {
+    cardsEl._profModalSig = cardsSig;
+    cardsEl.innerHTML =
+      list
+        .map((p) => {
+          const isAct = p.id === state.activeProfileId;
+          const isSel = p.id === _editingProfileId;
+          const pLabel = getProfileDisplayLabel(p);
+          const pAvatarUrl = getProfileAvatarUrl(p);
+          const pInit = _computeInitialsFromName(pLabel);
+          const cCls = _profileColorClass(p.avatar_color);
+          return `
+            <div class="atv-prof-card${isSel ? " is-editing" : ""}${isAct ? " is-active-prof" : ""}" data-prof-card="${escapeAttr(p.id)}" tabindex="0" role="button">
+              <div class="atv-profile-avatar is-lg ${cCls}${pAvatarUrl ? " has-avatar-img" : ""}">${_renderAvatarInnerHtml(pAvatarUrl, pInit, pLabel)}</div>
+              <div class="atv-prof-card-name">${escapeHtml(pLabel)}</div>
+              <div class="atv-prof-card-badges">
+                ${isAct ? `<span class="atv-prof-active-tag">${t("Активен", "Active")}</span>` : ""}
+                ${p.kids_mode ? `<span class="atv-kids-pill">${t("Дети", "Kids")}${p.has_kids_pin ? ` ${iconSvg("lock", 10)}` : ""}</span>` : ""}
+              </div>
+              <div class="atv-prof-card-actions">
+                ${
+                  isAct
+                    ? `<button type="button" class="atv-btn-secondary atv-btn-xs" data-edit-prof="${escapeAttr(p.id)}">${t("Изменить", "Edit")}</button>`
+                    : `<button type="button" class="atv-btn-primary atv-btn-xs" data-use-prof="${escapeAttr(p.id)}">${t("Выбрать", "Switch")}</button>
+                       <button type="button" class="atv-btn-secondary atv-btn-xs" data-edit-prof="${escapeAttr(p.id)}">${t("Изменить", "Edit")}</button>`
+                }
+              </div>
             </div>
-            <div class="atv-prof-card-actions">
-              ${
-                isAct
-                  ? `<button type="button" class="atv-btn-secondary atv-btn-xs" data-edit-prof="${escapeAttr(p.id)}">${t("Изменить", "Edit")}</button>`
-                  : `<button type="button" class="atv-btn-primary atv-btn-xs" data-use-prof="${escapeAttr(p.id)}">${t("Выбрать", "Switch")}</button>
-                     <button type="button" class="atv-btn-secondary atv-btn-xs" data-edit-prof="${escapeAttr(p.id)}">${t("Изменить", "Edit")}</button>`
-              }
-            </div>
-          </div>
-        `;
-      })
-      .join("") +
-    `
-      <button type="button" class="atv-prof-card is-add-card${_editingProfileId === "new" ? " is-editing" : ""}" id="btn-prof-card-new">
-        <div class="atv-profile-avatar is-lg is-plus">${iconSvg("plus", 18)}</div>
-        <div class="atv-prof-card-name">${t("Новый профиль", "New Profile")}</div>
-        <div class="atv-prof-card-badges"><span class="atv-prof-sub-hint">${t("Добавить", "Create")}</span></div>
-      </button>
-    `;
-  _bindAvatarImgFallbacks(cardsEl);
+          `;
+        })
+        .join("") +
+      `
+        <button type="button" class="atv-prof-card is-add-card${_editingProfileId === "new" ? " is-editing" : ""}" id="btn-prof-card-new">
+          <div class="atv-profile-avatar is-lg is-plus">${iconSvg("plus", 18)}</div>
+          <div class="atv-prof-card-name">${t("Новый профиль", "New Profile")}</div>
+          <div class="atv-prof-card-badges"><span class="atv-prof-sub-hint">${t("Добавить", "Create")}</span></div>
+        </button>
+      `;
+    _bindAvatarImgFallbacks(cardsEl);
 
-  cardsEl.querySelectorAll("[data-use-prof]").forEach((b) => {
-    b.onclick = (e) => {
-      e.stopPropagation();
-      switchActiveProfile(b.dataset.useProf);
-    };
-  });
-  cardsEl.querySelectorAll("[data-edit-prof]").forEach((b) => {
-    b.onclick = (e) => {
-      e.stopPropagation();
-      renderProfilesModalUI(b.dataset.editProf);
-    };
-  });
-  cardsEl.querySelectorAll("[data-prof-card]").forEach((c) => {
-    c.onclick = () => {
-      renderProfilesModalUI(c.dataset.profCard);
-    };
-    c.onkeydown = (ev) => {
-      if (ev.target === c && (ev.key === "Enter" || ev.key === " ")) {
-        ev.preventDefault();
+    cardsEl.querySelectorAll("[data-use-prof]").forEach((b) => {
+      b.onclick = (e) => {
+        e.stopPropagation();
+        switchActiveProfile(b.dataset.useProf);
+      };
+    });
+    cardsEl.querySelectorAll("[data-edit-prof]").forEach((b) => {
+      b.onclick = (e) => {
+        e.stopPropagation();
+        renderProfilesModalUI(b.dataset.editProf);
+      };
+    });
+    cardsEl.querySelectorAll("[data-prof-card]").forEach((c) => {
+      c.onclick = () => {
         renderProfilesModalUI(c.dataset.profCard);
-      }
-    };
-  });
-  cardsEl.querySelector("#btn-prof-card-new")?.addEventListener("click", () => {
-    renderProfilesModalUI("new");
-    nameInput.focus();
-  });
+      };
+      c.onkeydown = (ev) => {
+        if (ev.target === c && (ev.key === "Enter" || ev.key === " ")) {
+          ev.preventDefault();
+          renderProfilesModalUI(c.dataset.profCard);
+        }
+      };
+    });
+    cardsEl.querySelector("#btn-prof-card-new")?.addEventListener("click", () => {
+      renderProfilesModalUI("new");
+      nameInput.focus();
+    });
+  }
 
   if (formTitleEl) {
     formTitleEl.textContent = target

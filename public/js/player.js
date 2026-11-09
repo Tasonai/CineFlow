@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
 import {
   displayBackdrop,
   displayCountries,
@@ -15,7 +15,7 @@ import {
   translateGenre,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   clampFloatingPopover,
   clampStagePopover,
@@ -35,6 +35,7 @@ import {
   getSimilarSectionSourceLabel,
   iconSvg,
   initCustomSelects,
+  matchCatalogItemSafe,
   pluralRu,
   recordWatchHistoryEntry,
   rememberModalTriggerFocus,
@@ -50,7 +51,7 @@ import {
   syncSearchInputHasQueryUI,
   syncToastContainerMount,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
 import {
   applyAudioBoostToVideo,
   applySavedPlayerPrefsToVideo,
@@ -67,7 +68,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261105v5";
+} from "./audio-dsp.js?v=20261108v19";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -85,7 +86,7 @@ import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
 import {
   closePersonModal,
   closeQuickPeekModal,
@@ -93,13 +94,13 @@ import {
   openQuickPeekModal,
   refreshOpenPersonModalUI,
   renderModalCastSection,
-} from "./modals.js?v=20261105v5";
-import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261105v5";
+} from "./modals.js?v=20261108v19";
+import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261108v19";
 import {
   refreshDownloadsState,
   sweepPendingDownloadCleanups,
   syncNativeNowPlaying,
-} from "./features.js?v=20261105v5";
+} from "./features.js?v=20261108v19";
 import {
   activateSelectedSubtitleTrack,
   adjustSubtitleOffset,
@@ -117,30 +118,37 @@ import {
   refreshRemuxSubtitleTracks,
   renderVcSubtitlesPopover,
   resetSubtitleOffset,
+  revokeLocalVideoBlobUrl,
   searchOnlineSubtitlesForActiveTitle,
   syncIosFullscreenNativeSubtitles,
   syncSubtitleOffsetUI,
   triggerLocalSubtitleFilePicker,
   updateCustomSubtitleOverlay,
-} from "./subtitles.js?v=20261105v5";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261105v5";
+} from "./subtitles.js?v=20261108v19";
+import { pushDesktopRemoteStateNow, bindRemoteVideoListeners } from "./remote.js?v=20261108v19";
 import {
   clearVideoStallWatchdog,
+  cleanupAbrPreloadVideo,
+  evaluateAbrStepDecision,
+  getAdjacentQualityKey,
   getRenderedVideoFrameCount,
   initVideoFrameCounter,
+  stopVideoFrameCounter,
   recoverFrozenVideoPlayback,
   getVideoForwardBufferSec,
   checkVideoPlaybackFreeze,
-} from "./player-watchdog.js?v=20261105v5";
+  sortQualityKeysLowToHigh,
+} from "./player-watchdog.js?v=20261108v19";
 import {
   estimateItemDurationSec,
   buildRemuxStreamEndpoint,
   getEffectivePlaybackTiming,
   formatAudioOffsetLabel,
   syncAudioOffsetUI,
+  clearRemuxDurationPoll,
   scheduleRemuxFullDurationProbe,
   prepareRemuxAudioSwitch,
-} from "./player-remux.js?v=20261105v5";
+} from "./player-remux.js?v=20261108v19";
 import {
   hasOpenVcPopover,
   closeAllVcPopovers,
@@ -152,13 +160,16 @@ import {
   beginFullscreenTransitionWindow,
   toggleStageFullscreen,
   getSnappingRatio,
+  collectActiveTimelineChapters,
+  findActiveChapterLabel,
+  jumpToAdjacentTimelineMarker,
   initCustomVideoControls,
   initPlayerStageAndGearBindings,
   syncVcPopoverOpenClass,
   positionStagePopover,
   toggleQuickOriginalAudio,
   syncCustomControlPopovers,
-} from "./player-ui-controls.js?v=20261105v5";
+} from "./player-ui-controls.js?v=20261108v19";
 import {
   getNextEpisodeCoords,
   showPlayerNextEpisodeToast,
@@ -167,14 +178,14 @@ import {
   clearAutoplayNextTimer,
   isPostwatchCardPausingAutoplay,
   startAutoplayNextCountdown,
-} from "./player-autoplay.js?v=20261105v5";
+} from "./player-autoplay.js?v=20261108v19";
 import {
   syncPipDockUI,
   setPipBackgroundMode,
   restoreFullPlayerFromPip,
   updateMiniPlayerTitle,
   setMiniPlayerMode,
-} from "./player-pip-dock.js?v=20261105v5";
+} from "./player-pip-dock.js?v=20261108v19";
 import {
   escapeEpisodeHtml,
   getEpisodeDisplayMeta,
@@ -190,13 +201,14 @@ import {
   toggleCurrentEpisodeWatched,
   hasStartedWatchingCurrentEpisode,
   markOutgoingEpisodeWatched,
-} from "./player-seasons.js?v=20261105v5";
+} from "./player-seasons.js?v=20261108v19";
 import {
   isHdRezkaStreamDeadOrExpired as _isHdRezkaStreamDeadOrExpired,
   _localizeOfflineSubLabel,
   loadOfflineStreamForActiveTitle,
   syncDownloadButtonVisibility,
   abortActiveVideoListeners,
+  closeOfficialEmbeddedStream,
   switchSourceTab,
   loadOfficialServiceTab,
   resetVideoElementForStreamChange,
@@ -219,7 +231,7 @@ import {
   loadStremioStreams,
   loadBackup4KReleases,
   _tryRecoverHdRezkaPlayback as _tryRecoverHdRezkaPlaybackImpl,
-} from "./player-streams.js?v=20261105v5";
+} from "./player-streams.js?v=20261108v19";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -234,15 +246,24 @@ import {
   renderModalSimilarItems,
   captureVideoScreenshot,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261105v5";
+} from "./player-meta.js?v=20261108v19";
 import {
   hideXRayPauseShelf,
   showXRayPauseShelf,
+  toggleXRayPauseShelf,
+  scrollActiveXRayList,
+  switchXRayTab,
+  resolveActiveXRaySceneContext,
+  isCastEntryInScene,
+  scoreTrackForScene,
+  closeBookmarkNoteDialog,
   getSavedMoments,
   saveMoments,
   toggleBookmarkCurrentMoment,
+  addOrUpdateRemoteBookmark,
+  deleteRemoteBookmarkByIdOrTime,
   renderTimelineBookmarks,
-} from "./player-bookmarks.js?v=20261105v5";
+} from "./player-bookmarks.js?v=20261108v19";
 import {
   syncPostwatchOverlayMount,
   renderPostWatchRatingState,
@@ -251,7 +272,7 @@ import {
   initPlayerStatusAndRatingBindings,
   rateActivePlayerTitle as _rateActivePlayerTitle,
   toggleActivePlayerWatched as _toggleActivePlayerWatched,
-} from "./player-rating.js?v=20261105v5";
+} from "./player-rating.js?v=20261108v19";
 
 export {
   syncPostwatchOverlayMount,
@@ -273,7 +294,7 @@ import {
   getDetectedCreditsStartSec,
   renderTimelineChapterMarkers,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261105v5";
+} from "./player-intro-credits.js?v=20261108v19";
 
 export {
   getDetectedCreditsStartSec,
@@ -281,16 +302,24 @@ export {
   loadSkipIntroSegments,
 };
 
-import { reportScrobbleProgress } from "./player-scrobble.js?v=20261105v5";
+import { reportScrobbleProgress } from "./player-scrobble.js?v=20261108v19";
 
 export { reportScrobbleProgress };
 
 export {
   hideXRayPauseShelf,
   showXRayPauseShelf,
+  toggleXRayPauseShelf,
+  scrollActiveXRayList,
+  switchXRayTab,
+  resolveActiveXRaySceneContext,
+  isCastEntryInScene,
+  scoreTrackForScene,
   getSavedMoments,
   saveMoments,
   toggleBookmarkCurrentMoment,
+  addOrUpdateRemoteBookmark,
+  deleteRemoteBookmarkByIdOrTime,
   renderTimelineBookmarks,
 };
 
@@ -389,6 +418,9 @@ export {
   beginFullscreenTransitionWindow,
   toggleStageFullscreen,
   getSnappingRatio,
+  collectActiveTimelineChapters,
+  findActiveChapterLabel,
+  jumpToAdjacentTimelineMarker,
   initCustomVideoControls,
   initPlayerStageAndGearBindings,
   syncVcPopoverOpenClass,
@@ -400,11 +432,15 @@ export {
 // Re-exported from player-watchdog.js: getRenderedVideoFrameCount uses getVideoPlaybackQuality
 export {
   clearVideoStallWatchdog,
+  cleanupAbrPreloadVideo,
+  evaluateAbrStepDecision,
+  getAdjacentQualityKey,
   getRenderedVideoFrameCount,
   initVideoFrameCounter,
   recoverFrozenVideoPlayback,
   getVideoForwardBufferSec,
   checkVideoPlaybackFreeze,
+  sortQualityKeysLowToHigh,
 };
 
 export {
@@ -413,6 +449,7 @@ export {
   getEffectivePlaybackTiming,
   formatAudioOffsetLabel,
   syncAudioOffsetUI,
+  clearRemuxDurationPoll,
   scheduleRemuxFullDurationProbe,
   prepareRemuxAudioSwitch,
 };
@@ -434,6 +471,7 @@ export {
   refreshRemuxSubtitleTracks,
   renderVcSubtitlesPopover,
   resetSubtitleOffset,
+  revokeLocalVideoBlobUrl,
   searchOnlineSubtitlesForActiveTitle,
   syncIosFullscreenNativeSubtitles,
   syncSubtitleOffsetUI,
@@ -444,16 +482,8 @@ export {
 // Presentation, sidebar & title metadata modularized into ./player-meta.js
 
 export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, episode = 1, resumeTime = 0) {
-  if (item && Array.isArray(state.catalogItems)) {
-    const rawId = String(item.id || "").trim();
-    const rawT = String(item.title || "").trim().toLowerCase();
-    const rawOrig = String(item.orig_title || "").trim().toLowerCase();
-    const match = state.catalogItems.find(
-      (c) =>
-        (rawId && String(c.id || "") === rawId) ||
-        (rawT && String(c.title || "").trim().toLowerCase() === rawT) ||
-        (rawOrig && String(c.orig_title || "").trim().toLowerCase() === rawOrig)
-    );
+  if (item && Array.isArray(state.catalogItems) && state.catalogItems.length > 0) {
+    const match = matchCatalogItemSafe(state.catalogItems, item);
     if (match) {
       item = { ...match, ...item };
     }
@@ -543,6 +573,10 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
   state.isPlayerOpen = true;
   state.userMutedThisSession = false;
   state.catalogDirty = false;
+  if (state.activeItem && state.activeItem !== item) {
+    state.activeItem._xrayFetching = false;
+  }
+  state._lastPreloadDoneKey = "";
   state.activeItem = item;
   state.activeSeason = season;
   state.activeEpisode = episode;
@@ -589,6 +623,9 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
   state.trailerData = null;
   state.trailerLang = isEn() ? "en" : "ru";
   state.trailerPlaying = false;
+  state.activeOfficialService = "";
+  closeOfficialEmbeddedStream();
+  document.getElementById("official-stream-panel")?.classList.add("hidden");
   state.episodesStripExpanded = true;
   state.ratingPromptShownThisSession = {};
   state.postwatchHovered = false;
@@ -600,6 +637,9 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
   document.getElementById("kinorium-status-popover")?.classList.add("hidden");
   document.getElementById("video-osd-pill")?.classList.add("hidden");
   document.getElementById("video-error-state")?.classList.add("hidden");
+  hideXRayPauseShelf();
+  closeBookmarkNoteDialog(false);
+  renderTimelineBookmarks();
   closeAllVcPopovers();
   setPipBackgroundMode(false);
   setMiniPlayerMode(false);
@@ -611,7 +651,7 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
   }
   if (!state.hasPlayerHistoryEntry) {
     try {
-      window.history.pushState({ cineflowPlayerModal: true }, "");
+      window.history.pushState({ velariumPlayerModal: true }, "");
       state.hasPlayerHistoryEntry = true;
     } catch (err) { window.logDebug?.("Player", err); }
   }
@@ -623,6 +663,8 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
       resumeTime = epProg.current_time;
     }
   }
+  state.lastKnownPlaybackTime = Math.max(0, Number(resumeTime) || 0);
+  state.lastPlaybackMediaTime = state.lastKnownPlaybackTime > 0 ? state.lastKnownPlaybackTime : -1;
   const trailerBox = document.getElementById("trailer-stage-box");
   if (trailerBox) {
     trailerBox.innerHTML = "";
@@ -661,6 +703,27 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
 
   // Stop any previous stream before starting the new session
   abortActiveVideoListeners();
+  clearRemuxDurationPoll();
+  state._preloadFailedKey = "";
+  state._preloadFailedAt = 0;
+  [
+    "streamAbortController",
+    "backup4kAbortController",
+    "stremioResolveAbortController",
+    "remuxProbeAbortController",
+    "skipIntroAbortController",
+    "trailerAbortController",
+    "preloadAbortController",
+    "xrayAbortController",
+    "providerLinkAbortController",
+  ].forEach((ctrlKey) => {
+    if (state[ctrlKey]) {
+      try {
+        state[ctrlKey].abort();
+      } catch (err) { window.logDebug?.("Player", err); }
+      state[ctrlKey] = null;
+    }
+  });
   const video = document.getElementById("native-video");
   if (state.hlsInstance) {
     try {
@@ -669,7 +732,9 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
     state.hlsInstance = null;
   }
   if (video) {
+    revokeLocalVideoBlobUrl(video);
     video.onloadedmetadata = null;
+    stopVideoFrameCounter(video);
     try {
       video.pause();
     } catch (err) { window.logDebug?.("Player", err); }
@@ -767,11 +832,13 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
     fetchAndApplyPlayerTitleMeta(item, state.playerSessionId);
   }
 
+  const skipIntroPromise =
+    canFetchOnlineMeta && initialTab !== "offline"
+      ? loadSkipIntroSegments().catch(() => {})
+      : Promise.resolve();
   await switchSourceTab(initialTab, resumeTime);
   pushDesktopRemoteStateNow();
-  if (canFetchOnlineMeta && initialTab !== "offline") {
-    await loadSkipIntroSegments();
-  }
+  await skipIntroPromise;
 }
 
 // Presentation, sidebar & screenshot methods modularized into ./player-meta.js
@@ -782,7 +849,7 @@ export function isHdRezkaStreamDeadOrExpired(video) {
 }
 
 export function toggleVideoPlayPause(showCenterPulse = false) {
-  if (!state.isPlayerOpen) return;
+  if (!state.isPlayerOpen || state.officialEmbedActive) return;
 
   // Support Play/Pause on YouTube trailer iframe when Mini-Player is active on Trailer tab
   if (state.activeSourceTab === "trailer") {
@@ -816,14 +883,19 @@ export function toggleVideoPlayPause(showCenterPulse = false) {
   if (video.paused || video.ended || isHdRezkaStreamDeadOrExpired(video)) {
     state.userPaused = false;
     state.pipWasPlayingRecently = true;
+    const { cur: effCurNow } = getEffectivePlaybackTiming(video);
+    const safeResumeAt = Math.max(
+      effCurNow > 2 ? effCurNow : 0,
+      Number(state.lastPlaybackMediaTime) > 2 ? Number(state.lastPlaybackMediaTime) : 0,
+      Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0
+    );
     if (isHdRezkaStreamDeadOrExpired(video)) {
-      const { cur } = getEffectivePlaybackTiming(video);
       state.tokenRefreshTimestamps = [];
-      loadHDRezkaStream(cur > 2 ? cur : 0, { forceRefresh: true });
+      loadHDRezkaStream(safeResumeAt, { forceRefresh: true });
       return;
     }
     if (!video.getAttribute("src") && !state.hlsInstance && state.currentStreamUrl) {
-      playVideoUrl(state.currentStreamUrl, 0, state.playerSessionId, {
+      playVideoUrl(state.currentStreamUrl, safeResumeAt, state.playerSessionId, {
         keepRemuxMeta: Boolean(state.remuxMeta?.active),
       });
     } else {
@@ -864,6 +936,7 @@ export function toggleVideoPlayPause(showCenterPulse = false) {
 // Rating and watched state mutations modularized into ./player-rating.js
 
 export function syncPlayerOfflineControlsUI() {
+  if (!state.isPlayerOpen && !state.isMiniPlayer && !state.isPipBackground) return;
   const item = state.activeItem;
   const isSeries = item?.media_type === "series";
   const completedDl = item
@@ -933,6 +1006,104 @@ export function _tryRecoverHdRezkaPlayback(resumeAt, sessionId, currentUrl, opti
   return _tryRecoverHdRezkaPlaybackImpl(resumeAt, sessionId, currentUrl, options);
 }
 
+let _abrBridgeReleaseTimer = null;
+
+export function releaseVideoFrameBridge() {
+  if (_abrBridgeReleaseTimer) {
+    clearTimeout(_abrBridgeReleaseTimer);
+    _abrBridgeReleaseTimer = null;
+  }
+  const bridge = typeof document !== "undefined" ? document.getElementById("abr-frame-bridge") : null;
+  if (bridge) {
+    bridge.classList.add("hidden");
+  }
+}
+
+export function clearSeamlessEpisodeBridge(resetPreload = false) {
+  releaseVideoFrameBridge();
+  if (resetPreload) {
+    state.preloadedNextEpisode = null;
+  }
+}
+
+export function captureVideoFrameBridge(video) {
+  if (!video || typeof document === "undefined" || !(video.videoWidth > 0 && video.videoHeight > 0)) {
+    return;
+  }
+  const stage = document.getElementById("video-stage");
+  if (!stage) return;
+  let bridge = document.getElementById("abr-frame-bridge");
+  if (!bridge) {
+    bridge = document.createElement("canvas");
+    bridge.id = "abr-frame-bridge";
+    bridge.setAttribute("aria-hidden", "true");
+    bridge.style.cssText =
+      "position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;z-index:2;";
+    stage.insertBefore(bridge, video.nextSibling);
+  }
+  try {
+    const w = Math.min(1280, video.videoWidth);
+    const h = Math.round((w * video.videoHeight) / video.videoWidth) || 720;
+    if (bridge.width !== w) bridge.width = w;
+    if (bridge.height !== h) bridge.height = h;
+    bridge.className = video.className || "";
+    bridge.classList.remove("hidden");
+    const ctx = bridge.getContext("2d");
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, w, h);
+    }
+    if (_abrBridgeReleaseTimer) clearTimeout(_abrBridgeReleaseTimer);
+    _abrBridgeReleaseTimer = setTimeout(() => {
+      releaseVideoFrameBridge();
+    }, 950);
+  } catch (_) {
+    bridge.classList.add("hidden");
+  }
+}
+
+export function seamlessSwitchVideoQuality(targetKey, options = {}) {
+  const video = typeof document !== "undefined" ? document.getElementById("native-video") : null;
+  const nextUrl = state.qualities?.[targetKey];
+  if (!video || !nextUrl || !state.isPlayerOpen || state.abrSwitching) {
+    return false;
+  }
+  const sessionId = state.playerSessionId;
+
+  state.abrSwitching = true;
+  state.abrLastSwitchTs = Date.now();
+  state.abrStableTicks = 0;
+  state.abrLowBufferTicks = 0;
+
+  const commitSeamlessSwap = () => {
+    cleanupAbrPreloadVideo();
+    if (!state.isPlayerOpen || sessionId !== state.playerSessionId) return;
+    const liveVideo = document.getElementById("native-video");
+    if (!liveVideo) return;
+    const { cur: rawLiveCur } = getEffectivePlaybackTiming(liveVideo);
+    const curPos = Math.max(
+      rawLiveCur > 0 ? rawLiveCur : 0,
+      Number(state.lastPlaybackMediaTime) > 2 ? Number(state.lastPlaybackMediaTime) : 0,
+      Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0
+    );
+    state.abrCurrentQuality = targetKey;
+    const qualSel = document.getElementById("select-quality");
+    if (qualSel && Array.from(qualSel.options || []).some((o) => o.value === targetKey)) {
+      qualSel.value = targetKey;
+      syncCustomSelect(qualSel);
+    }
+    syncCustomControlPopovers();
+    captureVideoFrameBridge(liveVideo);
+    playVideoUrl(nextUrl, curPos, sessionId, {
+      silentAbrSwitch: true,
+      abrTargetKey: targetKey,
+    });
+  };
+
+  // Switch directly without spawning a second competing <video> download on the same CDN IP
+  commitSeamlessSwap();
+  return true;
+}
+
 export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerSessionId, options = {}) {
   const {
     keepRemuxMeta = false,
@@ -940,13 +1111,20 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
     proxyRetried = false,
     transientRetried = false,
     isInstantSwap = false,
+    silentAbrSwitch = false,
   } = options;
   if (!keepRemuxMeta) {
     state.remuxMeta = null;
   }
+  if (Number(startTime) > 2) {
+    state.lastKnownPlaybackTime = Math.max(Number(state.lastKnownPlaybackTime) || 0, Number(startTime));
+  } else if (typeof newRemuxOffsetSec === "number" && newRemuxOffsetSec > 2) {
+    state.lastKnownPlaybackTime = Math.max(Number(state.lastKnownPlaybackTime) || 0, newRemuxOffsetSec);
+  }
   let video = document.getElementById("native-video");
   const loader = document.getElementById("video-loader");
   if (!video || !streamUrl || !state.isPlayerOpen || sessionId !== state.playerSessionId) {
+    releaseVideoFrameBridge();
     loader?.classList.add("hidden");
     return;
   }
@@ -960,12 +1138,24 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
   hideVideoStreamError();
   clearAutoplayNextTimer();
   state.currentStreamUrl = streamUrl;
+  if (!silentAbrSwitch) {
+    releaseVideoFrameBridge();
+  }
   if (loader) {
     if (state.instantSwapLoaderTimer) {
       clearTimeout(state.instantSwapLoaderTimer);
       state.instantSwapLoaderTimer = null;
     }
-    if (isInstantSwap) {
+    if (silentAbrSwitch) {
+      loader.classList.add("hidden");
+      state.instantSwapLoaderTimer = setTimeout(() => {
+        state.instantSwapLoaderTimer = null;
+        if (video.paused && !video.ended && !state.userPaused && video.readyState < 2) {
+          releaseVideoFrameBridge();
+          loader.classList.remove("hidden");
+        }
+      }, 1800);
+    } else if (isInstantSwap) {
       state.instantSwapLoaderTimer = setTimeout(() => {
         state.instantSwapLoaderTimer = null;
         if (video.paused && !video.ended && !state.userPaused) {
@@ -992,6 +1182,8 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
     state.hlsInstance = null;
   }
   video.onloadedmetadata = null;
+  revokeLocalVideoBlobUrl(video);
+  hideXRayPauseShelf();
   try {
     video.pause();
   } catch (err) { window.logDebug?.("Player", err); }
@@ -1077,8 +1269,16 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
               syncCustomVideoControlsUI(true);
             }
           };
-          document.addEventListener("pointerdown", unlockOnce, { capture: true, once: true });
-          document.addEventListener("keydown", unlockOnce, { capture: true, once: true });
+          document.addEventListener("pointerdown", unlockOnce, {
+            capture: true,
+            once: true,
+            signal: loadAbort.signal,
+          });
+          document.addEventListener("keydown", unlockOnce, {
+            capture: true,
+            once: true,
+            signal: loadAbort.signal,
+          });
         }
       });
     }
@@ -1108,11 +1308,13 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
       return;
     }
     // Automatic Apple VideoToolbox H.264 transcode fallback if client cannot decode raw HEVC / AV1 / DV video
+    // Only trigger when headers were already parsed (readyState >= 1) or errCode === 3 (MEDIA_ERR_DECODE),
+    // never on readyState === 0 + errCode === 4 (which indicates an HTTP 502 / upstream timeout on P2P startup).
     if (
       keepRemuxMeta &&
       state.remuxMeta?.active &&
       !state.remuxMeta.forceH264 &&
-      (errCode === 3 || errCode === 4)
+      (errCode === 3 || (errCode === 4 && (hasStartedPlayingOnce || video.readyState >= 1)))
     ) {
       state.remuxMeta.forceH264 = true;
       const fallbackUrl = buildRemuxStreamEndpoint(state.remuxMeta, state.remuxMeta.offsetSec || 0);
@@ -1133,18 +1335,30 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
       /^https?:\/\//i.test(streamUrl)
     ) {
       corsRetried = true;
+      clearVideoStallWatchdog();
       if (video._cfSourceNode) {
         try {
           video._cfSourceNode.disconnect();
         } catch (err) { window.logDebug?.("Player", err); }
+        video._cfSourceNode = null;
+        if (state.audioNodes && state.audioNodes.source) {
+          state.audioNodes.source = null;
+        }
         const freshVideo = video.cloneNode(false);
         freshVideo.removeAttribute("crossorigin");
         freshVideo.removeAttribute("src");
         freshVideo._cfLastCorsUrl = streamUrl;
         freshVideo._cfCorsBlocked = true;
+        stopVideoFrameCounter(video);
+        try {
+          video.pause();
+          video.removeAttribute("src");
+          video.load();
+        } catch (_) {}
         video.replaceWith(freshVideo);
         video = freshVideo;
         bindNativeVideoElementListeners(video);
+        bindRemoteVideoListeners(video);
         applySavedPlayerPrefsToVideo(video);
       } else {
         video._cfCorsBlocked = true;
@@ -1157,23 +1371,88 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
       return;
     }
     const { cur: effCur } = getEffectivePlaybackTiming(video);
-    const resumeAt = Math.max(Number(startTime) || 0, effCur > 2 ? effCur : 0);
+    const resumeAt = Math.max(
+      Number(startTime) || 0,
+      effCur > 2 ? effCur : 0,
+      Number(state.lastPlaybackMediaTime) > 2 ? Number(state.lastPlaybackMediaTime) : 0,
+      Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0
+    );
     _tryRecoverHdRezkaPlayback(resumeAt, sessionId, streamUrl, options);
   };
   let hasStartedPlayingOnce = false;
   state.userPaused = false;
-  state.lastPlaybackMediaTime = -1;
+  state.lastPlaybackMediaTime =
+    Number(startTime) > 0
+      ? Number(startTime)
+      : Number(state.lastKnownPlaybackTime) > 0
+      ? Number(state.lastKnownPlaybackTime)
+      : -1;
   state.lastPlaybackAdvanceTs = Date.now();
   const loaderTextEl = document.getElementById("video-loader-text");
 
   const markPlayingHealthy = () => {
     if (isStaleLoad()) return;
     if (video.seeking) return;
+    const wasStartedBefore = hasStartedPlayingOnce;
     hasStartedPlayingOnce = true;
     state.lastPlaybackAdvanceTs = Date.now();
     if (state.waitingSpinnerTimerId) {
       clearTimeout(state.waitingSpinnerTimerId);
       state.waitingSpinnerTimerId = null;
+    }
+    releaseVideoFrameBridge();
+
+    // Smart Rebuffer Cushion for P2P/Remux streams:
+    // If we just hit a mid-playback rebuffer on a P2P stream and forward buffer is still < 2.2s,
+    // wait up to 1.3s for the 24 MB backend ring buffer to feed a 2.2s cushion before resuming,
+    // eliminating the "plays 1 second -> buffers -> plays 1 second" stutter loop.
+    const isP2pOrRemux =
+      keepRemuxMeta ||
+      Boolean(state.remuxMeta?.active) ||
+      state.activeSourceTab === "backup4k" ||
+      state.activeSourceTab === "stremio";
+    const timeSinceWaiting = Date.now() - (Number(state.lastRebufferWaitingTs) || 0);
+    const fwdAfterWait = getVideoForwardBufferSec(video);
+    if (
+      wasStartedBefore &&
+      isP2pOrRemux &&
+      timeSinceWaiting >= 0 &&
+      timeSinceWaiting < 3500 &&
+      fwdAfterWait < 2.2 &&
+      !state.userPaused &&
+      !video.ended
+    ) {
+      if (!state._rebufferCushionTimerId) {
+        const cushionStart = Date.now();
+        try {
+          if (!video.paused) video.pause();
+        } catch (_) {}
+        state._rebufferCushionTimerId = setInterval(() => {
+          if (isStaleLoad() || state.userPaused || video.ended) {
+            clearInterval(state._rebufferCushionTimerId);
+            state._rebufferCushionTimerId = null;
+            return;
+          }
+          const curFwd = getVideoForwardBufferSec(video);
+          const waitedMs = Date.now() - cushionStart;
+          if (curFwd >= 2.2 || waitedMs >= 1350) {
+            clearInterval(state._rebufferCushionTimerId);
+            state._rebufferCushionTimerId = null;
+            state.lastRebufferWaitingTs = 0;
+            state.lastPlaybackAdvanceTs = Date.now();
+            if (video.paused && !state.userPaused && !video.ended) {
+              attemptAudiblePlay();
+            }
+            hideLoader();
+          }
+        }, 220);
+      }
+      return;
+    }
+
+    if (state._rebufferCushionTimerId) {
+      clearInterval(state._rebufferCushionTimerId);
+      state._rebufferCushionTimerId = null;
     }
     if (video.paused && !state.userPaused && !video.ended) {
       attemptAudiblePlay();
@@ -1181,6 +1460,13 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
     hideLoader();
   };
 
+  video.addEventListener(
+    "loadeddata",
+    () => {
+      if (!isStaleLoad()) releaseVideoFrameBridge();
+    },
+    { signal: loadAbort.signal }
+  );
   video.addEventListener("canplay", markPlayingHealthy, { signal: loadAbort.signal });
   video.addEventListener("canplaythrough", markPlayingHealthy, { signal: loadAbort.signal });
   video.addEventListener("playing", markPlayingHealthy, { signal: loadAbort.signal });
@@ -1188,7 +1474,8 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
     "seeked",
     () => {
       if (isStaleLoad()) return;
-      if (video.readyState >= 3) {
+      releaseVideoFrameBridge();
+      if (video.readyState >= 2) {
         markPlayingHealthy();
       }
     },
@@ -1197,38 +1484,55 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
   video.addEventListener(
     "seeking",
     () => {
-      if (isStaleLoad() || video.ended) return;
+      if (isStaleLoad() || video.ended || silentAbrSwitch || state.abrSwitching) return;
       if (state.waitingSpinnerTimerId) clearTimeout(state.waitingSpinnerTimerId);
       state.waitingSpinnerTimerId = setTimeout(() => {
         state.waitingSpinnerTimerId = null;
-        if (isStaleLoad() || video.ended || (!video.seeking && video.readyState >= 3)) return;
+        if (
+          isStaleLoad() ||
+          video.ended ||
+          state.abrSwitching ||
+          (!video.seeking && video.readyState >= 3)
+        ) {
+          return;
+        }
         if (loaderTextEl) {
           loaderTextEl.textContent = t("Буферизация видеопотока...", "Buffering video stream...");
         }
         loader?.classList.remove("hidden");
-      }, 220);
+      }, 550);
     },
     { signal: loadAbort.signal }
   );
   video.addEventListener(
     "waiting",
     () => {
-      if (isStaleLoad() || video.paused || video.ended) return;
+      if (isStaleLoad() || video.paused || video.ended || state.abrSwitching) return;
+      if (hasStartedPlayingOnce) {
+        state.lastRebufferWaitingTs = Date.now();
+      }
       if (state.waitingSpinnerTimerId) clearTimeout(state.waitingSpinnerTimerId);
+      const debounceMs = hasStartedPlayingOnce ? 1150 : 600;
       state.waitingSpinnerTimerId = setTimeout(() => {
         state.waitingSpinnerTimerId = null;
-        if (isStaleLoad() || video.paused || video.ended || (!video.seeking && video.readyState >= 3)) return;
+        if (
+          isStaleLoad() ||
+          video.paused ||
+          video.ended ||
+          state.abrSwitching ||
+          (!video.seeking && video.readyState >= 3)
+        ) {
+          return;
+        }
         if (loaderTextEl) {
           loaderTextEl.textContent = t("Буферизация видеопотока...", "Buffering video stream...");
         }
         loader?.classList.remove("hidden");
-      }, 250);
+      }, debounceMs);
     },
     { signal: loadAbort.signal }
   );
   video.addEventListener("error", onVideoError, { signal: loadAbort.signal });
-
-  initVideoFrameCounter(video);
 
   state.stallWatchdogTimerId = setInterval(() => {
     if (isStaleLoad()) {
@@ -1245,10 +1549,17 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
       state.activeSourceTab === "trailer"
     ) {
       state.lastPlaybackAdvanceTs = Date.now();
-      state.lastPlaybackMediaTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+      const rawIdleCur = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+      if (rawIdleCur > 2) {
+        state.lastPlaybackMediaTime = rawIdleCur;
+        const { cur: effIdleCur } = getEffectivePlaybackTiming(video);
+        if (effIdleCur > 2) {
+          state.lastKnownPlaybackTime = effIdleCur;
+        }
+      }
       state.lastObservedVideoFrames = getRenderedVideoFrameCount(video);
       state.lastVideoFramesAdvanceTs = Date.now();
-      state.lastFreezeCheckMediaTime = state.lastPlaybackMediaTime;
+      state.lastFreezeCheckMediaTime = state.lastPlaybackMediaTime > 0 ? state.lastPlaybackMediaTime : 0;
       return;
     }
 
@@ -1263,9 +1574,19 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
 
     if (Math.abs(curT - state.lastPlaybackMediaTime) > 0.08) {
       state.lastPlaybackMediaTime = curT;
-      state.lastPlaybackAdvanceTs = Date.now();
+      const { cur: effActiveCur } = getEffectivePlaybackTiming(video);
+      if (effActiveCur > 2) {
+        state.lastKnownPlaybackTime = effActiveCur;
+      }
+      state.lastPlaybackAdvanceTs = nowMs;
       if (loader && !loader.classList.contains("hidden") && !state.streamAbortController) {
         loader.classList.add("hidden");
+      }
+      // Netflix-style proactive ABR check while video is actively playing:
+      // steps down before forward buffer runs dry, or steps back up when buffer is healthy
+      const abrDecision = evaluateAbrStepDecision(video, 0, nowMs);
+      if (abrDecision && abrDecision.targetKey) {
+        seamlessSwitchVideoQuality(abrDecision.targetKey, { action: abrDecision.action });
       }
       return;
     }
@@ -1274,7 +1595,7 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
     const fwdBuf = getVideoForwardBufferSec(video);
 
     // Unstick pipeline gaps when RAM buffer already has >=3s ahead of playhead
-    if (fwdBuf >= 3.0 && stalledMs >= 3500) {
+    if (fwdBuf >= 3.0 && stalledMs >= 3000) {
       try {
         video.currentTime = curT + 0.06;
         video.play().catch(() => {});
@@ -1283,12 +1604,115 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
       return;
     }
 
+    // Fast ABR step-down on micro-stall (>= 2.4s) so playback continues without a 8s freeze
+    const stallAbrDecision = evaluateAbrStepDecision(video, stalledMs, nowMs);
+    if (stallAbrDecision && stallAbrDecision.targetKey) {
+      state.lastPlaybackAdvanceTs = nowMs;
+      seamlessSwitchVideoQuality(stallAbrDecision.targetKey, {
+        action: stallAbrDecision.action,
+        immediate: true,
+      });
+      return;
+    }
+
+    // Automatic P2P Bitrate Adaptation (4K / Stremio):
+    // When a heavy 4K torrent stalls repeatedly (>= 2 stalls of >= 3.2s within 40s) because
+    // the swarm upload speed is slower than the file's real-time bitrate, automatically step down
+    // at the exact current timestamp to a faster/lighter playable release (e.g. 1080p or lighter 4K).
+    if (
+      (state.activeSourceTab === "backup4k" || state.activeSourceTab === "stremio") &&
+      fwdBuf < 1.0 &&
+      stalledMs >= 3200
+    ) {
+      if (!Array.isArray(state.p2pStallTimestamps)) state.p2pStallTimestamps = [];
+      state.p2pStallTimestamps = state.p2pStallTimestamps.filter((ts) => nowMs - ts < 40000);
+      const lastRecordedStall = state.p2pStallTimestamps[state.p2pStallTimestamps.length - 1] || 0;
+      if (nowMs - lastRecordedStall >= 4500) {
+        state.p2pStallTimestamps.push(nowMs);
+      }
+      if (state.p2pStallTimestamps.length >= 2) {
+        state.p2pStallTimestamps = [];
+        state.lastPlaybackAdvanceTs = nowMs;
+        const { cur: p2pCur } = getEffectivePlaybackTiming(video);
+        const p2pResumePos = Math.max(
+          0,
+          p2pCur > 2 ? p2pCur : 0,
+          Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0
+        );
+        if (
+          state.activeSourceTab === "backup4k" &&
+          state.active4kReleaseKey &&
+          typeof state._launchBackup4kCandidate === "function" &&
+          Array.isArray(state._backup4kCandidates)
+        ) {
+          if (!state.failed4kKeys) state.failed4kKeys = new Set();
+          state.failed4kKeys.add(state.active4kReleaseKey);
+          const playableRest = state._backup4kCandidates.filter(
+            (c) => c.playable && !state.failed4kKeys.has(c.relKey)
+          );
+          const lighterCand =
+            playableRest.find(
+              (c) =>
+                String(c.rel?.quality || "").toLowerCase().includes("1080p") ||
+                (Number.parseFloat(String(c.rel?.size || c.rel?.size_gb || "").replace(",", ".")) > 0 &&
+                  Number.parseFloat(String(c.rel?.size || c.rel?.size_gb || "").replace(",", ".")) <= 12)
+            ) || playableRest[0];
+          if (lighterCand) {
+            showToast(
+              t(
+                "Скорость раздачи ниже битрейта — автоматический переход на более быстрый поток без потери позиции",
+                "Swarm speed below bitrate — switching to a faster release seamlessly"
+              )
+            );
+            state._launchBackup4kCandidate(lighterCand.rel, lighterCand.relKey, p2pResumePos);
+            return;
+          }
+        } else if (
+          state.activeSourceTab === "stremio" &&
+          state.activeStremioStreamKey &&
+          typeof state._launchStremioStreamCandidate === "function" &&
+          Array.isArray(state._filteredStremioCandidates)
+        ) {
+          if (!state.failedStremioKeys) state.failedStremioKeys = new Set();
+          state.failedStremioKeys.add(state.activeStremioStreamKey);
+          const playableRest = state._filteredStremioCandidates.filter(
+            (c) => c.playable && !state.failedStremioKeys.has(c.stKey)
+          );
+          const lighterCand =
+            playableRest.find(
+              (c) =>
+                String(c.st?.quality || c.st?.name || "").toLowerCase().includes("1080p") ||
+                (Number.parseFloat(String(c.st?.size || c.st?.size_gb || "").replace(",", ".")) > 0 &&
+                  Number.parseFloat(String(c.st?.size || c.st?.size_gb || "").replace(",", ".")) <= 12)
+            ) || playableRest[0];
+          if (lighterCand) {
+            showToast(
+              t(
+                "Скорость раздачи ниже битрейта — автоматический переход на более быстрый поток без потери позиции",
+                "Swarm speed below bitrate — switching to a faster stream seamlessly"
+              )
+            );
+            state._launchStremioStreamCandidate(lighterCand.st, lighterCand.stKey, p2pResumePos);
+            return;
+          }
+        }
+      }
+    }
+
     // FFmpeg live remux pipe stall recovery
-    if ((keepRemuxMeta || state.remuxMeta?.active) && fwdBuf < 2.0 && stalledMs >= 14000) {
+    const remuxStallThresholdMs =
+      state.activeSourceTab === "backup4k" || state.activeSourceTab === "stremio"
+        ? 35000
+        : 18000;
+    if ((keepRemuxMeta || state.remuxMeta?.active) && fwdBuf < 2.0 && stalledMs >= remuxStallThresholdMs) {
       state.lastPlaybackAdvanceTs = nowMs;
       if (state.remuxMeta?.rawSourceUrl) {
         const { cur: remuxPos } = getEffectivePlaybackTiming(video);
-        const nextOffset = Math.max(0, remuxPos);
+        const nextOffset = Math.max(
+          0,
+          remuxPos > 2 ? remuxPos : 0,
+          Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0
+        );
         const reopenUrl = buildRemuxStreamEndpoint(state.remuxMeta, nextOffset);
         if (loaderTextEl) {
           loaderTextEl.textContent = t(
@@ -1308,7 +1732,13 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
     // Multi-stage network & token stall recovery on MP4 and HLS streams
     if (fwdBuf < 3.0 && stalledMs >= 8000 && !keepRemuxMeta && !state.remuxMeta?.active) {
       state.lastPlaybackAdvanceTs = nowMs;
-      const { cur: resumePos } = getEffectivePlaybackTiming(video);
+      const { cur: effPos } = getEffectivePlaybackTiming(video);
+      const resumePos = Math.max(
+        Number(startTime) || 0,
+        effPos > 2 ? effPos : 0,
+        Number(state.lastPlaybackMediaTime) > 2 ? Number(state.lastPlaybackMediaTime) : 0,
+        Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0
+      );
       _tryRecoverHdRezkaPlayback(resumePos, sessionId, streamUrl, options);
     }
   }, 1000);
@@ -1316,28 +1746,50 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
   if (streamUrl.includes(".m3u8") && window.Hls && window.Hls.isSupported()) {
     const hls = new window.Hls({
       enableWorker: true,
+      startPosition: startTime > 0 && !keepRemuxMeta ? startTime : -1,
       maxBufferLength: 45,
       maxMaxBufferLength: 90,
-      backBufferLength: 30,
-      fragLoadingMaxRetry: 4,
+      maxBufferSize: 48 * 1000 * 1000,
+      backBufferLength: 20,
+      fragLoadingMaxRetry: 5,
       manifestLoadingMaxRetry: 3,
-      maxBufferHole: 0.3,
-      nudgeMaxRetry: 5,
+      maxBufferHole: 0.5,
+      nudgeOffset: 0.15,
+      nudgeMaxRetry: 8,
       highBufferWatchdogPeriod: 2,
+      abrEwmaDefaultEstimate: 4500000,
+      abrBandWidthFactor: 0.85,
+      abrBandWidthUpFactor: 0.65,
     });
     state.hlsInstance = hls;
     hls.loadSource(streamUrl);
     hls.attachMedia(video);
     attachVideoSubtitles();
+    const enforceHlsStartSeek = () => {
+      if (isStaleLoad()) return;
+      if (startTime > 0 && !keepRemuxMeta) {
+        try {
+          if (Math.abs((Number(video.currentTime) || 0) - startTime) > 1.5 && (Number(video.currentTime) || 0) < 2) {
+            video.currentTime = startTime;
+          }
+        } catch (err) { window.logDebug?.("Player", err); }
+      }
+    };
     hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
       if (isStaleLoad()) {
         video.pause();
         return;
       }
       applySavedPlayerPrefsToVideo(video);
-      if (startTime > 0) video.currentTime = startTime;
+      if (startTime > 0 && !keepRemuxMeta) {
+        try {
+          video.currentTime = startTime;
+        } catch (err) { window.logDebug?.("Player", err); }
+      }
       attemptAudiblePlay();
     });
+    video.addEventListener("loadedmetadata", enforceHlsStartSeek, { once: true, signal: loadAbort.signal });
+    video.addEventListener("canplay", enforceHlsStartSeek, { once: true, signal: loadAbort.signal });
     hls.on(window.Hls.Events.ERROR, (_, errData) => {
       if (!errData || isStaleLoad()) return;
       if (errData.details === "bufferStalledError" || errData.details === "bufferNudgeOnStall") {
@@ -1349,16 +1801,29 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
         return;
       }
       if (errData.fatal) {
+        const hlsResumePos = Math.max(
+          Number(video.currentTime) > 2 ? Number(video.currentTime) : 0,
+          Number(state.lastPlaybackMediaTime) > 2 ? Number(state.lastPlaybackMediaTime) : 0,
+          Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0,
+          Number(startTime) || 0
+        );
         if (!hls._cfFatalRecovered) {
           hls._cfFatalRecovered = true;
           if (errData.type === window.Hls.ErrorTypes.NETWORK_ERROR) {
             try {
-              hls.startLoad();
+              hls.startLoad(hlsResumePos > 2 ? hlsResumePos : -1);
               return;
             } catch (err) { window.logDebug?.("Player", err); }
           } else if (errData.type === window.Hls.ErrorTypes.MEDIA_ERROR) {
             try {
               hls.recoverMediaError();
+              if (hlsResumePos > 2) {
+                setTimeout(() => {
+                  if (!isStaleLoad() && (Number(video.currentTime) || 0) < 2) {
+                    try { video.currentTime = hlsResumePos; } catch (_) {}
+                  }
+                }, 150);
+              }
               return;
             } catch (err) { window.logDebug?.("Player", err); }
           }
@@ -1367,20 +1832,32 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
       }
     });
   } else {
+    const enforceNativeStartSeek = () => {
+      if (isStaleLoad()) return;
+      if (startTime > 0 && !keepRemuxMeta) {
+        try {
+          if (Math.abs((Number(video.currentTime) || 0) - startTime) > 1.5 && (Number(video.currentTime) || 0) < 2) {
+            video.currentTime = startTime;
+          }
+        } catch (err) { window.logDebug?.("Player", err); }
+      }
+    };
     const onMeta = () => {
       if (isStaleLoad()) {
         video.pause();
         return;
       }
       applySavedPlayerPrefsToVideo(video);
-      if (startTime > 0) video.currentTime = startTime;
+      if (startTime > 0 && !keepRemuxMeta) {
+        try {
+          video.currentTime = startTime;
+        } catch (err) { window.logDebug?.("Player", err); }
+      }
       attemptAudiblePlay();
     };
-    if (video.readyState >= 1) {
-      onMeta();
-    } else {
-      video.addEventListener("loadedmetadata", onMeta, { once: true, signal: loadAbort.signal });
-    }
+    // Always register loadedmetadata BEFORE setting video.src and calling video.load();
+    // checking video.readyState >= 1 before setting video.src would read the OLD stream's readyState!
+    video.addEventListener("loadedmetadata", onMeta, { once: true, signal: loadAbort.signal });
     video.autoplay = true;
     video.src = streamUrl;
     video.load();
@@ -1388,6 +1865,7 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
     video.addEventListener(
       "canplay",
       () => {
+        enforceNativeStartSeek();
         if (!isStaleLoad() && video.paused && !state.userPaused && !video.ended) {
           attemptAudiblePlay();
         }
@@ -1407,9 +1885,16 @@ export function bindNativeVideoElementListeners(video) {
 
   const skipIntroBtn = document.getElementById("skip-intro-btn");
   const skipOutroBtn = document.getElementById("skip-outro-btn");
+  const nextEpToastEl = document.getElementById("player-next-ep-toast");
+  let _lastProgressSyncTs = 0;
 
   ["loadedmetadata", "durationchange", "progress", "volumechange"].forEach((evName) => {
     video.addEventListener(evName, () => {
+      if (evName === "progress") {
+        const nowMs = performance.now();
+        if (nowMs - _lastProgressSyncTs < 250) return;
+        _lastProgressSyncTs = nowMs;
+      }
       syncCustomVideoControlsUI(evName !== "progress");
     });
   });
@@ -1431,6 +1916,7 @@ export function bindNativeVideoElementListeners(video) {
             navigator.mediaSession.playbackState = "playing";
           } catch (err) { window.logDebug?.("Player", err); }
         }
+        hideXRayPauseShelf();
       } else {
         if (evName === "pause") {
           if (miniPlayPauseBtn) miniPlayPauseBtn.innerHTML = iconSvg("play", 12);
@@ -1440,6 +1926,18 @@ export function bindNativeVideoElementListeners(video) {
               state.pipWasPlayingRecently = false;
             }
           }, 320);
+          if (
+            state.isPlayerOpen &&
+            !video.ended &&
+            !state.vcScrubbing &&
+            !state.isMiniPlayer &&
+            !state.isPipBackground &&
+            (video.currentTime > 0.5 || state.userPaused)
+          ) {
+            showXRayPauseShelf();
+          } else {
+            hideXRayPauseShelf();
+          }
         }
         stopAmbilightLoop(false);
         if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
@@ -1530,6 +2028,7 @@ export function bindNativeVideoElementListeners(video) {
   });
 
   initVideoFrameCounter(video);
+  bindRemoteVideoListeners(video);
 
   video.addEventListener("seeking", () => {
     state.lastPlaybackAdvanceTs = Date.now();
@@ -1577,6 +2076,13 @@ export function bindNativeVideoElementListeners(video) {
   });
 
   video.addEventListener("timeupdate", () => {
+    updateCustomSubtitleOverlay(video);
+    syncCustomVideoControlsUI();
+    const nowTickMs = Date.now();
+    if (nowTickMs - (state._lastTimeupdateHeavyTickTs || 0) < 380) {
+      return;
+    }
+    state._lastTimeupdateHeavyTickTs = nowTickMs;
     const curPip = isVideoInPiP(video);
     if (Boolean(state._lastKnownVideoInPip) !== curPip) {
       handlePiPStateChange();
@@ -1584,10 +2090,11 @@ export function bindNativeVideoElementListeners(video) {
     if (!video.paused) {
       state.pipWasPlayingRecently = true;
     }
-    syncCustomVideoControlsUI();
     syncNativeNowPlaying(false);
-    updateCustomSubtitleOverlay(video);
     const { cur, dur } = getEffectivePlaybackTiming(video);
+    if (cur > 2 && !video.seeking && !state.vcScrubbing) {
+      state.lastKnownPlaybackTime = cur;
+    }
 
     if (
       dur >= 300 &&
@@ -1610,17 +2117,22 @@ export function bindNativeVideoElementListeners(video) {
             )
           );
         } else if (!state.autoSkipIntro && skipIntroBtn) {
-          skipIntroBtn.textContent = t(
-            `Пропустить заставку (${formatTime(start)}–${formatTime(end)})`,
-            `Skip intro (${formatTime(start)}–${formatTime(end)})`
-          );
-          skipIntroBtn.classList.remove("hidden");
+          const introSig = `${start}:${end}:${state.appLang || "ru"}`;
+          if (skipIntroBtn.dataset.introSig !== introSig) {
+            skipIntroBtn.dataset.introSig = introSig;
+            const introLbl = t(
+              `Пропустить заставку (${formatTime(start)}–${formatTime(end)})`,
+              `Skip intro (${formatTime(start)}–${formatTime(end)})`
+            );
+            if (skipIntroBtn.textContent !== introLbl) skipIntroBtn.textContent = introLbl;
+          }
+          if (skipIntroBtn.classList.contains("hidden")) skipIntroBtn.classList.remove("hidden");
         }
-      } else {
-        skipIntroBtn?.classList.add("hidden");
+      } else if (skipIntroBtn && !skipIntroBtn.classList.contains("hidden")) {
+        skipIntroBtn.classList.add("hidden");
       }
-    } else {
-      skipIntroBtn?.classList.add("hidden");
+    } else if (skipIntroBtn && !skipIntroBtn.classList.contains("hidden")) {
+      skipIntroBtn.classList.add("hidden");
     }
 
     if (dur >= 60) {
@@ -1630,6 +2142,7 @@ export function bindNativeVideoElementListeners(video) {
           : estimateItemDurationSec(state.activeItem);
       const isStreamedSource = Boolean(
         state.remuxMeta?.active ||
+          state.activeSourceTab === "hdrezka" ||
           state.activeSourceTab === "backup4k" ||
           state.activeSourceTab === "stremio"
       );
@@ -1673,15 +2186,21 @@ export function bindNativeVideoElementListeners(video) {
         );
       }
 
-      const nextCoordsForOutro = getNextEpisodeCoords();
-      const isOutro =
+      const remainSec = Math.max(0, safeDur - cur);
+      const isOutroEligible =
         state.activeItem?.media_type === "series" &&
-        Boolean(nextCoordsForOutro) &&
         !state.autoplayTimerId &&
-        (creditsStarted || (safeDur > 60 && safeDur - cur <= 18) || ratio >= 0.95);
+        (creditsStarted || (safeDur > 60 && remainSec <= 40));
+      const nextCoordsForOutro = isOutroEligible ? getNextEpisodeCoords() : null;
+      const isOutro =
+        Boolean(nextCoordsForOutro) &&
+        (creditsStarted || (safeDur > 60 && remainSec <= 30));
+      const shouldStartAutoNextCountdown =
+        Boolean(nextCoordsForOutro) &&
+        ((creditsStarted && remainSec <= 40) || (safeDur > 60 && remainSec <= 18));
 
       if (
-        creditsStarted &&
+        shouldStartAutoNextCountdown &&
         state.activeItem?.media_type === "series" &&
         nextCoordsForOutro &&
         !state.autoNextEpisode &&
@@ -1692,14 +2211,16 @@ export function bindNativeVideoElementListeners(video) {
         showPlayerNextEpisodeToast(nextCoordsForOutro);
       }
 
-      const nextToastEl = document.getElementById("player-next-ep-toast");
+      const nextToastEl = nextEpToastEl || document.getElementById("player-next-ep-toast");
       const nextToastVisible = Boolean(nextToastEl && !nextToastEl.classList.contains("hidden"));
-      if (isOutro && !state.autoplayCancelledThisEpisode && state.autoNextEpisode) {
+      if (shouldStartAutoNextCountdown && !state.autoplayCancelledThisEpisode && state.autoNextEpisode) {
         startAutoplayNextCountdown();
       } else if (isOutro && !nextToastVisible) {
-        skipOutroBtn?.classList.remove("hidden");
-      } else {
-        skipOutroBtn?.classList.add("hidden");
+        if (skipOutroBtn && skipOutroBtn.classList.contains("hidden")) {
+          skipOutroBtn.classList.remove("hidden");
+        }
+      } else if (skipOutroBtn && !skipOutroBtn.classList.contains("hidden")) {
+        skipOutroBtn.classList.add("hidden");
       }
 
       const watchKey = String(state.activeItem?.id || state.activeItem?.title || "");
@@ -1714,14 +2235,18 @@ export function bindNativeVideoElementListeners(video) {
           !state.promotedWatchingThisSession[watchKey]
       );
 
-      const needsEpisodeScrobble =
-        !state.scrobbledEpisodesThisSession[epScrobbleKey] &&
-        (!isEpisodeWatched(state.activeItem, state.activeSeason, state.activeEpisode) ||
-          Boolean(state.activeItem?.kinorium?.watching && !state.scrobbledThisSession));
-      const crossedWatched =
-        state.activeItem?.media_type === "series"
-          ? reachedWatchedPoint && needsEpisodeScrobble
-          : reachedWatchedPoint && !state.scrobbledThisSession;
+      let crossedWatched = false;
+      if (reachedWatchedPoint && !state.kinoriumScrobbleInFlight) {
+        if (state.activeItem?.media_type === "series") {
+          const needsEpisodeScrobble =
+            !state.scrobbledEpisodesThisSession[epScrobbleKey] &&
+            (!isEpisodeWatched(state.activeItem, state.activeSeason, state.activeEpisode) ||
+              Boolean(state.activeItem?.kinorium?.watching && !state.scrobbledThisSession));
+          crossedWatched = Boolean(needsEpisodeScrobble);
+        } else {
+          crossedWatched = !state.scrobbledThisSession;
+        }
+      }
 
       if (crossedWatched) {
         state.lastScrobbleReportTime = now;
@@ -1742,7 +2267,13 @@ export function bindNativeVideoElementListeners(video) {
         reportScrobbleProgress(cur, safeDur);
       }
 
-      if (reachedWatchedPoint && isServiceEnabled("kinorium") && state.activeItem) {
+      const canShowEndgameRatingPrompt =
+        !state.postwatchShownThisEpisode &&
+        !state.postwatchDismissedThisEpisode &&
+        (state.activeItem?.media_type === "series"
+          ? creditsStarted || remainSec <= 25
+          : reachedWatchedPoint);
+      if (canShowEndgameRatingPrompt && isServiceEnabled("kinorium") && state.activeItem) {
         maybeAutoOpenCreditsRatingCard();
       }
     }
@@ -1756,6 +2287,7 @@ export function bindNativeVideoElementListeners(video) {
         : estimateItemDurationSec(state.activeItem);
     const isStreamedSource = Boolean(
       state.remuxMeta?.active ||
+        state.activeSourceTab === "hdrezka" ||
         state.activeSourceTab === "backup4k" ||
         state.activeSourceTab === "stremio"
     );
@@ -1766,9 +2298,14 @@ export function bindNativeVideoElementListeners(video) {
       ((creditsStartSec && cur >= creditsStartSec) || cur / safeDur >= 0.90);
 
     if (!isGenuineEnd) {
-      if (state.isPlayerOpen && state.activeItem && cur >= 5) {
-        saveEpisodeProgress(state.activeItem, state.activeSeason, state.activeEpisode, cur, safeDur);
-        reportScrobbleProgress(cur, safeDur);
+      const resumePos = Math.max(
+        cur > 2 ? cur : 0,
+        Number(state.lastPlaybackMediaTime) > 2 ? Number(state.lastPlaybackMediaTime) : 0,
+        Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0
+      );
+      if (state.isPlayerOpen && state.activeItem && resumePos >= 5) {
+        saveEpisodeProgress(state.activeItem, state.activeSeason, state.activeEpisode, resumePos, safeDur);
+        reportScrobbleProgress(resumePos, safeDur);
         if (isStreamedSource) {
           const now = Date.now();
           if (!state._lastPrematureEndReconnectTs || now - state._lastPrematureEndReconnectTs > 8000) {
@@ -1780,9 +2317,9 @@ export function bindNativeVideoElementListeners(video) {
               )
             );
             if (state.remuxMeta?.active) {
-              seekEffectivePlayback(cur);
+              seekEffectivePlayback(resumePos);
             } else {
-              _tryRecoverHdRezkaPlayback(cur, state.playerSessionId, video.currentSrc || "", {
+              _tryRecoverHdRezkaPlayback(resumePos, state.playerSessionId, video.currentSrc || state.currentStreamUrl || "", {
                 keepRemuxMeta: Boolean(state.remuxMeta?.active),
               });
             }
@@ -1837,18 +2374,6 @@ export function bindNativeVideoElementListeners(video) {
     if (video.volume > 0.02) {
       savePlayerPrefs({ volume: video.volume, muted: false });
     }
-  });
-
-  video.addEventListener("pause", () => {
-    syncCustomVideoControlsUI(true);
-    pushDesktopRemoteStateNow();
-    hideXRayPauseShelf();
-  });
-
-  video.addEventListener("play", () => {
-    syncCustomVideoControlsUI(true);
-    pushDesktopRemoteStateNow();
-    hideXRayPauseShelf();
   });
 
   video.addEventListener("ratechange", () => {
@@ -1927,7 +2452,7 @@ export function setupVideoListeners() {
     btnAutoCancel.onclick = () => {
       state.autoplayCancelledThisEpisode = true;
       clearAutoplayNextTimer();
-      showToast(t("Автопереход к следующей серии отменен", "Auto-play next episode cancelled"));
+      showToast(t("Автопереход к следующей серии отменён", "Auto-play next episode cancelled"));
     };
   }
 
@@ -1957,7 +2482,11 @@ export function setupVideoListeners() {
       const { cur: effCur } = getEffectivePlaybackTiming(v);
       const savedMediaTime = Number(state.lastPlaybackMediaTime) > 5 ? Number(state.lastPlaybackMediaTime) : 0;
       const curPos = effCur > 5 ? effCur : savedMediaTime;
-      if (state.activeSourceTab === "hdrezka") {
+      if (state.activeSourceTab === "offline") {
+        loadOfflineStreamForActiveTitle(curPos);
+      } else if (state.activeSourceTab === "hdrezka") {
+        state.tokenRefreshTimestamps = [];
+        state.usedBackupUrls = new Set();
         const loader = document.getElementById("video-loader");
         const loaderText = document.getElementById("video-loader-text");
         if (loaderText) {
@@ -1994,6 +2523,7 @@ export function setupVideoListeners() {
     btnErr4k.onclick = (e) => {
       e.stopPropagation();
       hideVideoStreamError();
+      state.forceAutoLaunchNextStream = true;
       switchSourceTab("backup4k");
     };
   }
@@ -2019,7 +2549,7 @@ export function closePlayerModal(skipCatalogReload = false, forceStop = false, f
   state._nextEpToastDismissed = false;
   if (state.hasPlayerHistoryEntry) {
     state.hasPlayerHistoryEntry = false;
-    if (!fromPopState && window.history.state?.cineflowPlayerModal) {
+    if (!fromPopState && window.history.state?.velariumPlayerModal) {
       state.ignoringSyntheticPopstate = true;
       try {
         window.history.back();
@@ -2065,8 +2595,32 @@ export function closePlayerModal(skipCatalogReload = false, forceStop = false, f
     clearTimeout(state.remuxDurationReprobeTimer);
     state.remuxDurationReprobeTimer = null;
   }
+  if (state.remuxDurationReprobeAbort) {
+    try {
+      state.remuxDurationReprobeAbort.abort();
+    } catch (_) {}
+    state.remuxDurationReprobeAbort = null;
+  }
+  if (state.audioOffsetReloadTimerId) {
+    clearTimeout(state.audioOffsetReloadTimerId);
+    state.audioOffsetReloadTimerId = null;
+  }
+  if (state.instantSwapLoaderTimer) {
+    clearTimeout(state.instantSwapLoaderTimer);
+    state.instantSwapLoaderTimer = null;
+  }
+  if (state.fsTransitionTimerId) {
+    clearTimeout(state.fsTransitionTimerId);
+    state.fsTransitionTimerId = null;
+  }
+  releaseVideoFrameBridge();
+  cleanupAbrPreloadVideo();
   stopAmbilightLoop(true);
+  hideXRayPauseShelf();
+  closeBookmarkNoteDialog(false);
   closeCustomSelectMenu({ restoreFocus: false });
+  state.isPlayerOpen = false;
+  closeSubtitleDictPopover(false);
   closeAllVcPopovers();
   syncVcPopoverOpenClass();
   hideVideoStreamError();
@@ -2102,6 +2656,11 @@ export function closePlayerModal(skipCatalogReload = false, forceStop = false, f
   document.getElementById("player-gear-popover")?.classList.add("hidden");
   document.getElementById("btn-player-gear")?.classList.remove("active");
   state.isPlayerOpen = false;
+  const bmOnClose = document.getElementById("vc-bookmarks");
+  if (bmOnClose) {
+    bmOnClose.innerHTML = "";
+    bmOnClose._lastBookmarkSig = "";
+  }
   state.isPlayingOfflineDownload = false;
   state.activeOfflineDownloadId = "";
   if (state.activeSourceTab === "offline") {
@@ -2114,6 +2673,10 @@ export function closePlayerModal(skipCatalogReload = false, forceStop = false, f
   state.remuxMeta = null;
   state.preloadedNextEpisode = null;
   state.preloadingNextKey = "";
+  state._lastPreloadDoneKey = "";
+  if (state.activeItem) {
+    state.activeItem._xrayFetching = false;
+  }
   state.playerSessionId += 1;
   syncNativeNowPlaying(true);
   syncScrollTopButton();
@@ -2123,7 +2686,13 @@ export function closePlayerModal(skipCatalogReload = false, forceStop = false, f
     trailerStage.innerHTML = "";
     trailerStage.classList.add("hidden");
   }
+  state.activeOfficialService = "";
+  closeOfficialEmbeddedStream();
+  document.getElementById("official-stream-panel")?.classList.add("hidden");
 
+  clearRemuxDurationPoll();
+  state._preloadFailedKey = "";
+  state._preloadFailedAt = 0;
   [
     "streamAbortController",
     "backup4kAbortController",
@@ -2131,6 +2700,10 @@ export function closePlayerModal(skipCatalogReload = false, forceStop = false, f
     "remuxProbeAbortController",
     "skipIntroAbortController",
     "trailerAbortController",
+    "preloadAbortController",
+    "xrayAbortController",
+    "providerLinkAbortController",
+    "titleMetaAbortController",
   ].forEach((ctrlKey) => {
     if (state[ctrlKey]) {
       try {
@@ -2146,6 +2719,13 @@ export function closePlayerModal(skipCatalogReload = false, forceStop = false, f
   if (loader) loader.classList.add("hidden");
 
   abortActiveVideoListeners();
+  state._launchBackup4kCandidate = null;
+  state._backup4kCandidates = null;
+  state._filteredStremioCandidates = null;
+  state._launchStremioStreamCandidate = null;
+  state.stremioStreamsData = null;
+  state.active4kRelease = null;
+  state.active4kVideoFiles = [];
   if (state.hlsInstance) {
     try {
       state.hlsInstance.destroy();
@@ -2167,10 +2747,12 @@ export function closePlayerModal(skipCatalogReload = false, forceStop = false, f
       } catch (err) { window.logDebug?.("Player", err); }
     }
     video.onloadedmetadata = null;
+    stopVideoFrameCounter(video);
     try {
       video.pause();
     } catch (err) { window.logDebug?.("Player", err); }
     video.querySelectorAll("track").forEach((tr) => tr.remove());
+    revokeLocalVideoBlobUrl(video);
     video.removeAttribute("src");
     video.srcObject = null;
     try {
@@ -2256,6 +2838,10 @@ export function refreshOpenPlayerLanguageUI(langChanged = false) {
 
   if (!document.getElementById("kinorium-postwatch-overlay")?.classList.contains("hidden")) {
     renderPostWatchRatingState();
+  }
+
+  if (state.activeOfficialService && OFFICIAL_STREAMING_SERVICES[state.activeOfficialService]) {
+    loadOfficialServiceTab(state.activeOfficialService, { embedMode: state.officialEmbedActive });
   }
 
   if (!langChanged) return;

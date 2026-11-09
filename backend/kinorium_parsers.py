@@ -1,5 +1,5 @@
 """
-CineFlow Kinorium HTML Parsers & Sanitizers.
+Velarium Kinorium HTML Parsers & Sanitizers.
 
 Extracted from backend.kinorium to provide clean, modular, and high-performance
 parsing of Kinorium movie lists, premieres, series episodes, critics ratings,

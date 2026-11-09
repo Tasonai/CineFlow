@@ -1,7 +1,7 @@
-"""Cross-platform system autostart management for CineFlow.
+"""Cross-platform system autostart management for Velarium.
 
 Supports:
-- macOS LaunchAgent (~/Library/LaunchAgents/app.cineflow.cinema.plist)
+- macOS LaunchAgent (~/Library/LaunchAgents/app.velarium.cinema.plist)
 - Windows Registry Run key (HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run)
 """
 
@@ -12,9 +12,11 @@ import subprocess
 import sys
 from typing import Any, Dict, Optional
 
-LAUNCH_AGENT_LABEL = "app.cineflow.cinema"
+LAUNCH_AGENT_LABEL = "app.velarium.cinema"
+LEGACY_LAUNCH_AGENT_LABEL = "app.cineflow.cinema"
 WINDOWS_RUN_REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
-WINDOWS_RUN_VALUE_NAME = "CineFlow"
+WINDOWS_RUN_VALUE_NAME = "Velarium"
+LEGACY_WINDOWS_RUN_VALUE_NAME = "CineFlow"
 
 _DEFAULT_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DEFAULT_DATA_DIR = os.path.join(_DEFAULT_BASE_DIR, "data")
@@ -24,13 +26,18 @@ def _launch_agent_plist_path() -> str:
     return os.path.expanduser(f"~/Library/LaunchAgents/{LAUNCH_AGENT_LABEL}.plist")
 
 
+def _legacy_launch_agent_plist_path() -> str:
+    return os.path.expanduser(f"~/Library/LaunchAgents/{LEGACY_LAUNCH_AGENT_LABEL}.plist")
+
+
 def _build_windows_autostart_command(
     base_dir: Optional[str] = None, py_exe: Optional[str] = None
 ) -> str:
     b_dir = base_dir or _DEFAULT_BASE_DIR
-    launcher_exe = os.path.join(b_dir, "CineFlow.exe")
-    if os.path.isfile(launcher_exe):
-        return f'"{launcher_exe}" --background'
+    for exe_name in ("Velarium.exe", "CineFlow.exe"):
+        launcher_exe = os.path.join(b_dir, exe_name)
+        if os.path.isfile(launcher_exe):
+            return f'"{launcher_exe}" --background'
     runtime_pyw = os.path.join(b_dir, "runtime", "pythonw.exe")
     script_path = os.path.join(b_dir, "server.py")
     if os.path.isfile(runtime_pyw):
@@ -46,7 +53,7 @@ def _build_windows_autostart_command(
 def is_macos_autostart_enabled() -> bool:
     if sys.platform != "darwin":
         return False
-    return os.path.isfile(_launch_agent_plist_path())
+    return os.path.isfile(_launch_agent_plist_path()) or os.path.isfile(_legacy_launch_agent_plist_path())
 
 
 def is_windows_autostart_enabled() -> bool:
@@ -58,8 +65,14 @@ def is_windows_autostart_enabled() -> bool:
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, WINDOWS_RUN_REG_PATH, 0, winreg.KEY_READ
         ) as key:
-            val, _ = winreg.QueryValueEx(key, WINDOWS_RUN_VALUE_NAME)
-            return bool(str(val or "").strip())
+            for val_name in (WINDOWS_RUN_VALUE_NAME, LEGACY_WINDOWS_RUN_VALUE_NAME):
+                try:
+                    val, _ = winreg.QueryValueEx(key, val_name)
+                    if bool(str(val or "").strip()):
+                        return True
+                except FileNotFoundError:
+                    continue
+            return False
     except Exception:
         return False
 
@@ -86,6 +99,7 @@ def set_macos_autostart(
     if sys.platform != "darwin":
         return {"ok": False, "error": "macOS LaunchAgent supported on darwin only"}
     plist_path = _launch_agent_plist_path()
+    legacy_plist_path = _legacy_launch_agent_plist_path()
     if enabled:
         b_dir = base_dir or _DEFAULT_BASE_DIR
         d_dir = data_dir or _DEFAULT_DATA_DIR
@@ -93,7 +107,7 @@ def set_macos_autostart(
         os.makedirs(os.path.dirname(plist_path), exist_ok=True)
         os.makedirs(d_dir, exist_ok=True)
         py_bin = sys.executable or "/usr/bin/python3"
-        log_path = os.path.join(d_dir, "cineflow-launchd.log")
+        log_path = os.path.join(d_dir, "velarium-launchd.log")
         plist_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -124,20 +138,26 @@ def set_macos_autostart(
 """
         with open(plist_path, "w", encoding="utf-8") as f:
             f.write(plist_xml)
-    else:
-        if os.path.isfile(plist_path):
+        if os.path.isfile(legacy_plist_path):
             try:
-                subprocess.run(
-                    ["launchctl", "unload", plist_path],
-                    capture_output=True,
-                    timeout=3.0,
-                )
-            except Exception:
-                pass
-            try:
-                os.remove(plist_path)
+                os.remove(legacy_plist_path)
             except OSError:
                 pass
+    else:
+        for p in (plist_path, legacy_plist_path):
+            if os.path.isfile(p):
+                try:
+                    subprocess.run(
+                        ["launchctl", "unload", p],
+                        capture_output=True,
+                        timeout=3.0,
+                    )
+                except Exception:
+                    pass
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
     return {"ok": True, "autostart_enabled": is_macos_autostart_enabled()}
 
 
@@ -153,11 +173,16 @@ def set_windows_autostart(
             if enabled:
                 cmd_val = _build_windows_autostart_command(base_dir=base_dir)
                 winreg.SetValueEx(key, WINDOWS_RUN_VALUE_NAME, 0, winreg.REG_SZ, cmd_val)
-            else:
                 try:
-                    winreg.DeleteValue(key, WINDOWS_RUN_VALUE_NAME)
+                    winreg.DeleteValue(key, LEGACY_WINDOWS_RUN_VALUE_NAME)
                 except FileNotFoundError:
                     pass
+            else:
+                for val_name in (WINDOWS_RUN_VALUE_NAME, LEGACY_WINDOWS_RUN_VALUE_NAME):
+                    try:
+                        winreg.DeleteValue(key, val_name)
+                    except FileNotFoundError:
+                        pass
         return {"ok": True, "autostart_enabled": is_windows_autostart_enabled()}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}

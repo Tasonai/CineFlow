@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
 import {
   displayCountries,
   displayDescription,
@@ -13,7 +13,7 @@ import {
   t,
   translateGenre,
   translateStudioName,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   escapeAttr,
   escapeHtml,
@@ -27,8 +27,8 @@ import {
   showVideoOsd,
   syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261105v5";
-import { getPlayerPrefs, savePlayerPrefs } from "./audio-dsp.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
+import { getPlayerPrefs, savePlayerPrefs } from "./audio-dsp.js?v=20261108v19";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -39,19 +39,19 @@ import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261105v5";
-import { openQuickPeekModal, renderModalCastSection } from "./modals.js?v=20261105v5";
-import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261105v5";
-import { syncNativeNowPlaying } from "./features.js?v=20261105v5";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
+import { openQuickPeekModal, renderModalCastSection } from "./modals.js?v=20261108v19";
+import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261108v19";
+import { syncNativeNowPlaying } from "./features.js?v=20261108v19";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261108v19";
 import {
   getEpisodeDisplayMeta,
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261105v5";
-import { switchSourceTab } from "./player-streams.js?v=20261105v5";
-import { setMiniPlayerMode } from "./player-pip-dock.js?v=20261105v5";
-import { closePlayerModal } from "./player.js?v=20261105v5";
+} from "./player-seasons.js?v=20261108v19";
+import { switchSourceTab, syncOfficialEmbeddedStreamRect } from "./player-streams.js?v=20261108v19";
+import { setMiniPlayerMode } from "./player-pip-dock.js?v=20261108v19";
+import { closePlayerModal } from "./player.js?v=20261108v19";
 
 export const OFFICIAL_STREAMING_SERVICES = new Set(["appletv", "netflix", "prime", "disney", "max", "playerpl"]);
 
@@ -68,6 +68,13 @@ export function _mergeItemProviders(item, incomingProviders) {
 
 export function fetchAndApplyPlayerTitleMeta(item, currentSess = state.playerSessionId) {
   if (!item) return Promise.resolve(null);
+  if (state.titleMetaAbortController) {
+    try {
+      state.titleMetaAbortController.abort();
+    } catch (_) {}
+  }
+  const metaAbort = new AbortController();
+  state.titleMetaAbortController = metaAbort;
   const reqLang = state.appLang || "ru";
   const metaParams = new URLSearchParams({
     id: String(item.id || ""),
@@ -81,7 +88,9 @@ export function fetchAndApplyPlayerTitleMeta(item, currentSess = state.playerSes
     media_type: item.media_type || "movie",
     lang: reqLang,
   });
-  return fetch(`/api/title-meta?${metaParams.toString()}`)
+  return fetch(`/api/title-meta?${metaParams.toString()}`, {
+    signal: metaAbort.signal,
+  })
     .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
     .then((m) => {
       const isItemMatch =
@@ -143,7 +152,7 @@ export function fetchAndApplyPlayerTitleMeta(item, currentSess = state.playerSes
           item.description = m.description;
           if (!isEn()) {
             const descEl = document.getElementById("meta-description");
-            if (descEl) descEl.textContent = m.description;
+            if (descEl) descEl.textContent = displayDescription(item) || "";
           }
         }
         if (m.directors?.length) item.directors = m.directors;
@@ -155,9 +164,13 @@ export function fetchAndApplyPlayerTitleMeta(item, currentSess = state.playerSes
         activeDescEl.textContent = displayDescription(item) || "";
       }
       if (m.duration_label) item.duration_label = m.duration_label;
+      if (Array.isArray(m.soundtrack) && m.soundtrack.length > 0) {
+        item.soundtrack = m.soundtrack;
+      }
+      if (Array.isArray(m.trivia) && m.trivia.length > 0) {
+        item.trivia = m.trivia;
+      }
       mergeIncomingItemGenres(item, m);
-      renderModalGenresAndSubheader(item, m);
-      renderModalCastSection(item, m);
       if (typeof m.is_completed === "boolean") item.is_series_completed = m.is_completed;
       if (m.episodes_titles && Object.keys(m.episodes_titles).length > 0) {
         state.episodesTitles = { ...(state.episodesTitles || {}), ...m.episodes_titles };
@@ -272,6 +285,8 @@ export function togglePlayerSidebarCollapsed(showFeedback = false) {
   const next = !cur;
   savePlayerPrefs({ sidebarCollapsed: next });
   syncPlayerSidebarCollapsedUI();
+  syncOfficialEmbeddedStreamRect();
+  setTimeout(syncOfficialEmbeddedStreamRect, 280);
   if (showFeedback) {
     showVideoOsd(
       "crop",
@@ -367,11 +382,7 @@ export function renderModalGenresAndSubheader(item, streamData = null) {
       );
       seriesStatusText = isCompleted ? t("Завершён", "Ended") : t("Продолжается", "Ongoing");
     }
-    const genresInline = entries
-      .slice(0, 3)
-      .map((g) => g.label)
-      .join(", ");
-    origSubtitleEl.textContent = [secondaryTitle(item), item.year, countryLabel, typeText, seriesStatusText, genresInline, durLabel]
+    origSubtitleEl.textContent = [secondaryTitle(item), item.year, typeText, seriesStatusText, durLabel]
       .filter(Boolean)
       .join(" · ");
   }
@@ -592,15 +603,16 @@ export function renderModalProvidersSidebar(item) {
     const integ = state.integrations?.[key] || { logged_in: false };
     const isPendingLogin = Boolean(state.pendingServiceLogins?.[key]);
 
+    const isSelectedService = state.activeOfficialService === key || state.activeSourceTab === key;
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `meta-prov-item is-clickable${state.activeSourceTab === key ? " is-active-source" : ""}`;
+    row.className = `meta-prov-item is-clickable${isSelectedService ? " is-active-source" : ""}`;
 
     let rightHtml = "";
     if (integ.logged_in) {
       rightHtml = `<span class="meta-prov-action">${escapeHtml(
         found?.quality || t("В подписке", "Included")
-      )} ${iconSvg("external", 11)}</span>`;
+      )} ${iconSvg("play", 10)}</span>`;
     } else if (isPendingLogin) {
       rightHtml = `<span class="meta-prov-action">${iconSvg("check", 11)} ${t(
         "Подтвердить вход",
@@ -627,7 +639,6 @@ export function renderModalProvidersSidebar(item) {
         }
       } else {
         switchSourceTab(key, null, { fromUserClick: true });
-        window.open(targetUrl, "_blank", "noopener,noreferrer,width=1280,height=760");
       }
     };
 
@@ -727,7 +738,7 @@ export async function captureVideoScreenshot() {
   }
   const { cur } = getEffectivePlaybackTiming(video);
   const item = state.activeItem;
-  const titlePart = (displayTitle(item) || item?.title || "CineFlow").replace(/[\\/:*?"<>|]+/g, "");
+  const titlePart = (displayTitle(item) || item?.title || "Velarium").replace(/[\\/:*?"<>|]+/g, "");
   const timeStamp = formatTime(cur || 0).replace(/:/g, "-");
   const epTag =
     item?.media_type === "series"
@@ -825,9 +836,9 @@ export function syncMediaSessionMetadata() {
       : String(item.year || "");
     const artworkUrl = item.poster || item.backdrop || "";
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: displayTitle(item) || "CineFlow",
-      artist: subtitle || state.activeStudioName || "CineFlow",
-      album: state.activeStudioName || "CineFlow",
+      title: displayTitle(item) || "Velarium",
+      artist: subtitle || state.activeStudioName || "Velarium",
+      album: state.activeStudioName || "Velarium",
       artwork: artworkUrl ? [{ src: artworkUrl }] : [],
     });
   } catch (err) { window.logDebug?.("PlayerMeta", err); }

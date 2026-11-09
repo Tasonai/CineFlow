@@ -1,13 +1,104 @@
 """
-CineFlow System & Settings Route Handlers
+Velarium System & Settings Route Handlers
 Dispatches /api/system/* and /api/settings requests.
 """
+
+import os
+import subprocess
+import sys
+import threading
+from urllib.parse import urlparse
 
 from backend.regions import (
     get_country_profile,
     get_european_countries_list,
     normalize_country_code,
 )
+
+_STREAM_EMBED_LOCK = threading.Lock()
+_ACTIVE_STREAM_EMBED_PROC = None
+_ALLOWED_STREAM_EMBED_DOMAINS = (
+    "netflix.com",
+    "tv.apple.com",
+    "apple.com",
+    "primevideo.com",
+    "amazon.com",
+    "disneyplus.com",
+    "max.com",
+    "hbomax.com",
+    "player.pl",
+    "justwatch.com",
+)
+
+
+def _is_allowed_stream_embed_url(raw_url: str) -> bool:
+    try:
+        parsed = urlparse(str(raw_url or "").strip())
+        if parsed.scheme.lower() != "https":
+            return False
+        host = (parsed.hostname or "").lower().strip(".")
+        if not host:
+            return False
+        return any(host == dom or host.endswith("." + dom) for dom in _ALLOWED_STREAM_EMBED_DOMAINS)
+    except Exception:
+        return False
+
+
+def _find_desktop_chromium_executable() -> str:
+    try:
+        from windows.kinorium_login_webview import find_chromium_browser
+
+        exe = find_chromium_browser()
+        if exe and os.path.isfile(exe):
+            return exe
+    except Exception:
+        pass
+    if sys.platform == "darwin":
+        mac_candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        ]
+        for cand in mac_candidates:
+            if os.path.isfile(cand):
+                return cand
+    return ""
+
+
+def _close_active_stream_embed_proc() -> None:
+    global _ACTIVE_STREAM_EMBED_PROC
+    with _STREAM_EMBED_LOCK:
+        proc = _ACTIVE_STREAM_EMBED_PROC
+        _ACTIVE_STREAM_EMBED_PROC = None
+    if proc is not None:
+        try:
+            if proc.poll() is None:
+                if os.name == "nt":
+                    try:
+                        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                        subprocess.run(
+                            ["taskkill", "/PID", str(proc.pid)],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=1.2,
+                            creationflags=creationflags,
+                        )
+                        proc.wait(timeout=0.8)
+                    except Exception:
+                        pass
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=1.5)
+                    except Exception:
+                        try:
+                            proc.kill()
+                            proc.wait(timeout=0.5)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
 
 def handle_system_status(handler, qs, parsed, ctx):
@@ -151,6 +242,8 @@ def handle_system_update_check_post(handler, qs, parsed, body, ctx):
             ctx.save_persisted_server_settings()
     force_chk = bool(body.get("force", True))
     res_chk = ctx.app_updater.check_for_updates(force=force_chk)
+    if not is_local:
+        res_chk = ctx.app_updater.get_status(redact_local_paths=True)
     handler._send_json(res_chk)
     return True
 
@@ -198,6 +291,108 @@ def handle_system_update_open_post(handler, qs, parsed, body, ctx):
         return True
     res_open = ctx.app_updater.open_installer(auto_reveal=bool(body.get("reveal", False)))
     handler._send_json(res_open, status=200 if res_open.get("ok") else 400)
+    return True
+
+
+def handle_stream_embed_open_post(handler, qs, parsed, body, ctx):
+    app_lang = ctx.app_prefs.get("app_lang", "ru")
+    req_lang = ctx.norm_app_lang(body.get("lang", app_lang), app_lang)
+    if not handler._is_loopback_client():
+        handler._send_json(
+            {
+                "ok": False,
+                "error": ctx.msg(
+                    "Встроенное окно стриминга доступно только на самом компьютере",
+                    "Embedded streaming stage is available only on the host computer",
+                    req_lang,
+                ),
+            },
+            status=403,
+        )
+        return True
+    raw_url = str(body.get("url") or "").strip()
+    if not _is_allowed_stream_embed_url(raw_url):
+        handler._send_json(
+            {
+                "ok": False,
+                "error": ctx.msg(
+                    "Недопустимый адрес официального стриминга",
+                    "Invalid official streaming service URL",
+                    req_lang,
+                ),
+            },
+            status=400,
+        )
+        return True
+
+    rect = body.get("rect") if isinstance(body.get("rect"), dict) else {}
+    try:
+        win_x = max(0, min(7680, int(round(float(rect.get("screenX", 140))))))
+        win_y = max(0, min(4320, int(round(float(rect.get("screenY", 120))))))
+        win_w = max(480, min(3840, int(round(float(rect.get("width", 1120))))))
+        win_h = max(270, min(2160, int(round(float(rect.get("height", 630))))))
+    except Exception:
+        win_x, win_y, win_w, win_h = 140, 120, 1120, 630
+
+    root_dir = getattr(ctx, "base_dir", "") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    win_launcher = os.path.join(root_dir, "Velarium.exe") if os.name == "nt" else ""
+
+    if win_launcher and os.path.isfile(win_launcher):
+        cmd = [
+            win_launcher,
+            "--stream-window",
+            raw_url,
+            str(win_x),
+            str(win_y),
+            str(win_w),
+            str(win_h),
+        ]
+    else:
+        browser_exe = _find_desktop_chromium_executable()
+        if not browser_exe:
+            handler._send_json({"ok": False, "fallback": "popup", "url": raw_url}, status=200)
+            return True
+
+        profile_dir = os.path.join(ctx.data_dir, "StreamEmbedProfile")
+        try:
+            os.makedirs(profile_dir, exist_ok=True)
+        except Exception:
+            pass
+
+        cmd = [
+            browser_exe,
+            f"--app={raw_url}",
+            f"--user-data-dir={profile_dir}",
+            f"--window-position={win_x},{win_y}",
+            f"--window-size={win_w},{win_h}",
+            "--no-first-run",
+            "--no-default-browser-check",
+        ]
+
+    _close_active_stream_embed_proc()
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+        global _ACTIVE_STREAM_EMBED_PROC
+        with _STREAM_EMBED_LOCK:
+            _ACTIVE_STREAM_EMBED_PROC = proc
+        handler._send_json({"ok": True, "mode": "chromium_app", "url": raw_url})
+    except Exception as exc:
+        handler._send_json({"ok": False, "fallback": "popup", "url": raw_url, "detail": str(exc)}, status=200)
+    return True
+
+
+def handle_stream_embed_close_post(handler, qs, parsed, body, ctx):
+    if not handler._is_loopback_client():
+        handler._send_json({"ok": False}, status=403)
+        return True
+    _close_active_stream_embed_proc()
+    handler._send_json({"ok": True})
     return True
 
 

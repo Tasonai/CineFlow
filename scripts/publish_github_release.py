@@ -108,7 +108,7 @@ def publish_release(
     token = _load_github_token()
     ver = (version or _detect_app_version()).lstrip("v").strip()
     tag = f"v{ver}"
-    title = f"CineFlow {ver}"
+    title = f"Velarium {ver}"
 
     if not release_notes.strip():
         rel_notes_file = os.path.join(BASE_DIR, "RELEASE_NOTES.md")
@@ -118,13 +118,7 @@ def publish_release(
             if raw_rn:
                 release_notes = raw_rn.split("<!-- EN -->")[0].strip()
     if not release_notes.strip():
-        release_notes = (
-            f"✨ **Что нового в CineFlow {ver}:**\n"
-            "• **Защита от блокировки IP на Кинориуме (`403 Forbidden`)**: добавлен умный ограничитель частоты запросов (Rate Limiter) и автоматический предохранитель при временных блокировках, исключающий перегрузку серверов Кинориума фоновыми проверками старых сериалов.\n"
-            "• **Гарантированная доотправка отметок и оценок**: все отметки просмотров фильмов, сериалов и оценки эпизодов, поставленные во время офлайна или временной блокировки сети, теперь автоматически доотправляются в ваш профиль Кинориума при восстановлении связи.\n"
-            "• **Автоматическое обновление в 1 клик**: проверка новых версий через GitHub Releases, фоновая загрузка установщика с проверкой контрольной суммы SHA-256 и запуск обновления прямо из окна «О программе».\n"
-            "• **Точное определение актёров «В кадре» (X-Ray)** и мгновенный запуск локального сервера."
-        )
+        release_notes = f"**Что нового в Velarium {ver}:**\n• Обновление стабильности и производительности."
 
     _ensure_repo_initialized(repo, token, ver)
 
@@ -169,8 +163,8 @@ def publish_release(
     existing_assets = {a["name"]: a["id"] for a in (rel_obj.get("assets") or []) if a.get("name") and a.get("id")}
 
     assets_to_upload: List[str] = [
-        os.path.join(DIST_DIR, "CineFlow.dmg"),
-        os.path.join(DIST_DIR, f"CineFlow-Setup-{ver}-x64.exe"),
+        os.path.join(DIST_DIR, "Velarium.dmg"),
+        os.path.join(DIST_DIR, f"Velarium-Setup-{ver}-x64.exe"),
         os.path.join(DIST_DIR, "SHA256SUMS.txt"),
         os.path.join(DIST_DIR, "latest.json"),
     ]

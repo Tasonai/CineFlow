@@ -1,6 +1,6 @@
-import { PLAYER_PREFS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261105v5";
-import { t } from "./i18n.js?v=20261105v5";
-import { isIosOrIpadOs, showToast } from "./utils.js?v=20261105v5";
+import { PLAYER_PREFS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261108v19";
+import { t } from "./i18n.js?v=20261108v19";
+import { isIosOrIpadOs, showToast, syncCustomSelect } from "./utils.js?v=20261108v19";
 import {
   closePlayerModal,
   isStageFullscreen,
@@ -8,7 +8,7 @@ import {
   setPipBackgroundMode,
   syncCustomVideoControlsUI,
   syncPipDockUI,
-} from "./player.js?v=20261105v5";
+} from "./player.js?v=20261108v19";
 
 export function getAudioPresetLabel(preset) {
   const map = {
@@ -19,9 +19,23 @@ export function getAudioPresetLabel(preset) {
   };
   return map[preset] || t("Стандарт", "Standard");
 }
+let _playerPrefsCache = null;
+let _playerPrefsCacheKey = "";
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (ev) => {
+    if (!ev || !ev.key || ev.key.includes(PLAYER_PREFS_STORAGE_KEY)) {
+      _playerPrefsCache = null;
+      _playerPrefsCacheKey = "";
+    }
+  });
+}
+
 export function getPlayerPrefs() {
   try {
     const storageKey = profileStorageKey(PLAYER_PREFS_STORAGE_KEY);
+    if (_playerPrefsCache && _playerPrefsCacheKey === storageKey) {
+      return { ..._playerPrefsCache };
+    }
     const raw = localStorage.getItem(storageKey);
     const parsed = raw ? JSON.parse(raw) || {} : {};
     const rawVol = typeof parsed.volume === "number" ? Math.max(0, Math.min(1, parsed.volume)) : 1.0;
@@ -40,6 +54,8 @@ export function getPlayerPrefs() {
         ? parsed.playbackRate
         : 1.0;
     const autoNext = typeof parsed.autoNextEpisode === "boolean" ? parsed.autoNextEpisode : true;
+    const bridge = typeof parsed.seamlessEpisodeBridge === "boolean" ? parsed.seamlessEpisodeBridge : true;
+    const showXrayOnPause = typeof parsed.showXrayOnPause === "boolean" ? parsed.showXrayOnPause : true;
     const boost =
       typeof parsed.audioBoost === "number" && parsed.audioBoost >= 1 && parsed.audioBoost <= 4
         ? parsed.audioBoost
@@ -60,17 +76,28 @@ export function getPlayerPrefs() {
       ? parsed.subSize
       : "medium";
     const subBg = ["semi", "solid", "none"].includes(parsed.subBg) ? parsed.subBg : "semi";
+    const subFont = ["sans", "serif", "mono", "rounded"].includes(parsed.subFont)
+      ? parsed.subFont
+      : "sans";
+    const subColor = ["white", "yellow", "green", "cyan"].includes(parsed.subColor)
+      ? parsed.subColor
+      : "white";
+    const subEdge = ["soft", "outline", "heavy", "none"].includes(parsed.subEdge)
+      ? parsed.subEdge
+      : "soft";
     const ambilight = typeof parsed.ambilightEnabled === "boolean" ? parsed.ambilightEnabled : true;
     const autoSkipIntro = typeof parsed.autoSkipIntro === "boolean" ? parsed.autoSkipIntro : true;
     const preferredSourceTab = ["hdrezka", "stremio", "backup4k"].includes(parsed.preferredSourceTab)
       ? parsed.preferredSourceTab
       : "";
     const sidebarCollapsed = Boolean(parsed.sidebarCollapsed);
-    return {
+    const resolved = {
       volume: vol,
       muted: false,
       playbackRate: rate,
       autoNextEpisode: autoNext,
+      seamlessEpisodeBridge: bridge,
+      showXrayOnPause,
       audioBoost: boost,
       audioPreset: preset,
       preferredQuality: prefQual,
@@ -78,17 +105,25 @@ export function getPlayerPrefs() {
       videoCrop: crop,
       subSize,
       subBg,
+      subFont,
+      subColor,
+      subEdge,
       ambilightEnabled: ambilight,
       autoSkipIntro,
       preferredSourceTab,
       sidebarCollapsed,
     };
+    _playerPrefsCache = resolved;
+    _playerPrefsCacheKey = storageKey;
+    return { ...resolved };
   } catch (_) {
     return {
       volume: 1.0,
       muted: false,
       playbackRate: 1.0,
       autoNextEpisode: true,
+      seamlessEpisodeBridge: true,
+      showXrayOnPause: true,
       audioBoost: 1.0,
       audioPreset: "flat",
       preferredQuality: "max",
@@ -96,6 +131,9 @@ export function getPlayerPrefs() {
       videoCrop: "contain",
       subSize: "medium",
       subBg: "semi",
+      subFont: "sans",
+      subColor: "white",
+      subEdge: "soft",
       ambilightEnabled: true,
       autoSkipIntro: true,
       preferredSourceTab: "",
@@ -104,9 +142,12 @@ export function getPlayerPrefs() {
 }
 export function savePlayerPrefs(patch) {
   try {
+    const storageKey = profileStorageKey(PLAYER_PREFS_STORAGE_KEY);
     const cur = getPlayerPrefs();
     const updated = { ...cur, ...patch };
-    localStorage.setItem(profileStorageKey(PLAYER_PREFS_STORAGE_KEY), JSON.stringify(updated));
+    _playerPrefsCache = updated;
+    _playerPrefsCacheKey = storageKey;
+    localStorage.setItem(storageKey, JSON.stringify(updated));
   } catch (err) { window.logDebug?.("AudioDsp", err); }
 }
 export function buildSoftClipLimiterCurve() {
@@ -199,29 +240,33 @@ export function ensureUnlockedAudioContext() {
   }
   return state.audioCtx;
 }
-export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, presetMode = state.audioPreset) {
+export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, presetMode = state.audioPreset, opts = {}) {
   const boost = Math.max(1.0, Math.min(4.0, Number(boostLevel) || 1.0));
   const preset = ["flat", "voice", "night", "cinema"].includes(presetMode) ? presetMode : "flat";
   state.audioBoost = boost;
   state.audioPreset = preset;
 
   const boostSel = document.getElementById("select-audio-boost");
-  if (boostSel) {
+  if (boostSel && boostSel.value !== String(boost)) {
     boostSel.value = String(boost);
+    syncCustomSelect(boostSel);
   }
   const boostGroup = document.getElementById("audio-boost-group");
   if (boostGroup) {
     boostGroup.classList.toggle("boost-active", boost > 1.01);
   }
   const eqSel = document.getElementById("select-audio-eq");
-  if (eqSel) {
+  if (eqSel && eqSel.value !== preset) {
     eqSel.value = preset;
+    syncCustomSelect(eqSel);
   }
   const eqGroup = document.getElementById("audio-eq-group");
   if (eqGroup) {
     eqGroup.classList.toggle("eq-active", preset !== "flat");
   }
-  updatePlayerGearActiveDot();
+  if (!opts.skipGearSync) {
+    updatePlayerGearActiveDot();
+  }
   if (!video) return;
   const directDelaySec = state.remuxMeta?.active
     ? 0
@@ -300,92 +345,119 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
 
     let justCreated = false;
     if (!video._cfSourceNode) {
-      const source = ctx.createMediaElementSource(video);
-      const prePadGain = ctx.createGain();
-      const dryBypassGain = ctx.createGain();
-      const compDriveGain = ctx.createGain();
-      const compressor = ctx.createDynamicsCompressor();
-      const compTrimGain = ctx.createGain();
-      const dynSumGain = ctx.createGain();
+      if (state.audioNodes && state.audioNodes.prePadGain && state.audioCtx === ctx) {
+        if (state.audioNodes.source) {
+          try {
+            state.audioNodes.source.disconnect();
+          } catch (err) {
+            window.logDebug?.("AudioDSP", err);
+          }
+        }
+        const source = ctx.createMediaElementSource(video);
+        source.connect(state.audioNodes.prePadGain);
+        state.audioNodes.source = source;
+        video._cfSourceNode = source;
+        video._cfDirectBypass = false;
+        justCreated = true;
+      } else {
+        if (state.audioNodes) {
+          Object.values(state.audioNodes).forEach((node) => {
+            try {
+              node?.disconnect?.();
+            } catch (err) {
+              window.logDebug?.("AudioDSP", err);
+            }
+          });
+          state.audioNodes = null;
+        }
+        const source = ctx.createMediaElementSource(video);
+        const prePadGain = ctx.createGain();
+        const dryBypassGain = ctx.createGain();
+        const compDriveGain = ctx.createGain();
+        const compressor = ctx.createDynamicsCompressor();
+        const compTrimGain = ctx.createGain();
+        const dynSumGain = ctx.createGain();
 
-      // Fixed-type 7-stage post-dynamics EQ (never mutates .type, zero filter-state clicks)
-      const hpFilter = ctx.createBiquadFilter();
-      hpFilter.type = "highpass";
-      const lowShelfFilter = ctx.createBiquadFilter();
-      lowShelfFilter.type = "lowshelf";
-      const subPunchFilter = ctx.createBiquadFilter();
-      subPunchFilter.type = "peaking";
-      const lowMidFilter = ctx.createBiquadFilter();
-      lowMidFilter.type = "peaking";
-      const vocalBodyFilter = ctx.createBiquadFilter();
-      vocalBodyFilter.type = "peaking";
-      const presenceFilter = ctx.createBiquadFilter();
-      presenceFilter.type = "peaking";
-      const airFilter = ctx.createBiquadFilter();
-      airFilter.type = "highshelf";
+        // Fixed-type 7-stage post-dynamics EQ (never mutates .type, zero filter-state clicks)
+        const hpFilter = ctx.createBiquadFilter();
+        hpFilter.type = "highpass";
+        const lowShelfFilter = ctx.createBiquadFilter();
+        lowShelfFilter.type = "lowshelf";
+        const subPunchFilter = ctx.createBiquadFilter();
+        subPunchFilter.type = "peaking";
+        const lowMidFilter = ctx.createBiquadFilter();
+        lowMidFilter.type = "peaking";
+        const vocalBodyFilter = ctx.createBiquadFilter();
+        vocalBodyFilter.type = "peaking";
+        const presenceFilter = ctx.createBiquadFilter();
+        presenceFilter.type = "peaking";
+        const airFilter = ctx.createBiquadFilter();
+        airFilter.type = "highshelf";
 
-      const postGain = ctx.createGain();
-      const limiterIn = ctx.createGain();
-      limiterIn.gain.value = 0.25;
-      const limiterShaper = ctx.createWaveShaper();
-      limiterShaper.curve = buildSoftClipLimiterCurve();
-      limiterShaper.oversample = "2x";
-      const syncDelayNode = ctx.createDelay(5.0);
-      syncDelayNode.delayTime.value = 0;
+        const postGain = ctx.createGain();
+        const limiterIn = ctx.createGain();
+        limiterIn.gain.value = 0.25;
+        const limiterShaper = ctx.createWaveShaper();
+        limiterShaper.curve = buildSoftClipLimiterCurve();
+        limiterShaper.oversample = "2x";
+        const syncDelayNode = ctx.createDelay(5.0);
+        syncDelayNode.delayTime.value = 0;
 
-      source.connect(prePadGain);
-      prePadGain.connect(dryBypassGain);
-      dryBypassGain.connect(dynSumGain);
+        source.connect(prePadGain);
+        prePadGain.connect(dryBypassGain);
+        dryBypassGain.connect(dynSumGain);
 
-      prePadGain.connect(compDriveGain);
-      compDriveGain.connect(compressor);
-      compressor.connect(compTrimGain);
-      compTrimGain.connect(dynSumGain);
+        prePadGain.connect(compDriveGain);
+        compDriveGain.connect(compressor);
+        compressor.connect(compTrimGain);
+        compTrimGain.connect(dynSumGain);
 
-      dynSumGain.connect(hpFilter);
-      hpFilter.connect(lowShelfFilter);
-      lowShelfFilter.connect(subPunchFilter);
-      subPunchFilter.connect(lowMidFilter);
-      lowMidFilter.connect(vocalBodyFilter);
-      vocalBodyFilter.connect(presenceFilter);
-      presenceFilter.connect(airFilter);
-      airFilter.connect(postGain);
-      postGain.connect(limiterIn);
-      limiterIn.connect(limiterShaper);
-      limiterShaper.connect(syncDelayNode);
-      syncDelayNode.connect(ctx.destination);
+        dynSumGain.connect(hpFilter);
+        hpFilter.connect(lowShelfFilter);
+        lowShelfFilter.connect(subPunchFilter);
+        subPunchFilter.connect(lowMidFilter);
+        lowMidFilter.connect(vocalBodyFilter);
+        vocalBodyFilter.connect(presenceFilter);
+        presenceFilter.connect(airFilter);
+        airFilter.connect(postGain);
+        postGain.connect(limiterIn);
+        limiterIn.connect(limiterShaper);
+        limiterShaper.connect(syncDelayNode);
+        syncDelayNode.connect(ctx.destination);
 
-      video._cfSourceNode = source;
-      video._cfDirectBypass = false;
-      if (isIosOrIpadOs() && !state._iosWebAudioNoticeShown) {
-        state._iosWebAudioNoticeShown = true;
-        showToast(
-          t(
-            "Эквалайзер и усиление включены (на iOS / iPadOS для AirPlay используйте Стандарт 100%)",
-            "Equalizer & boost active (on iOS / iPadOS, use Standard 100% for AirPlay)"
-          )
-        );
+        video._cfSourceNode = source;
+        video._cfDirectBypass = false;
+        if (isIosOrIpadOs() && !state._iosWebAudioNoticeShown) {
+          state._iosWebAudioNoticeShown = true;
+          showToast(
+            t(
+              "Эквалайзер и усиление включены (на iOS / iPadOS для AirPlay используйте Стандарт 100%)",
+              "Equalizer & boost active (on iOS / iPadOS, use Standard 100% for AirPlay)"
+            )
+          );
+        }
+        state.audioNodes = {
+          source,
+          prePadGain,
+          dryBypassGain,
+          compDriveGain,
+          compressor,
+          compTrimGain,
+          dynSumGain,
+          hpFilter,
+          lowShelfFilter,
+          subPunchFilter,
+          lowMidFilter,
+          vocalBodyFilter,
+          presenceFilter,
+          airFilter,
+          postGain,
+          limiterIn,
+          limiterShaper,
+          syncDelayNode,
+        };
+        justCreated = true;
       }
-      state.audioNodes = {
-        prePadGain,
-        dryBypassGain,
-        compDriveGain,
-        compressor,
-        compTrimGain,
-        dynSumGain,
-        hpFilter,
-        lowShelfFilter,
-        subPunchFilter,
-        lowMidFilter,
-        vocalBodyFilter,
-        presenceFilter,
-        airFilter,
-        postGain,
-        limiterIn,
-        limiterShaper,
-        syncDelayNode,
-      };
-      justCreated = true;
     }
 
     const n = state.audioNodes;
@@ -400,6 +472,12 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
     if (isAudioContextSuspendedLike(ctx)) {
       resumeAudioContextIfNeeded(ctx);
     }
+
+    const dspSig = `${boost}:${preset}:${directDelaySec}:${Boolean(video._cfDirectBypass)}`;
+    if (!justCreated && n._lastAppliedDspSig === dspSig) {
+      return;
+    }
+    n._lastAppliedDspSig = dspSig;
 
     const now = ctx.currentTime;
     const tau = 0.024;
@@ -568,13 +646,37 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
     console.warn("Audio DSP init notice:", err);
   }
 }
+let _lastGearDotSig = "";
+
 export function updatePlayerGearActiveDot() {
-  const dot = document.getElementById("player-gear-active-dot");
-  const resetBtn = document.getElementById("btn-reset-player-gear");
-  const speedBadge = document.getElementById("vc-gear-speed-label");
   const speedSel = document.getElementById("select-speed");
   const curRate = speedSel ? parseFloat(speedSel.value) || 1 : 1;
   const hasCustomSpeed = Math.abs(curRate - 1) > 0.01;
+  const modSpeed = hasCustomSpeed;
+  const modBoost = (state.audioBoost || 1) > 1.01;
+  const modEq = Boolean(state.audioPreset && state.audioPreset !== "flat");
+  const modCrop = Boolean(state.videoCrop && state.videoCrop !== "contain");
+  const modSubSize = Boolean(state.subSize && state.subSize !== "medium");
+  const modSubBg = Boolean(state.subBg && state.subBg !== "semi");
+  const modSubFont = Boolean(state.subFont && state.subFont !== "sans");
+  const modSubColor = Boolean(state.subColor && state.subColor !== "white");
+  const modSubEdge = Boolean(state.subEdge && state.subEdge !== "soft");
+  const modAudioOffset = Math.abs(state.audioOffsetSec || 0) > 0.005;
+  const modSubOffset = Math.abs(state.subtitleOffsetSec || 0) > 0.01;
+  const modSleep = Boolean(state.sleepTimerMode && state.sleepTimerMode !== "off");
+  const modAmbilight = state.ambilightEnabled === false;
+  const modSkipIntro = state.autoSkipIntro === false;
+  const modAutoNext = state.autoNextEpisode === false;
+
+  const gearSig = `${curRate}|${modBoost ? 1 : 0}|${modEq ? 1 : 0}|${modCrop ? 1 : 0}|${modSubSize ? 1 : 0}|${modSubBg ? 1 : 0}|${modSubFont ? 1 : 0}|${modSubColor ? 1 : 0}|${modSubEdge ? 1 : 0}|${modAudioOffset ? 1 : 0}|${modSubOffset ? 1 : 0}|${modSleep ? 1 : 0}|${modAmbilight ? 1 : 0}|${modSkipIntro ? 1 : 0}|${modAutoNext ? 1 : 0}`;
+  if (_lastGearDotSig === gearSig) {
+    return;
+  }
+  _lastGearDotSig = gearSig;
+
+  const dot = document.getElementById("player-gear-active-dot");
+  const resetBtn = document.getElementById("btn-reset-player-gear");
+  const speedBadge = document.getElementById("vc-gear-speed-label");
   if (speedBadge) {
     speedBadge.textContent = `${curRate}x`;
     speedBadge.classList.toggle("hidden", !hasCustomSpeed);
@@ -584,25 +686,15 @@ export function updatePlayerGearActiveDot() {
     pill.classList.toggle("active", Math.abs(pRate - curRate) < 0.01);
   });
 
-  const modSpeed = hasCustomSpeed;
-  const modBoost = (state.audioBoost || 1) > 1.01;
-  const modEq = Boolean(state.audioPreset && state.audioPreset !== "flat");
-  const modCrop = Boolean(state.videoCrop && state.videoCrop !== "contain");
-  const modSubSize = Boolean(state.subSize && state.subSize !== "medium");
-  const modSubBg = Boolean(state.subBg && state.subBg !== "semi");
-  const modAudioOffset = Math.abs(state.audioOffsetSec || 0) > 0.005;
-  const modSubOffset = Math.abs(state.subtitleOffsetSec || 0) > 0.01;
-  const modSleep = Boolean(state.sleepTimerMode && state.sleepTimerMode !== "off");
-  const modAmbilight = state.ambilightEnabled === false;
-  const modSkipIntro = state.autoSkipIntro === false;
-  const modAutoNext = state.autoNextEpisode === false;
-
   document.getElementById("speed-group")?.classList.toggle("is-modified", modSpeed);
   document.getElementById("audio-boost-group")?.classList.toggle("is-modified", modBoost);
   document.getElementById("audio-eq-group")?.classList.toggle("is-modified", modEq);
   document.getElementById("video-crop-group")?.classList.toggle("is-modified", modCrop);
   document.getElementById("sub-size-group")?.classList.toggle("is-modified", modSubSize);
   document.getElementById("sub-bg-group")?.classList.toggle("is-modified", modSubBg);
+  document.getElementById("sub-font-group")?.classList.toggle("is-modified", modSubFont);
+  document.getElementById("sub-color-group")?.classList.toggle("is-modified", modSubColor);
+  document.getElementById("sub-edge-group")?.classList.toggle("is-modified", modSubEdge);
   document.getElementById("sleep-timer-group")?.classList.toggle("is-modified", modSleep);
   document.getElementById("gear-audio-offset-row")?.classList.toggle("is-modified", modAudioOffset);
   document.getElementById("gear-sub-offset-row")?.classList.toggle("is-modified", modSubOffset);
@@ -617,6 +709,9 @@ export function updatePlayerGearActiveDot() {
     modCrop ||
     modSubSize ||
     modSubBg ||
+    modSubFont ||
+    modSubColor ||
+    modSubEdge ||
     modAudioOffset ||
     modSubOffset ||
     modSleep ||
@@ -626,11 +721,35 @@ export function updatePlayerGearActiveDot() {
   dot?.classList.toggle("hidden", !isModified);
   resetBtn?.classList.toggle("hidden", !isModified);
 }
-export function applySubtitleStylePrefs(subSize = state.subSize, subBg = state.subBg) {
+let _lastAppliedSubStyleSig = "";
+
+export function applySubtitleStylePrefs(
+  subSize = state.subSize,
+  subBg = state.subBg,
+  subFont = state.subFont,
+  subColor = state.subColor,
+  subEdge = state.subEdge,
+  opts = {}
+) {
   const sizeKey = ["small", "medium", "large", "xlarge"].includes(subSize) ? subSize : "medium";
   const bgKey = ["semi", "solid", "none"].includes(subBg) ? subBg : "semi";
+  const fontKey = ["sans", "serif", "mono", "rounded"].includes(subFont) ? subFont : "sans";
+  const colorKey = ["white", "yellow", "green", "cyan"].includes(subColor) ? subColor : "white";
+  const edgeKey = ["soft", "outline", "heavy", "none"].includes(subEdge) ? subEdge : "soft";
   state.subSize = sizeKey;
   state.subBg = bgKey;
+  state.subFont = fontKey;
+  state.subColor = colorKey;
+  state.subEdge = edgeKey;
+
+  const subStyleSig = `${sizeKey}|${bgKey}|${fontKey}|${colorKey}|${edgeKey}`;
+  if (_lastAppliedSubStyleSig === subStyleSig) {
+    if (!opts.skipGearSync) {
+      updatePlayerGearActiveDot();
+    }
+    return;
+  }
+  _lastAppliedSubStyleSig = subStyleSig;
 
   const sizePxMap = {
     small: "17px",
@@ -638,31 +757,86 @@ export function applySubtitleStylePrefs(subSize = state.subSize, subBg = state.s
     large: "26px",
     xlarge: "32px",
   };
+  const fontMap = {
+    sans: 'var(--font-sans, -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", sans-serif)',
+    serif: 'Georgia, "Times New Roman", "New York", serif',
+    mono: '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
+    rounded: 'ui-rounded, "SF Pro Rounded", "Nunito", -apple-system, sans-serif',
+  };
+  const colorMap = {
+    white: "#ffffff",
+    yellow: "#fde047",
+    green: "#86efac",
+    cyan: "#7dd3fc",
+  };
   const root = document.documentElement;
   root.style.setProperty("--sub-font-size", sizePxMap[sizeKey] || "21px");
+  root.style.setProperty("--sub-font-family", fontMap[fontKey] || fontMap.sans);
+  root.style.setProperty("--sub-text-color", colorMap[colorKey] || "#ffffff");
 
   if (bgKey === "solid") {
     root.style.setProperty("--sub-bg-color", "rgba(10, 10, 12, 0.94)");
-    root.style.setProperty("--sub-text-shadow", "none");
   } else if (bgKey === "none") {
     root.style.setProperty("--sub-bg-color", "transparent");
-    root.style.setProperty(
-      "--sub-text-shadow",
-      "0 2px 6px rgba(0, 0, 0, 0.98), 0 0 3px rgba(0, 0, 0, 0.95)"
-    );
   } else {
     root.style.setProperty("--sub-bg-color", "rgba(10, 10, 12, 0.74)");
-    root.style.setProperty("--sub-text-shadow", "0 1px 3px rgba(0, 0, 0, 0.85)");
+  }
+
+  if (edgeKey === "outline") {
+    root.style.setProperty(
+      "--sub-text-shadow",
+      "-1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000, 0 2px 5px rgba(0, 0, 0, 0.95)"
+    );
+  } else if (edgeKey === "heavy") {
+    root.style.setProperty(
+      "--sub-text-shadow",
+      "0 2px 8px rgba(0, 0, 0, 0.99), 0 0 4px rgba(0, 0, 0, 0.98), 0 4px 16px rgba(0, 0, 0, 0.92)"
+    );
+  } else if (edgeKey === "none") {
+    root.style.setProperty(
+      "--sub-text-shadow",
+      bgKey === "none" ? "0 1px 2px rgba(0, 0, 0, 0.75)" : "none"
+    );
+  } else {
+    root.style.setProperty(
+      "--sub-text-shadow",
+      bgKey === "none"
+        ? "0 2px 6px rgba(0, 0, 0, 0.98), 0 0 3px rgba(0, 0, 0, 0.95)"
+        : "0 1px 3px rgba(0, 0, 0, 0.85)"
+    );
   }
 
   const sizeSel = document.getElementById("select-sub-size");
-  if (sizeSel) sizeSel.value = sizeKey;
+  if (sizeSel) {
+    sizeSel.value = sizeKey;
+    syncCustomSelect(sizeSel);
+  }
   const bgSel = document.getElementById("select-sub-bg");
-  if (bgSel) bgSel.value = bgKey;
-  updatePlayerGearActiveDot();
+  if (bgSel) {
+    bgSel.value = bgKey;
+    syncCustomSelect(bgSel);
+  }
+  const fontSel = document.getElementById("select-sub-font");
+  if (fontSel) {
+    fontSel.value = fontKey;
+    syncCustomSelect(fontSel);
+  }
+  const colorSel = document.getElementById("select-sub-color");
+  if (colorSel) {
+    colorSel.value = colorKey;
+    syncCustomSelect(colorSel);
+  }
+  const edgeSel = document.getElementById("select-sub-edge");
+  if (edgeSel) {
+    edgeSel.value = edgeKey;
+    syncCustomSelect(edgeSel);
+  }
+  if (!opts.skipGearSync) {
+    updatePlayerGearActiveDot();
+  }
 }
 export function sampleAmbilightFrame() {
-  if (state.fsTransitioning || isStageFullscreen() || document.hidden) {
+  if (state.fsTransitioning || isStageFullscreen() || document.hidden || state.ambilightTainted) {
     return;
   }
   const glowEl = document.getElementById("video-ambilight-glow");
@@ -677,15 +851,22 @@ export function sampleAmbilightFrame() {
     glowEl?.classList.add("hidden");
     return;
   }
-  const baseCol = state.activeItem?.ambient_color || "#242427";
-  const nextBg = `radial-gradient(circle at 24% 50%, ${baseCol} 0%, transparent 64%), radial-gradient(circle at 76% 50%, ${baseCol} 0%, transparent 64%)`;
-  if (glowEl.dataset.appliedColor !== baseCol) {
-    glowEl.style.background = nextBg;
-    glowEl.dataset.appliedColor = baseCol;
+  try {
+    const baseCol = state.activeItem?.ambient_color || "#242427";
+    const nextBg = `radial-gradient(circle at 24% 50%, ${baseCol} 0%, transparent 64%), radial-gradient(circle at 76% 50%, ${baseCol} 0%, transparent 64%)`;
+    if (glowEl.dataset.appliedColor !== baseCol) {
+      glowEl.style.background = nextBg;
+      glowEl.dataset.appliedColor = baseCol;
+    }
+    glowEl.classList.remove("hidden");
+  } catch (err) {
+    state.ambilightTainted = true;
+    stopAmbilightLoop(true);
+    window.logDebug?.("AudioDsp", err);
   }
-  glowEl.classList.remove("hidden");
 }
 export function startAmbilightLoop() {
+  state.ambilightTainted = false;
   stopAmbilightLoop(false);
   if (!state.ambilightEnabled || !state.isPlayerOpen) return;
   sampleAmbilightFrame();
@@ -708,16 +889,24 @@ export function getVideoCropLabel(cropMode) {
   };
   return map[cropMode] || t("16:9 Стандарт", "16:9 Fit");
 }
-export function applyVideoCropToVideo(video, cropMode = state.videoCrop) {
+export function applyVideoCropToVideo(video, cropMode = state.videoCrop, opts = {}) {
   const mode = ["contain", "cover", "zoom115", "fill"].includes(cropMode) ? cropMode : "contain";
   state.videoCrop = mode;
   const sel = document.getElementById("select-video-crop");
-  if (sel) sel.value = mode;
+  if (sel && sel.value !== mode) {
+    sel.value = mode;
+    syncCustomSelect(sel);
+  }
   document.getElementById("video-crop-group")?.classList.toggle("crop-active", mode !== "contain");
-  updatePlayerGearActiveDot();
+  if (!opts.skipGearSync) {
+    updatePlayerGearActiveDot();
+  }
   if (!video) return;
-  video.classList.remove("crop-contain", "crop-cover", "crop-zoom115", "crop-fill");
-  video.classList.add(`crop-${mode}`);
+  const targetCls = `crop-${mode}`;
+  if (!video.classList.contains(targetCls)) {
+    video.classList.remove("crop-contain", "crop-cover", "crop-zoom115", "crop-fill");
+    video.classList.add(targetCls);
+  }
 }
 export function ensurePreservesPitch(video) {
   if (!video) return;
@@ -742,10 +931,17 @@ export function applySavedPlayerPrefsToVideo(video) {
   const speedSel = document.getElementById("select-speed");
   if (speedSel) {
     speedSel.value = String(prefs.playbackRate);
+    syncCustomSelect(speedSel);
   }
-  applyAudioBoostToVideo(video, prefs.audioBoost, prefs.audioPreset);
-  applyVideoCropToVideo(video, prefs.videoCrop);
-  applySubtitleStylePrefs(prefs.subSize, prefs.subBg);
+  applyAudioBoostToVideo(video, prefs.audioBoost, prefs.audioPreset, { skipGearSync: true });
+  applyVideoCropToVideo(video, prefs.videoCrop, { skipGearSync: true });
+  applySubtitleStylePrefs(prefs.subSize, prefs.subBg, prefs.subFont, prefs.subColor, prefs.subEdge, { skipGearSync: true });
+  updatePlayerGearActiveDot();
+  if (typeof prefs.showXrayOnPause === "boolean") {
+    state.showXrayOnPause = prefs.showXrayOnPause;
+    const xrayPauseToggle = document.getElementById("xray-on-pause-toggle");
+    if (xrayPauseToggle) xrayPauseToggle.checked = Boolean(prefs.showXrayOnPause);
+  }
   syncCustomVideoControlsUI(true);
 }
 export function pickBestQualityKey(qualitiesMap, preferredQuality, serverDefault) {
@@ -766,10 +962,14 @@ export function pickPreferredSubtitleIndex(subtitles, preferredLang) {
     return -1;
   }
   const target = preferredLang.trim().toLowerCase();
-  const exactIdx = subtitles.findIndex((s) => String(s.lang || "").trim().toLowerCase() === target);
+  const isAutoSafe = (s) => Boolean(s && !s.isP2pWindowedEmbedded);
+  const exactIdx = subtitles.findIndex(
+    (s) => isAutoSafe(s) && String(s.lang || "").trim().toLowerCase() === target
+  );
   if (exactIdx >= 0) return exactIdx;
   if (target === "ru" || target.includes("рус") || target.includes("russian")) {
     const ruIdx = subtitles.findIndex((s) => {
+      if (!isAutoSafe(s)) return false;
       const l = String(s.lang || "").toLowerCase();
       return l.includes("рус") || l.includes("russian");
     });
@@ -777,6 +977,7 @@ export function pickPreferredSubtitleIndex(subtitles, preferredLang) {
   }
   if (target === "en" || target.includes("англ") || target.includes("eng")) {
     const enIdx = subtitles.findIndex((s) => {
+      if (!isAutoSafe(s)) return false;
       const l = String(s.lang || "").toLowerCase();
       return l.includes("англ") || l.includes("eng");
     });
@@ -786,14 +987,15 @@ export function pickPreferredSubtitleIndex(subtitles, preferredLang) {
 }
 export function isVideoInPiP(videoEl = document.getElementById("native-video")) {
   if (!videoEl) return false;
-  if (document.pictureInPictureElement && document.pictureInPictureElement === videoEl) {
-    return true;
+  if ("pictureInPictureElement" in document) {
+    return (
+      document.pictureInPictureElement === videoEl ||
+      (typeof videoEl.webkitPresentationMode === "string" &&
+        videoEl.webkitPresentationMode === "picture-in-picture")
+    );
   }
-  if (
-    typeof videoEl.webkitPresentationMode === "string" &&
-    videoEl.webkitPresentationMode === "picture-in-picture"
-  ) {
-    return true;
+  if (typeof videoEl.webkitPresentationMode === "string") {
+    return videoEl.webkitPresentationMode === "picture-in-picture";
   }
   try {
     if (typeof videoEl.matches === "function" && videoEl.matches(":picture-in-picture")) {

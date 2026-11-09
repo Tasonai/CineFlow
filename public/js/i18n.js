@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
 
 export function isEn() {
   return state.appLang === "en";
@@ -10,15 +10,45 @@ export function t(ruText, enText) {
 
 export function displayTitle(item) {
   if (!item) return "";
-  if (state.appLang === "en") {
-    const explicitEn = String(item.title_en || "").trim();
-    if (explicitEn && !hasCyrillicText(explicitEn)) return explicitEn;
-    const orig = String(item.orig_title || "").trim();
-    if (orig && !hasCyrillicText(orig)) return orig;
-    const fallbackRaw = orig || String(item.title || "").trim();
-    return hasCyrillicText(fallbackRaw) ? transliterateRuToEn(fallbackRaw) : fallbackRaw;
+  const lang = state.appLang || "ru";
+  const rawT = item.title || "";
+  const rawO = item.orig_title || "";
+  const rawEn = item.title_en || "";
+  if (
+    typeof item === "object" &&
+    item._dtCacheLang === lang &&
+    item._dtCacheRawT === rawT &&
+    item._dtCacheRawO === rawO &&
+    item._dtCacheRawEn === rawEn &&
+    typeof item._dtCacheVal === "string"
+  ) {
+    return item._dtCacheVal;
   }
-  return String(item.title || item.orig_title || "");
+  let res = "";
+  if (lang === "en") {
+    const explicitEn = String(rawEn).trim();
+    if (explicitEn && !hasCyrillicText(explicitEn)) {
+      res = explicitEn;
+    } else {
+      const orig = String(rawO).trim();
+      if (orig && !hasCyrillicText(orig)) {
+        res = orig;
+      } else {
+        const fallbackRaw = orig || String(rawT).trim();
+        res = hasCyrillicText(fallbackRaw) ? transliterateRuToEn(fallbackRaw) : fallbackRaw;
+      }
+    }
+  } else {
+    res = formatRussianTypography(String(rawT || rawO || ""));
+  }
+  if (typeof item === "object") {
+    item._dtCacheLang = lang;
+    item._dtCacheRawT = rawT;
+    item._dtCacheRawO = rawO;
+    item._dtCacheRawEn = rawEn;
+    item._dtCacheVal = res;
+  }
+  return res;
 }
 
 export function secondaryTitle(item) {
@@ -40,6 +70,7 @@ const GENRE_RU_TO_EN = {
   шпионаж: "Spy",
   сатира: "Satire",
   "черная комедия": "Dark Comedy",
+  "чёрная комедия": "Dark Comedy",
   комедия: "Comedy",
   криминал: "Crime",
   детектив: "Mystery",
@@ -80,7 +111,7 @@ const GENRE_EN_TO_RU = {
   "mystery & thriller": "Триллер",
   spy: "Шпионаж",
   satire: "Сатира",
-  "dark comedy": "Черная комедия",
+  "dark comedy": "Чёрная комедия",
   comedy: "Комедия",
   crime: "Криминал",
   mystery: "Детектив",
@@ -214,6 +245,9 @@ const POLISH_POSTER_SLUGS = [
   "/reacher-",
 ];
 
+const _POLISH_POSTER_SLUG_RE =
+  /\/silos\.|\/wiedzmin|\/szogun|\/skazana|\/diuna-czesc|\/dzentelmeni|\/czas-krwawego|\/furiosa-saga|\/rozdzielenie|\/kulawe-konie|\/rod-smoka|\/rodzina-soprano|\/lalka-2026|\/lalka\.|\/pingwin|\/mroczna-materia|\/ostatni-z-nas|\/reacher-/i;
+
 export function isLocalizedNonEnImage(rawUrl) {
   const low = String(rawUrl || "").trim().toLowerCase();
   if (!low) return true;
@@ -221,7 +255,7 @@ export function isLocalizedNonEnImage(rawUrl) {
     low.includes("ru-images.kinorium.com") ||
     low.includes("kinopoisk") ||
     low.includes("rezka") ||
-    POLISH_POSTER_SLUGS.some((slug) => low.includes(slug))
+    _POLISH_POSTER_SLUG_RE.test(low)
   );
 }
 
@@ -229,9 +263,13 @@ export function hasCyrillicText(str) {
   return /[А-Яа-яЁёІіЇїЄєҐґ]/.test(String(str || ""));
 }
 
+const _translitCache = new Map();
+
 export function transliterateRuToEn(str) {
   const s = String(str || "");
   if (!hasCyrillicText(s)) return s;
+  const cached = _translitCache.get(s);
+  if (cached !== undefined) return cached;
   let out = "";
   for (let i = 0; i < s.length; i += 1) {
     const ch = s[i];
@@ -243,6 +281,8 @@ export function transliterateRuToEn(str) {
       out += ch;
     }
   }
+  if (_translitCache.size >= 1500) _translitCache.clear();
+  _translitCache.set(s, out);
   return out;
 }
 
@@ -293,6 +333,34 @@ export function translateKinoriumExtraInfoToEn(rawDesc) {
   return outChunks.filter(Boolean).join(" • ");
 }
 
+const _RU_TYPO_PREP_RE =
+  /(^|[\s«"(—–\u00A0])(в|во|на|с|со|к|ко|о|об|обо|у|и|а|но|да|или|за|из|от|по|до|не|ни|без|для|над|под|при|про)\s+/gi;
+const _RU_TYPO_PARTICLE_RE = /\s+(бы|б|же|ж|ли|ль)(?=[\s.,!?;:»")\]—–]|$)/gi;
+const _RU_TYPO_NUM_UNIT_RE =
+  /(\d+)\s+(год[аов]?|лет|г\.|клик|сери[ияй]|сезон[аов]?|сек(?:унд[ыа]?)?|мин(?:ут[ыа]?)?|ч(?:ас[аов]?)?|дн(?:я|ей|ень)|стран[ыа]?|фильм[аов]?|тайтл[аов]?|оцен[каиок]+|друз(?:ья|ей)|ГБ|МБ|ТБ|КБ|%)/gi;
+const _RU_TYPO_NO_RE = /№\s*(\d+)/g;
+const _RU_TYPO_4K_RE = /\b4K\s+(UHD|HDR|Remux)\b/g;
+const _RU_TYPO_DASH_RE = /\s+—/g;
+const _ruTypoCache = new Map();
+
+export function formatRussianTypography(rawText) {
+  const s = String(rawText || "");
+  if (!s) return "";
+  const cached = _ruTypoCache.get(s);
+  if (cached !== undefined) return cached;
+  const formatted = s
+    .replace(_RU_TYPO_PREP_RE, "$1$2\u00A0")
+    .replace(_RU_TYPO_PREP_RE, "$1$2\u00A0")
+    .replace(_RU_TYPO_PARTICLE_RE, "\u00A0$1")
+    .replace(_RU_TYPO_NUM_UNIT_RE, "$1\u00A0$2")
+    .replace(_RU_TYPO_NO_RE, "№\u00A0$1")
+    .replace(_RU_TYPO_4K_RE, "4K\u00A0$1")
+    .replace(_RU_TYPO_DASH_RE, "\u00A0—");
+  if (_ruTypoCache.size >= 1500) _ruTypoCache.clear();
+  _ruTypoCache.set(s, formatted);
+  return formatted;
+}
+
 export function displayDescription(item) {
   if (!item) return "";
   if (state.appLang === "en") {
@@ -300,7 +368,7 @@ export function displayDescription(item) {
     if (enDesc && !hasCyrillicText(enDesc)) return enDesc;
     return translateKinoriumExtraInfoToEn(item.description || "");
   }
-  return String(item.description || "");
+  return formatRussianTypography(item.description || "");
 }
 
 export function displayPoster(item) {
@@ -310,17 +378,23 @@ export function displayPoster(item) {
     return basePoster;
   }
   const explicitEn = String(item.poster_en || "").trim();
-  if (explicitEn && !explicitEn.includes("ru-images.kinorium.com")) {
-    return explicitEn;
-  }
   const itemId = String(item.id || "").trim();
-  const imdbId = String(item.imdb_id || (itemId.startsWith("tt") ? itemId : "") || "").trim();
   const kid = String(
     item.kinorium_id ||
       item.kinorium?.kinorium_id ||
       (itemId.startsWith("kin_") ? itemId.slice(4) : "") ||
       ""
   ).trim();
+  const pKey = `en|${basePoster}|${explicitEn}|${itemId}|${kid}`;
+  if (item._dispPosterKey === pKey && typeof item._dispPosterVal === "string") {
+    return item._dispPosterVal;
+  }
+  if (explicitEn && !explicitEn.includes("ru-images.kinorium.com")) {
+    item._dispPosterKey = pKey;
+    item._dispPosterVal = explicitEn;
+    return explicitEn;
+  }
+  const imdbId = String(item.imdb_id || (itemId.startsWith("tt") ? itemId : "") || "").trim();
 
   const lowPoster = basePoster.toLowerCase();
   const isLocalized =
@@ -328,21 +402,21 @@ export function displayPoster(item) {
     lowPoster.includes("ru-images.kinorium.com") ||
     lowPoster.includes("kinopoisk") ||
     lowPoster.includes("rezka") ||
-    POLISH_POSTER_SLUGS.some((slug) => lowPoster.includes(slug));
+    _POLISH_POSTER_SLUG_RE.test(lowPoster);
 
-  if (!isLocalized) {
-    return basePoster;
+  let outPoster = basePoster;
+  if (isLocalized) {
+    if (/^tt\d{5,10}$/.test(imdbId)) {
+      outPoster = `https://images.metahub.space/poster/medium/${imdbId}/img`;
+    } else if (/^\d+$/.test(kid)) {
+      outPoster = `https://en-images.kinorium.com/movie/600/${kid}.jpg`;
+    } else if (basePoster.includes("ru-images.kinorium.com/movie/")) {
+      outPoster = basePoster.replace("ru-images.kinorium.com/movie/", "en-images.kinorium.com/movie/");
+    }
   }
-  if (/^tt\d{5,10}$/.test(imdbId)) {
-    return `https://images.metahub.space/poster/medium/${imdbId}/img`;
-  }
-  if (/^\d+$/.test(kid)) {
-    return `https://en-images.kinorium.com/movie/600/${kid}.jpg`;
-  }
-  if (basePoster.includes("ru-images.kinorium.com/movie/")) {
-    return basePoster.replace("ru-images.kinorium.com/movie/", "en-images.kinorium.com/movie/");
-  }
-  return basePoster;
+  item._dispPosterKey = pKey;
+  item._dispPosterVal = outPoster;
+  return outPoster;
 }
 
 function isVerticalPosterLikeUrl(url, item) {
@@ -379,49 +453,57 @@ export function displayBackdrop(item) {
   const rawBackdrop = String(item.backdrop || "").trim();
   const explicitEn = String(item.backdrop_en || "").trim();
   const itemId = String(item.id || "").trim();
+  const bgKey = `${state.appLang || "ru"}|${rawBackdrop}|${explicitEn}|${itemId}|${item.poster || ""}`;
+  if (item._dispBackdropKey === bgKey && typeof item._dispBackdropVal === "string") {
+    return item._dispBackdropVal;
+  }
   const imdbId = String(item.imdb_id || (itemId.startsWith("tt") ? itemId : "") || "").trim();
   const metahubBg = /^tt\d{5,10}$/.test(imdbId)
     ? `https://images.metahub.space/background/medium/${imdbId}/img`
     : "";
 
+  let outBg = "";
   if (state.appLang !== "en") {
     if (rawBackdrop && !isVerticalPosterLikeUrl(rawBackdrop, item)) {
-      return rawBackdrop;
+      outBg = rawBackdrop;
+    } else if (explicitEn && !isVerticalPosterLikeUrl(explicitEn, item)) {
+      outBg = explicitEn;
+    } else if (metahubBg) {
+      outBg = metahubBg;
+    } else {
+      outBg = rawBackdrop || explicitEn || String(item.poster || "").trim();
     }
-    if (explicitEn && !isVerticalPosterLikeUrl(explicitEn, item)) {
-      return explicitEn;
-    }
-    if (metahubBg) {
-      return metahubBg;
-    }
-    return rawBackdrop || explicitEn || String(item.poster || "").trim();
+    item._dispBackdropKey = bgKey;
+    item._dispBackdropVal = outBg;
+    return outBg;
   }
 
   if (explicitEn && !isLocalizedNonEnImage(explicitEn) && !isVerticalPosterLikeUrl(explicitEn, item)) {
-    return explicitEn;
+    outBg = explicitEn;
+  } else if (rawBackdrop && !isLocalizedNonEnImage(rawBackdrop) && !isVerticalPosterLikeUrl(rawBackdrop, item)) {
+    outBg = rawBackdrop;
+  } else if (metahubBg) {
+    outBg = metahubBg;
+  } else if (explicitEn && !isLocalizedNonEnImage(explicitEn)) {
+    outBg = explicitEn;
+  } else if (rawBackdrop && !isLocalizedNonEnImage(rawBackdrop)) {
+    outBg = rawBackdrop;
+  } else {
+    const kid = String(
+      item.kinorium_id ||
+        item.kinorium?.kinorium_id ||
+        (itemId.startsWith("kin_") ? itemId.slice(4) : "") ||
+        ""
+    ).trim();
+    if (/^\d+$/.test(kid)) {
+      outBg = `https://en-images.kinorium.com/movie/1080/${kid}.jpg`;
+    } else {
+      outBg = displayPoster(item);
+    }
   }
-  if (rawBackdrop && !isLocalizedNonEnImage(rawBackdrop) && !isVerticalPosterLikeUrl(rawBackdrop, item)) {
-    return rawBackdrop;
-  }
-  if (metahubBg) {
-    return metahubBg;
-  }
-  if (explicitEn && !isLocalizedNonEnImage(explicitEn)) {
-    return explicitEn;
-  }
-  if (rawBackdrop && !isLocalizedNonEnImage(rawBackdrop)) {
-    return rawBackdrop;
-  }
-  const kid = String(
-    item.kinorium_id ||
-      item.kinorium?.kinorium_id ||
-      (itemId.startsWith("kin_") ? itemId.slice(4) : "") ||
-      ""
-  ).trim();
-  if (/^\d+$/.test(kid)) {
-    return `https://en-images.kinorium.com/movie/1080/${kid}.jpg`;
-  }
-  return displayPoster(item);
+  item._dispBackdropKey = bgKey;
+  item._dispBackdropVal = outBg;
+  return outBg;
 }
 
 const BUILTIN_ADDON_DESC_EN = {
@@ -489,6 +571,10 @@ export function getItemGenreEntries(item) {
   if (!item) return [];
   const baseGenres = Array.isArray(item.genres) ? item.genres : [];
   const enGenres = Array.isArray(item.genres_en) ? item.genres_en : [];
+  const cacheKey = `${state.appLang || "ru"}|${baseGenres.length}|${enGenres.length}|${baseGenres[0] || ""}|${enGenres[0] || ""}`;
+  if (item._genreEntriesCacheKey === cacheKey && Array.isArray(item._genreEntriesCacheVal)) {
+    return item._genreEntriesCacheVal;
+  }
   const hasRealBase = baseGenres.some((g) => {
     const low = String(g || "").trim().toLowerCase();
     return low && !GENERIC_GENRE_PLACEHOLDERS.has(low);
@@ -521,6 +607,8 @@ export function getItemGenreEntries(item) {
       label,
     });
   });
+  item._genreEntriesCacheKey = cacheKey;
+  item._genreEntriesCacheVal = entries;
   return entries;
 }
 
@@ -559,6 +647,10 @@ export function mergeIncomingItemGenres(item, payload) {
       item.countries = cleanCRu;
       updated = true;
     }
+  }
+  if (updated) {
+    item._genreEntriesCacheKey = "";
+    item._genreEntriesCacheVal = null;
   }
   return updated;
 }
@@ -713,9 +805,25 @@ const COUNTRY_RU_CANONICAL = {
   хорватия: "Хорватия",
 };
 
+const COUNTRY_RU_TO_EN_KEYS = Object.keys(COUNTRY_RU_TO_EN);
+
 export function displayCountries(item, streamData = null) {
   if (!item) return "";
   const en = state.appLang === "en";
+  if (!streamData) {
+    const cCacheKey = `${en ? "en" : "ru"}|${(item.countries || []).length}|${(item.countries_en || []).length}|${item.countries?.[0] || ""}|${item.countries_en?.[0] || ""}`;
+    if (item._dispCountriesKey === cCacheKey && typeof item._dispCountriesVal === "string") {
+      return item._dispCountriesVal;
+    }
+    const res = _computeDisplayCountries(item, null, en);
+    item._dispCountriesKey = cCacheKey;
+    item._dispCountriesVal = res;
+    return res;
+  }
+  return _computeDisplayCountries(item, streamData, en);
+}
+
+function _computeDisplayCountries(item, streamData, en) {
   const rawSources = en
     ? [streamData?.countries_en, item.countries_en, streamData?.countries, item.countries]
     : [streamData?.countries, item.countries, streamData?.countries_en, item.countries_en];
@@ -743,7 +851,7 @@ export function displayCountries(item, streamData = null) {
           extracted.push(tok);
           continue;
         }
-        for (const ruC of Object.keys(COUNTRY_RU_TO_EN)) {
+        for (const ruC of COUNTRY_RU_TO_EN_KEYS) {
           if (low.endsWith(` ${ruC}`)) {
             extracted.push(ruC);
             break;
@@ -773,10 +881,14 @@ export function displayCountries(item, streamData = null) {
   return out.slice(0, 3).join(", ");
 }
 
+const _studioTransCache = new Map();
+
 export function translateStudioName(name) {
   const raw = String(name || "").trim();
   if (!raw || state.appLang !== "en") return raw;
-  return raw
+  const cached = _studioTransCache.get(raw);
+  if (cached !== undefined) return cached;
+  const translated = raw
     .replace(/Оригинал\s*\(\+субтитры\)/gi, "Original (+subtitles)")
     .replace(/Оригинальная\s+дорожка/gi, "Original Audio")
     .replace(/^Оригинал$/i, "Original")
@@ -806,11 +918,21 @@ export function translateStudioName(name) {
     .replace(/Английский|Английская/gi, "English")
     .replace(/Українська|Украинский|Украинская/gi, "Ukrainian")
     .replace(/Укр\./gi, "UA");
+  if (_studioTransCache.size >= 500) _studioTransCache.clear();
+  _studioTransCache.set(raw, translated);
+  return translated;
 }
 
 export function translateCareer(careerText) {
   const raw = String(careerText || "").trim();
-  if (!raw || state.appLang !== "en") return raw;
+  if (!raw) return raw;
+  if (state.appLang !== "en") {
+    return raw
+      .replace(/Режиссер/g, "Режиссёр")
+      .replace(/режиссер/g, "режиссёр")
+      .replace(/Актер/g, "Актёр")
+      .replace(/актер/g, "актёр");
+  }
   return raw
     .replace(/Режисс[её]ры?/gi, "Director")
     .replace(/Акт[её]ры?/gi, "Actor")
@@ -822,14 +944,31 @@ export function translateCareer(careerText) {
     .replace(/Персона/gi, "Person");
 }
 
+const _SIMPLE_ID_SEL_RE = /^#[A-Za-z0-9_-]+$/;
+
 function setElText(sel, ru, en) {
-  const el = document.querySelector(sel);
-  if (el) el.textContent = state.appLang === "en" ? en : ru;
+  const el = _SIMPLE_ID_SEL_RE.test(sel)
+    ? document.getElementById(sel.slice(1))
+    : document.querySelector(sel);
+  if (el) {
+    const val =
+      state.appLang === "en" ? en : ru && ru.length >= 16 ? formatRussianTypography(ru) : ru;
+    if (el.textContent !== val) {
+      el.textContent = val;
+    }
+  }
 }
 
 function setElAttr(sel, attr, ru, en) {
-  const el = document.querySelector(sel);
-  if (el) el.setAttribute(attr, state.appLang === "en" ? en : ru);
+  const el = _SIMPLE_ID_SEL_RE.test(sel)
+    ? document.getElementById(sel.slice(1))
+    : document.querySelector(sel);
+  if (el) {
+    const val = state.appLang === "en" ? en : ru;
+    if (el.getAttribute(attr) !== val) {
+      el.setAttribute(attr, val);
+    }
+  }
 }
 
 export function syncLanguageSegmentedControlUI() {
@@ -848,13 +987,26 @@ export function syncLanguageSegmentedControlUI() {
   }
 }
 
-export function applyStaticDomTranslations() {
+let _lastAppliedStaticDomLang = "";
+
+export function applyStaticDomTranslations(force = false) {
   const en = state.appLang === "en";
+  const targetLang = en ? "en" : "ru";
   if (typeof document === "undefined") return;
-  document.documentElement.lang = en ? "en" : "ru";
+  document.documentElement.lang = targetLang;
+  if (!force && _lastAppliedStaticDomLang === targetLang) {
+    const gearAudioValEl = document.getElementById("gear-audio-offset-val");
+    if (gearAudioValEl) {
+      const aOff = Math.round((Number(state.audioOffsetSec) || 0) * 100) / 100;
+      const aSign = aOff > 0.004 ? "+" : aOff < -0.004 ? "−" : "";
+      gearAudioValEl.textContent = `${aSign}${Math.abs(aOff).toFixed(2)} ${en ? "s" : "с"}`;
+    }
+    return;
+  }
+  _lastAppliedStaticDomLang = targetLang;
 
   // Top Header & Navigation
-  setElAttr("#brand-home", "aria-label", "CineFlow — на главную", "CineFlow — back to Home");
+  setElAttr("#brand-home", "aria-label", "Velarium — на главную", "Velarium — back to Home");
   setElText('#media-type-bar .type-pill[data-type="all"]', "Все", "All");
   setElText('#media-type-bar .type-pill[data-type="movie"]', "Фильмы", "Movies");
   setElText('#media-type-bar .type-pill[data-type="series"]', "Сериалы", "Series");
@@ -863,9 +1015,9 @@ export function applyStaticDomTranslations() {
   setElText('#offline-banner-sub', "Нет подключения к сети. Доступны скачанные фильмы и серии для просмотра без интернета.", "No network connection. Downloaded movies and series are available for offline playback.");
   setElText('#btn-offline-banner-view', "Скачанные файлы", "Downloaded Files");
   setElText('#btn-offline-banner-retry', "Повторить подключение", "Retry Connection");
-  setElText('#provider-filter-bar .atv-pill[data-provider="all"]', "Главная", "Home");
+  setElText('#provider-filter-bar .atv-pill[data-provider="all"]', "Все источники", "All Sources");
 
-  setElAttr("#global-search", "placeholder", "Поиск фильмов, сериалов и актёров...", "Search movies, series & actors...");
+  setElAttr("#global-search", "placeholder", "Поиск...", "Search...");
   const isMacPlatform =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad|iPod/i.test(String(navigator.platform || navigator.userAgent || ""));
@@ -901,11 +1053,11 @@ export function applyStaticDomTranslations() {
   // Kinorium Sections Bar (preserve count badges)
   const ksecLabels = {
     all: en ? "All Catalog" : "Весь каталог",
-    premieres: en ? "Online Premieres " : "Премьеры онлайн ",
+    premieres: en ? "Premieres " : "Премьеры ",
     watching: en ? "Watching " : "Смотрю ",
     watchlist: en ? "Watchlist " : "Буду смотреть ",
     watched: en ? "Watched " : "Просмотрено ",
-    never: en ? "Not Interested " : "Не буду смотреть ",
+    never: en ? "Hidden " : "Скрытые ",
   };
   document.querySelectorAll("#kinorium-sections-bar .kin-sec-pill").forEach((pill) => {
     const ksec = pill.dataset.ksec;
@@ -924,7 +1076,7 @@ export function applyStaticDomTranslations() {
 
   // Sort & Filters Bar
   setElAttr("#select-catalog-sort", "title", "Сортировка каталога", "Sort catalog");
-  setElText('#select-catalog-sort option[value="default"]', "Сортировка: По умолчанию", "Sort: Default");
+  setElText('#select-catalog-sort option[value="default"]', "По умолчанию", "Default sort");
   setElText('#select-catalog-sort option[value="user_rating"]', "По моей оценке (10 - 1)", "My Rating (10 - 1)");
   setElText('#select-catalog-sort option[value="friends_rating"]', "По оценкам друзей (10 - 1)", "Friends' Ratings (10 - 1)");
   setElText('#select-catalog-sort option[value="kinorium_rating"]', "По рейтингу Кинориума", "Kinorium Rating");
@@ -951,7 +1103,7 @@ export function applyStaticDomTranslations() {
   setElText("#btn-clear-catalog-filters > span", "Сбросить", "Reset");
 
   // Shelves Headings
-  setElText("#continue-watching-section .atv-section-header h2", "Новые серии и продолжить просмотр", "New Episodes & Continue Watching");
+  setElText("#continue-watching-section .atv-section-header h2", "Продолжить просмотр", "Continue Watching");
   setElText("#release-calendar-shelf-heading", "Календарь новых серий", "New Episodes Schedule");
   setElText("#series-heading", "Сериалы", "Series");
   setElText("#movies-heading", "Фильмы", "Movies");
@@ -1031,6 +1183,7 @@ export function applyStaticDomTranslations() {
   setElAttr("#btn-close-xray", "title", "Скрыть панель актёров", "Hide cast shelf");
   setElAttr("#btn-close-xray", "aria-label", "Скрыть панель актёров", "Hide cast shelf");
   setElText("#player-next-ep-toast .atv-next-ep-badge", "Следующая серия", "Next Episode");
+  setElText("#next-ep-bridge-badge", "Бесшовный мост", "Seamless Bridge");
   setElText("#btn-next-ep-now > span", "Смотреть", "Watch");
   setElAttr("#btn-next-ep-cancel", "title", "Отмена", "Cancel");
   setElAttr("#btn-next-ep-cancel", "aria-label", "Отмена", "Cancel");
@@ -1067,14 +1220,36 @@ export function applyStaticDomTranslations() {
   setElText('#select-video-crop option[value="zoom115"]', "Масштаб 115%", "Zoom 115%");
   setElText('#select-video-crop option[value="fill"]', "Растянуть", "Stretch");
 
-  setElText("#sub-size-group > span", "Размер субтитров", "Subtitle Size");
+  setElText("#gear-sub-sync-summary", "Субтитры и синхронизация", "Subtitles & Sync");
+  setElText("#sub-size-group > span", "Размер", "Size");
   setElAttr("#select-sub-size", "title", "Размер шрифта субтитров", "Subtitle font size");
   setElText('#select-sub-size option[value="small"]', "Мелкие", "Small");
   setElText('#select-sub-size option[value="medium"]', "Средние", "Medium");
   setElText('#select-sub-size option[value="large"]', "Крупные", "Large");
   setElText('#select-sub-size option[value="xlarge"]', "Огромные", "Extra Large");
 
-  setElText("#sub-bg-group > span", "Фон субтитров", "Subtitle Background");
+  setElText("#sub-font-group > span", "Шрифт", "Font");
+  setElAttr("#select-sub-font", "title", "Гарнитура шрифта субтитров", "Subtitle font family");
+  setElText('#select-sub-font option[value="sans"]', "SF Pro (Без засечек)", "SF Pro (Sans-serif)");
+  setElText('#select-sub-font option[value="serif"]', "Кинотеатральный (С засечками)", "Cinema (Serif)");
+  setElText('#select-sub-font option[value="mono"]', "Моноширинный", "Monospace");
+  setElText('#select-sub-font option[value="rounded"]', "Мягкий скруглённый", "Rounded");
+
+  setElText("#sub-color-group > span", "Цвет", "Color");
+  setElAttr("#select-sub-color", "title", "Цвет текста субтитров", "Subtitle text color");
+  setElText('#select-sub-color option[value="white"]', "Классический белый", "Classic White");
+  setElText('#select-sub-color option[value="yellow"]', "Кинотеатральный жёлтый", "Cinema Yellow");
+  setElText('#select-sub-color option[value="green"]', "Светло-зелёный", "Soft Green");
+  setElText('#select-sub-color option[value="cyan"]', "Небесно-голубой", "Sky Cyan");
+
+  setElText("#sub-edge-group > span", "Контур", "Outline");
+  setElAttr("#select-sub-edge", "title", "Контур и тень субтитров", "Subtitle outline & shadow");
+  setElText('#select-sub-edge option[value="soft"]', "Мягкая тень", "Soft Shadow");
+  setElText('#select-sub-edge option[value="outline"]', "Чёткий контур", "Crisp Outline");
+  setElText('#select-sub-edge option[value="heavy"]', "Глубокая тень", "Heavy Drop Shadow");
+  setElText('#select-sub-edge option[value="none"]', "Без тени", "No Shadow");
+
+  setElText("#sub-bg-group > span", "Фон", "Background");
   setElAttr("#select-sub-bg", "title", "Оформление подложки субтитров", "Subtitle background style");
   setElText('#select-sub-bg option[value="semi"]', "Полупрозрачный", "Semi-transparent");
   setElText('#select-sub-bg option[value="solid"]', "Тёмный фон", "Solid Dark");
@@ -1089,6 +1264,24 @@ export function applyStaticDomTranslations() {
   setElText('#select-sleep-timer option[value="60"]', "60 минут", "60 minutes");
   setElText('#select-sleep-timer option[value="episode_end"]', "Конец серии", "End of episode");
 
+  setElText("#xray-tab-cast", "Актёры", "Cast");
+  setElText("#xray-tab-soundtrack", "Саундтрек", "Soundtrack");
+  setElText("#xray-tab-trivia", "Факты и пасхалки", "Trivia & Facts");
+  setElText("#gear-seamless-bridge-label", "Бесшовный мост (мгновенный переход)", "Seamless Binge Bridge");
+  setElText("#gear-xray-pause-label", "X-Ray при паузе", "X-Ray on pause");
+  setElAttr("#xray-compact-pill", "aria-label", "Развернуть X-Ray (X)", "Expand X-Ray (X)");
+  setElAttr("#xray-compact-pill", "title", "Развернуть X-Ray: актёры, музыка и факты (X)", "Expand X-Ray: cast, music & trivia (X)");
+  setElAttr("#btn-close-xray", "aria-label", "Скрыть панель X-Ray", "Hide X-Ray panel");
+  setElAttr("#btn-close-xray", "title", "Скрыть панель X-Ray", "Hide X-Ray panel");
+  setElAttr("#xray-scroll-prev", "aria-label", "Прокрутить влево", "Scroll left");
+  setElAttr("#xray-scroll-prev", "title", "Прокрутить влево (←)", "Scroll left (←)");
+  setElAttr("#xray-scroll-next", "aria-label", "Прокрутить вправо", "Scroll right");
+  setElAttr("#xray-scroll-next", "title", "Прокрутить вправо (→)", "Scroll right (→)");
+  setElAttr("#xray-tab-cast", "title", "Актёры (1)", "Cast (1)");
+  setElAttr("#xray-tab-soundtrack", "title", "Саундтрек (2)", "Soundtrack (2)");
+  setElAttr("#xray-tab-trivia", "title", "Факты и пасхалки (3)", "Trivia & Facts (3)");
+  setElAttr("#vc-btn-xray", "title", "X-Ray: актёры в кадре, саундтрек и факты (X)", "X-Ray: cast in scene, soundtrack & trivia (X)");
+  setElAttr("#vc-btn-xray", "aria-label", "X-Ray: актёры в кадре, саундтрек и факты", "X-Ray: cast in scene, soundtrack & trivia");
   setElAttr("#btn-open-roulette-modal", "title", "Что посмотреть: рулетка и подбор по настроению", "What to watch: movie roulette and mood picker");
   setElAttr("#vc-btn-bookmark", "title", "Сохранить момент в закладки (Shift+M)", "Bookmark moment (Shift+M)");
   setElText("#roulette-modal-title", "Что посмотреть сегодня", "What to watch today");
@@ -1157,17 +1350,17 @@ export function applyStaticDomTranslations() {
   const nextToggleLbl = document.querySelector("#auto-next-ep-toggle")?.closest("label")?.querySelector(".atv-gear-toggle-label");
   if (nextToggleLbl) nextToggleLbl.textContent = en ? "Auto-play next episode" : "Автопереход на следующую серию";
 
-  setElText("#btn-screenshot > span", "Снимок кадра (.png)", "Save Frame (.png)");
+  setElText("#btn-screenshot > span", "Снимок кадра", "Snapshot");
   setElAttr("#btn-screenshot", "title", "Сохранить снимок текущего кадра в полном разрешении (.png · клавиша S)", "Save full-resolution frame snapshot (.png · key S)");
-  setElText("#btn-download-stream > span", "Скачать (.mp4)", "Download (.mp4)");
+  setElText("#btn-download-stream > span", "Файл .mp4", "File .mp4");
   setElAttr("#btn-download-stream", "title", "Скачать текущий поток (.mp4) в 1080p на устройство", "Download current 1080p stream (.mp4)");
   setElAttr("#btn-download-offline", "title", "Сохранить с озвучкой и субтитрами для просмотра без интернета", "Save with audio & subtitles for offline playback");
   setElText("#gear-hotkeys-box .atv-gear-hotkeys-title", "Горячие клавиши плеера:", "Keyboard Shortcuts:");
   const hkHint = document.querySelector("#gear-hotkeys-box .atv-hotkeys-hint");
   if (hkHint) {
     hkHint.innerHTML = en
-      ? `<code>Space / K</code> play/pause · <code>F</code> fullscreen · <code>← / →</code> ±10 seconds · <code>↑ / ↓</code> volume · <code>B</code> audio boost · <code>E</code> sound mode · <code>C</code> crop · <code>A</code> ambilight · <code>S</code> snapshot · <code>N / P</code> next/previous episode · <code>I</code> picture-in-picture`
-      : `<code>Пробел / K</code> пауза · <code>F</code> полный экран · <code>← / →</code> ±10 секунд · <code>↑ / ↓</code> громкость · <code>B</code> усиление звука · <code>E</code> эквалайзер · <code>C</code> формат кадра · <code>A</code> подсветка · <code>S</code> снимок кадра · <code>N / P</code> следующая или предыдущая серия · <code>I</code> картинка в картинке`;
+      ? `<code>Space / K</code> play/pause · <code>F</code> fullscreen · <code>← / →</code> ±10 seconds · <code>↑ / ↓</code> volume · <code>X</code> X-Ray · <code>B</code> audio boost · <code>E</code> sound mode · <code>C</code> crop · <code>A</code> ambilight · <code>S</code> snapshot · <code>N / P</code> next/previous episode · <code>I</code> picture-in-picture`
+      : `<code>Пробел / K</code> пауза · <code>F</code> полный экран · <code>← / →</code> ±10 секунд · <code>↑ / ↓</code> громкость · <code>X</code> X-Ray · <code>B</code> усиление звука · <code>E</code> эквалайзер · <code>C</code> формат кадра · <code>A</code> подсветка · <code>S</code> снимок кадра · <code>N / P</code> следующая или предыдущая серия · <code>I</code> картинка в картинке`;
   }
 
   // Video Control Bar Tooltips & Default Labels
@@ -1195,7 +1388,7 @@ export function applyStaticDomTranslations() {
     loaderTxtEl.textContent = en ? "Loading stream..." : "Загрузка потока...";
   }
   setElAttr("#vc-btn-quality", "title", "Качество потока", "Stream quality");
-  setElAttr("#btn-player-gear", "title", "Настройки плеера: скорость, звук, формат кадра, таймер сна, снимок и скачать (G)", "Player settings: speed, sound, crop, sleep timer, snapshot & download (G)");
+  setElAttr("#btn-player-gear", "title", "Настройки плеера (G)", "Player settings (G)");
   setElAttr("#vc-btn-pip", "title", "Картинка в картинке (I)", "Picture-in-Picture (I)");
   setElAttr("#vc-btn-fs", "title", "Во весь экран (F)", "Fullscreen (F)");
 
@@ -1210,6 +1403,7 @@ export function applyStaticDomTranslations() {
   setElAttr("#btn-ep-view-strip", "title", "Компактные номера серий с подсказкой при наведении", "Compact episode numbers with hover preview");
   setElText("#btn-ep-view-grid", "Карточки", "Cards");
   setElAttr("#btn-ep-view-grid", "title", "Карточки серий с названиями и датами выхода", "Episode cards with titles & air dates");
+  setElText("#lbl-ep-batch-summary", "Действия с сезоном", "Season Actions");
   setElText("#lbl-dl-batch-3", "3 серии офлайн", "3 Episodes Offline");
   setElAttr("#btn-dl-batch-3", "title", "Скачать офлайн текущую и две следующие серии сезона", "Download current and next 2 episodes offline");
   setElText("#lbl-dl-batch-season", "Сезон офлайн", "Season Offline");
@@ -1233,7 +1427,7 @@ export function applyStaticDomTranslations() {
   // Right Info Sidebar
   setElText("#meta-label-critics", "Критики", "Critics");
   setElText("#meta-cast-section .atv-cast-below-head :is(h3, h4) > span", "Режиссёр и актёры", "Director & Cast");
-  setElText("#sidebar-providers-section > :is(h3, h4)", "Где смотреть", "Where to Watch");
+  setElText("#sidebar-providers-section :is(h3, h4, summary)", "Где смотреть", "Where to Watch");
   setElText("#sidebar-friends-section > :is(h3, h4)", "Оценки друзей", "Friends' Ratings");
   setElText("#modal-similar-section > :is(h3, h4)", "Похожие фильмы и сериалы", "Similar Movies & Series");
 
@@ -1245,13 +1439,13 @@ export function applyStaticDomTranslations() {
   setElText("#qp-friends-wrap .atv-qp-sublabel", "Оценки друзей", "Friends' Ratings");
   setElText("#qp-cast-wrap .atv-qp-sublabel", "Режиссёр и в ролях", "Director & Cast");
   setElText("#qp-similar-wrap .atv-qp-similar-title", "Похожие фильмы и сериалы", "Similar Movies & Series");
-  setElText("#qp-clear-rate-btn", "Сбросить оценку", "Clear rating");
+  setElText("#qp-clear-rate-btn", "Сбросить", "Clear");
   setElAttr("#qp-clear-rate-btn", "title", "Удалить мою оценку в Kinorium", "Remove my Kinorium rating");
   setElText("#qp-btn-watching > span", "Смотрю", "Watching");
   setElText("#qp-btn-watchlist > span", "Буду смотреть", "Watchlist");
   setElText("#qp-btn-watched > span", "Просмотрено", "Watched");
-  setElText("#qp-btn-never > span", "Не буду смотреть", "Not Interested");
-  setElText("#qp-btn-play > span", "Смотреть (HDRezka)", "Watch (HDRezka)");
+  setElText("#qp-btn-never > span", "Не смотрю", "Not Interested");
+  setElText("#qp-btn-play > span", "Смотреть", "Watch");
   setElText("#qp-btn-trailer > span", "Трейлер", "Trailer");
 
   // Stats & History Modal
@@ -1336,7 +1530,7 @@ export function applyStaticDomTranslations() {
   setElAttr("#btn-copy-backup-clipboard", "title", "Скопировать JSON резервной копии в буфер обмена", "Copy backup JSON to clipboard");
   setElText("#btn-paste-backup-clipboard > span", "Вставить", "Paste");
   setElAttr("#btn-paste-backup-clipboard", "title", "Восстановить резервную копию из буфера обмена", "Restore backup JSON from clipboard");
-  setElText("#settings-dirty-hint", "Есть несохраненные изменения", "Unsaved changes");
+  setElText("#settings-dirty-hint", "Есть несохранённые изменения", "Unsaved changes");
   setElText("#reset-settings-btn", "Сбросить", "Reset");
   setElText("#save-settings-btn", "Сохранить изменения", "Save Changes");
 
@@ -1344,8 +1538,99 @@ export function applyStaticDomTranslations() {
   setElText("#about-app-tagline", "Персональный домашний кинотеатр", "Personal Home Cinema");
   setElText(
     "#about-desc-lead",
-    "Единый локальный онлайн-кинотеатр с синхронизацией списков и оценок Kinorium, потоками 1080p и 4K HDR, поддержкой аддонов Stremio и живым ремуксом звука в домашней сети. Посвящается всем голд дигерам.",
-    "Unified local home cinema with Kinorium list and rating sync, 1080p and 4K HDR streams, Stremio addons, and live audio remuxing on your home network. Dedicated to all gold diggers."
+    "Velarium — персональный домашний онлайн-кинотеатр для macOS, Windows и домашней сети. Объединяет в одном окне проекты Netflix, Apple TV+, HBO, Prime Video, Disney+ и мирового проката вплоть до 4K Dolby Vision / HDR, двустороннюю синхронизацию с Kinorium, защиту по стране проживания и управление со смартфона или ТВ без рекламы и подписок. Посвящается всем голд дигерам.",
+    "Velarium is a personal home cinema for macOS, Windows, and your local network. It brings together Netflix, Apple TV+, HBO, Prime Video, Disney+, and global cinema in up to 4K Dolby Vision / HDR, two-way Kinorium sync, country-aware privacy protection, and smartphone or Smart TV control — completely ad-free. Dedicated to all gold diggers."
+  );
+  setElText("#about-features-heading", "Главные возможности приложения", "Key Capabilities");
+  setElText(
+    "#about-feat-1-title",
+    "Все стриминги в одном плеере (HDRezka, 4K Торрент и Stremio)",
+    "All Streaming Originals in One Player (HDRezka, 4K Torrent & Stremio)"
+  );
+  setElText(
+    "#about-feat-1-desc",
+    "Мгновенный просмотр фильмов и сериалов Netflix, Apple TV+, HBO / Max, Prime Video, Disney+ и мировых студий в 1080p и 4K UHD HDR / Dolby Vision через встроенный TorrServer (буферизация в оперативной памяти без износа SSD), аддоны Stremio и облачные ускорители Real-Debrid / TorBox.",
+    "Watch movies and series from Netflix, Apple TV+, HBO / Max, Prime Video, Disney+, and global studios in 1080p and 4K UHD HDR / Dolby Vision via a built-in RAM-buffered TorrServer, Stremio addons, and Real-Debrid / TorBox cloud caching."
+  );
+  setElText(
+    "#about-feat-2-title",
+    "Приватность без сбора паролей (вход по Cookie и локальное шифрование)",
+    "Zero Password Collection (Cookie-Only Auth & Local Vault Encryption)"
+  );
+  setElText(
+    "#about-feat-2-desc",
+    "Приложение никогда не запрашивает, не видит и не хранит ваши пароли: авторизация в Kinorium проходит напрямую в браузере, а для синхронизации используются только сессионные Cookie, зашифрованные локально на вашем устройстве без отправки данных на сторонние серверы.",
+    "Velarium never asks for, sees, or stores your passwords: sign-in happens directly in your browser, using only session Cookies encrypted locally on your device with zero external telemetry."
+  );
+  setElText(
+    "#about-feat-3-title",
+    "Защита по стране локализации (50 стран Европы) и обход блокировок без VPN",
+    "Country-Aware Privacy Protection (50 European Countries) & Built-In Geo-Bypass"
+  );
+  setElText(
+    "#about-feat-3-desc",
+    "Автоматические профили безопасности под выбранную страну: в странах со штрафами за торренты (Германия, Франция и другие) принудительно блокируется прямой P2P-обмен для защиты домашнего IP и используются только зашифрованные HTTPS-потоки, а блокировки провайдеров обходятся через встроенный DNS-over-HTTPS (DoH), локальный медиа-туннель, автопоиск зеркал и Cloudflare Worker / SOCKS5.",
+    "Automatic regional safety profiles: in strict copyright countries (such as Germany or France), direct P2P BitTorrent traffic is automatically blocked to protect your home IP in favor of encrypted HTTPS streams, while ISP blocks are bypassed via DNS-over-HTTPS (DoH), local media tunneling, mirror auto-discovery, and Cloudflare Worker / SOCKS5 support."
+  );
+  setElText(
+    "#about-feat-4-title",
+    "Двусторонняя синхронизация с Kinorium (до 2 аккаунтов)",
+    "Two-Way Kinorium Sync (Up to 2 Accounts)"
+  );
+  setElText(
+    "#about-feat-4-desc",
+    "Автоматическая отметка «Смотрю» (с 10%), «Просмотрено» (с 95% или на финальных титрах), выставление оценок 1–10, синхронизация списков «Буду смотреть» и «Избранное», а также полная фильмография актёров и режиссёров.",
+    "Automatic scrobbling ('Watching' at 10%, 'Watched' at 95% or end credits), 1–10 ratings, watchlist and favorites sync, plus full actor and director filmographies."
+  );
+  setElText(
+    "#about-feat-5-title",
+    "Живой ремукс видео и студийная обработка звука (Audio DSP)",
+    "Live Video Remux & Studio Audio DSP"
+  );
+  setElText(
+    "#about-feat-5-desc",
+    "Потоковая перепаковка MKV / HEVC / DTS / AC3 на лету через FFmpeg с выбором любой аудиодорожки, коррекцией рассинхрона и 5 пресетами звука (Стандарт, Голос, Ночной, Кинозал, Усиление до 300%).",
+    "Zero-copy on-the-fly FFmpeg remuxing of MKV / HEVC / DTS / AC3 with multi-track audio switching, lip-sync offset, and 5 DSP presets (Standard, Voice, Night, Cinema, Boost up to 300%)."
+  );
+  setElText(
+    "#about-feat-6-title",
+    "Интерактивный X-Ray, автопропуск заставок и видеозакладки",
+    "Interactive X-Ray, Auto-Skip Intro & Frame Bookmarks"
+  );
+  setElText(
+    "#about-feat-6-desc",
+    "Распознавание актёров, режиссёров, фактов о съёмках и саундтреков в текущей сцене с 30-секундным прослушиванием из iTunes, автопропуск интро и титров (TheIntroDB + главы MKV), а также таймкод-закладки со скриншотами кадра.",
+    "Scene-aware cast, director, trivia, and soundtrack recognition with 30-second iTunes previews, automatic intro/credits skipping (TheIntroDB + MKV chapters), and frame-captured video bookmarks."
+  );
+  setElText(
+    "#about-feat-7-title",
+    "Умные субтитры со словарём и переводом по клику",
+    "Smart Subtitles with Click-to-Translate Dictionary"
+  );
+  setElText(
+    "#about-feat-7-desc",
+    "Поддержка внешних и встроенных субтитров (SRT, VTT, ASS/SSA), мгновенный перевод слов и выражений по клику прямо в плеере, настройка оформления и синхронизация тайминга.",
+    "Embedded and external subtitles (SRT, VTT, ASS/SSA), instant word translation and dictionary lookup on click, custom styling, and timing sync."
+  );
+  setElText(
+    "#about-feat-8-title",
+    "Мобильный пульт (?remote=1), режим ТВ и трансляция на телевизор",
+    "Smartphone Remote (?remote=1), TV Mode & Big-Screen Casting"
+  );
+  setElText(
+    "#about-feat-8-desc",
+    "Управление со смартфона по QR-коду (тачпад в стиле Siri Remote, X-Ray, переключение дорожек и режимов звука), интерфейс для больших экранов (TV Mode), а также вывод на ТВ через AirPlay, DLNA / UPnP и браузер Smart TV.",
+    "QR-code phone controller with Siri Remote clickpad, live X-Ray and audio controls, 10-foot TV navigation, and 1-click casting via AirPlay, DLNA / UPnP, and Smart TV web link."
+  );
+  setElText(
+    "#about-feat-9-title",
+    "Офлайн-загрузки, семейные профили с PIN-кодом и синхронизация в сети",
+    "Offline Downloads, PIN Family Profiles & LAN Sync"
+  );
+  setElText(
+    "#about-feat-9-desc",
+    "Скачивание фильмов и целых сезонов в MP4 для просмотра без интернета, отдельные профили с детским режимом (Kids Mode), статистикой «Итоги кинозала» и обменом прогрессом между устройствами в домашней сети.",
+    "Single-episode and full-season MP4 offline downloads, family profiles with Kids Mode, Cinema Wrap analytics, and instant local network state sync."
   );
   setElText("#about-lbl-version", "Версия", "Version");
   setElText("#about-lbl-developer", "Разработчик", "Developer");
@@ -1368,8 +1653,8 @@ export function applyStaticDomTranslations() {
   // Onboarding Setup Wizard Modal
   setElText(
     "#ob-title",
-    state.onboardingIsFirstRun ? "Первичная настройка CineFlow" : "Мастер настройки CineFlow",
-    state.onboardingIsFirstRun ? "CineFlow Initial Setup" : "CineFlow Setup Wizard"
+    state.onboardingIsFirstRun ? "Первичная настройка Velarium" : "Мастер настройки Velarium",
+    state.onboardingIsFirstRun ? "Velarium Initial Setup" : "Velarium Setup Wizard"
   );
   setElText(
     "#ob-subtitle",
@@ -1550,15 +1835,28 @@ export function applyStaticDomTranslations() {
   );
   setElText(
     "#btn-download-offline > span",
-    "В дорогу (Офлайн)",
+    "В дорогу",
     "Save Offline"
   );
   setElText(
     "#btn-download-stream > span",
-    "Файл .mp4 на диск",
-    "Export .mp4 File"
+    "Файл .mp4",
+    "File .mp4"
   );
   setElText("#prof-menu-stats-lbl", "Статистика и история", "Stats & Watch History");
+  setElText("#prof-menu-bookmarks-lbl", "Заметки и закладки", "Notes & Bookmarks");
+  setElAttr(
+    "#btn-open-bookmarks-modal",
+    "title",
+    "Мои заметки и закладки к моментам",
+    "My notes and moment bookmarks"
+  );
+  setElAttr(
+    "#btn-open-bookmarks-modal",
+    "aria-label",
+    "Мои заметки и закладки",
+    "My Notes & Bookmarks"
+  );
   setElText("#prof-menu-dl-lbl", "Скачать в дорогу", "Offline Downloads");
   setElText("#prof-menu-remote-lbl", "Пульт с телефона", "Phone Remote");
   setElAttr(
@@ -1594,17 +1892,28 @@ export function applyStaticDomTranslations() {
     "Cast to TV"
   );
   setElAttr(
+    "#btn-gear-remote",
+    "title",
+    "Управлять воспроизведением со смартфона по Wi-Fi (QR-код)",
+    "Control playback from smartphone over Wi-Fi (QR code)"
+  );
+  setElText("#lbl-gear-remote-title", "Пульт с телефона", "Phone Remote");
+  setElText("#lbl-gear-remote-sub", "QR-код для управления", "QR control");
+  setElAttr(
     "#btn-player-handoff",
     "title",
-    "Продолжить на смартфоне или планшете (QR-код)",
-    "Continue on smartphone or tablet (QR code)"
+    "Продолжить просмотр на смартфоне с этой же секунды (QR-код)",
+    "Continue watching on smartphone from this moment (QR code)"
   );
   setElAttr(
     "#btn-player-handoff",
     "aria-label",
-    "Продолжить на смартфоне или планшете",
-    "Continue on smartphone or tablet"
+    "Смотреть на смартфоне",
+    "Watch on Phone"
   );
+  setElText("#lbl-player-handoff", "Смотреть на телефоне", "Watch on Phone");
+  setElText("#lbl-player-handoff-sub", "Бесшовный просмотр", "Seamless handoff");
+  setElText("#lbl-handoff-to-remote", "Нужен пульт управления? Открыть пульт", "Need remote control? Open phone remote");
 
   // Multi-Device Handoff Modal
   setElText("#handoff-modal-title", "Продолжить на смартфоне", "Continue on Smartphone");
@@ -1613,9 +1922,85 @@ export function applyStaticDomTranslations() {
     "Отсканируйте QR-код камерой смартфона в локальной сети Wi-Fi, чтобы продолжить просмотр с этой же секунды",
     "Scan the QR code with your smartphone camera on your local Wi-Fi to continue watching from the exact same second"
   );
-  setElText("#handoff-copy-btn-text", "Скопировать", "Copy");
+  setElText("#btn-handoff-copy-url > span", "Скопировать", "Copy");
+  setElAttr("#btn-handoff-copy-url", "title", "Скопировать ссылку", "Copy link");
+  setElAttr("#handoff-url-input", "aria-label", "Ссылка для открытия на устройстве", "Device handoff URL");
   setElAttr("#close-handoff-modal", "title", "Закрыть (Esc)", "Close (Esc)");
   setElAttr("#close-handoff-modal", "aria-label", "Закрыть", "Close");
+
+  // Subtitle Vocabulary Modal & In-Player Word Dictionary Popover
+  setElText("#vocab-modal-title", "Словарь субтитров", "Subtitle Vocabulary");
+  setElAttr("#btn-vocab-export-anki", "title", "Экспорт карточек для Anki (TSV)", "Export flashcards for Anki (TSV)");
+  setElText("#btn-vocab-export-anki > span", "Экспорт в Anki", "Export to Anki");
+  setElAttr("#btn-vocab-clear", "title", "Очистить словарь", "Clear vocabulary");
+  setElText("#btn-vocab-clear > span", "Очистить", "Clear");
+  setElAttr("#close-vocab-modal", "title", "Закрыть (Esc)", "Close (Esc)");
+  setElAttr("#close-vocab-modal", "aria-label", "Закрыть", "Close");
+  setElAttr(
+    "#vocab-search-input",
+    "placeholder",
+    "Поиск по сохранённым словам и переводам...",
+    "Search saved words and translations..."
+  );
+  setElAttr("#vocab-search-input", "aria-label", "Поиск по словарю", "Search vocabulary");
+  setElAttr("#atv-sub-dict-popover", "aria-label", "Перевод слова", "Word translation");
+  setElAttr(
+    "#btn-close-sub-dict",
+    "title",
+    "Закрыть и продолжить просмотр",
+    "Close and resume playback"
+  );
+  setElAttr(
+    "#btn-close-sub-dict",
+    "aria-label",
+    "Закрыть и продолжить просмотр",
+    "Close and resume playback"
+  );
+  setElAttr(
+    "#btn-sub-dict-save",
+    "title",
+    "Сохранить слово в личный словарь для изучения",
+    "Save word to personal vocabulary"
+  );
+  setElAttr(
+    "#btn-sub-dict-open-vocab",
+    "title",
+    "Открыть словарь и экспортировать карточки в Anki",
+    "Open vocabulary and export Anki flashcards"
+  );
+  setElText("#btn-sub-dict-open-vocab > span:first-child", "Словарь", "Vocabulary");
+
+  // Hybrid Official Stream Panel
+  setElAttr(
+    "#official-stream-panel .atv-official-mode-switch",
+    "aria-label",
+    "Режим воспроизведения стриминга",
+    "Streaming playback mode"
+  );
+  setElText(
+    "#btn-official-mode-native > span",
+    "Встроенный плеер Velarium",
+    "Velarium Native Player"
+  );
+  setElText(
+    "#btn-official-mode-embed > span",
+    "Официальный веб-плеер в рамке",
+    "Official Web Player in Frame"
+  );
+  setElAttr("#btn-official-embed-back", "title", "Назад", "Back");
+  setElAttr("#btn-official-embed-reload", "title", "Обновить", "Reload");
+
+  // LAN Sync Card in Settings
+  setElText("#lan-sync-title", "Синхронизация домашних устройств", "Home Device Sync");
+  setElText(
+    "#lan-sync-sub",
+    "Синхронизация истории и закладок с другими устройствами Velarium в сети Wi-Fi",
+    "Sync watch history and bookmarks with other Velarium devices on your Wi-Fi"
+  );
+  setElText("#btn-sync-lan-label", "Синхронизировать", "Sync Now");
+  setElText("#lan-sync-peers-title", "Найденные устройства:", "Discovered devices:");
+  setElText("#profiles-form-title", "Настройки профиля", "Profile Settings");
+  setElText("#btn-prof-kinorium-oneclick", "Войти в Kinorium в 1 клик", "1-Click Sign In to Kinorium");
   setElText(
     "#btn-ob-kinorium-one-click > span",
     "Войти в Kinorium в 1 клик (автоматически)",
@@ -1623,8 +2008,13 @@ export function applyStaticDomTranslations() {
   );
   setElText(
     "#ob-kinorium-one-click-hint",
-    "Откроется встроенное окно kinorium.com — войдите в аккаунт, сессия и ID сохранятся сами.",
-    "Opens a built-in kinorium.com sign-in window — session cookies & user ID are saved automatically."
+    "Откроется kinorium.com в вашем браузере — войдите в аккаунт, сессия и ID сохранятся сами.",
+    "Opens kinorium.com in your default browser — session cookies & user ID are saved automatically."
+  );
+  setElText(
+    "#ob-kinorium-manual-summary",
+    "Ввести ID профиля или Session Cookie вручную",
+    "Enter Profile ID or Session Cookie manually"
   );
 
   // Offline Downloads Modal
@@ -1634,6 +2024,54 @@ export function applyStaticDomTranslations() {
   setElText("#lbl-dl-auto-next", "Автозагрузка следующей серии", "Auto-download next episode");
   setElAttr("#close-downloads-modal", "title", "Закрыть (Esc)", "Close (Esc)");
   setElAttr("#close-downloads-modal", "aria-label", "Закрыть", "Close");
+
+  // Bookmarks & Notes Modal + In-Player Bookmark Dialog
+  setElAttr("#atv-bookmark-dialog", "aria-label", "Закладка с заметкой", "Bookmark with note");
+  setElText("#atv-bookmark-dialog .atv-bookmark-badge", "Закладка", "Bookmark");
+  setElAttr("#btn-close-bookmark-dialog", "title", "Закрыть", "Close");
+  setElAttr("#btn-close-bookmark-dialog", "aria-label", "Закрыть", "Close");
+  setElAttr(
+    "#bookmark-note-input",
+    "placeholder",
+    "Заметка к этому моменту (необязательно)...",
+    "Note for this moment (optional)..."
+  );
+  setElText("#btn-delete-bookmark", "Удалить", "Delete");
+  setElText("#btn-cancel-bookmark", "Отмена", "Cancel");
+  setElText("#btn-save-bookmark", "Сохранить", "Save");
+
+  setElText("#bookmarks-modal-title", "Мои заметки и закладки", "My Notes & Bookmarks");
+  setElText(
+    "#bookmarks-modal-summary",
+    "Сохранённые моменты фильмов и сериалов с персональными комментариями",
+    "Saved movie and series moments with personal notes"
+  );
+  setElAttr(
+    "#btn-export-bookmarks-md",
+    "title",
+    "Экспортировать все закладки в Markdown-файл",
+    "Export all bookmarks to a Markdown file"
+  );
+  setElText("#btn-export-bookmarks-md > span", "Экспорт в Markdown", "Export Markdown");
+  setElAttr("#close-bookmarks-modal", "title", "Закрыть (Esc)", "Close (Esc)");
+  setElAttr("#close-bookmarks-modal", "aria-label", "Закрыть", "Close");
+  setElAttr(
+    "#bookmarks-search-input",
+    "placeholder",
+    "Поиск по заметкам и фильмам...",
+    "Search notes and titles..."
+  );
+  setElAttr(
+    "#bookmarks-search-input",
+    "aria-label",
+    "Поиск по заметкам и фильмам",
+    "Search notes and titles"
+  );
+  setElAttr("#bookmarks-filter-pills", "aria-label", "Фильтр закладок", "Bookmark filter");
+  setElText('#bookmarks-filter-pills [data-bm-filter="all"]', "Все", "All");
+  setElText('#bookmarks-filter-pills [data-bm-filter="movie"]', "Фильмы", "Movies");
+  setElText('#bookmarks-filter-pills [data-bm-filter="series"]', "Сериалы", "Series");
+  setElText('#bookmarks-filter-pills [data-bm-filter="notes"]', "С заметками", "With Notes");
 
   // Phone Remote, TV Mode & Cast Modal
   setElText("#tv-cast-modal-title", "Пульт с телефона и Smart TV", "Phone Remote & Smart TV");
@@ -1647,8 +2085,8 @@ export function applyStaticDomTranslations() {
   setElText("#remote-qr-heading", "Отсканируйте QR-код камерой телефона", "Scan QR Code with Your Phone");
   setElText(
     "#remote-qr-desc",
-    "Телефон и компьютер должны быть в одной сети Wi-Fi. На телефоне откроется пульт управления CineFlow без установки приложений.",
-    "Make sure your phone and computer are on the same Wi-Fi network. Opens the CineFlow remote directly in your browser."
+    "Телефон и компьютер должны быть в одной сети Wi-Fi. На телефоне откроется пульт управления Velarium без установки приложений.",
+    "Make sure your phone and computer are on the same Wi-Fi network. Opens the Velarium remote directly in your browser."
   );
   setElText("#lbl-remote-copy-url", "Скопировать", "Copy");
   setElText("#remote-features-heading", "Возможности мобильного пульта", "Mobile Remote Capabilities");
@@ -1657,6 +2095,12 @@ export function applyStaticDomTranslations() {
     "Полное управление воспроизведением на компьютере в оконном и полноэкранном режиме: пауза, перемотка, громкость, переключение студий озвучки, субтитров и серий, навигация D-Pad и запуск любого фильма из каталога.",
     "Full desktop playback control in windowed and fullscreen modes: play/pause, scrubbing, volume, audio studio, subtitle & episode switching, D-Pad navigation, and launching any catalog title."
   );
+  setElText("#remote-cap-1", "Сенсорный тачпад и D-Pad", "Touchpad & D-Pad");
+  setElText("#remote-cap-2", "Озвучки, 4K и субтитры", "Audio, 4K & Subtitles");
+  setElText("#remote-cap-3", "X-Ray, саундтреки и факты", "X-Ray, Music & Trivia");
+  setElText("#remote-cap-4", "DSP эквалайзер и таймер сна", "DSP EQ & Sleep Timer");
+  setElText("#remote-cap-5", "Оценка в Kinorium (1–10)", "Kinorium Rating (1–10)");
+  setElText("#lbl-remote-open-preview", "Открыть веб-пульт", "Open Web Remote");
   setElText("#lbl-remote-rotate-key", "Сменить ключ доступа", "Rotate Access Key");
   setElText("#tv-airplay-heading", "Apple TV (AirPlay) и режим пульта", "Apple TV (AirPlay) & Remote Mode");
   setElText(
@@ -1669,8 +2113,8 @@ export function applyStaticDomTranslations() {
   setElText("#tv-qr-heading", "Открыть на Smart TV по QR-коду", "Open on Smart TV via QR Code");
   setElText(
     "#tv-qr-desc",
-    "Наведите камеру или браузер телевизора в вашей Wi-Fi сети — откроется ТВ-версия CineFlow с текущим фильмом.",
-    "Scan on your phone or Smart TV browser on the same Wi-Fi to launch CineFlow in TV Mode."
+    "Наведите камеру или браузер телевизора в вашей Wi-Fi сети — откроется ТВ-версия Velarium с текущим фильмом.",
+    "Scan on your phone or Smart TV browser on the same Wi-Fi to launch Velarium in TV Mode."
   );
   setElText("#btn-tv-copy-url > span", "Скопировать адрес", "Copy LAN Link");
   setElText("#tv-dlna-heading", "Устройства DLNA / UPnP в локальной сети", "DLNA / UPnP Devices on LAN");
@@ -1740,8 +2184,8 @@ export function applyStaticDomTranslations() {
   // Document title, meta description & Auto-Updater translations
   if (typeof document !== "undefined") {
     document.title = en
-      ? "CineFlow — Unified Cinema Hub"
-      : "CineFlow — Единый кинотеатр";
+      ? "Velarium — Unified Cinema Hub"
+      : "Velarium — Единый кинотеатр";
     const metaDescEl =
       document.getElementById("meta-app-description") ||
       document.querySelector('meta[name="description"]');
@@ -1749,8 +2193,8 @@ export function applyStaticDomTranslations() {
       metaDescEl.setAttribute(
         "content",
         en
-          ? "CineFlow — Unified cinema hub for macOS & Windows: HDRezka, 4K Remux, Stremio, Kinorium two-way sync, offline downloads, and Smart TV cast."
-          : "CineFlow — Единый кинотеатр для macOS и Windows: HDRezka, 4K Remux, Stremio, двусторонняя синхронизация Kinorium, офлайн-загрузки и Smart TV."
+          ? "Velarium — Unified cinema hub for macOS & Windows: HDRezka, 4K Remux, Stremio, Kinorium two-way sync, offline downloads, and Smart TV cast."
+          : "Velarium — Единый кинотеатр для macOS и Windows: HDRezka, 4K Remux, Stremio, двусторонняя синхронизация Kinorium, офлайн-загрузки и Smart TV."
       );
     }
   }
@@ -1763,12 +2207,12 @@ export function applyStaticDomTranslations() {
   );
   setElText(
     "#lbl-update-repo",
-    "GitHub-репозиторий релизов (owner/repo, необязательно)",
-    "GitHub Releases Repository (owner/repo, optional)"
+    "Репозиторий GitHub (owner/repo)",
+    "GitHub Repository (owner/repo)"
   );
   setElText(
     "#lbl-update-manifest-url",
-    "Собственный URL манифеста обновлений (latest.json, необязательно)",
-    "Custom Update Manifest URL (latest.json, optional)"
+    "URL манифеста (latest.json)",
+    "Manifest URL (latest.json)"
   );
 }

@@ -91,7 +91,7 @@ _XML_ILLEGAL_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 def _xml_safe_text(val: str) -> str:
     cleaned = _XML_ILLEGAL_CTRL_RE.sub("", str(val or ""))
-    return html.escape(cleaned, quote=True)
+    return html.escape(cleaned, quote=True).replace("&#x27;", "&apos;")
 
 
 def parse_upnp_device_xml(xml_text: str, location_url: str) -> Optional[Dict[str, Any]]:
@@ -191,12 +191,14 @@ def parse_upnp_device_xml(xml_text: str, location_url: str) -> Optional[Dict[str
 
 def build_didl_lite_metadata(
     stream_url: str,
-    title: str = "CineFlow Video",
+    title: str = "Velarium Video",
     subtitle_url: str = "",
 ) -> str:
-    safe_title = _xml_safe_text(title or "CineFlow Video")
+    safe_title = _xml_safe_text(title or "Velarium Video")
     safe_stream = _xml_safe_text(stream_url)
-    is_hls = ".m3u8" in stream_url.lower()
+    low_stream = stream_url.lower()
+    is_remux_mp4 = "/api/remux-stream" in low_stream
+    is_hls = (not is_remux_mp4) and (".m3u8" in low_stream)
     mime = "application/vnd.apple.mpegurl" if is_hls else "video/mp4"
     dlna_flags = "DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000"
 
@@ -253,7 +255,7 @@ def build_soap_envelope(
 
 def build_soap_set_av_transport_uri(
     stream_url: str,
-    title: str = "CineFlow",
+    title: str = "Velarium",
     subtitle_url: str = "",
     service_type: str = "urn:schemas-upnp-org:service:AVTransport:1",
 ) -> Tuple[str, str]:
@@ -266,6 +268,49 @@ def build_soap_set_av_transport_uri(
         f"<CurrentURIMetaData>{escaped_didl}</CurrentURIMetaData>"
     )
     return build_soap_envelope("SetAVTransportURI", params, service_type=service_type)
+
+
+class _LanOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        resolved = urllib.parse.urljoin(req.full_url, str(newurl or ""))
+        p_red = urllib.parse.urlparse(resolved)
+        orig_host = (urllib.parse.urlparse(req.full_url).hostname or "").strip().lower()
+        red_host = (p_red.hostname or "").strip().lower()
+        if (
+            p_red.scheme not in ("http", "https")
+            or p_red.username is not None
+            or p_red.password is not None
+            or not _is_lan_ipv4_host(red_host)
+            or (orig_host and red_host != orig_host)
+        ):
+            if fp is not None:
+                try:
+                    fp.close()
+                except Exception:
+                    pass
+            raise urllib.error.URLError("Disallowed non-LAN UPnP redirect")
+        return super().redirect_request(req, fp, code, msg, headers, resolved)
+
+
+class _NoSoapRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if fp is not None:
+            try:
+                fp.close()
+            except Exception:
+                pass
+        raise urllib.error.URLError("Disallowed SOAP POST redirect")
+
+
+_LAN_DESC_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+    _LanOnlyRedirectHandler(),
+)
+_SOAP_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+    _NoSoapRedirectHandler(),
+)
+_UPNP_EXECUTOR = ThreadPoolExecutor(max_workers=6)
 
 
 class DlnaCastManager:
@@ -355,7 +400,7 @@ class DlnaCastManager:
             if host_low in ("127.0.0.1", "localhost", "::1") and lan_ip:
                 eff_port = parsed.port or int(port)
                 if eff_port != int(port) and parsed.path.startswith(("/stream/", "/play/")):
-                    # Loopback-bound TorrServer MKV/DTS stream: route through CineFlow's LAN remux endpoint
+                    # Loopback-bound TorrServer MKV/DTS stream: route through Velarium's LAN remux endpoint
                     remux_start = f"{start_val:.1f}" if start_val > 5.0 else "0"
                     return f"http://{lan_ip}:{int(port)}/api/remux-stream?src={urllib.parse.quote(u, safe='')}&audio=0&start={remux_start}"
                 rebuilt = urllib.parse.urlunparse(
@@ -483,35 +528,10 @@ class DlnaCastManager:
 
             discovered: List[Dict[str, Any]] = []
             if locations:
-                class _LanOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
-                    def redirect_request(self, req, fp, code, msg, headers, newurl):
-                        resolved = urllib.parse.urljoin(req.full_url, str(newurl or ""))
-                        p_red = urllib.parse.urlparse(resolved)
-                        orig_host = (urllib.parse.urlparse(req.full_url).hostname or "").strip().lower()
-                        red_host = (p_red.hostname or "").strip().lower()
-                        if (
-                            p_red.scheme not in ("http", "https")
-                            or p_red.username is not None
-                            or p_red.password is not None
-                            or not _is_lan_ipv4_host(red_host)
-                            or (orig_host and red_host != orig_host)
-                        ):
-                            if fp is not None:
-                                try:
-                                    fp.close()
-                                except Exception:
-                                    pass
-                            raise urllib.error.URLError("Disallowed non-LAN UPnP redirect")
-                        return super().redirect_request(req, fp, code, msg, headers, resolved)
-
                 def _fetch_desc(loc_u: str) -> Optional[Dict[str, Any]]:
                     try:
-                        opener = urllib.request.build_opener(
-                            urllib.request.ProxyHandler({}),
-                            _LanOnlyRedirectHandler(),
-                        )
-                        req = urllib.request.Request(loc_u, headers={"User-Agent": "CineFlow/2.6 UPnP/1.1"})
-                        with opener.open(req, timeout=2.0) as resp:
+                        req = urllib.request.Request(loc_u, headers={"User-Agent": "Velarium/2.7 UPnP/1.1"})
+                        with _LAN_DESC_OPENER.open(req, timeout=2.0) as resp:
                             if resp.status != 200:
                                 return None
                             xml_body = resp.read(262144).decode("utf-8", errors="replace")
@@ -525,10 +545,9 @@ class DlnaCastManager:
                     except Exception:
                         return None
 
-                with ThreadPoolExecutor(max_workers=min(6, len(locations))) as pool:
-                    for info in pool.map(_fetch_desc, sorted(locations)):
-                        if info and info.get("control_url"):
-                            discovered.append(info)
+                for info in _UPNP_EXECUTOR.map(_fetch_desc, sorted(locations)):
+                    if info and info.get("control_url"):
+                        discovered.append(info)
 
             # Deduplicate by control_url
             unique_by_ctrl: Dict[str, Dict[str, Any]] = {}
@@ -573,26 +592,13 @@ class DlnaCastManager:
             headers={
                 "Content-Type": 'text/xml; charset="utf-8"',
                 "SOAPAction": clean_hdr_act,
-                "User-Agent": "CineFlow/2.6 DLNA/1.5",
+                "User-Agent": "Velarium/2.7 DLNA/1.5",
                 "Connection": "close",
             },
             method="POST",
         )
         try:
-            class _NoSoapRedirectHandler(urllib.request.HTTPRedirectHandler):
-                def redirect_request(self, req, fp, code, msg, headers, newurl):
-                    if fp is not None:
-                        try:
-                            fp.close()
-                        except Exception:
-                            pass
-                    raise urllib.error.URLError("Disallowed SOAP POST redirect")
-
-            opener = urllib.request.build_opener(
-                urllib.request.ProxyHandler({}),
-                _NoSoapRedirectHandler(),
-            )
-            with opener.open(req, timeout=timeout) as resp:
+            with _SOAP_OPENER.open(req, timeout=timeout) as resp:
                 resp.read(65536)
                 return (200 <= resp.status < 300), ""
         except urllib.error.HTTPError as he:
@@ -615,7 +621,7 @@ class DlnaCastManager:
         *,
         control_url: str,
         stream_url: str,
-        title: str = "CineFlow",
+        title: str = "Velarium",
         subtitle_url: str = "",
         start_sec: float = 0.0,
         device_name: str = "Smart TV",

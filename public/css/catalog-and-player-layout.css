@@ -20,9 +20,7 @@
   border: none;
   cursor: pointer;
   contain: layout style;
-  content-visibility: auto;
-  contain-intrinsic-size: 320px 180px;
-  transform: translateZ(0);
+  content-visibility: visible;
   transition: transform 0.22s var(--ease-apple, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
@@ -109,7 +107,13 @@
 .atv-upnext-title {
   font-size: 16px;
   font-weight: 600;
+  line-height: 1.22;
   margin-bottom: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-wrap: balance;
 }
 
 .atv-upnext-sub {
@@ -304,10 +308,11 @@
   min-width: 0;
   contain: layout style;
   content-visibility: auto;
-  contain-intrinsic-size: 320px 180px;
-  content-visibility: auto;
-  contain-intrinsic-size: 180px 270px;
+  contain-intrinsic-size: 180px 310px;
   outline: none;
+}
+
+.atv-poster-item.is-entering {
   animation: atvPosterCardIn 0.15s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)) backwards;
 }
 
@@ -326,13 +331,15 @@
 
 .atv-poster-frame {
   position: relative;
+  width: 100%;
+  flex-shrink: 0;
   aspect-ratio: 2 / 3;
   border-radius: var(--radius-card);
   overflow: hidden;
   background: var(--bg-elevated);
   border: none;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
-  transform: translateZ(0);
+  contain: layout style paint;
   transition: transform 0.22s var(--ease-apple, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
@@ -455,8 +462,10 @@
   gap: 4px;
   line-height: 1.2;
   min-width: 0;
-  max-width: 100%;
+  max-width: calc(100% - 48px);
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .atv-status-badge span {
@@ -526,6 +535,33 @@
   color: rgba(235, 235, 245, 0.68);
 }
 
+.atv-poster-franchise-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(18, 18, 20, 0.88);
+  color: rgba(245, 245, 247, 0.9);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-poster-franchise-badge:hover {
+    background: rgba(28, 28, 30, 0.96);
+    border-color: rgba(255, 255, 255, 0.28);
+    color: #ffffff;
+  }
+}
+
 .atv-poster-caption {
   padding: 0 2px;
 }
@@ -586,6 +622,12 @@ body.modal-scroll-locked .atv-header {
   -webkit-backdrop-filter: none !important;
 }
 
+body.player-modal-open .atv-main,
+body.modal-scroll-locked .atv-main {
+  contain: layout style paint;
+  pointer-events: none;
+}
+
 #quick-peek-modal {
   z-index: var(--z-quickpeek-modal);
 }
@@ -598,12 +640,15 @@ body.modal-scroll-locked .atv-header {
 #settings-modal,
 #downloads-modal,
 #tv-cast-modal,
-#profiles-modal {
+#profiles-modal,
+#handoff-modal,
+#vocab-modal,
+#bookmarks-modal {
   z-index: var(--z-utility-modal);
 }
 
 #onboarding-modal {
-  z-index: 175;
+  z-index: var(--z-onboarding-modal, 175);
 }
 
 #movie-roulette-modal {
@@ -737,6 +782,7 @@ body.modal-scroll-locked .atv-header {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  contain: layout style;
   box-shadow: 0 36px 96px rgba(0, 0, 0, 0.88);
 }
 
@@ -1034,11 +1080,12 @@ body.modal-scroll-locked .atv-header {
   max-width: min(320px, 56vw);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Video Stage */
 .atv-video-stage-wrap {
-  filter: drop-shadow(0 16px 28px rgba(0, 0, 0, 0.68));
+  filter: none;
 }
 
 .atv-video-stage {
@@ -1049,7 +1096,7 @@ body.modal-scroll-locked .atv-header {
   border-radius: 14px;
   overflow: hidden;
   border: none;
-  box-shadow: none;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.68);
 }
 
 html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage:not(:fullscreen):not(.is-pseudo-fullscreen) {
@@ -1059,7 +1106,7 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
 
 .atv-video-stage.vc-popover-open {
   overflow: visible;
-  z-index: 40;
+  z-index: 60;
 }
 
 .atv-video-stage video {
@@ -1166,6 +1213,7 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
 
 .atv-video-stage.vc-popover-open .atv-endgame-stack {
   opacity: 0;
+  visibility: hidden;
   pointer-events: none !important;
   transform: translateY(-4px);
 }
@@ -1309,7 +1357,11 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   line-height: 1.2;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+.atv-rate-clear-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1358,6 +1410,10 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   transition: background 0.14s ease, color 0.14s ease, transform 0.12s ease;
+}
+
+.atv-stars-row button:active:not(:disabled) {
+  transform: scale(0.95);
 }
 
 .atv-stars-row button.in-score-range {
@@ -1459,6 +1515,7 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   background: var(--bg-control);
   border: none;
   border-radius: 10px;
+  contain: layout style;
   transition: background 0.16s ease;
 }
 
@@ -1504,12 +1561,15 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
 .release-title {
   font-size: 13px;
   font-weight: 500;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .release-meta {
   font-size: 12px;
   color: var(--text-secondary);
   margin-top: 2px;
+  overflow-wrap: break-word;
 }
 
 /* Info Sidebar — independent scroll so video stays stationary */
@@ -1675,6 +1735,7 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   align-items: center;
   justify-content: space-between;
   padding: 9px 4px;
+  contain: layout style;
   border-radius: 0;
   background: transparent;
   border: none;
@@ -1879,6 +1940,122 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   box-shadow: none !important;
 }
 
+.atv-official-hybrid-panel {
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 10px;
+}
+
+.atv-official-hybrid-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+}
+
+.atv-official-hybrid-left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.atv-official-hybrid-note {
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.68);
+}
+
+.atv-official-hybrid-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.atv-official-mode-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.36);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.atv-official-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: rgba(235, 235, 245, 0.72);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s ease-out, color 0.16s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+.atv-official-mode-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-official-mode-btn:hover {
+    color: #f5f5f7;
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
+.atv-official-mode-btn.active {
+  background: #f5f5f7;
+  color: #0b0c0f;
+}
+
+.atv-official-stage.is-embed-mode {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 0;
+}
+
+.atv-official-embed-topbar {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 8px 14px;
+  background: rgba(14, 14, 18, 0.96);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.atv-official-embed-topbar-left,
+.atv-official-embed-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.atv-official-embed-viewport {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
 /* ==========================================================================
    Wave-2 Curated Personal Shelves (#curated-shelves-section)
    ========================================================================== */
@@ -1890,12 +2067,14 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   display: flex;
   flex-direction: column;
   gap: 24px;
+  contain: layout style;
 }
 
 .atv-curated-shelf {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  contain: layout style;
 }
 
 .atv-curated-row {
@@ -1914,6 +2093,8 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   flex: 0 0 172px;
   width: 172px;
   scroll-snap-align: start;
+  content-visibility: visible;
+  contain: layout style;
 }
 
 @media (max-width: 680px) {
@@ -1940,8 +2121,13 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   padding: 8px;
   background: var(--bg-surface);
   border: 1px solid rgba(255, 255, 255, 0.06);
+  contain: layout style;
   transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1), background 0.15s ease, border-color 0.15s ease;
   scroll-snap-align: start;
+}
+
+.atv-cal-shelf-card:active {
+  transform: scale(0.97);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1965,6 +2151,7 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
 .atv-cal-poster-wrap {
   position: relative;
   width: 100%;
+  flex-shrink: 0;
   aspect-ratio: 2 / 3;
   border-radius: calc(var(--radius-card) - 3px);
   overflow: hidden;
@@ -1998,6 +2185,20 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   border-color: rgba(255, 255, 255, 0.3);
 }
 
+.atv-cal-count-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 2.5px 7px;
+  background: rgba(10, 10, 12, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
 .atv-cal-meta {
   display: flex;
   flex-direction: column;
@@ -2008,10 +2209,13 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
 .atv-cal-title {
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.25;
   color: var(--text-primary);
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-wrap: balance;
 }
 
 .atv-cal-ep-code {
@@ -2080,6 +2284,20 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   display: block;
 }
 
+.atv-handoff-loading,
+.atv-handoff-err {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  padding: 12px;
+  color: #1c1c1e;
+}
+
+.atv-handoff-err {
+  color: #b91c1c;
+}
+
 .atv-handoff-info {
   display: flex;
   flex-direction: column;
@@ -2126,6 +2344,86 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   height: 36px;
   font-family: monospace;
 }
+
+.atv-handoff-alt-row {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.atv-handoff-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  font-size: 11.5px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  cursor: pointer;
+  transition: color 0.15s ease-out, background 0.15s ease-out, border-color 0.15s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+.atv-handoff-switch-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-handoff-switch-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+}
+
+/* Collapsible Where-to-Watch Details in Player Info Sidebar */
+.atv-sidebar-details {
+  width: 100%;
+}
+
+.atv-sidebar-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  padding: 2px 0;
+  transition: color 0.16s ease;
+}
+
+.atv-sidebar-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.atv-sidebar-details > summary::after {
+  content: "▾";
+  font-size: 11px;
+  color: var(--text-tertiary);
+  transition: transform 0.18s ease;
+}
+
+.atv-sidebar-details[open] > summary::after {
+  transform: rotate(180deg);
+}
+
+.atv-sidebar-details[open] > .atv-providers-list {
+  margin-top: 10px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-sidebar-details > summary:hover {
+    color: var(--text-primary);
+  }
+}
+
 
 
 

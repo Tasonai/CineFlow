@@ -1,5 +1,5 @@
 """
-CineFlow Kinorium Route Handlers
+Velarium Kinorium Route Handlers
 Dispatches /api/kinorium/* and /api/integrations requests.
 """
 
@@ -239,7 +239,7 @@ def handle_kinorium_scrobble(handler, qs: Dict[str, Any], parsed, body: Dict[str
         force_watched=bool(body.get("force_watched", False)),
         reason=str(body.get("reason") or ""),
     )
-    if res.get("auto_scrobbled") or body.get("force_watched"):
+    if res.get("just_scrobbled") or res.get("just_scrobbled_episode") or res.get("auto_scrobbled") or body.get("force_watched"):
         try:
             dl_hook = ctx.download_manager.handle_watched_scrobble(
                 item_id=sc_id,

@@ -98,6 +98,10 @@ _BROWSER_SAFE_AUDIO_CODECS = {"aac", "mp3", "opus", "vorbis", "flac"}
 _TEXT_SUBTITLE_CODECS = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"}
 _HW_CAPS_PROCESS_CACHE: Dict[str, Dict[str, Any]] = {}
 _HW_CAPS_CACHE_LOCK = threading.Lock()
+_CREDITS_CHAPTER_RE = re.compile(
+    r"\b(end\s*credits?|closing\s*credits?|credits|outro|ending|титры|финальные\s*титры|конечные\s*титры|эндинг)\b",
+    re.IGNORECASE,
+)
 
 
 class RemuxStreamEngine:
@@ -115,7 +119,10 @@ class RemuxStreamEngine:
         self.ffmpeg_path = self._find_binary("ffmpeg", bin_dir)
         self.ffprobe_path = self._find_binary("ffprobe", bin_dir)
         self._probe_cache: Dict[str, Dict[str, Any]] = {}
+        self._probe_inflight: Dict[str, threading.Event] = {}
+        self._probe_ttl_sec: float = 7200.0
         self._sub_cache: Dict[str, str] = {}
+        self._snapshot_cache: Dict[Tuple[str, float, str], Tuple[float, bytes]] = {}
         self._lock = threading.Lock()
         self._hw_caps: Dict[str, Any] = self._init_hw_capabilities()
 
@@ -189,7 +196,7 @@ class RemuxStreamEngine:
                     if self._hw_caps is initial_caps:
                         self._hw_caps = probed
 
-            threading.Thread(target=_bg_probe, name="CineFlowFFmpegHwProbe", daemon=True).start()
+            threading.Thread(target=_bg_probe, name="VelariumFFmpegHwProbe", daemon=True).start()
             return initial_caps
 
         probed = self._probe_hw_capabilities()
@@ -466,17 +473,13 @@ class RemuxStreamEngine:
     def _extract_credits_chapter_sec(cls, chapters: List[Dict[str, Any]], duration: float) -> float:
         if not chapters or duration < 120.0:
             return 0.0
-        credits_re = re.compile(
-            r"\b(end\s*credits?|closing\s*credits?|credits|outro|ending|титры|финальные\s*титры|конечные\s*титры|эндинг)\b",
-            re.IGNORECASE,
-        )
         min_sec = duration * 0.70
         for ch in chapters:
             if not isinstance(ch, dict):
                 continue
             tags = ch.get("tags") or {}
             title = str(tags.get("title") or tags.get("TITLE") or "").strip()
-            if not title or not credits_re.search(title):
+            if not title or not _CREDITS_CHAPTER_RE.search(title):
                 continue
             start_s = cls._parse_tag_hms_seconds(ch.get("start_time"))
             if min_sec <= start_s < duration - 2.0:
@@ -498,19 +501,47 @@ class RemuxStreamEngine:
             return {"ok": False, "error": "FFprobe not available", "remux_available": False}
 
         cache_key = hashlib.sha1(clean_src.encode("utf-8")).hexdigest()
+        inflight_key = f"{cache_key}:{'fast' if fast_probe else 'full'}"
         now = time.time()
         with self._lock:
             cached = self._probe_cache.get(cache_key)
             if cached:
                 cached_dur = float(cached.get("duration") or 0.0)
-                ttl = 1800.0 if cached_dur > 1.0 else (3.5 if fast_probe else 0.0)
+                if cached.get("_failed"):
+                    ttl = 5.0
+                else:
+                    ttl = self._probe_ttl_sec if cached_dur > 1.0 else (3.5 if fast_probe else 0.0)
                 if ttl > 0 and (now - cached.get("_ts", 0)) < ttl:
+                    if cached.get("_failed"):
+                        return {k: v for k, v in cached.items() if not str(k).startswith("_")}
                     return self._localize_probe_payload(cached, ui_lang=ui_lang)
+            inflight_ev = self._probe_inflight.get(inflight_key)
+            if inflight_ev is None:
+                inflight_ev = threading.Event()
+                self._probe_inflight[inflight_key] = inflight_ev
+                is_leader = True
+            else:
+                is_leader = False
 
-        analyze_us = "500000" if fast_probe else "1500000"
-        probe_bytes = "500000" if fast_probe else "1200000"
-        eff_timeout = min(timeout_sec, 8.5) if fast_probe else max(timeout_sec, 16.0)
+        if not is_leader:
+            eff_wait = min(timeout_sec, 6.5) if fast_probe else max(timeout_sec, 14.0)
+            inflight_ev.wait(timeout=eff_wait + 0.5)
+            with self._lock:
+                cached = self._probe_cache.get(cache_key)
+                if cached:
+                    now_after = time.time()
+                    if cached.get("_failed") and (now_after - cached.get("_ts", 0)) < 5.0:
+                        return {k: v for k, v in cached.items() if not str(k).startswith("_")}
+                    cached_dur_after = float(cached.get("duration") or 0.0)
+                    ttl_after = self._probe_ttl_sec if cached_dur_after > 1.0 else (3.5 if fast_probe else 0.0)
+                    if not cached.get("_failed") and ttl_after > 0 and (now_after - cached.get("_ts", 0)) < ttl_after:
+                        return self._localize_probe_payload(cached, ui_lang=ui_lang)
+
+        analyze_us = "350000" if fast_probe else "1200000"
+        probe_bytes = "350000" if fast_probe else "1000000"
+        eff_timeout = min(timeout_sec, 6.5) if fast_probe else max(timeout_sec, 14.0)
         rw_timeout_us = str(int(max(5.0, eff_timeout) * 1_000_000))
+        is_http_src = clean_src.lower().startswith(("http://", "https://"))
         cmd = [
             self.ffprobe_path,
             "-v",
@@ -519,6 +550,7 @@ class RemuxStreamEngine:
             rw_timeout_us,
             "-protocol_whitelist",
             _FFMPEG_NET_WHITELIST,
+            *(["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "2"] if is_http_src else []),
             "-analyzeduration",
             analyze_us,
             "-probesize",
@@ -544,11 +576,41 @@ class RemuxStreamEngine:
             )
             if proc.returncode != 0 or not proc.stdout.strip():
                 err_msg = (proc.stderr or "").strip()[:240] or "FFprobe failed to read container header"
+                with self._lock:
+                    self._probe_cache[cache_key] = {
+                        "ok": False,
+                        "error": err_msg,
+                        "remux_available": True,
+                        "_ts": time.time(),
+                        "_failed": True,
+                    }
+                    self._probe_inflight.pop(inflight_key, None)
+                inflight_ev.set()
                 return {"ok": False, "error": err_msg, "remux_available": True}
             parsed = json.loads(proc.stdout)
         except subprocess.TimeoutExpired:
+            with self._lock:
+                self._probe_cache[cache_key] = {
+                    "ok": False,
+                    "error": "Timeout probing torrent stream (peers warming up)",
+                    "remux_available": True,
+                    "_ts": time.time(),
+                    "_failed": True,
+                }
+                self._probe_inflight.pop(inflight_key, None)
+            inflight_ev.set()
             return {"ok": False, "error": "Timeout probing torrent stream (peers warming up)", "remux_available": True}
         except Exception as exc:
+            with self._lock:
+                self._probe_cache[cache_key] = {
+                    "ok": False,
+                    "error": str(exc),
+                    "remux_available": True,
+                    "_ts": time.time(),
+                    "_failed": True,
+                }
+                self._probe_inflight.pop(inflight_key, None)
+            inflight_ev.set()
             return {"ok": False, "error": str(exc), "remux_available": True}
 
         fmt = parsed.get("format") or {}
@@ -653,6 +715,8 @@ class RemuxStreamEngine:
                 for k_old in list(self._probe_cache.keys())[:30]:
                     self._probe_cache.pop(k_old, None)
             self._probe_cache[cache_key] = {**raw_result, "_ts": now}
+            self._probe_inflight.pop(inflight_key, None)
+        inflight_ev.set()
         return self._localize_probe_payload(raw_result, ui_lang=ui_lang)
 
     def extract_subtitle_vtt(
@@ -660,14 +724,14 @@ class RemuxStreamEngine:
         source_url: str,
         stream_index: int,
         start_sec: float = 0.0,
-        window_sec: float = 420.0,
+        window_sec: float = 120.0,
         timeout_sec: float = 8.0,
     ) -> str:
         clean_src = str(source_url or "").strip()
         if not self.is_available() or not _is_valid_ffmpeg_http_url(clean_src):
             return "WEBVTT\n\n"
         norm_start = max(0.0, round(float(start_sec or 0.0), 1))
-        norm_win = max(120.0, min(900.0, round(float(window_sec or 420.0), 0)))
+        norm_win = max(60.0, min(600.0, round(float(window_sec or 120.0), 0)))
         cache_key = (
             f"{hashlib.sha1(clean_src.encode('utf-8')).hexdigest()}"
             f":s{int(stream_index)}:ss{norm_start:.1f}:w{int(norm_win)}"
@@ -683,9 +747,9 @@ class RemuxStreamEngine:
             "-loglevel",
             "error",
             "-probesize",
-            "1200000",
+            "400000",
             "-analyzeduration",
-            "1200000",
+            "400000",
             "-reconnect",
             "1",
             "-reconnect_streamed",
@@ -800,12 +864,13 @@ class RemuxStreamEngine:
                 cmd.extend(["-hwaccel", "d3d11va"])
 
         if clean_src.startswith(("http://", "https://")):
+            probe_val = "384000" if v_low else "500000"
             cmd.extend(
                 [
                     "-probesize",
-                    "1500000",
+                    probe_val,
                     "-analyzeduration",
-                    "1500000",
+                    probe_val,
                     "-reconnect",
                     "1",
                     "-reconnect_streamed",
@@ -842,7 +907,12 @@ class RemuxStreamEngine:
 
         if need_video_transcode:
             if sub_filter:
-                cmd.extend(["-vf", sub_filter])
+                eff_sub_filter = (
+                    f"setpts=PTS+{start_sec:.2f}/TB,{sub_filter},setpts=PTS-STARTPTS"
+                    if start_sec > 0.5
+                    else sub_filter
+                )
+                cmd.extend(["-vf", eff_sub_filter])
             if self._hw_caps.get("h264_videotoolbox"):
                 cmd.extend(
                     [
@@ -992,6 +1062,12 @@ class RemuxStreamEngine:
         if not self.is_available() or (not is_local_file and not _is_valid_ffmpeg_http_url(clean_src)):
             return b""
         ts = max(0.0, round(float(timestamp_sec or 0.0), 2))
+        snap_key = (clean_src, round(ts, 1), "local" if is_local_file else "net")
+        now_snap = time.time()
+        with self._lock:
+            cached_snap = self._snapshot_cache.get(snap_key)
+            if cached_snap and (now_snap - cached_snap[0]) < 300.0:
+                return cached_snap[1]
         rw_timeout_us = str(int(max(5.0, float(timeout_sec or 9.0)) * 1_000_000))
         cmd: List[str] = [
             self.ffmpeg_path,
@@ -1038,6 +1114,13 @@ class RemuxStreamEngine:
                 creationflags=_SUBPROC_NO_WINDOW,
             )
             out = proc.stdout or b""
-            return out if out[:8] == b"\x89PNG\r\n\x1a\n" else b""
+            if out[:8] == b"\x89PNG\r\n\x1a\n":
+                with self._lock:
+                    if len(self._snapshot_cache) >= 32:
+                        oldest_k = next(iter(self._snapshot_cache))
+                        self._snapshot_cache.pop(oldest_k, None)
+                    self._snapshot_cache[snap_key] = (time.time(), out)
+                return out
+            return b""
         except Exception:
             return b""

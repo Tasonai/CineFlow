@@ -1,5 +1,5 @@
 """
-CineFlow Server Settings & Configuration Manager.
+Velarium Server Settings & Configuration Manager.
 
 Handles server persistence (`server_settings.json` + SQLite storage),
 Vault encryption for credentials (Debrid API key, pairing token),
@@ -71,7 +71,7 @@ def build_remote_pairing_payload(
 
 class ServerSettingsManager:
     """
-    Manages loading, saving and runtime propagation of CineFlow server settings,
+    Manages loading, saving and runtime propagation of Velarium server settings,
     including regional proxy profiles, HDRezka mirrors, Debrid credentials and autostart state.
     """
 
@@ -163,7 +163,7 @@ class ServerSettingsManager:
                     except Exception:
                         pass
             except Exception as exc:
-                self.safe_log_fn(f"[CineFlow] Failed to load server_settings.json: {exc}\n", True)
+                self.safe_log_fn(f"[Velarium] Failed to load server_settings.json: {exc}\n", True)
                 return
         if not isinstance(cfg, dict):
             return
@@ -212,7 +212,7 @@ class ServerSettingsManager:
                     torrserver_url=bkp_cfg.get("torrserver_url"),
                 )
         except Exception as exc:
-            self.safe_log_fn(f"[CineFlow] Failed to apply server settings: {exc}\n", True)
+            self.safe_log_fn(f"[Velarium] Failed to apply server settings: {exc}\n", True)
 
     def save_persisted_server_settings(self) -> None:
         """Atomically saves encrypted configuration to disk and SQLite settings storage."""
@@ -276,7 +276,7 @@ class ServerSettingsManager:
                         os.unlink(tmp_path)
                 except Exception:
                     pass
-                self.safe_log_fn(f"[CineFlow] Failed to save server_settings.json: {exc}\n", True)
+                self.safe_log_fn(f"[Velarium] Failed to save server_settings.json: {exc}\n", True)
 
     def build_remote_pairing_payload(self, include_secret: bool = True) -> Dict[str, Any]:
         """Constructs QR and connection metadata for client remote pairing."""

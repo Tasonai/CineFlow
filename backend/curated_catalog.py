@@ -1,5 +1,5 @@
 """
-CineFlow Curated Flagship Catalog & Provider Metadata.
+Velarium Curated Flagship Catalog & Provider Metadata.
 
 Contains the predefined catalog items with poster art, ratings, backdrop URLs,
 and provider mappings for the default catalog experience.

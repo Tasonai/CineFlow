@@ -489,10 +489,12 @@ class SkipIntroEngine:
                                 opening_credits_fallback = (st_s, en_s)
                             continue
                         if st_s >= 600.0:
-                            ranked_outros.append((cv[0], cv[1], st_s))
+                            ranked_outros.append((cv[0], cv[1], st_s, en_s or 0.0))
                     if ranked_outros:
                         ranked_outros.sort(reverse=True)
                         outro_data["start_sec"] = ranked_outros[0][2]
+                        if ranked_outros[0][3] > ranked_outros[0][2]:
+                            outro_data["end_sec"] = ranked_outros[0][3]
 
                     if best_intro is not None:
                         result = {

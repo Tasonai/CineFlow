@@ -1,15 +1,15 @@
-// CineFlow Player UI Controls Subsystem
+// Velarium Player UI Controls Subsystem
 // Manages interactive player timeline, scrubber, volume slider, stage idle states,
 // fullscreen toggling, control popovers, and responsive layout synchronization.
 
-import { EP_VIEW_MODE_STORAGE_KEY, state } from "./state.js?v=20261105v5";
+import { EP_VIEW_MODE_STORAGE_KEY, state } from "./state.js?v=20261108v19";
 import {
   displayTitle,
   getItemGenreEntries,
   isEn,
   secondaryTitle,
   t,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   attachHorizontalWheelScroll,
   clampFloatingPopover,
@@ -25,15 +25,15 @@ import {
   showToast,
   syncToastContainerMount,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261105v5";
-import { isEpisodeWatched, isServiceEnabled, savePreferredStudioForItem } from "./catalog.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
+import { isEpisodeWatched, isServiceEnabled, savePreferredStudioForItem } from "./catalog.js?v=20261108v19";
 import {
   activateSelectedSubtitleTrack,
   adjustSubtitleOffset,
   closeSubtitleDictPopover,
   renderVcSubtitlesPopover,
   resetSubtitleOffset,
-} from "./subtitles.js?v=20261105v5";
+} from "./subtitles.js?v=20261108v19";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -48,10 +48,11 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261105v5";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261105v5";
-import { buildRemuxStreamEndpoint, getEffectivePlaybackTiming } from "./player-remux.js?v=20261105v5";
+} from "./audio-dsp.js?v=20261108v19";
+import { pushDesktopRemoteStateNow, scheduleDesktopRemoteStatePush } from "./remote.js?v=20261108v19";
+import { buildRemuxStreamEndpoint, getEffectivePlaybackTiming } from "./player-remux.js?v=20261108v19";
 import {
+  filterReleasedEpisodesForSeason,
   getEpisodeDisplayMeta,
   hasStartedWatchingCurrentEpisode,
   markEpisodesBatch,
@@ -61,14 +62,15 @@ import {
   stepEpisode,
   switchToSeriesSeasonEpisode,
   syncEpisodesStripDrawerUI,
-} from "./player-seasons.js?v=20261105v5";
-import { syncPostwatchOverlayMount } from "./player-rating.js?v=20261105v5";
+} from "./player-seasons.js?v=20261108v19";
+import { syncPostwatchOverlayMount } from "./player-rating.js?v=20261108v19";
+import { syncPersonModalMount } from "./modals-person.js?v=20261108v19";
 import {
   clearAutoplayNextTimer,
   dismissPlayerNextEpisodeToast,
   getNextEpisodeCoords,
   setSleepTimer,
-} from "./player-autoplay.js?v=20261105v5";
+} from "./player-autoplay.js?v=20261108v19";
 import {
   adjustAudioOffset,
   hideVideoStreamError,
@@ -84,17 +86,28 @@ import {
   switchRemuxAudioTrack,
   switchSourceTab,
   toggleErrorStudiosPanel,
-} from "./player-streams.js?v=20261105v5";
-import { getDetectedCreditsStartSec, loadSkipIntroSegments } from "./player-intro-credits.js?v=20261105v5";
-import { toggleBookmarkCurrentMoment } from "./player-bookmarks.js?v=20261105v5";
+} from "./player-streams.js?v=20261108v19";
+import { getDetectedCreditsStartSec, loadSkipIntroSegments } from "./player-intro-credits.js?v=20261108v19";
+import {
+  closeBookmarkNoteDialog,
+  hideXRayPauseShelf,
+  renderTimelineBookmarks,
+  toggleBookmarkCurrentMoment,
+  toggleXRayPauseShelf,
+} from "./player-bookmarks.js?v=20261108v19";
 import {
   restoreFullPlayerFromPip,
   setMiniPlayerMode,
   setPipBackgroundMode,
   updateMiniPlayerTitle,
-} from "./player-pip-dock.js?v=20261105v5";
-import { captureVideoScreenshot, togglePlayerSidebarCollapsed } from "./player-meta.js?v=20261105v5";
-import { closePlayerModal, playVideoUrl, toggleVideoPlayPause } from "./player.js?v=20261105v5";
+} from "./player-pip-dock.js?v=20261108v19";
+import { captureVideoScreenshot, togglePlayerSidebarCollapsed } from "./player-meta.js?v=20261108v19";
+import {
+  captureVideoFrameBridge,
+  closePlayerModal,
+  playVideoUrl,
+  toggleVideoPlayPause,
+} from "./player.js?v=20261108v19";
 
 export function hasOpenVcPopover() {
   return [
@@ -102,16 +115,17 @@ export function hasOpenVcPopover() {
     "vc-studio-popover",
     "vc-subs-popover",
     "vc-quality-popover",
+    "vc-bookmarks-popover",
     "player-gear-popover",
     "atv-sub-dict-popover",
   ].some((id) => {
-    const el = document.getElementById(id);
+    const el = _getVcEl(id);
     return el && !el.classList.contains("hidden");
   });
 }
 
 export function syncVcPopoverOpenClass() {
-  const stage = document.getElementById("video-stage");
+  const stage = _getVcEl("video-stage");
   const isOpen = hasOpenVcPopover();
   if (stage) {
     stage.classList.toggle("vc-popover-open", isOpen);
@@ -126,10 +140,15 @@ export function closeAllVcPopovers() {
     ["vc-studio-popover", "vc-btn-studio"],
     ["vc-subs-popover", "vc-btn-subs"],
     ["vc-quality-popover", "vc-btn-quality"],
+    ["vc-bookmarks-popover", "vc-btn-bookmark"],
     ["player-gear-popover", "btn-player-gear"],
   ].forEach(([id, btnId]) => {
     document.getElementById(id)?.classList.add("hidden");
-    document.getElementById(btnId)?.setAttribute("aria-expanded", "false");
+    const btnEl = document.getElementById(btnId);
+    btnEl?.setAttribute("aria-expanded", "false");
+    if (btnId === "vc-btn-bookmark") {
+      btnEl?.classList.remove("active");
+    }
   });
   if (state.subDictOpen) {
     closeSubtitleDictPopover(true);
@@ -231,9 +250,9 @@ export function syncCustomControlPopovers() {
   );
 
   // In-stage Episodes & Seasons Popover (Block 2)
-  const epWrap = document.getElementById("vc-episodes-wrap");
-  const epLbl = document.getElementById("vc-episodes-label");
-  const epPop = document.getElementById("vc-episodes-popover");
+  const epWrap = _getVcEl("vc-episodes-wrap");
+  const epLbl = _getVcEl("vc-episodes-label");
+  const epPop = _getVcEl("vc-episodes-popover");
   if (epWrap && epLbl && epPop) {
     const item = state.activeItem;
     const isSeries = Boolean(item && item.media_type === "series" && state.activeSourceTab !== "trailer");
@@ -246,121 +265,134 @@ export function syncCustomControlPopovers() {
       const curE = Number(state.activeEpisode) || 1;
       epLbl.textContent = `S${curS} · E${curE}`;
 
-      const resolvedMap = resolveEffectiveSeasonsMap(item, state.seasonsMap);
-      const mapKeys = resolvedMap
-        ? Object.keys(resolvedMap)
-            .map((k) => parseInt(k, 10))
-            .filter((n) => n > 0)
-            .sort((a, b) => a - b)
-        : [];
-      const fallbackSeasonsCount = Math.max(curS, Number(item.seasons_count) || 1);
-      const seasonNumbers =
-        mapKeys.length > 0
-          ? mapKeys
-          : Array.from({ length: fallbackSeasonsCount }, (_, idx) => idx + 1);
+      if (!epPop.classList.contains("hidden")) {
+        const resolvedMap = resolveEffectiveSeasonsMap(item, state.seasonsMap);
+        const mapKeys = resolvedMap
+          ? Object.keys(resolvedMap)
+              .map((k) => parseInt(k, 10))
+              .filter((n) => n > 0)
+              .sort((a, b) => a - b)
+          : [];
+        const fallbackSeasonsCount = Math.max(curS, Number(item.seasons_count) || 1);
+        const seasonNumbers =
+          mapKeys.length > 0
+            ? mapKeys
+            : Array.from({ length: fallbackSeasonsCount }, (_, idx) => idx + 1);
 
-      const previewSeason = seasonNumbers.includes(Number(state.vcPreviewSeason))
-        ? Number(state.vcPreviewSeason)
-        : curS;
-      state.vcPreviewSeason = previewSeason;
+        const previewSeason = seasonNumbers.includes(Number(state.vcPreviewSeason))
+          ? Number(state.vcPreviewSeason)
+          : curS;
+        state.vcPreviewSeason = previewSeason;
 
-      const renderInStageEpisodesMenu = (selSeason) => {
-        state.vcPreviewSeason = selSeason;
-        const todayIso = new Date().toISOString().slice(0, 10);
-        const sKey = String(selSeason);
-        const metaForSeason = state.episodesMeta?.[sKey] || {};
-        const effLatestS = Number(item.latest_season || item.kinorium?.latest_season || 0);
-        const effLatestE = Number(item.latest_episode || item.kinorium?.latest_episode || 0);
-        const fallbackEpsCount = Math.max(curE, Number(item.episodes_per_season) || 1);
-        const rawEps =
-          resolvedMap && Array.isArray(resolvedMap[sKey]) && resolvedMap[sKey].length > 0
-            ? resolvedMap[sKey]
-            : Array.from({ length: fallbackEpsCount }, (_, idx) => idx + 1);
-        const releasedEps = rawEps.filter((eNum) => {
-          const rawMeta = metaForSeason[String(eNum)] || {};
-          const airDateStr = String(rawMeta.air_date || rawMeta.airDate || "");
-          if (/^\d{4}-\d{2}-\d{2}/.test(airDateStr) && airDateStr.slice(0, 10) > todayIso) return false;
-          if (rawMeta.is_future === true || rawMeta.is_released === false) return false;
-          if (effLatestS > 0 && effLatestE > 0 && selSeason === effLatestS && eNum > effLatestE) return false;
-          return true;
-        });
-
-        epPop.innerHTML = `<div class="atv-vc-pop-title">${escapeHtml(
-          t("Сезоны и серии", "Seasons & Episodes")
-        )}</div>`;
-
-        if (seasonNumbers.length > 1) {
-          const seasonsBar = document.createElement("div");
-          seasonsBar.className = "atv-vc-ep-seasons-row";
-          seasonsBar.setAttribute("role", "tablist");
-          seasonsBar.setAttribute("aria-label", t("Сезоны", "Seasons"));
-          seasonNumbers.forEach((sNum) => {
-            const isSelSeason = sNum === selSeason;
-            const sBtn = document.createElement("button");
-            sBtn.type = "button";
-            sBtn.setAttribute("role", "tab");
-            sBtn.setAttribute("aria-selected", isSelSeason ? "true" : "false");
-            sBtn.className = `atv-vc-ep-season-pill${isSelSeason ? " active" : ""}`;
-            sBtn.textContent = `${t("Сезон", "Season")} ${sNum}`;
-            sBtn.onclick = (ev) => {
-              ev.stopPropagation();
-              renderInStageEpisodesMenu(sNum);
-            };
-            seasonsBar.appendChild(sBtn);
+        const renderInStageEpisodesMenu = (selSeason) => {
+          state.vcPreviewSeason = selSeason;
+          const nowDayMs = Date.now();
+          if (!state._cachedTodayIso || nowDayMs - (state._cachedTodayIsoTs || 0) > 60000) {
+            state._cachedTodayIso = new Date(nowDayMs).toISOString().slice(0, 10);
+            state._cachedTodayIsoTs = nowDayMs;
+          }
+          const todayIso = state._cachedTodayIso;
+          const sKey = String(selSeason);
+          const metaForSeason = state.episodesMeta?.[sKey] || {};
+          const effLatestS = Number(item.latest_season || item.kinorium?.latest_season || 0);
+          const effLatestE = Number(item.latest_episode || item.kinorium?.latest_episode || 0);
+          const fallbackEpsCount = Math.max(curE, Number(item.episodes_per_season) || 1);
+          const rawEps =
+            resolvedMap && Array.isArray(resolvedMap[sKey]) && resolvedMap[sKey].length > 0
+              ? resolvedMap[sKey]
+              : Array.from({ length: fallbackEpsCount }, (_, idx) => idx + 1);
+          const releasedEps = rawEps.filter((eNum) => {
+            const rawMeta = metaForSeason[String(eNum)] || {};
+            const airDateStr = String(rawMeta.air_date || rawMeta.airDate || "");
+            if (/^\d{4}-\d{2}-\d{2}/.test(airDateStr) && airDateStr.slice(0, 10) > todayIso) return false;
+            if (rawMeta.is_future === true || rawMeta.is_released === false) return false;
+            if (effLatestS > 0 && effLatestE > 0 && selSeason === effLatestS && eNum > effLatestE) return false;
+            return true;
           });
-          epPop.appendChild(seasonsBar);
-        }
+          const watchedEpsArr = releasedEps.filter((eNum) => isEpisodeWatched(item, selSeason, eNum));
+          const epPopSig = `${item.id || item.title || ""}|s:${selSeason}|act:${curS}:${curE}|sn:${seasonNumbers.join(",")}|rel:${releasedEps.join(",")}|mk:${Object.keys(metaForSeason).length}|w:${watchedEpsArr.join(",")}|l:${state.appLang || "ru"}`;
+          if (epPop.dataset.renderSig === epPopSig && epPop.childElementCount > 0) {
+            return;
+          }
+          epPop.dataset.renderSig = epPopSig;
 
-        const listBox = document.createElement("div");
-        listBox.className = "atv-vc-ep-list";
-        releasedEps.forEach((eNum) => {
-          const isAct = selSeason === curS && eNum === curE;
-          const isWatched = isEpisodeWatched(item, selSeason, eNum);
-          const epProg = getEpisodeProgress(item, selSeason, eNum);
-          const epMeta = getEpisodeDisplayMeta(selSeason, eNum);
-          const rowBtn = document.createElement("button");
-          rowBtn.type = "button";
-          if (isAct) rowBtn.setAttribute("aria-current", "true");
-          rowBtn.className = `atv-vc-pop-item atv-vc-ep-row${isAct ? " active" : ""}${
-            isWatched ? " watched is-watched" : ""
-          }`;
-          const epSubTitle = epMeta.realTitle ? ` · ${epMeta.realTitle}` : "";
-          const rightBadge = isAct
-            ? iconSvg("play", 11)
-            : isWatched
-            ? iconSvg("check", 12)
-            : epProg && epProg.pct > 0
-            ? `<span class="atv-vc-ep-prog-pct">${epProg.pct}%</span>`
-            : "";
-          rowBtn.innerHTML = `
-            <span class="atv-vc-ep-row-main atv-vc-pop-item-main">
-              <span class="atv-vc-ep-num">${t(`Серия ${eNum}`, `Episode ${eNum}`)}</span>
-              ${
-                epSubTitle
-                  ? `<span class="atv-vc-ep-title">${escapeHtml(epMeta.realTitle)}</span>`
-                  : ""
-              }
-            </span>
-            <span class="atv-vc-ep-row-right atv-vc-ep-status">${rightBadge}</span>
-          `;
-          rowBtn.onclick = (ev) => {
-            ev.stopPropagation();
-            closeAllVcPopovers();
-            switchToSeriesSeasonEpisode(selSeason, eNum);
-          };
-          listBox.appendChild(rowBtn);
-        });
-        epPop.appendChild(listBox);
-      };
+          epPop.innerHTML = `<div class="atv-vc-pop-title">${escapeHtml(
+            t("Сезоны и серии", "Seasons & Episodes")
+          )}</div>`;
 
-      renderInStageEpisodesMenu(previewSeason);
+          if (seasonNumbers.length > 1) {
+            const seasonsBar = document.createElement("div");
+            seasonsBar.className = "atv-vc-ep-seasons-row";
+            seasonsBar.setAttribute("role", "tablist");
+            seasonsBar.setAttribute("aria-label", t("Сезоны", "Seasons"));
+            seasonNumbers.forEach((sNum) => {
+              const isSelSeason = sNum === selSeason;
+              const sBtn = document.createElement("button");
+              sBtn.type = "button";
+              sBtn.setAttribute("role", "tab");
+              sBtn.setAttribute("aria-selected", isSelSeason ? "true" : "false");
+              sBtn.className = `atv-vc-ep-season-pill${isSelSeason ? " active" : ""}`;
+              sBtn.textContent = `${t("Сезон", "Season")} ${sNum}`;
+              sBtn.onclick = (ev) => {
+                ev.stopPropagation();
+                renderInStageEpisodesMenu(sNum);
+              };
+              seasonsBar.appendChild(sBtn);
+            });
+            epPop.appendChild(seasonsBar);
+          }
+
+          const listBox = document.createElement("div");
+          listBox.className = "atv-vc-ep-list";
+          releasedEps.forEach((eNum) => {
+            const isAct = selSeason === curS && eNum === curE;
+            const isWatched = isEpisodeWatched(item, selSeason, eNum);
+            const epProg = getEpisodeProgress(item, selSeason, eNum);
+            const epMeta = getEpisodeDisplayMeta(selSeason, eNum);
+            const rowBtn = document.createElement("button");
+            rowBtn.type = "button";
+            if (isAct) rowBtn.setAttribute("aria-current", "true");
+            rowBtn.className = `atv-vc-pop-item atv-vc-ep-row${isAct ? " active" : ""}${
+              isWatched ? " watched is-watched" : ""
+            }`;
+            const epSubTitle = epMeta.realTitle ? ` · ${epMeta.realTitle}` : "";
+            const rightBadge = isAct
+              ? iconSvg("play", 11)
+              : isWatched
+              ? iconSvg("check", 12)
+              : epProg && epProg.pct > 0
+              ? `<span class="atv-vc-ep-prog-pct">${epProg.pct}%</span>`
+              : "";
+            rowBtn.innerHTML = `
+              <span class="atv-vc-ep-row-main atv-vc-pop-item-main">
+                <span class="atv-vc-ep-num">${t(`Серия ${eNum}`, `Episode ${eNum}`)}</span>
+                ${
+                  epSubTitle
+                    ? `<span class="atv-vc-ep-title">${escapeHtml(epMeta.realTitle)}</span>`
+                    : ""
+                }
+              </span>
+              <span class="atv-vc-ep-row-right atv-vc-ep-status">${rightBadge}</span>
+            `;
+            rowBtn.onclick = (ev) => {
+              ev.stopPropagation();
+              closeAllVcPopovers();
+              switchToSeriesSeasonEpisode(selSeason, eNum);
+            };
+            listBox.appendChild(rowBtn);
+          });
+          epPop.appendChild(listBox);
+        };
+
+        renderInStageEpisodesMenu(previewSeason);
+      }
     }
   }
 
-  const studioWrap = document.getElementById("vc-studio-wrap");
-  const studioLbl = document.getElementById("vc-studio-label");
-  const studioPop = document.getElementById("vc-studio-popover");
-  const studioSel = document.getElementById("select-studio");
+  const studioWrap = _getVcEl("vc-studio-wrap");
+  const studioLbl = _getVcEl("vc-studio-label");
+  const studioPop = _getVcEl("vc-studio-popover");
+  const studioSel = _getVcEl("select-studio");
 
   const bindPopoverQuickSearch = (container) => {
     const searchInp = container.querySelector(".atv-vc-pop-search");
@@ -389,6 +421,11 @@ export function syncCustomControlPopovers() {
 
   const renderStudioItemsInto = (container, opts, popTitle) => {
     if (!container) return;
+    const studioSig = `${popTitle}|${studioSel?.value || ""}|${opts.map((o) => `${o.value}:${o.dataset.isOriginal || ""}:${o.textContent}`).join("||")}|${state.appLang || "ru"}`;
+    if (container.dataset.renderSig === studioSig && container.childElementCount > 0) {
+      return;
+    }
+    container.dataset.renderSig = studioSig;
     const showSearch = opts.length >= 12;
     const searchHtml = showSearch
       ? `<div class="atv-vc-pop-search-wrap"><input type="text" class="atv-vc-pop-search" placeholder="${escapeAttr(
@@ -396,6 +433,7 @@ export function syncCustomControlPopovers() {
         )}" autocomplete="off" spellcheck="false" /></div>`
       : "";
     container.innerHTML = `<div class="atv-vc-pop-title">${escapeHtml(popTitle)}</div>${searchHtml}`;
+    const containerFrag = document.createDocumentFragment();
     opts.forEach((opt, idx) => {
       const isAct = opt.value === studioSel.value;
       const isOrig = opt.dataset.isOriginal === "1";
@@ -415,14 +453,15 @@ export function syncCustomControlPopovers() {
         studioSel.value = opt.value;
         studioSel.dispatchEvent(new Event("change"));
       };
-      container.appendChild(b);
+      containerFrag.appendChild(b);
       const nextOpt = opts[idx + 1];
       if (isOrig && nextOpt && nextOpt.dataset.isOriginal !== "1") {
         const div = document.createElement("div");
         div.className = "atv-vc-pop-divider";
-        container.appendChild(div);
+        containerFrag.appendChild(div);
       }
     });
+    container.appendChild(containerFrag);
     if (showSearch) {
       const emptyDiv = document.createElement("div");
       emptyDiv.className = "atv-vc-pop-empty hidden";
@@ -448,48 +487,68 @@ export function syncCustomControlPopovers() {
       } else {
         studioWrap.classList.remove("hidden");
         studioLbl.textContent = activeOpt ? activeOpt.textContent : t("Озвучка", "Audio");
-        renderStudioItemsInto(studioPop, opts, popTitle);
+        if (!studioPop.classList.contains("hidden")) {
+          renderStudioItemsInto(studioPop, opts, popTitle);
+        }
       }
     }
   }
 
-  const subsWrap = document.getElementById("vc-subs-wrap");
-  const subsLbl = document.getElementById("vc-subs-label");
-  const subsPop = document.getElementById("vc-subs-popover");
-  const subsSel = document.getElementById("select-subtitle");
+  const subsWrap = _getVcEl("vc-subs-wrap");
+  const subsLbl = _getVcEl("vc-subs-label");
+  const subsPop = _getVcEl("vc-subs-popover");
+  const subsSel = _getVcEl("select-subtitle");
   if (subsWrap && subsLbl && subsPop && subsSel) {
     renderVcSubtitlesPopover(subsWrap, subsLbl, subsPop, subsSel, bindPopoverQuickSearch);
   }
 
-  const qualWrap = document.getElementById("vc-quality-wrap");
-  const qualBtn = document.getElementById("vc-btn-quality");
-  const qualLbl = document.getElementById("vc-quality-label");
-  const qualPop = document.getElementById("vc-quality-popover");
-  const qualSel = document.getElementById("select-quality");
+  const qualWrap = _getVcEl("vc-quality-wrap");
+  const qualBtn = _getVcEl("vc-btn-quality");
+  const qualLbl = _getVcEl("vc-quality-label");
+  const qualPop = _getVcEl("vc-quality-popover");
+  const qualSel = _getVcEl("select-quality");
   if (qualWrap && qualLbl && qualPop && qualSel) {
     const qOpts = Array.from(qualSel.options || []);
     if (isHdRezka && qOpts.length > 0) {
       qualWrap.classList.remove("hidden");
       qualBtn?.classList.remove("is-readonly-badge");
-      qualLbl.textContent = qualSel.value || qOpts[0]?.value || "1080p";
-      qualPop.innerHTML = `<div class="atv-vc-pop-title">${t("Качество видео", "Video Quality")}</div>`;
-      qOpts.forEach((opt) => {
-        const isAct = opt.value === qualSel.value;
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = `atv-vc-pop-item${isAct ? " active" : ""}`;
-        b.innerHTML = `<span>${escapeHtml(opt.textContent)}</span><span>${isAct ? iconSvg("check", 12) : ""}</span>`;
-        b.onclick = (ev) => {
-          ev.stopPropagation();
-          closeAllVcPopovers();
-          if (qualSel.value !== opt.value) {
-            qualSel.value = opt.value;
-            qualSel.dispatchEvent(new Event("change"));
-            syncCustomControlPopovers();
-          }
-        };
-        qualPop.appendChild(b);
-      });
+      const activeQ = qualSel.value || qOpts[0]?.value || "1080p";
+      const isAbrSteppedDown = Boolean(
+        state.abrAutoMode !== false &&
+          state.abrTargetQuality &&
+          state.abrCurrentQuality &&
+          state.abrCurrentQuality === activeQ &&
+          state.abrCurrentQuality !== state.abrTargetQuality
+      );
+      qualLbl.textContent = isAbrSteppedDown
+        ? `${activeQ} · ${t("Авто", "Auto")}`
+        : activeQ;
+      if (!qualPop.classList.contains("hidden")) {
+        const qualPopSig = `${qualSel.value || ""}|${qOpts.map((o) => `${o.value}:${o.textContent}`).join("|")}|${state.appLang || "ru"}`;
+        if (qualPop.dataset.renderSig !== qualPopSig || qualPop.childElementCount === 0) {
+          qualPop.dataset.renderSig = qualPopSig;
+          qualPop.innerHTML = `<div class="atv-vc-pop-title">${t("Качество видео", "Video Quality")}</div>`;
+          const qFrag = document.createDocumentFragment();
+          qOpts.forEach((opt) => {
+            const isAct = opt.value === qualSel.value;
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = `atv-vc-pop-item${isAct ? " active" : ""}`;
+            b.innerHTML = `<span>${escapeHtml(opt.textContent)}</span><span>${isAct ? iconSvg("check", 12) : ""}</span>`;
+            b.onclick = (ev) => {
+              ev.stopPropagation();
+              closeAllVcPopovers();
+              if (qualSel.value !== opt.value) {
+                qualSel.value = opt.value;
+                qualSel.dispatchEvent(new Event("change"));
+                syncCustomControlPopovers();
+              }
+            };
+            qFrag.appendChild(b);
+          });
+          qualPop.appendChild(qFrag);
+        }
+      }
     } else if (state.activeSourceTab === "backup4k" || state.activeSourceTab === "stremio") {
       const videoEl = document.getElementById("native-video");
       const vh = Number(videoEl?.videoHeight) || 0;
@@ -545,13 +604,15 @@ export function setPseudoStageFullscreen(enable) {
   }
   syncPostwatchOverlayMount();
   syncToastContainerMount();
+  syncPersonModalMount();
   syncCustomVideoControlsUI();
   wakeVideoControls();
   pushDesktopRemoteStateNow();
 }
 
 export function setVideoStageIdle(isIdle) {
-  const stage = document.getElementById("video-stage");
+  state.vcIsIdle = Boolean(isIdle);
+  const stage = _getVcEl("video-stage");
   if (isIdle) {
     stage?.classList.add("vc-idle");
     if (isStageFullscreen()) {
@@ -565,74 +626,112 @@ export function setVideoStageIdle(isIdle) {
   }
 }
 
+function _onVcIdleTimeout() {
+  state.vcIdleTimerId = null;
+  const video = _getVcEl("native-video");
+  if (!video) return;
+  const controlsBar = _getVcEl("atv-custom-controls");
+  const activeEl = typeof document !== "undefined" ? document.activeElement : null;
+  const isFocusInsideControls = Boolean(
+    controlsBar && activeEl && activeEl !== video && controlsBar.contains(activeEl)
+  );
+  if (
+    !video.paused &&
+    !video.ended &&
+    !state.vcScrubbing &&
+    !hasOpenVcPopover() &&
+    !isFocusInsideControls
+  ) {
+    setVideoStageIdle(true);
+  }
+}
+
 export function wakeVideoControls() {
-  const stage = document.getElementById("video-stage");
-  const video = document.getElementById("native-video");
+  const nowMs = Date.now();
+  if (!state.vcIsIdle && nowMs - (state._lastVcWakeTs || 0) < 220) {
+    return;
+  }
+  const stage = _getVcEl("video-stage");
+  const video = _getVcEl("native-video");
   if (!stage) return;
-  setVideoStageIdle(false);
+  if (state.vcIsIdle || stage.classList.contains("vc-idle")) {
+    setVideoStageIdle(false);
+  }
+  state._lastVcWakeTs = nowMs;
   if (state.vcIdleTimerId) {
     clearTimeout(state.vcIdleTimerId);
     state.vcIdleTimerId = null;
   }
   if (!video || video.paused || video.ended) return;
-  state.vcIdleTimerId = setTimeout(() => {
-    const controlsBar = document.getElementById("atv-custom-controls");
-    const activeEl = typeof document !== "undefined" ? document.activeElement : null;
-    const isFocusInsideControls = Boolean(
-      controlsBar && activeEl && activeEl !== video && controlsBar.contains(activeEl)
-    );
-    if (
-      !video.paused &&
-      !video.ended &&
-      !state.vcScrubbing &&
-      !hasOpenVcPopover() &&
-      !isFocusInsideControls
-    ) {
-      setVideoStageIdle(true);
-    }
-  }, 2200);
+  state.vcIdleTimerId = setTimeout(_onVcIdleTimeout, 2200);
+}
+
+let _lastFsHeaderKey = "";
+const _vcDom = {};
+
+function _getVcEl(id) {
+  let el = _vcDom[id];
+  if (!el || !el.isConnected) {
+    el = document.getElementById(id);
+    if (el) _vcDom[id] = el;
+  }
+  return el;
 }
 
 export function syncCustomVideoControlsUI(forceSync = false) {
-  const video = document.getElementById("native-video");
+  const video = _getVcEl("native-video");
   if (!video) return;
   // Skip redundant DOM style mutations when controls bar is hidden in idle playback
+  // and throttle high-frequency active timeupdate calls (up to 60Hz in WebKit)
   if (!forceSync && !state.vcScrubbing) {
-    const stage = document.getElementById("video-stage");
-    if (stage && stage.classList.contains("vc-idle")) {
-      const nowMs = Date.now();
+    const nowMs = Date.now();
+    const stage = _getVcEl("video-stage");
+    if (stage && (stage.classList.contains("vc-idle") || state.vcIsIdle)) {
       if (nowMs - (state.lastVcSyncTs || 0) < 1200) {
         return;
       }
       state.lastVcSyncTs = nowMs;
+    } else if (nowMs - (state._lastVcActiveSyncTs || 0) < 90) {
+      return;
     }
+    state._lastVcActiveSyncTs = nowMs;
   }
   const { cur, dur } = getEffectivePlaybackTiming(video);
   const rawCur = Number.isFinite(video.currentTime) ? video.currentTime : 0;
 
-  const playBtn = document.getElementById("vc-btn-play");
+  const curLang = state.appLang || "ru";
+  const playBtn = _getVcEl("vc-btn-play");
   if (playBtn) {
     const playKey = video.paused ? "play" : "pause";
-    const playLabel = video.paused
-      ? t("Воспроизвести (Space)", "Play (Space)")
-      : t("Пауза (Space)", "Pause (Space)");
-    if (playBtn.dataset.icoKey !== playKey) {
-      playBtn.dataset.icoKey = playKey;
-      playBtn.innerHTML = iconSvg(playKey, 14);
-    }
-    if (playBtn.getAttribute("aria-label") !== playLabel) {
-      playBtn.setAttribute("aria-label", playLabel);
+    if (forceSync || playBtn.dataset.icoKey !== playKey || playBtn.dataset.lang !== curLang) {
+      if (playBtn.dataset.icoKey !== playKey) {
+        playBtn.dataset.icoKey = playKey;
+        playBtn.innerHTML = iconSvg(playKey, 14);
+      }
+      playBtn.dataset.lang = curLang;
+      const playLabel = video.paused
+        ? t("Воспроизвести (Space)", "Play (Space)")
+        : t("Пауза (Space)", "Pause (Space)");
+      if (playBtn.getAttribute("aria-label") !== playLabel) {
+        playBtn.setAttribute("aria-label", playLabel);
+      }
     }
   }
 
+  const curSecInt = Math.floor(cur);
+  const durSecInt = Math.floor(dur);
+
   if (!state.vcScrubbing) {
     const pct = dur > 0 ? Math.min(100, Math.max(0, (cur / dur) * 100)) : 0;
-    const playedEl = document.getElementById("vc-played");
-    const thumbEl = document.getElementById("vc-thumb");
-    const timelineEl = document.getElementById("vc-timeline");
-    if (playedEl) playedEl.style.width = `${pct}%`;
-    if (thumbEl) thumbEl.style.left = `${pct}%`;
-    if (timelineEl) {
+    const playedEl = _getVcEl("vc-played");
+    const thumbEl = _getVcEl("vc-thumb");
+    const timelineEl = _getVcEl("vc-timeline");
+    const pctStr = `${pct.toFixed(2)}%`;
+    if (playedEl && playedEl.style.width !== pctStr) playedEl.style.width = pctStr;
+    if (thumbEl && thumbEl.style.left !== pctStr) thumbEl.style.left = pctStr;
+    if (timelineEl && (forceSync || timelineEl._lastAriaSec !== curSecInt || timelineEl._lastAriaDur !== durSecInt)) {
+      timelineEl._lastAriaSec = curSecInt;
+      timelineEl._lastAriaDur = durSecInt;
       timelineEl.setAttribute("aria-valuenow", String(Math.round(pct)));
       timelineEl.setAttribute(
         "aria-valuetext",
@@ -641,7 +740,7 @@ export function syncCustomVideoControlsUI(forceSync = false) {
     }
   }
 
-  const bufferedEl = document.getElementById("vc-buffered");
+  const bufferedEl = _getVcEl("vc-buffered");
   if (bufferedEl) {
     let bufPct = 0;
     if (dur > 0 && video.buffered && video.buffered.length > 0) {
@@ -657,11 +756,23 @@ export function syncCustomVideoControlsUI(forceSync = false) {
       const effBufEnd = (state.remuxMeta?.active ? state.remuxMeta.offsetSec || 0 : 0) + bufEnd;
       bufPct = Math.min(100, Math.max(0, (effBufEnd / dur) * 100));
     }
-    bufferedEl.style.width = `${bufPct}%`;
+    const bufStr = `${bufPct.toFixed(1)}%`;
+    if (bufferedEl.style.width !== bufStr) {
+      bufferedEl.style.width = bufStr;
+    }
   }
 
-  const timeBtn = document.getElementById("vc-time-label");
-  if (timeBtn) {
+  const timeBtn = _getVcEl("vc-time-label");
+  if (
+    timeBtn &&
+    (forceSync ||
+      timeBtn._lastCurSec !== curSecInt ||
+      timeBtn._lastDurSec !== durSecInt ||
+      timeBtn._lastRemMode !== Boolean(state.vcShowRemaining))
+  ) {
+    timeBtn._lastCurSec = curSecInt;
+    timeBtn._lastDurSec = durSecInt;
+    timeBtn._lastRemMode = Boolean(state.vcShowRemaining);
     if (dur > 0 && state.vcShowRemaining) {
       timeBtn.textContent = `${formatTime(cur)} / -${formatTime(Math.max(0, dur - cur))}`;
     } else {
@@ -669,79 +780,96 @@ export function syncCustomVideoControlsUI(forceSync = false) {
     }
   }
 
-  const muteBtn = document.getElementById("vc-btn-mute");
-  const volSlider = document.getElementById("vc-vol-slider");
+  const muteBtn = _getVcEl("vc-btn-mute");
+  const volSlider = _getVcEl("vc-vol-slider");
   const isMuted = Boolean(video.muted || video.volume === 0);
   if (muteBtn) {
     const muteKey = isMuted ? "volMute" : video.volume < 0.5 ? "volLow" : "volHigh";
-    const muteLabel = isMuted
-      ? t("Включить звук (M)", "Unmute (M)")
-      : t("Выключить звук (M)", "Mute (M)");
-    if (muteBtn.dataset.icoKey !== muteKey) {
-      muteBtn.dataset.icoKey = muteKey;
-      muteBtn.innerHTML = iconSvg(muteKey, 15);
-    }
-    if (muteBtn.getAttribute("aria-label") !== muteLabel) {
-      muteBtn.setAttribute("aria-label", muteLabel);
+    if (forceSync || muteBtn.dataset.icoKey !== muteKey || muteBtn.dataset.lang !== curLang) {
+      if (muteBtn.dataset.icoKey !== muteKey) {
+        muteBtn.dataset.icoKey = muteKey;
+        muteBtn.innerHTML = iconSvg(muteKey, 15);
+      }
+      muteBtn.dataset.lang = curLang;
+      const muteLabel = isMuted
+        ? t("Включить звук (M)", "Unmute (M)")
+        : t("Выключить звук (M)", "Mute (M)");
+      if (muteBtn.getAttribute("aria-label") !== muteLabel) {
+        muteBtn.setAttribute("aria-label", muteLabel);
+      }
     }
   }
   if (volSlider && document.activeElement !== volSlider) {
-    volSlider.value = String(video.muted ? 0 : video.volume);
+    const nextVolStr = String(video.muted ? 0 : video.volume);
+    if (volSlider.value !== nextVolStr) {
+      volSlider.value = nextVolStr;
+    }
   }
 
-  const fsBtn = document.getElementById("vc-btn-fs");
+  const fsBtn = _getVcEl("vc-btn-fs");
   if (fsBtn) {
     const fsActive = isStageFullscreen();
     const fsKey = fsActive ? "fsExit" : "fsEnter";
-    const fsTitle = fsActive
-      ? t("Выйти из полного экрана (F / Esc)", "Exit fullscreen (F / Esc)")
-      : t("Во весь экран (F)", "Fullscreen (F)");
-    if (fsBtn.dataset.icoKey !== fsKey) {
-      fsBtn.dataset.icoKey = fsKey;
-      fsBtn.innerHTML = iconSvg(fsKey, 14);
-    }
-    if (fsBtn.title !== fsTitle) {
-      fsBtn.title = fsTitle;
-      fsBtn.setAttribute("aria-label", fsTitle);
+    if (forceSync || fsBtn.dataset.icoKey !== fsKey || fsBtn.dataset.lang !== curLang) {
+      if (fsBtn.dataset.icoKey !== fsKey) {
+        fsBtn.dataset.icoKey = fsKey;
+        fsBtn.innerHTML = iconSvg(fsKey, 14);
+      }
+      fsBtn.dataset.lang = curLang;
+      const fsTitle = fsActive
+        ? t("Выйти из полного экрана (F / Esc)", "Exit fullscreen (F / Esc)")
+        : t("Во весь экран (F)", "Fullscreen (F)");
+      if (fsBtn.title !== fsTitle) {
+        fsBtn.title = fsTitle;
+        fsBtn.setAttribute("aria-label", fsTitle);
+      }
     }
   }
 
-  const fsTitleEl = document.getElementById("vc-fs-title");
-  const fsMetaEl = document.getElementById("vc-fs-meta");
+  const fsTitleEl = _getVcEl("vc-fs-title");
+  const fsMetaEl = _getVcEl("vc-fs-meta");
   if (fsTitleEl && fsMetaEl && state.activeItem) {
     const item = state.activeItem;
-    const mainTitle = displayTitle(item);
-    let nextTitle = "";
-    let nextMeta = "";
-    if (item.media_type === "series") {
-      const epMeta = getEpisodeDisplayMeta(state.activeSeason, state.activeEpisode);
-      const epNamePart = epMeta.realTitle
-        ? isEn()
-          ? ` — "${epMeta.realTitle}"`
-          : ` — «${epMeta.realTitle}»`
-        : "";
-      nextTitle = mainTitle || "";
-      nextMeta = [
-        `${t(
-          `Сезон ${state.activeSeason}, Серия ${state.activeEpisode}`,
-          `Season ${state.activeSeason}, Episode ${state.activeEpisode}`
-        )}${epNamePart}`,
-        state.activeStudioName || "",
-      ]
-        .filter(Boolean)
-        .join(" · ");
-    } else {
-      const fsGenres = getItemGenreEntries(item)
-        .slice(0, 2)
-        .map((g) => g.label)
-        .join(", ");
-      nextTitle = item.year ? `${mainTitle} (${item.year})` : mainTitle || "";
-      nextMeta = [secondaryTitle(item) || "", fsGenres, state.activeStudioName || ""]
-        .filter(Boolean)
-        .join(" · ");
+    const curSeasonTitlesObj = state.episodesTitles
+      ? state.episodesTitles[String(state.activeSeason)]
+      : null;
+    const epTitleSample = curSeasonTitlesObj ? curSeasonTitlesObj[String(state.activeEpisode)] || "" : "";
+    const fsHeaderKey = `${item.id || item.title}:${state.activeSeason}:${state.activeEpisode}:${state.activeStudioName || ""}:${curLang}:${epTitleSample}`;
+    if (forceSync || _lastFsHeaderKey !== fsHeaderKey) {
+      _lastFsHeaderKey = fsHeaderKey;
+      const mainTitle = displayTitle(item);
+      let nextTitle = "";
+      let nextMeta = "";
+      if (item.media_type === "series") {
+        const epMeta = getEpisodeDisplayMeta(state.activeSeason, state.activeEpisode);
+        const epNamePart = epMeta.realTitle
+          ? isEn()
+            ? ` — "${epMeta.realTitle}"`
+            : ` — «${epMeta.realTitle}»`
+          : "";
+        nextTitle = mainTitle || "";
+        nextMeta = [
+          `${t(
+            `Сезон ${state.activeSeason}, Серия ${state.activeEpisode}`,
+            `Season ${state.activeSeason}, Episode ${state.activeEpisode}`
+          )}${epNamePart}`,
+          state.activeStudioName || "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      } else {
+        const fsGenres = getItemGenreEntries(item)
+          .slice(0, 2)
+          .map((g) => g.label)
+          .join(", ");
+        nextTitle = item.year ? `${mainTitle} (${item.year})` : mainTitle || "";
+        nextMeta = [secondaryTitle(item) || "", fsGenres, state.activeStudioName || ""]
+          .filter(Boolean)
+          .join(" · ");
+      }
+      if (fsTitleEl.textContent !== nextTitle) fsTitleEl.textContent = nextTitle;
+      if (fsMetaEl.textContent !== nextMeta) fsMetaEl.textContent = nextMeta;
     }
-    if (fsTitleEl.textContent !== nextTitle) fsTitleEl.textContent = nextTitle;
-    if (fsMetaEl.textContent !== nextMeta) fsMetaEl.textContent = nextMeta;
   }
 }
 
@@ -779,7 +907,7 @@ export function toggleStageFullscreen() {
       setPseudoStageFullscreen(false);
     }
     try {
-      window.webkit?.messageHandlers?.cineflowNative?.postMessage({
+      window.webkit?.messageHandlers?.velariumNative?.postMessage({
         action: "setWindowFullscreen",
         fullscreen: false,
       });
@@ -801,7 +929,7 @@ export function toggleStageFullscreen() {
     setPipBackgroundMode(false);
   }
   try {
-    window.webkit?.messageHandlers?.cineflowNative?.postMessage({
+    window.webkit?.messageHandlers?.velariumNative?.postMessage({
       action: "setWindowFullscreen",
       fullscreen: true,
     });
@@ -840,52 +968,66 @@ export function toggleStageFullscreen() {
   }
 }
 
-export function getSnappingRatio(rawRatio, dur, timeline = document.getElementById("vc-timeline")) {
+let _cachedSnapCandidates = null;
+let _cachedSnapCandidatesKey = "";
+
+export function getSnappingRatio(rawRatio, dur, timelineWidthPx = 0) {
   if (!dur || dur <= 0) return { ratio: rawRatio, snapped: null };
-  const rect = timeline?.getBoundingClientRect();
-  const width = rect?.width || 0;
+  let width = Number(timelineWidthPx) || 0;
+  if (!width) {
+    const timeline = document.getElementById("vc-timeline");
+    width = timeline?.getBoundingClientRect()?.width || 0;
+  }
   if (!width) return { ratio: rawRatio, snapped: null };
   const snapThresholdRatio = Math.max(0.006, 8 / width);
-  const candidates = [];
 
   const introStart = Number(state.skipSegments?.intro?.start) || Number(state.skipSegments?.intro?.start_sec) || 0;
   const introEnd = Number(state.skipSegments?.intro?.end) || Number(state.skipSegments?.intro?.end_sec) || 0;
   const creditsStart = getDetectedCreditsStartSec(dur) || 0;
-
-  if (introStart > 0 && introStart < dur) {
-    candidates.push({ r: introStart / dur, label: t("Заставка: начало", "Intro start") });
-  }
-  if (introEnd > 0 && introEnd < dur) {
-    candidates.push({ r: introEnd / dur, label: t("Заставка: конец", "Intro end") });
-  }
-  if (creditsStart > 0 && creditsStart < dur) {
-    candidates.push({ r: creditsStart / dur, label: t("Титры", "Credits") });
-  }
-  if (Array.isArray(state.activeItemBookmarks)) {
-    state.activeItemBookmarks.forEach((bm) => {
-      if (bm && typeof bm.time === "number" && bm.time > 0 && bm.time < dur) {
-        const bmNote = String(bm.note || "").trim();
-        const bmLabel = bmNote
-          ? `${t("Закладка", "Bookmark")}: ${bmNote}`
-          : `${t("Закладка", "Bookmark")} (${formatTime(bm.time)})`;
-        candidates.push({ r: bm.time / dur, label: bmLabel });
-      }
-    });
-  }
+  const bmLen = Array.isArray(state.activeItemBookmarks) ? state.activeItemBookmarks.length : 0;
+  const bmLastId = bmLen > 0 ? state.activeItemBookmarks[bmLen - 1]?.id || state.activeItemBookmarks[bmLen - 1]?.time : 0;
   const extraChapters = Array.isArray(state.remuxMeta?.chapters)
     ? state.remuxMeta.chapters
     : Array.isArray(state.skipSegments?.chapters)
     ? state.skipSegments.chapters
     : [];
-  extraChapters.forEach((ch) => {
-    const chSec = Number(ch?.start ?? ch?.time ?? ch?.start_sec) || 0;
-    if (chSec > 0 && chSec < dur) {
-      candidates.push({
-        r: chSec / dur,
-        label: String(ch?.title || ch?.label || `${t("Глава", "Chapter")} (${formatTime(chSec)})`),
+  const snapKey = `${Math.round(dur)}:${introStart}:${introEnd}:${creditsStart}:${bmLen}:${bmLastId}:${extraChapters.length}:${state.appLang || "ru"}`;
+
+  let candidates = _cachedSnapCandidates;
+  if (!candidates || _cachedSnapCandidatesKey !== snapKey) {
+    candidates = [];
+    if (introStart > 0 && introStart < dur) {
+      candidates.push({ r: introStart / dur, label: t("Заставка: начало", "Intro start") });
+    }
+    if (introEnd > 0 && introEnd < dur) {
+      candidates.push({ r: introEnd / dur, label: t("Заставка: конец", "Intro end") });
+    }
+    if (creditsStart > 0 && creditsStart < dur) {
+      candidates.push({ r: creditsStart / dur, label: t("Титры", "Credits") });
+    }
+    if (Array.isArray(state.activeItemBookmarks)) {
+      state.activeItemBookmarks.forEach((bm) => {
+        if (bm && typeof bm.time === "number" && bm.time > 0 && bm.time < dur) {
+          const bmNote = String(bm.note || "").trim();
+          const bmLabel = bmNote
+            ? `${t("Закладка", "Bookmark")}: ${bmNote}`
+            : `${t("Закладка", "Bookmark")} (${formatTime(bm.time)})`;
+          candidates.push({ r: bm.time / dur, label: bmLabel });
+        }
       });
     }
-  });
+    extraChapters.forEach((ch) => {
+      const chSec = Number(ch?.start ?? ch?.time ?? ch?.start_sec) || 0;
+      if (chSec > 0 && chSec < dur) {
+        candidates.push({
+          r: chSec / dur,
+          label: String(ch?.title || ch?.label || `${t("Глава", "Chapter")} (${formatTime(chSec)})`),
+        });
+      }
+    });
+    _cachedSnapCandidates = candidates;
+    _cachedSnapCandidatesKey = snapKey;
+  }
 
   for (const cand of candidates) {
     if (Math.abs(rawRatio - cand.r) <= snapThresholdRatio) {
@@ -893,6 +1035,114 @@ export function getSnappingRatio(rawRatio, dur, timeline = document.getElementBy
     }
   }
   return { ratio: rawRatio, snapped: null };
+}
+
+export function collectActiveTimelineChapters(dur) {
+  const effDur = Number(dur) || 0;
+  if (effDur <= 0) return [];
+  const chapters = [];
+  const introStart = Number(state.skipSegments?.intro?.start) || Number(state.skipSegments?.intro?.start_sec) || 0;
+  const introEnd = Number(state.skipSegments?.intro?.end) || Number(state.skipSegments?.intro?.end_sec) || 0;
+  const creditsStart = getDetectedCreditsStartSec(effDur) || 0;
+
+  if (introEnd > 1 && introEnd < effDur) {
+    chapters.push({
+      time: Math.max(0, Math.round(introStart)),
+      end: Math.round(introEnd),
+      label: t("Заставка", "Intro"),
+      kind: "intro",
+    });
+    chapters.push({
+      time: Math.round(introEnd),
+      end: 0,
+      label: t("Конец заставки", "Intro end"),
+      kind: "intro_end",
+    });
+  }
+
+  const extraChapters = Array.isArray(state.remuxMeta?.chapters)
+    ? state.remuxMeta.chapters
+    : Array.isArray(state.skipSegments?.chapters)
+    ? state.skipSegments.chapters
+    : [];
+  extraChapters.forEach((ch, idx) => {
+    const chSec = Number(ch?.start ?? ch?.time ?? ch?.start_sec) || 0;
+    const chEnd = Number(ch?.end ?? ch?.end_sec) || 0;
+    if (chSec >= 0 && chSec < effDur) {
+      chapters.push({
+        time: Math.round(chSec),
+        end: chEnd > chSec ? Math.round(chEnd) : 0,
+        label: String(ch?.title || ch?.label || `${t("Глава", "Chapter")} ${idx + 1}`),
+        kind: "chapter",
+      });
+    }
+  });
+
+  if (creditsStart > 1 && creditsStart < effDur) {
+    chapters.push({
+      time: Math.round(creditsStart),
+      end: Math.round(effDur),
+      label: t("Титры", "Credits"),
+      kind: "credits",
+    });
+  }
+
+  chapters.sort((a, b) => a.time - b.time);
+  const deduped = [];
+  for (const ch of chapters) {
+    if (!deduped.length || Math.abs(deduped[deduped.length - 1].time - ch.time) > 1) {
+      deduped.push(ch);
+    }
+  }
+  return deduped;
+}
+
+let _lastActiveChapterKey = "";
+let _lastActiveChapterVal = "";
+
+export function findActiveChapterLabel(cur, dur) {
+  const effDur = Number(dur) || 0;
+  const effCur = Number(cur) || 0;
+  if (effDur <= 0 || effCur < 0) return "";
+  const extraChapters = Array.isArray(state.remuxMeta?.chapters)
+    ? state.remuxMeta.chapters
+    : Array.isArray(state.skipSegments?.chapters)
+    ? state.skipSegments.chapters
+    : [];
+  const introStart = Number(state.skipSegments?.intro?.start) || Number(state.skipSegments?.intro?.start_sec) || 0;
+  const introEnd = Number(state.skipSegments?.intro?.end) || Number(state.skipSegments?.intro?.end_sec) || 0;
+  const chMemoKey = `${state.activeItem?.id || ""}:${state.activeSeason || 1}:${state.activeEpisode || 1}:${Math.floor(effCur)}:${Math.round(effDur)}:${introStart}:${introEnd}:${extraChapters.length}:${state.appLang || "ru"}`;
+  if (_lastActiveChapterKey === chMemoKey) {
+    return _lastActiveChapterVal;
+  }
+  _lastActiveChapterKey = chMemoKey;
+
+  const creditsStart = getDetectedCreditsStartSec(effDur) || 0;
+
+  if (introEnd > 0 && effCur >= introStart && effCur <= introEnd) {
+    _lastActiveChapterVal = t("Заставка", "Intro");
+    return _lastActiveChapterVal;
+  }
+  if (creditsStart > 0 && effCur >= creditsStart) {
+    _lastActiveChapterVal = t("Титры", "Credits");
+    return _lastActiveChapterVal;
+  }
+  if (!extraChapters.length) {
+    _lastActiveChapterVal = "";
+    return "";
+  }
+  let activeTitle = "";
+  let bestStart = -1;
+  extraChapters.forEach((ch, idx) => {
+    const chSec = Number(ch?.start ?? ch?.time ?? ch?.start_sec) || 0;
+    const chEnd = Number(ch?.end ?? ch?.end_sec) || 0;
+    if (chSec <= effCur && chSec >= bestStart && (!chEnd || effCur < chEnd)) {
+      bestStart = chSec;
+      activeTitle = String(ch?.title || ch?.label || `${t("Глава", "Chapter")} ${idx + 1}`);
+    }
+  });
+  _lastActiveChapterVal = activeTitle;
+  return activeTitle;
 }
 
 export function jumpToAdjacentTimelineMarker(direction = 1) {
@@ -959,7 +1209,7 @@ export function jumpToAdjacentTimelineMarker(direction = 1) {
 export function initCustomVideoControls() {
   const stage = document.getElementById("video-stage");
   const controlsBar = document.getElementById("atv-custom-controls");
-  const getVideoEl = () => document.getElementById("native-video");
+  const getVideoEl = () => _getVcEl("native-video");
   const timeline = document.getElementById("vc-timeline");
   const hoverTimeEl = document.getElementById("vc-hover-time");
   const playedEl = document.getElementById("vc-played");
@@ -989,7 +1239,10 @@ export function initCustomVideoControls() {
   document.addEventListener(
     "mousemove",
     (e) => {
-      if (isStageFullscreen()) {
+      if (!state.isPlayerOpen) return;
+      if (!isStageFullscreen()) return;
+      if (!state.vcIsIdle && Date.now() - (state._lastVcWakeTs || 0) < 220) return;
+      if (!stage || !stage.contains(e.target)) {
         handleRealPointerMove(e);
       }
     },
@@ -1019,6 +1272,7 @@ export function initCustomVideoControls() {
     }
     syncPostwatchOverlayMount();
     syncToastContainerMount();
+    syncPersonModalMount();
     syncCustomVideoControlsUI();
     wakeVideoControls();
     pushDesktopRemoteStateNow();
@@ -1029,9 +1283,12 @@ export function initCustomVideoControls() {
   // Interactive Timeline Scrubber + Hover Time
   if (timeline) {
     let cachedTimelineRect = null;
+    let cachedTimelineRectTs = 0;
     const getTimelineRect = () => {
-      if (!cachedTimelineRect) {
+      const nowRectMs = Date.now();
+      if (!cachedTimelineRect || (!state.vcScrubbing && nowRectMs - cachedTimelineRectTs > 250)) {
         cachedTimelineRect = timeline.getBoundingClientRect();
+        cachedTimelineRectTs = nowRectMs;
       }
       return cachedTimelineRect;
     };
@@ -1051,12 +1308,17 @@ export function initCustomVideoControls() {
 
     const updateHoverPreview = (clientX, precomputedRatio = null) => {
       const { cur, dur } = getEffectivePlaybackTiming(getVideoEl());
-      if (!dur || !hoverTimeEl) return;
+      if (!dur || !hoverTimeEl) return { ratio: precomputedRatio || 0, snapped: null };
+      const rect = getTimelineRect();
       const rawRatio = typeof precomputedRatio === "number" ? precomputedRatio : computeRatio(clientX);
-      const snapInfo = getSnappingRatio(rawRatio, dur);
+      const snapInfo = getSnappingRatio(rawRatio, dur, rect.width);
       const effectiveRatio = snapInfo.ratio;
       const clampedLeft = Math.min(94, Math.max(6, effectiveRatio * 100));
-      hoverTimeEl.style.left = `${clampedLeft}%`;
+      const clampedLeftStr = `${clampedLeft.toFixed(2)}%`;
+      if (hoverTimeEl._lastHoverLeftPct !== clampedLeftStr) {
+        hoverTimeEl._lastHoverLeftPct = clampedLeftStr;
+        hoverTimeEl.style.left = clampedLeftStr;
+      }
       const hoverSec = effectiveRatio * dur;
       let chapterBadge = "";
       if (snapInfo.snapped) {
@@ -1073,38 +1335,55 @@ export function initCustomVideoControls() {
         }
       }
       const deltaSec = Math.round(hoverSec - (Number(cur) || 0));
-      const deltaText =
-        Math.abs(deltaSec) >= 1
-          ? `${deltaSec > 0 ? "+" : "−"}${formatTime(Math.abs(deltaSec))}`
-          : "";
+      const hoverSecInt = Math.floor(hoverSec);
       const remSec = Math.max(0, Math.round(dur - hoverSec));
-      const remText = `−${formatTime(remSec)}`;
-      hoverTimeEl.innerHTML = `${
-        chapterBadge ? `<span class="atv-vc-hover-chapter">${escapeHtml(chapterBadge)}</span>` : ""
-      }<span class="atv-vc-hover-main"><span class="atv-vc-hover-target">${escapeHtml(
-        formatTime(hoverSec)
-      )}</span>${
-        deltaText ? `<span class="atv-vc-hover-delta">${escapeHtml(deltaText)}</span>` : ""
-      }<span class="atv-vc-hover-rem">${escapeHtml(remText)}</span></span>`;
-      hoverTimeEl.classList.remove("hidden");
+      const hoverKey = `${hoverSecInt}|${deltaSec}|${remSec}|${chapterBadge}`;
+      if (hoverTimeEl._lastHoverKey !== hoverKey) {
+        hoverTimeEl._lastHoverKey = hoverKey;
+        const deltaText =
+          Math.abs(deltaSec) >= 1
+            ? `${deltaSec > 0 ? "+" : "−"}${formatTime(Math.abs(deltaSec))}`
+            : "";
+        const remText = `−${formatTime(remSec)}`;
+        const nextHtml = `${
+          chapterBadge ? `<span class="atv-vc-hover-chapter">${escapeHtml(chapterBadge)}</span>` : ""
+        }<span class="atv-vc-hover-main"><span class="atv-vc-hover-target">${escapeHtml(
+          formatTime(hoverSec)
+        )}</span>${
+          deltaText ? `<span class="atv-vc-hover-delta">${escapeHtml(deltaText)}</span>` : ""
+        }<span class="atv-vc-hover-rem">${escapeHtml(remText)}</span></span>`;
+        if (hoverTimeEl._lastHoverHtml !== nextHtml) {
+          hoverTimeEl._lastHoverHtml = nextHtml;
+          hoverTimeEl.innerHTML = nextHtml;
+        }
+      }
+      if (hoverTimeEl.classList.contains("hidden")) {
+        hoverTimeEl.classList.remove("hidden");
+      }
+      return snapInfo;
     };
 
     timeline.addEventListener("pointermove", (e) => {
       const rawRatio = computeRatio(e.clientX);
-      updateHoverPreview(e.clientX, rawRatio);
+      const snapInfo = updateHoverPreview(e.clientX, rawRatio);
       if (state.vcScrubbing) {
         const v = getVideoEl();
         const { dur } = getEffectivePlaybackTiming(v);
-        const { ratio } = getSnappingRatio(rawRatio, dur);
+        const ratio = snapInfo ? snapInfo.ratio : rawRatio;
         const pct = ratio * 100;
-        if (playedEl) playedEl.style.width = `${pct}%`;
-        if (thumbEl) thumbEl.style.left = `${pct}%`;
-        const timeBtn = document.getElementById("vc-time-label");
+        const pctStr = `${pct.toFixed(2)}%`;
+        if (playedEl && playedEl.style.width !== pctStr) playedEl.style.width = pctStr;
+        if (thumbEl && thumbEl.style.left !== pctStr) thumbEl.style.left = pctStr;
+        const timeBtn = _getVcEl("vc-time-label");
         if (timeBtn && dur > 0) {
           const previewSec = ratio * dur;
-          timeBtn.textContent = state.vcShowRemaining
-            ? `${formatTime(previewSec)} / -${formatTime(Math.max(0, dur - previewSec))}`
-            : `${formatTime(previewSec)} / ${formatTime(dur)}`;
+          const scrubSecInt = Math.floor(previewSec);
+          if (timeBtn._lastScrubSec !== scrubSecInt) {
+            timeBtn._lastScrubSec = scrubSecInt;
+            timeBtn.textContent = state.vcShowRemaining
+              ? `${formatTime(previewSec)} / -${formatTime(Math.max(0, dur - previewSec))}`
+              : `${formatTime(previewSec)} / ${formatTime(dur)}`;
+          }
         }
       }
     });
@@ -1131,7 +1410,8 @@ export function initCustomVideoControls() {
         timeline.setPointerCapture(e.pointerId);
       } catch (err) { window.logDebug?.("PlayerUiControls", err); }
       const rawRatio = computeRatio(e.clientX);
-      const { ratio } = getSnappingRatio(rawRatio, dur);
+      const snapInfo = updateHoverPreview(e.clientX, rawRatio);
+      const ratio = snapInfo ? snapInfo.ratio : rawRatio;
       const pct = ratio * 100;
       if (playedEl) playedEl.style.width = `${pct}%`;
       if (thumbEl) thumbEl.style.left = `${pct}%`;
@@ -1142,10 +1422,10 @@ export function initCustomVideoControls() {
           ? `${formatTime(previewSec)} / -${formatTime(Math.max(0, dur - previewSec))}`
           : `${formatTime(previewSec)} / ${formatTime(dur)}`;
       }
-      updateHoverPreview(e.clientX, rawRatio);
     });
 
     const finishScrub = (e) => {
+      const widthPx = cachedTimelineRect?.width || 0;
       cachedTimelineRect = null;
       if (!state.vcScrubbing) return;
       state.vcScrubbing = false;
@@ -1153,7 +1433,7 @@ export function initCustomVideoControls() {
       const { dur } = getEffectivePlaybackTiming(getVideoEl());
       if (dur > 0 && typeof e.clientX === "number") {
         const rawRatio = computeRatio(e.clientX);
-        const { ratio } = getSnappingRatio(rawRatio, dur);
+        const { ratio } = getSnappingRatio(rawRatio, dur, widthPx);
         seekEffectivePlayback(ratio * dur);
       }
       hoverTimeEl?.classList.add("hidden");
@@ -1229,6 +1509,7 @@ export function initCustomVideoControls() {
   });
 
   const volSlider = document.getElementById("vc-vol-slider");
+  let _volPrefTimer = null;
   if (volSlider) {
     volSlider.addEventListener("input", (e) => {
       e.stopPropagation();
@@ -1239,11 +1520,14 @@ export function initCustomVideoControls() {
       state.userMutedThisSession = v === 0;
       video.muted = state.userMutedThisSession;
       if (v > 0.02) {
-        savePlayerPrefs({ volume: v, muted: false });
+        if (_volPrefTimer) clearTimeout(_volPrefTimer);
+        _volPrefTimer = setTimeout(() => {
+          savePlayerPrefs({ volume: v, muted: false });
+        }, 200);
       }
       resumeAudioContextIfNeeded();
       syncCustomVideoControlsUI(true);
-      pushDesktopRemoteStateNow();
+      scheduleDesktopRemoteStatePush(120);
     });
   }
 
@@ -1263,8 +1547,8 @@ export function initCustomVideoControls() {
       const wasHidden = pop.classList.contains("hidden");
       closeFloatingPopovers();
       if (wasHidden) {
-        syncCustomControlPopovers();
         pop.classList.remove("hidden");
+        syncCustomControlPopovers();
         btn.setAttribute("aria-expanded", "true");
         clampStagePopover(pop);
         requestAnimationFrame(() => {
@@ -1279,6 +1563,13 @@ export function initCustomVideoControls() {
   bindVcPopBtn("vc-btn-studio", "vc-studio-popover");
   bindVcPopBtn("vc-btn-subs", "vc-subs-popover");
   bindVcPopBtn("vc-btn-quality", "vc-quality-popover");
+
+  document.getElementById("vc-btn-xray")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeAllVcPopovers();
+    toggleXRayPauseShelf();
+    wakeVideoControls();
+  });
 
   document.getElementById("vc-btn-pip")?.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -1337,6 +1628,14 @@ export function initPlayerStageAndGearBindings() {
       wakeVideoControls();
     };
   }
+  const gearSubSyncDetails = document.getElementById("gear-sub-sync-details");
+  if (gearSubSyncDetails && playerGearPopover) {
+    gearSubSyncDetails.addEventListener("toggle", () => {
+      if (!playerGearPopover.classList.contains("hidden")) {
+        clampStagePopover(playerGearPopover);
+      }
+    });
+  }
   const resetPlayerGearBtn = document.getElementById("btn-reset-player-gear");
   if (resetPlayerGearBtn) {
     resetPlayerGearBtn.onclick = (e) => {
@@ -1350,7 +1649,7 @@ export function initPlayerStageAndGearBindings() {
       if (speedSel) speedSel.value = "1";
       applyAudioBoostToVideo(video, 1.0, "flat");
       applyVideoCropToVideo(video, "contain");
-      applySubtitleStylePrefs("medium", "semi");
+      applySubtitleStylePrefs("medium", "semi", "sans", "white", "soft");
       setSleepTimer("off");
       resetAudioOffset(false);
       resetSubtitleOffset(false);
@@ -1371,6 +1670,9 @@ export function initPlayerStageAndGearBindings() {
         videoCrop: "contain",
         subSize: "medium",
         subBg: "semi",
+        subFont: "sans",
+        subColor: "white",
+        subEdge: "soft",
         ambilightEnabled: true,
         autoSkipIntro: true,
         autoNextEpisode: true,
@@ -1457,40 +1759,6 @@ export function initPlayerStageAndGearBindings() {
   document.getElementById("btn-gear-sub-plus")?.addEventListener("click", (e) => {
     e.stopPropagation();
     adjustSubtitleOffset(0.25, true);
-  });
-
-  document.getElementById("btn-video-err-retry")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    hideVideoStreamError();
-    const v = document.getElementById("native-video");
-    const { cur } = getEffectivePlaybackTiming(v);
-    const curPos = cur > 5 ? cur : 0;
-    if (state.activeSourceTab === "offline") {
-      loadOfflineStreamForActiveTitle(curPos);
-    } else if (state.activeSourceTab === "stremio") {
-      loadStremioStreams(curPos);
-    } else if (state.activeSourceTab === "backup4k") {
-      loadBackup4KReleases(curPos);
-    } else {
-      state.tokenRefreshTimestamps = [];
-      state.usedBackupUrls = new Set();
-      loadHDRezkaStream(curPos, { forceRefresh: true });
-    }
-  });
-  document.getElementById("btn-video-err-studio")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    toggleErrorStudiosPanel();
-  });
-  document.getElementById("btn-video-err-studios-close")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    document.getElementById("video-error-studios-panel")?.classList.add("hidden");
-  });
-  document.getElementById("btn-video-err-4k")?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (isServiceEnabled("backup4k")) {
-      state.forceAutoLaunchNextStream = true;
-      switchSourceTab("backup4k", null);
-    }
   });
 
   const setEpisodeViewMode = (mode) => {
@@ -1627,6 +1895,8 @@ export function initPlayerStageAndGearBindings() {
     let isDraggingMini = false;
     let dragOffsetX = 0;
     let dragOffsetY = 0;
+    let dragSheetW = 0;
+    let dragSheetH = 0;
 
     miniBarEl.addEventListener("dblclick", (e) => {
       if (e.target.closest("button")) return;
@@ -1638,6 +1908,8 @@ export function initPlayerStageAndGearBindings() {
       isDraggingMini = true;
       miniBarEl.classList.add("dragging");
       const rect = cinemaSheetEl.getBoundingClientRect();
+      dragSheetW = rect.width;
+      dragSheetH = rect.height;
       dragOffsetX = e.clientX - rect.left;
       dragOffsetY = e.clientY - rect.top;
       cinemaSheetEl.style.position = "fixed";
@@ -1654,9 +1926,8 @@ export function initPlayerStageAndGearBindings() {
 
     miniBarEl.addEventListener("pointermove", (e) => {
       if (!isDraggingMini || !state.isMiniPlayer) return;
-      const rect = cinemaSheetEl.getBoundingClientRect();
-      const maxX = Math.max(12, window.innerWidth - rect.width - 12);
-      const maxY = Math.max(12, window.innerHeight - rect.height - 12);
+      const maxX = Math.max(12, window.innerWidth - dragSheetW - 12);
+      const maxY = Math.max(12, window.innerHeight - dragSheetH - 12);
       const nextX = Math.min(maxX, Math.max(12, e.clientX - dragOffsetX));
       const nextY = Math.min(maxY, Math.max(12, e.clientY - dragOffsetY));
       cinemaSheetEl.style.left = `${Math.round(nextX)}px`;
@@ -1727,7 +1998,7 @@ export function initPlayerStageAndGearBindings() {
   if (subSizeSelect) {
     subSizeSelect.onchange = (e) => {
       const val = e.target.value || "medium";
-      applySubtitleStylePrefs(val, state.subBg);
+      applySubtitleStylePrefs(val, state.subBg, state.subFont, state.subColor, state.subEdge);
       savePlayerPrefs({ subSize: val });
       showToast(t("Размер шрифта субтитров обновлён", "Subtitle font size updated"));
     };
@@ -1737,9 +2008,39 @@ export function initPlayerStageAndGearBindings() {
   if (subBgSelect) {
     subBgSelect.onchange = (e) => {
       const val = e.target.value || "semi";
-      applySubtitleStylePrefs(state.subSize, val);
+      applySubtitleStylePrefs(state.subSize, val, state.subFont, state.subColor, state.subEdge);
       savePlayerPrefs({ subBg: val });
       showToast(t("Оформление подложки субтитров обновлено", "Subtitle background style updated"));
+    };
+  }
+
+  const subFontSelect = document.getElementById("select-sub-font");
+  if (subFontSelect) {
+    subFontSelect.onchange = (e) => {
+      const val = e.target.value || "sans";
+      applySubtitleStylePrefs(state.subSize, state.subBg, val, state.subColor, state.subEdge);
+      savePlayerPrefs({ subFont: val });
+      showToast(t("Шрифт субтитров обновлён", "Subtitle font updated"));
+    };
+  }
+
+  const subColorSelect = document.getElementById("select-sub-color");
+  if (subColorSelect) {
+    subColorSelect.onchange = (e) => {
+      const val = e.target.value || "white";
+      applySubtitleStylePrefs(state.subSize, state.subBg, state.subFont, val, state.subEdge);
+      savePlayerPrefs({ subColor: val });
+      showToast(t("Цвет текста субтитров обновлён", "Subtitle text color updated"));
+    };
+  }
+
+  const subEdgeSelect = document.getElementById("select-sub-edge");
+  if (subEdgeSelect) {
+    subEdgeSelect.onchange = (e) => {
+      const val = e.target.value || "soft";
+      applySubtitleStylePrefs(state.subSize, state.subBg, state.subFont, state.subColor, val);
+      savePlayerPrefs({ subEdge: val });
+      showToast(t("Контур и тень субтитров обновлены", "Subtitle outline & shadow updated"));
     };
   }
 
@@ -1794,7 +2095,12 @@ export function initPlayerStageAndGearBindings() {
         showToast(t(`Озвучка сохранена: ${studioName}`, `Audio track saved: ${studioName}`));
       }
       const video = document.getElementById("native-video");
-      const { cur } = getEffectivePlaybackTiming(video);
+      const { cur: rawCur } = getEffectivePlaybackTiming(video);
+      const cur = Math.max(
+        rawCur > 2 ? rawCur : 0,
+        Number(state.lastPlaybackMediaTime) > 2 ? Number(state.lastPlaybackMediaTime) : 0,
+        Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0
+      );
       loadHDRezkaStream(cur || 0, { forceRefresh: true });
     };
   }
@@ -1803,55 +2109,16 @@ export function initPlayerStageAndGearBindings() {
   if (seasonSelectEl) {
     seasonSelectEl.onchange = async (e) => {
       if (seasonSelectEl.disabled) return;
-      const prevSeason = state.activeSeason;
-      const prevEpisode = state.activeEpisode;
-      const prevNextCoords = getNextEpisodeCoords();
       const targetSeason = parseInt(e.target.value, 10) || 1;
       const effMap = resolveEffectiveSeasonsMap(state.activeItem, state.seasonsMap);
-      const epsForSeason = effMap?.[String(targetSeason)];
+      const rawEps = effMap?.[String(targetSeason)] || [1];
+      const epsForSeason = filterReleasedEpisodesForSeason(
+        state.activeItem,
+        targetSeason,
+        rawEps
+      );
       const targetEpisode = Array.isArray(epsForSeason) && epsForSeason.length > 0 ? epsForSeason[0] : 1;
-      if (
-        state.activeItem &&
-        prevNextCoords &&
-        targetSeason === prevNextCoords.season &&
-        targetEpisode === prevNextCoords.episode &&
-        hasStartedWatchingCurrentEpisode(state.activeItem, prevSeason, prevEpisode)
-      ) {
-        markOutgoingEpisodeWatched(state.activeItem, prevSeason, prevEpisode);
-      }
-      clearAutoplayNextTimer();
-      state.autoplayCancelledThisEpisode = false;
-      state.introSkippedThisEpisode = false;
-      state.probeCreditsStartSec = 0;
-      state.activeSeason = targetSeason;
-      state.activeEpisode = targetEpisode;
-      if (state.activeItem) {
-        populateSeasonEpisodeSelectors(state.activeItem, effMap);
-      }
-      updateMiniPlayerTitle();
-      const savedEpProg = getEpisodeProgress(state.activeItem, state.activeSeason, state.activeEpisode);
-      const startSec =
-        savedEpProg &&
-        savedEpProg.current_time > 10 &&
-        savedEpProg.pct < 95 &&
-        !isEpisodeWatched(state.activeItem, state.activeSeason, state.activeEpisode)
-          ? savedEpProg.current_time
-          : 0;
-      if (state.activeSourceTab === "offline") {
-        resetVideoElementForStreamChange();
-        await loadOfflineStreamForActiveTitle(startSec);
-      } else if (state.activeSourceTab === "stremio") {
-        resetVideoElementForStreamChange();
-        await loadStremioStreams(startSec);
-      } else if (state.activeSourceTab === "backup4k") {
-        resetVideoElementForStreamChange();
-        await loadBackup4KReleases(startSec);
-      } else {
-        await loadHDRezkaStream(startSec);
-      }
-      if (state.activeSourceTab !== "offline" && (typeof navigator === "undefined" || navigator.onLine !== false)) {
-        await loadSkipIntroSegments();
-      }
+      await switchToSeriesSeasonEpisode(targetSeason, targetEpisode);
     };
   }
 
@@ -1870,8 +2137,20 @@ export function initPlayerStageAndGearBindings() {
       const qKey = e.target.value;
       const url = state.qualities[qKey];
       const video = document.getElementById("native-video");
+      state.abrTargetQuality = qKey;
+      state.abrCurrentQuality = qKey;
+      state.abrSwitching = false;
+      state.abrStableTicks = 0;
+      state.abrLowBufferTicks = 0;
+      state.abrLastSwitchTs = Date.now();
+      state.abrDownshiftedQualities = new Set();
       savePlayerPrefs({ preferredQuality: qKey });
-      const { cur } = getEffectivePlaybackTiming(video);
+      const { cur: rawCur } = getEffectivePlaybackTiming(video);
+      const cur = Math.max(
+        rawCur > 2 ? rawCur : 0,
+        Number(state.lastPlaybackMediaTime) > 2 ? Number(state.lastPlaybackMediaTime) : 0,
+        Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0
+      );
       const tokenStale =
         state.activeSourceTab === "hdrezka" &&
         (Boolean(video?.error) ||
@@ -1893,7 +2172,8 @@ export function initPlayerStageAndGearBindings() {
             newRemuxOffsetSec: cur || 0,
           });
         } else {
-          playVideoUrl(url, cur || 0, state.playerSessionId);
+          captureVideoFrameBridge(video);
+          playVideoUrl(url, cur || 0, state.playerSessionId, { silentAbrSwitch: true });
         }
         showToast(t(`Качество сохранено по умолчанию: ${qKey}`, `Default quality saved: ${qKey}`));
         pushDesktopRemoteStateNow();
@@ -2096,8 +2376,49 @@ export function initPlayerStageAndGearBindings() {
       }
       showToast(
         state.autoNextEpisode
-          ? t("Автопереход на следующую серию включен", "Auto-play next episode enabled")
+          ? t("Автопереход на следующую серию включён", "Auto-play next episode enabled")
           : t("Автопереход на следующую серию выключен", "Auto-play next episode disabled")
+      );
+    };
+  }
+
+  const seamlessBridgeToggle = document.getElementById("seamless-bridge-toggle");
+  if (seamlessBridgeToggle) {
+    seamlessBridgeToggle.checked = Boolean(state.seamlessEpisodeBridge);
+    seamlessBridgeToggle.onchange = (e) => {
+      state.seamlessEpisodeBridge = Boolean(e.target.checked);
+      try {
+        localStorage.setItem("velarium_seamless_bridge", state.seamlessEpisodeBridge ? "true" : "false");
+      } catch (_) {}
+      savePlayerPrefs({ seamlessEpisodeBridge: state.seamlessEpisodeBridge });
+      updatePlayerGearActiveDot();
+      showToast(
+        state.seamlessEpisodeBridge
+          ? t("Бесшовный мост серий включён", "Seamless binge bridge enabled")
+          : t("Бесшовный мост серий выключен", "Seamless binge bridge disabled")
+      );
+    };
+  }
+
+  const xrayPauseToggle = document.getElementById("xray-on-pause-toggle");
+  if (xrayPauseToggle) {
+    xrayPauseToggle.checked = state.showXrayOnPause !== false;
+    xrayPauseToggle.onchange = (e) => {
+      state.showXrayOnPause = Boolean(e.target.checked);
+      try {
+        localStorage.setItem("velarium_xray_on_pause", state.showXrayOnPause ? "true" : "false");
+      } catch (_) {}
+      savePlayerPrefs({ showXrayOnPause: state.showXrayOnPause });
+      if (!state.showXrayOnPause) {
+        const shelf = document.getElementById("xray-pause-shelf");
+        if (shelf && shelf.classList.contains("is-compact")) {
+          hideXRayPauseShelf();
+        }
+      }
+      showToast(
+        state.showXrayOnPause
+          ? t("X-Ray при паузе включён", "X-Ray on pause enabled")
+          : t("X-Ray при паузе выключен (вызов по клавише X)", "X-Ray on pause disabled (press X to open)")
       );
     };
   }

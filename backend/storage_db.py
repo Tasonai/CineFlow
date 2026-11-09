@@ -9,10 +9,11 @@ import sqlite3
 import sys
 import threading
 import time
+import weakref
 from typing import Any, Dict, Iterator, Optional
 
 _DB_REGISTRY_LOCK = threading.Lock()
-_DB_REGISTRY: Dict[str, "CineFlowStorageDB"] = {}
+_DB_REGISTRY: Dict[str, "VelariumStorageDB"] = {}
 
 
 from .vault import LocalVaultCipher, set_private_file_permissions
@@ -52,9 +53,9 @@ def profile_id_from_state_path(storage_dir: str, state_file: str) -> str:
     return base if base else "main"
 
 
-class CineFlowStorageDB:
+class VelariumStorageDB:
     """
-    Thread-safe SQLite WAL storage engine for CineFlow local state, multi-profile
+    Thread-safe SQLite WAL storage engine for Velarium local state, multi-profile
     isolation, metadata caches, and offline download queue persistence.
     """
 
@@ -63,7 +64,22 @@ class CineFlowStorageDB:
         os.makedirs(self.storage_dir, exist_ok=True)
         set_private_file_permissions(self.storage_dir, is_dir=True)
         self.vault = LocalVaultCipher(self.storage_dir)
-        self.db_path = os.path.join(self.storage_dir, "cineflow.db")
+        new_db_path = os.path.join(self.storage_dir, "velarium.db")
+        legacy_db_path = os.path.join(self.storage_dir, "cineflow.db")
+        if not os.path.exists(new_db_path) and os.path.isfile(legacy_db_path):
+            try:
+                for suffix in ("", "-wal", "-shm"):
+                    src_f = legacy_db_path + suffix
+                    dst_f = new_db_path + suffix
+                    if os.path.isfile(src_f) and not os.path.exists(dst_f):
+                        os.replace(src_f, dst_f)
+            except Exception:
+                pass
+        self.db_path = (
+            new_db_path
+            if (os.path.exists(new_db_path) or not os.path.isfile(legacy_db_path))
+            else legacy_db_path
+        )
         try:
             fd = os.open(self.db_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_BINARY", 0), 0o600)
             os.close(fd)
@@ -75,8 +91,10 @@ class CineFlowStorageDB:
         self._writer_thread_id: Optional[int] = None
         self._closed: bool = False
         self._profile_section_hashes: Dict[str, Dict[str, str]] = {}
+        self._cache_write_counts: Dict[str, int] = {}
+        self._cache_entry_hashes: Dict[str, Dict[str, str]] = {}
         self._local = threading.local()
-        self._read_conns: list = []
+        self._read_conns: Dict[int, sqlite3.Connection] = {}
         self._read_conns_lock = threading.Lock()
         self._conn = sqlite3.connect(
             self.db_path,
@@ -89,6 +107,15 @@ class CineFlowStorageDB:
         set_private_file_permissions(f"{self.db_path}-wal", is_dir=False)
         set_private_file_permissions(f"{self.db_path}-shm", is_dir=False)
 
+    def _reap_thread_conn(self, tid: int) -> None:
+        with self._read_conns_lock:
+            old_conn = self._read_conns.pop(tid, None)
+        if old_conn is not None:
+            try:
+                old_conn.close()
+            except Exception:
+                pass
+
     def _get_read_conn(self) -> Optional[sqlite3.Connection]:
         if self._closed:
             return None
@@ -99,7 +126,7 @@ class CineFlowStorageDB:
             conn = sqlite3.connect(
                 self.db_path,
                 timeout=10.0,
-                check_same_thread=True,
+                check_same_thread=False,
                 isolation_level=None,
             )
             cur = conn.cursor()
@@ -107,13 +134,34 @@ class CineFlowStorageDB:
             cur.execute("PRAGMA synchronous=NORMAL;")
             cur.execute("PRAGMA busy_timeout=10000;")
             cur.execute("PRAGMA temp_store=MEMORY;")
-            cur.execute("PRAGMA cache_size=-8000;")
+            cur.execute("PRAGMA cache_size=-4000;")
             cur.execute("PRAGMA mmap_size=67108864;")
             cur.execute("PRAGMA query_only=ON;")
             cur.close()
             self._local.conn = conn
+            tid = threading.get_ident()
+            stale_conns = []
             with self._read_conns_lock:
-                self._read_conns.append(conn)
+                if len(self._read_conns) >= 8:
+                    alive_tids = {t.ident for t in threading.enumerate() if t.ident is not None}
+                    for k_tid in list(self._read_conns.keys()):
+                        if k_tid not in alive_tids and k_tid != tid:
+                            sc = self._read_conns.pop(k_tid, None)
+                            if sc is not None:
+                                stale_conns.append(sc)
+                prev_c = self._read_conns.pop(tid, None)
+                if prev_c is not None and prev_c is not conn:
+                    stale_conns.append(prev_c)
+                self._read_conns[tid] = conn
+            for sc in stale_conns:
+                try:
+                    sc.close()
+                except Exception:
+                    pass
+            try:
+                weakref.finalize(threading.current_thread(), self._reap_thread_conn, tid)
+            except Exception:
+                pass
             return conn
         except Exception:
             return self._conn if not self._closed else None
@@ -190,7 +238,7 @@ class CineFlowStorageDB:
             except Exception:
                 pass
             with self._read_conns_lock:
-                for rconn in self._read_conns:
+                for rconn in self._read_conns.values():
                     try:
                         rconn.close()
                     except Exception:
@@ -526,13 +574,15 @@ class CineFlowStorageDB:
         items_snapshot = list((state_dict or {}).items())
         next_hashes: Dict[str, str] = {}
         computed_sections: Dict[str, Any] = {}
+        plain_serialized_by_key: Dict[str, str] = {}
 
         for sec_key, sec_val in items_snapshot:
             k = str(sec_key)
-            plain_serialized = _safe_json_dumps(sec_val, sort_keys=True)
-            digest = hashlib.sha1(plain_serialized.encode("utf-8", errors="replace")).hexdigest()
+            plain_serialized = _safe_json_dumps(sec_val)
+            digest = str(hash(plain_serialized))
             next_hashes[k] = digest
             computed_sections[k] = sec_val
+            plain_serialized_by_key[k] = plain_serialized
 
         with self._lock:
             if self._closed:
@@ -566,8 +616,7 @@ class CineFlowStorageDB:
             for k, digest in next_hashes.items():
                 if prev.get(k) != digest:
                     sec_val = computed_sections[k]
-                    enc_sec = self._encrypt_payload(sec_val) if k == "account" else sec_val
-                    to_upsert.append((pid, k, enc_sec, now))
+                    to_upsert.append((pid, k, sec_val, now))
 
             all_prev_keys = set(prev.keys())
             if db_prev is not None:
@@ -581,21 +630,24 @@ class CineFlowStorageDB:
 
             serialized_upserts = []
             for u_pid, u_k, u_obj, u_ts in to_upsert:
-                eff_obj = u_obj
-                if self.vault.is_ephemeral and u_k == "account" and isinstance(eff_obj, dict):
-                    with contextlib.closing(
-                        self._conn.execute(
-                            "SELECT value_json FROM profile_state WHERE profile_id = ? AND section_key = ?",
-                            (u_pid, u_k),
-                        )
-                    ) as cur:
-                        old_acc = cur.fetchone()
-                    if old_acc:
-                        try:
-                            eff_obj = self._preserve_existing_ciphertexts(json.loads(old_acc[0]), eff_obj)
-                        except Exception:
-                            pass
-                serialized_upserts.append((u_pid, u_k, _safe_json_dumps(eff_obj, sort_keys=True), u_ts))
+                if u_k == "account":
+                    eff_obj = self._encrypt_payload(u_obj)
+                    if self.vault.is_ephemeral and isinstance(eff_obj, dict):
+                        with contextlib.closing(
+                            self._conn.execute(
+                                "SELECT value_json FROM profile_state WHERE profile_id = ? AND section_key = ?",
+                                (u_pid, u_k),
+                            )
+                        ) as cur:
+                            old_acc = cur.fetchone()
+                        if old_acc:
+                            try:
+                                eff_obj = self._preserve_existing_ciphertexts(json.loads(old_acc[0]), eff_obj)
+                            except Exception:
+                                pass
+                    serialized_upserts.append((u_pid, u_k, _safe_json_dumps(eff_obj), u_ts))
+                else:
+                    serialized_upserts.append((u_pid, u_k, plain_serialized_by_key[u_k], u_ts))
 
             with self._write_tx():
                 if not next_hashes:
@@ -687,25 +739,43 @@ class CineFlowStorageDB:
         total = int(row[0] or 0) if row else 0
         if total <= max_entries + 200:
             return
-        self._conn.execute(
-            """
-            DELETE FROM cache_entries
-            WHERE cache_name = ? AND entry_key NOT IN (
-                SELECT entry_key FROM cache_entries
+        with contextlib.closing(
+            self._conn.execute(
+                """
+                SELECT updated_at FROM cache_entries
                 WHERE cache_name = ?
                 ORDER BY updated_at DESC
-                LIMIT ?
-            );
-            """,
-            (cname, cname, int(max_entries)),
-        )
+                LIMIT 1 OFFSET ?
+                """,
+                (cname, max(0, int(max_entries) - 1)),
+            )
+        ) as cur_cut:
+            cut_row = cur_cut.fetchone()
+        cutoff_ts = float(cut_row[0]) if cut_row and cut_row[0] is not None else None
+        if cutoff_ts is not None:
+            self._conn.execute(
+                "DELETE FROM cache_entries WHERE cache_name = ? AND updated_at < ?;",
+                (cname, cutoff_ts),
+            )
+        ns_hashes = self._cache_entry_hashes.get(cname)
+        if isinstance(ns_hashes, dict):
+            ns_hashes.clear()
 
     def set_cache_entry(self, cache_name: str, entry_key: str, value: Any) -> None:
         payload = _safe_json_dumps(value)
+        payload_hash = hash(payload)
         now = time.time()
+        cname = str(cache_name)
+        skey = str(entry_key)
         with self._lock:
             if self._closed:
                 return
+            prev_hashes = self._cache_entry_hashes.setdefault(cname, {})
+            if prev_hashes.get(skey) == payload_hash:
+                return
+            prev_hashes[skey] = payload_hash
+            w_cnt = self._cache_write_counts.get(cname, 0) + 1
+            self._cache_write_counts[cname] = w_cnt
             with self._write_tx():
                 self._conn.execute(
                     """
@@ -715,21 +785,41 @@ class CineFlowStorageDB:
                         value_json = excluded.value_json,
                         updated_at = excluded.updated_at;
                     """,
-                    (str(cache_name), str(entry_key), payload, now),
+                    (cname, skey, payload, now),
                 )
-                self._prune_cache_namespace_locked(cache_name)
+                if w_cnt >= 40:
+                    self._cache_write_counts[cname] = 0
+                    self._prune_cache_namespace_locked(cname)
 
     def set_cache_entries_batch(self, cache_name: str, entries: Dict[str, Any]) -> None:
         if not entries:
             return
         now = time.time()
-        rows = [
-            (str(cache_name), str(k), _safe_json_dumps(v), now)
-            for k, v in entries.items()
-        ]
+        cname = str(cache_name)
+        serialized_by_id: Dict[int, Tuple[str, int]] = {}
+        prepared: List[Tuple[str, str, int]] = []
+        for k, v in entries.items():
+            vid = id(v)
+            cached_ser = serialized_by_id.get(vid)
+            if cached_ser is None:
+                s_val = _safe_json_dumps(v)
+                cached_ser = (s_val, hash(s_val))
+                serialized_by_id[vid] = cached_ser
+            prepared.append((str(k), cached_ser[0], cached_ser[1]))
         with self._lock:
             if self._closed:
                 return
+            prev_hashes = self._cache_entry_hashes.setdefault(cname, {})
+            rows = []
+            for rk, rval, rhash in prepared:
+                if prev_hashes.get(rk) == rhash:
+                    continue
+                prev_hashes[rk] = rhash
+                rows.append((cname, rk, rval, now))
+            if not rows:
+                return
+            w_cnt = self._cache_write_counts.get(cname, 0) + len(rows)
+            self._cache_write_counts[cname] = w_cnt
             with self._write_tx():
                 self._conn.executemany(
                     """
@@ -741,7 +831,9 @@ class CineFlowStorageDB:
                     """,
                     rows,
                 )
-                self._prune_cache_namespace_locked(cache_name)
+                if w_cnt >= 40:
+                    self._cache_write_counts[cname] = 0
+                    self._prune_cache_namespace_locked(cname)
 
     def load_cache_dict(self, cache_name: str, max_entries: int = 4000) -> Dict[str, Any]:
         conn = self._reader_conn()
@@ -783,42 +875,53 @@ class CineFlowStorageDB:
         for idx, (k, v) in enumerate(items):
             try:
                 sk = str(k)
-                serialized_items.append((sk, _safe_json_dumps(v), now + idx * 1e-6))
+                v_json = _safe_json_dumps(v)
+                v_hash = hash(v_json)
+                serialized_items.append((sk, v_json, v_hash, now + idx * 1e-6))
                 target_keys.add(sk)
             except Exception:
                 continue
         with self._lock:
             if self._closed:
                 return
-            with contextlib.closing(
-                self._conn.execute(
-                    "SELECT entry_key, value_json FROM cache_entries WHERE cache_name = ?",
-                    (cname,),
-                )
-            ) as cur:
-                existing_rows = {str(r[0]): str(r[1]) for r in cur.fetchall()}
+            ns_hashes = self._cache_entry_hashes.get(cname)
+            if ns_hashes is None:
+                with contextlib.closing(
+                    self._conn.execute(
+                        "SELECT entry_key, value_json FROM cache_entries WHERE cache_name = ?",
+                        (cname,),
+                    )
+                ) as cur:
+                    ns_hashes = {
+                        str(r[0]): hash(str(r[1]))
+                        for r in cur.fetchall()
+                    }
+                self._cache_entry_hashes[cname] = ns_hashes
 
             to_upsert = [
                 (cname, sk, v_json, ts)
-                for sk, v_json, ts in serialized_items
-                if existing_rows.get(sk) != v_json
+                for sk, v_json, v_hash, ts in serialized_items
+                if ns_hashes.get(sk) != v_hash
             ]
             to_delete = [
                 (cname, ek)
-                for ek in existing_rows.keys()
+                for ek in list(ns_hashes.keys())
                 if ek not in target_keys
             ]
-            if not to_upsert and not to_delete and (existing_rows or not serialized_items):
+            if not to_upsert and not to_delete and (ns_hashes or not serialized_items):
                 return
             with self._write_tx():
                 if not serialized_items:
                     self._conn.execute("DELETE FROM cache_entries WHERE cache_name = ?", (cname,))
+                    ns_hashes.clear()
                 else:
                     if to_delete:
                         self._conn.executemany(
                             "DELETE FROM cache_entries WHERE cache_name = ? AND entry_key = ?",
                             to_delete,
                         )
+                        for _, ek in to_delete:
+                            ns_hashes.pop(ek, None)
                     if to_upsert:
                         self._conn.executemany(
                             """
@@ -830,6 +933,8 @@ class CineFlowStorageDB:
                             """,
                             to_upsert,
                         )
+                        for sk, _, v_hash, _ in serialized_items:
+                            ns_hashes[sk] = v_hash
 
     # ------------------------------------------------------------------
     # Offline Downloads Table
@@ -917,11 +1022,14 @@ class CineFlowStorageDB:
                 self._conn.execute("DELETE FROM downloads WHERE download_id = ?;", (str(download_id),))
 
 
-def get_storage_db(storage_dir: str) -> CineFlowStorageDB:
+CineFlowStorageDB = VelariumStorageDB
+
+
+def get_storage_db(storage_dir: str) -> VelariumStorageDB:
     norm = os.path.abspath(storage_dir)
     with _DB_REGISTRY_LOCK:
         inst = _DB_REGISTRY.get(norm)
         if inst is None or getattr(inst, "_closed", False):
-            inst = CineFlowStorageDB(norm)
+            inst = VelariumStorageDB(norm)
             _DB_REGISTRY[norm] = inst
         return inst

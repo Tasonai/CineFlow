@@ -1,5 +1,5 @@
 """
-CineFlow Streams & Media Route Handlers
+Velarium Streams & Media Route Handlers
 Dispatches /api/hdrezka/*, /api/stremio/*, /api/remux-probe, /api/remux-subtitle.
 """
 
@@ -22,7 +22,7 @@ def handle_hdrezka_streams(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
     force_refresh = qs.get("nocache", ["0"])[0].strip().lower() in ("1", "true", "yes")
     if getattr(ctx, "verbose_log", False):
         ctx.safe_log(
-            f"[CineFlow-DEBUG] streams req: id={item_id} t={title} s={season} e={episode} tr={translator_id} nocache={force_refresh}\n"
+            f"[Velarium-DEBUG] streams req: id={item_id} t={title} s={season} e={episode} tr={translator_id} nocache={force_refresh}\n"
         )
     if not media_type:
         is_known_series = False
@@ -187,27 +187,48 @@ def handle_hdrezka_streams(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
             if isinstance(sv, list)
         }
         cur_d_em = {
-            str(sk): dict(sv) if isinstance(sv, dict) else {}
+            str(sk): (
+                {
+                    str(ek): (dict(ev) if isinstance(ev, dict) else ev)
+                    for ek, ev in sv.items()
+                }
+                if isinstance(sv, dict)
+                else {}
+            )
             for sk, sv in (data.get("episodes_meta") or {}).items()
         }
         prem_s_map = data.get("prem_episodes_map")
+        _unrel_memo: Dict[Tuple[int, int], bool] = {}
+
+        def _check_ep_unreleased(s_i: int, e_i: int) -> bool:
+            k_unrel = (s_i, e_i)
+            cached_u = _unrel_memo.get(k_unrel)
+            if cached_u is not None:
+                return cached_u
+            res_u = bool(
+                ctx.is_known_episode_unreleased(
+                    item_id=item_id,
+                    title=title,
+                    orig_title=orig_title,
+                    year=year,
+                    season=s_i,
+                    episode=e_i,
+                )
+            )
+            _unrel_memo[k_unrel] = res_u
+            return res_u
+
         if isinstance(prem_s_map, dict) and prem_s_map:
             for sn_k, prem_list in prem_s_map.items():
                 sn_s = str(sn_k)
                 s_eps = cur_d_sm.setdefault(sn_s, [])
                 s_em = cur_d_em.setdefault(sn_s, {})
+                sn_int = int(sn_s) if sn_s.isdigit() else season
                 for ep_p in prem_list or []:
                     if not str(ep_p).isdigit() or int(ep_p) <= 0:
                         continue
                     ep_pi = int(ep_p)
-                    if ctx.is_known_episode_unreleased(
-                        item_id=item_id,
-                        title=title,
-                        orig_title=orig_title,
-                        year=year,
-                        season=int(sn_s) if sn_s.isdigit() else season,
-                        episode=ep_pi,
-                    ):
+                    if _check_ep_unreleased(sn_int, ep_pi):
                         s_em.setdefault(str(ep_pi), {})["is_future"] = True
                         continue
                     s_em.setdefault(str(ep_pi), {})["is_prem_locked"] = True
@@ -219,19 +240,13 @@ def handle_hdrezka_streams(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
             filtered_stream_sm: Dict[str, List[int]] = {}
             for sn_s, ep_list in cur_d_sm.items():
                 s_em = cur_d_em.setdefault(sn_s, {})
+                sn_int = int(sn_s) if sn_s.isdigit() else season
                 kept_eps: List[int] = []
                 for ep_n in ep_list:
                     ep_info_cur = s_em.get(str(ep_n))
                     if isinstance(ep_info_cur, dict) and ep_info_cur.get("is_future"):
                         continue
-                    if ctx.is_known_episode_unreleased(
-                        item_id=item_id,
-                        title=title,
-                        orig_title=orig_title,
-                        year=year,
-                        season=int(sn_s) if sn_s.isdigit() else season,
-                        episode=int(ep_n),
-                    ):
+                    if _check_ep_unreleased(sn_int, int(ep_n)):
                         s_em.setdefault(str(ep_n), {})["is_future"] = True
                         continue
                     kept_eps.append(int(ep_n))
@@ -413,7 +428,7 @@ def handle_hdrezka_streams(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
 
     if getattr(ctx, "verbose_log", False):
         ctx.safe_log(
-            f"[CineFlow-DEBUG] streams resp: qualities={len(data.get('qualities') or {})} def_url={bool(data.get('default_stream_url'))} tr={data.get('selected_translator_id')} err={data.get('error')}\n"
+            f"[Velarium-DEBUG] streams resp: qualities={len(data.get('qualities') or {})} def_url={bool(data.get('default_stream_url'))} tr={data.get('selected_translator_id')} err={data.get('error')}\n"
         )
     handler._send_json(data)
     return True
@@ -586,7 +601,7 @@ def handle_remux_subtitle(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
         return True
     stream_idx = max(0, ctx.qs_int(qs, "si", 0))
     start_sec = max(0.0, ctx.qs_float(qs, "ss", 0.0))
-    window_sec = max(120.0, min(900.0, ctx.qs_float(qs, "dur", 420.0)))
+    window_sec = max(60.0, min(600.0, ctx.qs_float(qs, "dur", 150.0)))
     vtt_text = ctx.remux_engine.extract_subtitle_vtt(
         src_url,
         stream_idx,
@@ -700,6 +715,9 @@ def handle_stremio_resolve_post(handler, qs: Dict[str, Any], parsed, body: Dict[
         season=max(1, ctx.safe_int(body.get("season"), 1)),
         episode=max(1, ctx.safe_int(body.get("episode"), 1)),
         lang=req_lang,
+        year=ctx.safe_int(body.get("year"), 0),
+        title=str(body.get("title") or ""),
+        orig_title=str(body.get("orig_title") or ""),
     )
     handler._send_json(res, status=200 if res.get("ok") else 400)
     return True

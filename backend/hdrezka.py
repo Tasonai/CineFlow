@@ -1,5 +1,6 @@
 import base64
 import copy
+import functools
 import ipaddress
 from concurrent.futures import ThreadPoolExecutor
 import html
@@ -17,6 +18,8 @@ from .doh import DoHSplitNetworkClient
 
 
 _CTRL_CHAR_RE = re.compile(r"[\x00-\x20\x7f]")
+_NORM_NON_WORD_RE = re.compile(r"[^\w\s]")
+_NORM_MULTI_SPACE_RE = re.compile(r"\s+")
 
 
 def _safe_int(val: Any, default: int = 0) -> int:
@@ -52,6 +55,17 @@ class _RejectedMeta(dict):
     """Empty (falsy) metadata marker: the supplied rezka_url / rezka_id was verified as a WRONG title."""
 
 
+_REZKA_TRASH_CHARS = ["@", "#", "!", "^", "$"]
+_REZKA_TRASH_TOKENS = [
+    base64.b64encode("".join(comb).encode("ascii")).decode("ascii")
+    for length in (3, 2)
+    for comb in product(_REZKA_TRASH_CHARS, repeat=length)
+]
+_REZKA_TRASH_SET = set(_REZKA_TRASH_TOKENS)
+_REZKA_EQ_TOKENS = [tok for tok in _REZKA_TRASH_TOKENS if "=" in tok]
+_REZKA_PREFIXED_TRASH = ["//_//" + tok for tok in _REZKA_TRASH_TOKENS]
+
+
 class HDRezkaClient:
     """
     Live HDRezka Parser, Anubis PoW Solver, Split-Proxy Bypasser, and Stream Extractor.
@@ -67,7 +81,11 @@ class HDRezkaClient:
         "https://hdrezka.me",
     ]
 
-    TRASH_CHARS = ["@", "#", "!", "^", "$"]
+    TRASH_CHARS = list(_REZKA_TRASH_CHARS)
+    _TRASH_TOKENS = _REZKA_TRASH_TOKENS
+    _TRASH_SET = _REZKA_TRASH_SET
+    _EQ_TOKENS = _REZKA_EQ_TOKENS
+    _PREFIXED_TRASH = _REZKA_PREFIXED_TRASH
 
     # Known HDRezka Premium QR-code promo stub filenames/paths served to unauthenticated users on "Ultra"
     PREMIUM_STUB_PATTERNS = (
@@ -103,6 +121,8 @@ class HDRezkaClient:
         self._subtitles_cache_ts: Dict[str, float] = {}
         self._cache_lock = threading.Lock()
         self._mirror_lock = threading.Lock()
+        self._cached_mirror_hosts: Optional[set] = None
+        self._studio_probe_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="rezka-probe")
 
     def configure(
         self,
@@ -114,6 +134,7 @@ class HDRezkaClient:
         mirror_priority: Optional[List[str]] = None,
     ):
         with self._mirror_lock:
+            self._cached_mirror_hosts = None
             if custom_mirror is not None:
                 self.custom_mirror = custom_mirror.strip().rstrip("/")
             if cf_worker_relay is not None:
@@ -166,6 +187,7 @@ class HDRezkaClient:
             new_order = [m for m in self.mirror_priority if m != m_clean]
             new_order.insert(0, m_clean)
             self.mirror_priority = new_order
+            self._cached_mirror_hosts = None
 
     def _demote_broken_mirror(self, mirror: str) -> None:
         if not mirror:
@@ -174,6 +196,7 @@ class HDRezkaClient:
         with self._mirror_lock:
             if m_clean in self.mirror_priority:
                 self.mirror_priority = [m for m in self.mirror_priority if m != m_clean] + [m_clean]
+                self._cached_mirror_hosts = None
 
     @classmethod
     def decode_rezka_stream_bundle(cls, raw_stream: str) -> Dict[str, Any]:
@@ -187,15 +210,12 @@ class HDRezkaClient:
 
         text = raw_stream.strip().replace("\\/", "/")
 
-        if (text.startswith("#h") or text.startswith("#2")) and "[" not in text[:15]:
-            body = re.sub(r"\s+", "", text[2:])
-            trash_tokens = [
-                base64.b64encode("".join(comb).encode("ascii")).decode("ascii")
-                for length in (3, 2)
-                for comb in product(cls.TRASH_CHARS, repeat=length)
-            ]
-            trash_set = set(trash_tokens)
-            prefixed_trash = ["//_//" + tok for tok in trash_tokens]
+        if (text.startswith("#h") or text.startswith("#2") or (text.startswith("#") and not text.startswith("[") and "http" not in text[:20])) and "[" not in text[:15]:
+            body = re.sub(r"\s+", "", re.sub(r"^#[a-zA-Z0-9]", "", text))
+            trash_tokens = cls._TRASH_TOKENS
+            trash_set = cls._TRASH_SET
+            eq_tokens = cls._EQ_TOKENS
+            prefixed_trash = cls._PREFIXED_TRASH
             cleaned = body
             # Step 1: Strip explicit '//_//' + trash_token markers before touching bare Base64
             for _ in range(8):
@@ -208,6 +228,9 @@ class HDRezkaClient:
             while "//_//" in cleaned:
                 cleaned = "".join(cleaned.split("//_//"))
             cleaned = re.sub(r"\s+", "", cleaned)
+            for etok in eq_tokens:
+                if etok in cleaned:
+                    cleaned = cleaned.replace(etok, "")
             # Step 2: Strip any remaining bare 4-char trash tokens strictly at 4-char Base64 block boundaries
             for _ in range(6):
                 blocks = [cleaned[i : i + 4] for i in range(0, len(cleaned), 4)]
@@ -217,6 +240,8 @@ class HDRezkaClient:
                     break
                 cleaned = next_cleaned
             cleaned = re.sub(r"\s+", "", cleaned).rstrip("=")
+            if "=" in cleaned:
+                cleaned = cleaned.replace("=", "")
             rem = len(cleaned) % 4
             if rem == 1:
                 cleaned = cleaned[:-1]
@@ -320,13 +345,13 @@ class HDRezkaClient:
             if cache_k in self.search_cache:
                 ts_k = self._search_cache_ts.get(cache_k, now)
                 if (now - ts_k) < 1800.0:
-                    return copy.deepcopy(self.search_cache[cache_k])
+                    return [dict(r) for r in self.search_cache[cache_k]]
                 self.search_cache.pop(cache_k, None)
                 self._search_cache_ts.pop(cache_k, None)
             if allow_person_shortcut and q_norm in self.search_cache:
                 ts_q = self._search_cache_ts.get(q_norm, now)
                 if (now - ts_q) < 1800.0:
-                    return copy.deepcopy(self.search_cache[q_norm])
+                    return [dict(r) for r in self.search_cache[q_norm]]
                 self.search_cache.pop(q_norm, None)
                 self._search_cache_ts.pop(q_norm, None)
             person_url = self.person_url_by_name.get(q_norm) if allow_person_shortcut else None
@@ -372,13 +397,14 @@ class HDRezkaClient:
                         }
                     )
                 if results:
+                    cached_snap = [dict(r) for r in results]
                     with self._cache_lock:
                         if len(self.search_cache) >= 400:
                             self.search_cache.clear()
                             self._search_cache_ts.clear()
-                        self.search_cache[cache_k] = copy.deepcopy(results)
+                        self.search_cache[cache_k] = cached_snap
                         self._search_cache_ts[cache_k] = now
-                        self.search_cache[q_norm] = copy.deepcopy(results)
+                        self.search_cache[q_norm] = list(cached_snap)
                         self._search_cache_ts[q_norm] = now
                     return results
 
@@ -418,30 +444,35 @@ class HDRezkaClient:
                 if results:
                     break
         if results:
+            cached_snap = [dict(r) for r in results]
             with self._cache_lock:
                 if len(self.search_cache) >= 400:
                     self.search_cache.clear()
                     self._search_cache_ts.clear()
-                self.search_cache[cache_k] = copy.deepcopy(results)
+                self.search_cache[cache_k] = cached_snap
                 self._search_cache_ts[cache_k] = now
                 if allow_person_shortcut:
-                    self.search_cache[q_norm] = copy.deepcopy(results)
+                    self.search_cache[q_norm] = list(cached_snap)
                     self._search_cache_ts[q_norm] = now
         return results
 
     @staticmethod
+    @functools.lru_cache(maxsize=2048)
     def _norm_title_cmp(raw_val: str) -> str:
         s = (raw_val or "").strip().lower().replace("ё", "е").replace("–", "-").replace("—", "-").replace("ł", "l")
-        out_chars: List[str] = []
-        for ch in s:
-            if "\u0400" <= ch <= "\u04ff":
-                out_chars.append(ch)
-            else:
-                decomp = unicodedata.normalize("NFKD", ch)
-                out_chars.append("".join(c for c in decomp if not unicodedata.combining(c)))
-        x = "".join(out_chars)
-        x = re.sub(r"[^\w\s]", " ", x)
-        return re.sub(r"\s+", " ", x).strip()
+        if s.isascii():
+            x = s
+        else:
+            out_chars: List[str] = []
+            for ch in s:
+                if "\u0400" <= ch <= "\u04ff" or ch.isascii():
+                    out_chars.append(ch)
+                else:
+                    decomp = unicodedata.normalize("NFKD", ch)
+                    out_chars.append("".join(c for c in decomp if not unicodedata.combining(c)))
+            x = "".join(out_chars)
+        x = _NORM_NON_WORD_RE.sub(" ", x)
+        return _NORM_MULTI_SPACE_RE.sub(" ", x).strip()
 
     @classmethod
     def _extract_page_imdb_id(cls, page_html: str) -> str:
@@ -680,30 +711,90 @@ class HDRezkaClient:
         except ValueError:
             pass
         with self._mirror_lock:
-            mirror_list = list(self.mirror_priority) + list(self.DEFAULT_MIRRORS)
-        if self.custom_mirror:
-            cm = self.custom_mirror.strip()
-            if cm and not cm.startswith(("http://", "https://")):
-                cm = "https://" + cm
-            if cm:
-                mirror_list.append(cm)
-        known_hosts = set()
-        for m in mirror_list:
-            try:
-                mh = (urllib.parse.urlparse(m).hostname or "").strip().lower().rstrip(".")
-            except Exception:
-                mh = ""
-            if mh and mh != "localhost" and not mh.endswith(
-                (".local", ".lan", ".home", ".internal", ".localhost", ".localdomain", ".nip.io", ".sslip.io", ".xip.io")
-            ):
-                try:
-                    ipaddress.ip_address(mh)
-                except ValueError:
-                    known_hosts.add(mh)
+            known_hosts = self._cached_mirror_hosts
+            if known_hosts is None:
+                mirror_list = list(self.mirror_priority) + list(self.DEFAULT_MIRRORS)
+                if self.custom_mirror:
+                    cm = self.custom_mirror.strip()
+                    if cm and not cm.startswith(("http://", "https://")):
+                        cm = "https://" + cm
+                    if cm:
+                        mirror_list.append(cm)
+                built_hosts = set()
+                for m in mirror_list:
+                    try:
+                        mh = (urllib.parse.urlparse(m).hostname or "").strip().lower().rstrip(".")
+                    except Exception:
+                        mh = ""
+                    if mh and mh != "localhost" and not mh.endswith(
+                        (".local", ".lan", ".home", ".internal", ".localhost", ".localdomain", ".nip.io", ".sslip.io", ".xip.io")
+                    ):
+                        try:
+                            ipaddress.ip_address(mh)
+                        except ValueError:
+                            built_hosts.add(mh)
+                self._cached_mirror_hosts = built_hosts
+                known_hosts = built_hosts
         if host in known_hosts:
             return True
         # HDRezka rotates mirror domains (hdrezka-*.tv, rezka-ua.org, ...): require "rezka" in a public DNS name
         return "rezka" in host and "." in host
+
+    @staticmethod
+    def _is_valid_person_photo_url(raw_url: str) -> bool:
+        u = str(raw_url or "").strip()
+        if not u or not u.startswith(("http://", "https://")) or _CTRL_CHAR_RE.search(u):
+            return False
+        u_low = u.lower()
+        path_only = u_low.split("?", 1)[0].split("#", 1)[0]
+        if path_only.endswith(".svg") or ".svg/" in u_low or ".svg." in u_low:
+            return False
+        bad_tokens = (
+            "nopersonphoto",
+            "no-photo",
+            "no_photo",
+            "nophoto",
+            "noavatar",
+            "no-avatar",
+            "no_avatar",
+            "default-avatar",
+            "default_avatar",
+            "placeholder",
+            "blank.gif",
+            "spacer.gif",
+            "/images/no",
+            "/i/0.png",
+            "/0.png",
+            "/0.jpg",
+            "/0.gif",
+            "disambig",
+            "question_book",
+            "flag_of_",
+            "coat_of_arms",
+        )
+        return not any(tok in u_low for tok in bad_tokens)
+
+    @staticmethod
+    def _clone_page_meta(meta: Dict[str, Any]) -> Dict[str, Any]:
+        out: Dict[str, Any] = {}
+        for k, v in meta.items():
+            if isinstance(v, list):
+                out[k] = [dict(x) if isinstance(x, dict) else x for x in v]
+            elif isinstance(v, dict):
+                if k == "inline_streams":
+                    out[k] = {
+                        sk: {bk: dict(bv) if isinstance(bv, dict) else bv for bk, bv in sv.items()}
+                        if isinstance(sv, dict)
+                        else sv
+                        for sk, sv in v.items()
+                    }
+                elif k in ("seasons", "prem_episodes_map"):
+                    out[k] = {sk: list(sv) if isinstance(sv, list) else sv for sk, sv in v.items()}
+                else:
+                    out[k] = dict(v)
+            else:
+                out[k] = v
+        return out
 
     @staticmethod
     def _extract_rezka_id_from_url(rezka_url: Optional[str]) -> str:
@@ -711,6 +802,67 @@ class HDRezkaClient:
             return ""
         m = re.search(r"/(\d+)-[^/?#]+\.html", str(rezka_url))
         return m.group(1) if m else ""
+
+    @staticmethod
+    def _extract_franchise_parts_html(page_html: str, mirror: str = "") -> List[Dict[str, Any]]:
+        if not page_html or "b-post__partcontent_item" not in page_html:
+            return []
+        raw_parts: List[Dict[str, Any]] = []
+        base_mirror = str(mirror or "https://rezka.ag").rstrip("/")
+        for idx, (attrs, inner) in enumerate(
+            re.findall(
+                r'<div([^>]*class="[^"]*\bb-post__partcontent_item\b[^"]*"[^>]*)>(.*?)</div>',
+                page_html,
+                re.S | re.I,
+            )
+        ):
+            m_title = re.search(r'<span[^>]*class="[^"]*\btitle\b[^"]*"[^>]*>(.*?)</span>', inner, re.S | re.I)
+            if not m_title:
+                continue
+            title_html = m_title.group(1)
+            title_txt = html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", title_html))).strip()
+            if not title_txt:
+                continue
+            is_current = bool(re.search(r"\bcurrent\b", attrs, re.I))
+            m_data_url = re.search(r'data-url=["\']([^"\']+)["\']', attrs, re.I)
+            m_href = re.search(r'href=["\']([^"\']+)["\']', title_html, re.I)
+            raw_url = (m_data_url.group(1) if m_data_url else (m_href.group(1) if m_href else "")).strip()
+            if raw_url.startswith("/"):
+                raw_url = f"{base_mirror}{raw_url}"
+            rezka_id = HDRezkaClient._extract_rezka_id_from_url(raw_url)
+            year_val = 0
+            m_year = re.search(r'<span[^>]*class="[^"]*\byear\b[^"]*"[^>]*>(.*?)</span>', inner, re.S | re.I)
+            if m_year:
+                m_yr_num = re.search(r"((?:19|20)\d{2})", m_year.group(1))
+                if m_yr_num:
+                    year_val = int(m_yr_num.group(1))
+            rating_val = ""
+            m_rat = re.search(r'<span[^>]*class="[^"]*\brating\b[^"]*"[^>]*>(.*?)</span>', inner, re.S | re.I)
+            if m_rat:
+                rat_clean = re.sub(r"<[^>]+>", " ", m_rat.group(1))
+                m_rat_num = re.search(r"(\d+(?:\.\d+)?)", rat_clean)
+                if m_rat_num:
+                    rating_val = m_rat_num.group(1)
+            raw_parts.append(
+                {
+                    "_idx": idx,
+                    "title": title_txt,
+                    "year": year_val,
+                    "rating": rating_val,
+                    "rezka_url": raw_url,
+                    "rezka_id": rezka_id,
+                    "is_current": is_current,
+                }
+            )
+        if len(raw_parts) < 2:
+            return []
+        raw_parts.sort(key=lambda p: (p["year"] if p["year"] > 0 else 9999, p["_idx"]))
+        result: List[Dict[str, Any]] = []
+        for i, part in enumerate(raw_parts, start=1):
+            part_copy = {k: v for k, v in part.items() if k != "_idx"}
+            part_copy["num"] = i
+            result.append(part_copy)
+        return result
 
     def _resolve_page_metadata(
         self,
@@ -741,12 +893,16 @@ class HDRezkaClient:
             f"t={clean_title.lower()}|o={clean_orig.lower()}|y={yr_int}|mt={media_type}"
         )
         now = time.time()
+        cached_hit = None
         with self._cache_lock:
             if not force_refresh and cache_key in self.page_cache:
                 cached_meta = self.page_cache[cache_key]
                 if (now - float(cached_meta.get("_cached_at") or 0)) < 3600:
-                    return copy.deepcopy(cached_meta)
-                self.page_cache.pop(cache_key, None)
+                    cached_hit = cached_meta
+                else:
+                    self.page_cache.pop(cache_key, None)
+        if cached_hit is not None:
+            return self._clone_page_meta(cached_hit)
 
         target_url = rezka_url
         page_html = ""
@@ -892,9 +1048,9 @@ class HDRezkaClient:
                         seen_rids.add(rid)
 
             if found:
-                ranked = sorted(found, key=_score_candidate, reverse=True)
-                for cand in ranked[:3]:
-                    cand_score = _score_candidate(cand)
+                scored_found = [(_score_candidate(c), c) for c in found]
+                scored_found.sort(key=lambda x: x[0], reverse=True)
+                for cand_score, cand in scored_found[:3]:
                     if cand_score < 48:
                         break
                     cand_url = cand["url"]
@@ -975,13 +1131,14 @@ class HDRezkaClient:
 
         final_url = resp_headers.get("_final_url", target_url)
         mirror = "/".join(final_url.split("/")[:3])
+        clean_page_html = page_html.split('<div class="b-comments"', 1)[0]
 
         country_text = ""
         countries: List[str] = []
         trans_info_text = ""
         m_country = re.search(
             r'<td class="l">\s*<h2>\s*Страна\s*</h2>\s*:?\s*</td>\s*<td>(.*?)</td>',
-            page_html,
+            clean_page_html,
             re.S | re.I,
         )
         if m_country:
@@ -994,7 +1151,7 @@ class HDRezkaClient:
                     countries.append(cn)
         m_trans_info = re.search(
             r'<td class="l">\s*<h2>\s*В переводе\s*</h2>\s*:?\s*</td>\s*<td>(.*?)</td>',
-            page_html,
+            clean_page_html,
             re.S | re.I,
         )
         if m_trans_info:
@@ -1012,7 +1169,7 @@ class HDRezkaClient:
         age_rating = ""
         m_age = re.search(
             r'<td class="l">\s*<h2>\s*Возраст\s*</h2>\s*:?\s*</td>\s*<td>(.*?)</td>',
-            page_html,
+            clean_page_html,
             re.S | re.I,
         )
         if m_age:
@@ -1026,7 +1183,7 @@ class HDRezkaClient:
         seen_tr = set()
         for tr_m in re.finditer(
             r'<(?:li|a|option)([^>]*data-translator_id="(\d+)"[^>]*)>(.*?)</(?:li|a|option)>',
-            page_html,
+            clean_page_html,
             re.S,
         ):
             li_attrs, tr_id, tr_inner_html = tr_m.groups()
@@ -1196,7 +1353,7 @@ class HDRezkaClient:
         episodes_meta: Dict[str, Dict[str, Dict[str, Any]]] = {}
         for li_attrs, li_inner in re.findall(
             r"<li([^>]*data-(?:season|episode)_id=[^>]*)>(.*?)</li>",
-            page_html,
+            clean_page_html,
             re.S | re.I,
         ):
             m_s = re.search(r'data-season_id="(\d+)"', li_attrs, re.I)
@@ -1241,7 +1398,7 @@ class HDRezkaClient:
             r'<tr[^>]*>\s*<td class="td-1"[^>]*>\s*(\d+)\s*сезон\s*(\d+)\s*серия\s*</td>\s*'
             r'<td class="td-2">\s*(?:<b>(.*?)</b>)?(?:\s*<br\s*/?>\s*<span>(.*?)</span>)?\s*</td>\s*'
             r'<td class="td-3">.*?</td>\s*<td class="td-4">(.*?)</td>\s*<td class="td-5">(.*?)</td>',
-            page_html,
+            clean_page_html,
             re.S,
         )
         unreleased_eps_set: set = set()
@@ -1307,7 +1464,7 @@ class HDRezkaClient:
 
         # Extract full Russian plot synopsis from <div class="b-post__description_text">
         description = ""
-        m_desc = re.search(r'<div class="b-post__description_text">\s*(.*?)\s*</div>', page_html, re.S)
+        m_desc = re.search(r'<div class="b-post__description_text">\s*(.*?)\s*</div>', clean_page_html, re.S)
         if m_desc:
             raw_desc = re.sub(r"<[^>]+>", " ", m_desc.group(1))
             description = html.unescape(re.sub(r"\s+", " ", raw_desc)).strip()
@@ -1331,7 +1488,7 @@ class HDRezkaClient:
 
         for span_attrs, inner_html in re.findall(
             r'<span([^>]*class="[^"]*person-name-item[^"]*"[^>]*)>(.*?)</span>\s*(?:</a>\s*)?</span>',
-            page_html,
+            clean_page_html,
             re.S,
         ):
             m_name = re.search(r'itemprop="name"[^>]*>([^<]+)', inner_html)
@@ -1370,15 +1527,21 @@ class HDRezkaClient:
 
             if is_dir and p_name not in directors:
                 directors.append(p_name)
-            elif is_act and p_name not in actors:
+            elif is_act and p_name not in actors and p_name not in directors:
                 actors.append(p_name)
 
             if (is_dir or is_act) and p_name.lower() not in seen_people:
                 seen_people.add(p_name.lower())
+                role_clean = (
+                    job_raw.replace("Актер", "Актёр")
+                    .replace("актер", "актёр")
+                    .replace("Режиссер", "Режиссёр")
+                    .replace("режиссер", "режиссёр")
+                )
                 cast_people.append(
                     {
                         "name": p_name,
-                        "role": "Режиссёр" if is_dir else (job_raw or "В ролях"),
+                        "role": "Режиссёр" if is_dir else (role_clean or "В ролях"),
                         "is_director": is_dir,
                         "photo": photo_url,
                         "person_url": person_full_url,
@@ -1388,7 +1551,7 @@ class HDRezkaClient:
         if not directors:
             for p_url, d_name in re.findall(
                 r'itemprop="director"[^>]*>.*?(?:<a[^>]*href="([^"]+)"[^>]*>\s*)?<span[^>]*itemprop="name"[^>]*>([^<]+)</span>',
-                page_html,
+                clean_page_html,
                 re.S,
             ):
                 dn = html.unescape(d_name.strip())
@@ -1406,7 +1569,7 @@ class HDRezkaClient:
         if not actors:
             for p_url, a_name in re.findall(
                 r'itemprop="actor"[^>]*>.*?(?:<a[^>]*href="([^"]+)"[^>]*>\s*)?<span[^>]*itemprop="name"[^>]*>([^<]+)</span>',
-                page_html,
+                clean_page_html,
                 re.S,
             ):
                 an = html.unescape(a_name.strip())
@@ -1422,7 +1585,7 @@ class HDRezkaClient:
                                 self.person_url_by_name[an.lower()] = cand_p_url
 
         duration_label = ""
-        m_dur = re.search(r'<td[^>]*itemprop="duration"[^>]*>([^<]+)</td>', page_html)
+        m_dur = re.search(r'<td[^>]*itemprop="duration"[^>]*>([^<]+)</td>', clean_page_html)
         if m_dur:
             duration_label = html.unescape(m_dur.group(1).strip())
 
@@ -1487,10 +1650,10 @@ class HDRezkaClient:
         genres: List[str] = []
         m_genre_row = re.search(
             r'<td class="l">\s*<h2>\s*Жанр\s*</h2>\s*:?\s*</td>\s*<td>(.*?)</td>',
-            page_html,
+            clean_page_html,
             re.S | re.I,
         )
-        genre_scope = m_genre_row.group(1) if m_genre_row else page_html
+        genre_scope = m_genre_row.group(1) if m_genre_row else clean_page_html
         raw_genre_hits = re.findall(r'<span[^>]*itemprop="genre"[^>]*>([^<]+)</span>', genre_scope, re.I)
         if not raw_genre_hits and m_genre_row:
             raw_genre_hits = re.findall(r"<a[^>]*>([^<]+)</a>", genre_scope, re.I)
@@ -1512,7 +1675,7 @@ class HDRezkaClient:
         )
 
         series_status_text = ""
-        m_infolast = re.search(r'<div class="b-post__infolast"[^>]*>\s*(.*?)\s*</div>', page_html, re.S)
+        m_infolast = re.search(r'<div class="b-post__infolast"[^>]*>\s*(.*?)\s*</div>', clean_page_html, re.S)
         if m_infolast:
             raw_infolast = re.sub(r"<[^>]+>", " ", m_infolast.group(1))
             series_status_text = html.unescape(re.sub(r"\s+", " ", raw_infolast)).strip()
@@ -1525,6 +1688,7 @@ class HDRezkaClient:
             and not has_season_only_marker
             and re.search(r"(?:завершен|завершён|закрыт)", series_status_text, re.I)
         )
+        franchise_parts = self._extract_franchise_parts_html(page_html, mirror)
 
         meta = {
             "_cached_at": time.time(),
@@ -1556,14 +1720,16 @@ class HDRezkaClient:
             "duration_label": duration_label,
             "genres": genres[:5],
             "countries": countries[:4],
+            "franchise_parts": franchise_parts,
             "skipped_prem_tr_ids": list(skipped_prem_tr_ids),
         }
         if default_tr_m or inline_streams or seasons_map or prem_episodes_map:
+            meta_copy = self._clone_page_meta(meta)
             with self._cache_lock:
                 if len(self.page_cache) >= 240:
                     for k_ev in list(self.page_cache.keys())[:60]:
                         self.page_cache.pop(k_ev, None)
-                self.page_cache[cache_key] = copy.deepcopy(meta)
+                self.page_cache[cache_key] = meta_copy
         return meta
 
     def _fetch_ajax_streams_bundle(
@@ -1876,8 +2042,7 @@ class HDRezkaClient:
                 if len(batch) == 1:
                     raw_res = [_probe_alt(batch[0])]
                 else:
-                    with ThreadPoolExecutor(max_workers=len(batch)) as pool:
-                        raw_res = list(pool.map(_probe_alt, batch))
+                    raw_res = list(self._studio_probe_executor.map(_probe_alt, batch))
                 if any(r[3] for r in raw_res):
                     primary_mirror_alive = True
 

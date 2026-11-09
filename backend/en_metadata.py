@@ -149,9 +149,22 @@ class EnglishMetadataResolver:
             self._dirty_count = 0
             snapshot = {k: v for k, v in self._cache.items() if isinstance(v, dict) and v.get("ok")}
         try:
-            self._db.save_cache_dict("en_meta", snapshot, max_entries=5000)
+            if hasattr(self._db, "set_cache_entries_batch") and not force:
+                self._db.set_cache_entries_batch("en_meta", snapshot)
+            else:
+                self._db.save_cache_dict("en_meta", snapshot, max_entries=5000)
         except Exception:
             pass
+
+    _IMDB_ID_KEY_RE = re.compile(r"^tt\d{5,10}$")
+    _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+    @staticmethod
+    def _clone_en_meta(entry: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            k: (list(v) if isinstance(v, list) else (dict(v) if isinstance(v, dict) else v))
+            for k, v in entry.items()
+        }
 
     def _make_key(
         self,
@@ -162,9 +175,9 @@ class EnglishMetadataResolver:
         media_type: str,
         imdb_id: str,
     ) -> str:
-        if imdb_id and re.match(r"^tt\d{5,10}$", imdb_id):
+        if imdb_id and self._IMDB_ID_KEY_RE.match(imdb_id):
             return f"imdb:{imdb_id}"
-        if item_id and re.match(r"^tt\d{5,10}$", item_id):
+        if item_id and self._IMDB_ID_KEY_RE.match(item_id):
             return f"imdb:{item_id}"
         if item_id and item_id.startswith("kin_"):
             return f"kin:{item_id[4:]}"
@@ -179,6 +192,7 @@ class EnglishMetadataResolver:
         year: int = 0,
         media_type: str = "",
         imdb_id: str = "",
+        include_episodes: bool = True,
     ) -> Optional[Dict[str, Any]]:
         key = self._make_key(item_id, orig_title, title, year, media_type, imdb_id)
         with self._lock:
@@ -190,22 +204,40 @@ class EnglishMetadataResolver:
         ttl = 86400 * 14 if entry.get("ok") else 900
         if now - entry_ts > ttl:
             return None
-        out = copy.deepcopy(entry)
-        ep_meta_en = out.get("episodes_meta_en")
-        has_future_ep = False
-        if isinstance(ep_meta_en, dict) and ep_meta_en:
-            utc_today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            for _sk, s_eps in ep_meta_en.items():
-                if not isinstance(s_eps, dict):
-                    continue
-                for _ek, ev in s_eps.items():
-                    if not isinstance(ev, dict):
-                        continue
-                    air_d = str(ev.get("air_date") or "")[:10]
-                    if re.match(r"^\d{4}-\d{2}-\d{2}$", air_d):
-                        ev["is_future"] = bool(air_d > utc_today)
-                    if ev.get("is_future"):
-                        has_future_ep = True
+        if not include_episodes:
+            out = {
+                k: (list(v) if isinstance(v, list) else v)
+                for k, v in entry.items()
+                if k not in ("episodes_meta_en", "episodes_titles_en")
+            }
+            return out
+        ep_meta_en = entry.get("episodes_meta_en")
+        utc_today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if isinstance(ep_meta_en, dict) and ep_meta_en and entry.get("_checked_utc_day") != utc_today:
+            with self._lock:
+                if entry.get("_checked_utc_day") != utc_today:
+                    has_future_ep = False
+                    for _sk, s_eps in ep_meta_en.items():
+                        if not isinstance(s_eps, dict):
+                            continue
+                        for _ek, ev in s_eps.items():
+                            if not isinstance(ev, dict):
+                                continue
+                            air_d = str(ev.get("air_date") or "")[:10]
+                            if self._ISO_DATE_RE.match(air_d):
+                                ev["is_future"] = bool(air_d > utc_today)
+                            if ev.get("is_future"):
+                                has_future_ep = True
+                    entry["_checked_utc_day"] = utc_today
+                    entry["_has_future_ep"] = has_future_ep
+                else:
+                    has_future_ep = bool(entry.get("_has_future_ep"))
+        else:
+            has_future_ep = bool(entry.get("_has_future_ep"))
+        out = {
+            k: (list(v) if isinstance(v, list) else v)
+            for k, v in entry.items()
+        }
         if out.get("episodes_fetched") and (now - entry_ts) > 21600:
             if not ep_meta_en or has_future_ep:
                 out["episodes_fetched"] = False
@@ -233,52 +265,13 @@ class EnglishMetadataResolver:
         from .stremio import StremioAddonEngine
         return StremioAddonEngine.is_safe_public_http_url(url)
 
-    def _open_json_request(self, req: urllib.request.Request, timeout: float) -> Optional[Dict[str, Any]]:
-        from .stremio import StremioAddonEngine
+    def _get_or_build_safe_json_opener(self):
+        opener = getattr(self, "_safe_json_opener", None)
+        if opener is not None:
+            return opener
+        from .net_security import SafePublicHTTPHandler, SafePublicHTTPSHandler
 
         is_safe = self._is_safe_public_http_url
-
-        def _verify_peer_socket(sock_obj: Any) -> None:
-            peer_ip_raw = str(sock_obj.getpeername()[0]).split("%", 1)[0]
-            peer_ip_obj = ipaddress.ip_address(peer_ip_raw)
-            if StremioAddonEngine._is_disallowed_ip(peer_ip_obj):
-                raise urllib.error.URLError(f"Disallowed peer IP: {peer_ip_raw}")
-
-        class _SafeHTTPConnection(http.client.HTTPConnection):
-            def connect(self):
-                super().connect()
-                try:
-                    _verify_peer_socket(self.sock)
-                except Exception:
-                    try:
-                        self.close()
-                    except Exception:
-                        pass
-                    raise
-
-        class _SafeHTTPSConnection(http.client.HTTPSConnection):
-            def connect(self):
-                http.client.HTTPConnection.connect(self)
-                try:
-                    _verify_peer_socket(self.sock)
-                except Exception:
-                    try:
-                        self.close()
-                    except Exception:
-                        pass
-                    raise
-                server_hostname = self._tunnel_host if self._tunnel_host else self.host
-                if isinstance(server_hostname, str):
-                    server_hostname = server_hostname.rstrip(".")
-                self.sock = self._context.wrap_socket(self.sock, server_hostname=server_hostname)
-
-        class _SafeHTTPHandler(urllib.request.HTTPHandler):
-            def http_open(self, r_req):
-                return self.do_open(_SafeHTTPConnection, r_req)
-
-        class _SafeHTTPSHandler(urllib.request.HTTPSHandler):
-            def https_open(self, r_req):
-                return self.do_open(_SafeHTTPSConnection, r_req, context=self._context)
 
         class _SafeRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, r_req, fp, code, msg, headers, newurl):
@@ -294,10 +287,15 @@ class EnglishMetadataResolver:
 
         opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({}),
-            _SafeHTTPHandler(),
-            _SafeHTTPSHandler(context=_SHARED_SSL_CTX),
+            SafePublicHTTPHandler(),
+            SafePublicHTTPSHandler(context=_SHARED_SSL_CTX),
             _SafeRedirect(),
         )
+        self._safe_json_opener = opener
+        return opener
+
+    def _open_json_request(self, req: urllib.request.Request, timeout: float) -> Optional[Dict[str, Any]]:
+        opener = self._get_or_build_safe_json_opener()
         with opener.open(req, timeout=timeout) as resp:
             if getattr(resp, "status", 200) != 200:
                 return None
@@ -938,7 +936,7 @@ class EnglishMetadataResolver:
                     except StopIteration:
                         pass
                 self._cache[key] = neg
-            return copy.deepcopy(neg)
+            return self._clone_en_meta(neg)
 
         jw = jw_data or {}
         cm = cm_data or {}
@@ -1011,4 +1009,4 @@ class EnglishMetadataResolver:
                     self._db.set_cache_entry("en_meta", str(k), result)
         except Exception:
             self._save(force=need_episodes)
-        return copy.deepcopy(result)
+        return self._clone_en_meta(result)

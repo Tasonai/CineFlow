@@ -1,11 +1,11 @@
-import { state } from "./state.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
 import {
   displayTitle,
   isEn,
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -15,41 +15,42 @@ import {
   initCustomSelects,
   showToast,
   showVideoOsd,
-} from "./utils.js?v=20261105v5";
+  syncCustomSelect,
+} from "./utils.js?v=20261108v19";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
   pickPreferredSubtitleIndex,
-} from "./audio-dsp.js?v=20261105v5";
+} from "./audio-dsp.js?v=20261108v19";
 import {
   buildRemuxSubtitlesList,
   mergeCustomExternalSubtitles,
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
-} from "./subtitles.js?v=20261105v5";
+} from "./subtitles.js?v=20261108v19";
 import {
   buildRemuxStreamEndpoint,
   formatAudioOffsetLabel,
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261105v5";
+} from "./player-remux.js?v=20261108v19";
 import {
   syncCustomControlPopovers,
   syncCustomVideoControlsUI,
-} from "./player-ui-controls.js?v=20261105v5";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261105v5";
+} from "./player-ui-controls.js?v=20261108v19";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261108v19";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261105v5";
-import { playVideoUrl } from "./player.js?v=20261105v5";
+} from "./player-seasons.js?v=20261108v19";
+import { playVideoUrl } from "./player.js?v=20261108v19";
 import {
   buildNextEpisodePreloadKey,
   hideVideoStreamError,
   isHdRezkaStreamDeadOrExpired,
   loadHDRezkaStream,
-} from "./player-streams.js?v=20261105v5";
+} from "./player-streams.js?v=20261108v19";
 
 function _applyLiveAudioOffsetToCurrentStream() {
   if (state.audioOffsetReloadTimerId) {
@@ -252,6 +253,16 @@ export async function probeAndPlay4KStream(
   }
   const probeAbort = new AbortController();
   state.remuxProbeAbortController = probeAbort;
+  const isLoopbackProbe = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(rawStreamUrl);
+  let probeTimedOut = false;
+  const probeTimeoutId = isLoopbackProbe
+    ? setTimeout(() => {
+        probeTimedOut = true;
+        try {
+          probeAbort.abort();
+        } catch (e) {}
+      }, 4500)
+    : null;
 
   let probe = null;
   try {
@@ -265,10 +276,12 @@ export async function probeAndPlay4KStream(
       probe = await res.json();
     }
   } catch (err) {
-    if (err && err.name === "AbortError") return;
+    if (err && err.name === "AbortError" && !probeTimedOut) return;
+  } finally {
+    if (probeTimeoutId) clearTimeout(probeTimeoutId);
   }
 
-  if (probeAbort.signal.aborted || !state.isPlayerOpen || sessionId !== state.playerSessionId) return;
+  if ((probeAbort.signal.aborted && !probeTimedOut) || !state.isPlayerOpen || sessionId !== state.playerSessionId) return;
 
   if (Number(probe?.credits_start_sec) > 0) {
     state.probeCreditsStartSec = Number(probe.credits_start_sec);
@@ -281,6 +294,22 @@ export async function probeAndPlay4KStream(
   const isRemoteLanClient = !["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
   const isLoopbackStream = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(rawStreamUrl);
   const hasCustomAudioShift = Math.abs(state.audioOffsetSec || 0) >= 0.005;
+  const syncActive4KQualityOption = (streamEndpointUrl) => {
+    const qLabel = String(relQuality || "4K UHD").trim() || "4K UHD";
+    state.qualities = { [qLabel]: streamEndpointUrl };
+    state.backupQualities = {};
+    state.hlsQualities = {};
+    const qualSel = document.getElementById("select-quality");
+    if (qualSel) {
+      qualSel.innerHTML = "";
+      const opt = document.createElement("option");
+      opt.value = qLabel;
+      opt.textContent = qLabel;
+      opt.selected = true;
+      qualSel.appendChild(opt);
+      syncCustomSelect(qualSel);
+    }
+  };
 
   if (probe && probe.ok && (probe.needs_remux || hasCustomAudioShift || (isRemoteLanClient && isLoopbackStream))) {
     const tracks = probe.audio_tracks || [];
@@ -312,6 +341,7 @@ export async function probeAndPlay4KStream(
         if (Number(tr.audio_index) === chosenIdx) opt.selected = true;
         studioSel.appendChild(opt);
       });
+      syncCustomSelect(studioSel);
     }
     if (chosenTrack?.label) {
       state.activeStudioName = `${sourcePrefix} (${relQuality}) · ${chosenTrack.label}`;
@@ -325,10 +355,11 @@ export async function probeAndPlay4KStream(
       getPlayerPrefs().preferredSubtitleLang
     );
     populateSubtitlesSelector(state.subtitles);
-    syncCustomControlPopovers();
     document.getElementById(audioBarId)?.remove();
 
     const remuxUrl = buildRemuxStreamEndpoint(state.remuxMeta, state.remuxMeta.offsetSec);
+    syncActive4KQualityOption(remuxUrl);
+    syncCustomControlPopovers();
     playVideoUrl(remuxUrl, 0, sessionId, { keepRemuxMeta: true });
     return;
   }
@@ -358,8 +389,9 @@ export async function probeAndPlay4KStream(
       getPlayerPrefs().preferredSubtitleLang
     );
     populateSubtitlesSelector(state.subtitles);
-    syncCustomControlPopovers();
     const remuxUrl = buildRemuxStreamEndpoint(state.remuxMeta, state.remuxMeta.offsetSec);
+    syncActive4KQualityOption(remuxUrl);
+    syncCustomControlPopovers();
     playVideoUrl(remuxUrl, 0, sessionId, {
       keepRemuxMeta: true,
       isInstantSwap: Boolean(options?.isInstantSwap),
@@ -385,6 +417,7 @@ export async function probeAndPlay4KStream(
     state.activeSubtitleIndex = state.subtitles.length > 0 ? state.activeSubtitleIndex : -1;
     populateSubtitlesSelector(state.subtitles);
   }
+  syncActive4KQualityOption(rawStreamUrl);
   syncCustomControlPopovers();
   playVideoUrl(rawStreamUrl, startSec, sessionId, {
     isInstantSwap: Boolean(options?.isInstantSwap),
@@ -414,7 +447,7 @@ export function renderStremioStreamsList(resumeTime = 0, autoLaunchFirst = false
   if (debridReady) {
     statusBanner.innerHTML = `
       <span><strong>${escapeHtml(modeLabel)} ${t("активен", "active")}</strong>${
-      remuxAvail ? t(" · ремукс звука DTS/AC3 -> AAC включен", " · DTS/AC3 -> AAC remux active") : ""
+      remuxAvail ? t(" · ремукс звука DTS/AC3 -> AAC включён", " · DTS/AC3 -> AAC remux active") : ""
     } — ${t(
       "потоки аддонов Stremio и субтитры OpenSubtitles готовы",
       "Stremio addon streams and OpenSubtitles are ready"
@@ -428,7 +461,7 @@ export function renderStremioStreamsList(resumeTime = 0, autoLaunchFirst = false
     `;
   } else if (torrOnline) {
     statusBanner.innerHTML = `
-      <span><strong>${t("TorrServer подключен", "TorrServer connected")}</strong> (${escapeHtml(torrAddr)})${
+      <span><strong>${t("TorrServer подключён", "TorrServer connected")}</strong> (${escapeHtml(torrAddr)})${
       remuxAvail ? t(" · ремукс звука DTS/AC3 -> AAC активен", " · DTS/AC3 -> AAC remux active") : ""
     } — ${t(
       "прямое воспроизведение потоков Stremio с выбором дорожек и субтитров",
@@ -577,6 +610,7 @@ export function renderStremioStreamsList(resumeTime = 0, autoLaunchFirst = false
           filename_hint: st.filename_hint || "",
           title: item.title || item.orig_title || "",
           orig_title: item.orig_title || "",
+          year: Number(item.year) || 0,
           genres: item.genres || state.activeMeta?.genres || [],
           age_rating: item.age_rating || state.activeMeta?.age_rating || "",
           media_type: item.media_type || "movie",
@@ -624,8 +658,9 @@ export function renderStremioStreamsList(resumeTime = 0, autoLaunchFirst = false
     }
   };
 
+  const stFrag = document.createDocumentFragment();
   filtered.forEach((st, idx) => {
-    const stKey = String(st.id || st.info_hash || `st_${idx}_${st.title || ""}`);
+    const stKey = String(st.stream_id || st.id || st.info_hash || `st_${idx}_${st.title || ""}`);
     const canPlayDirect = Boolean(
       (st.stream_kind === "direct_http" && st.direct_url) ||
         ((torrOnline || debridReady) && (st.magnet || st.info_hash))
@@ -716,13 +751,14 @@ export function renderStremioStreamsList(resumeTime = 0, autoLaunchFirst = false
       const { cur } = getEffectivePlaybackTiming(video);
       launchStremioStream(st, stKey, cur > 5 ? cur : resumeTime);
     });
-    listEl.appendChild(row);
+    stFrag.appendChild(row);
   });
+  listEl.appendChild(stFrag);
 
   const failedSet = state.failedStremioKeys instanceof Set ? state.failedStremioKeys : new Set();
   state._filteredStremioCandidates = filtered.map((st, idx) => ({
     st,
-    stKey: String(st.id || st.info_hash || `st_${idx}_${st.title || ""}`),
+    stKey: String(st.stream_id || st.id || st.info_hash || `st_${idx}_${st.title || ""}`),
     playable: Boolean(
       (st.stream_kind === "direct_http" && st.direct_url) ||
         ((torrOnline || debridReady) && (st.magnet || st.info_hash))
@@ -872,6 +908,11 @@ export async function loadStremioStreams(resumeTime = 0, options = {}) {
 
 export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false, options = {}) {
   if (!state.activeItem || !state.isPlayerOpen) return;
+  if (forceRefresh && typeof forceRefresh === "object") {
+    options = forceRefresh;
+    forceRefresh = Boolean(options.forceRefresh);
+  }
+  state.failed4kKeys = new Set();
   const sessionId = state.playerSessionId;
   const item = state.activeItem;
   hideVideoStreamError();
@@ -982,6 +1023,10 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
       }
       if (!state.backup4kReleasesCache) state.backup4kReleasesCache = {};
       if (Array.isArray(data?.releases)) {
+        const b4kKeys = Object.keys(state.backup4kReleasesCache);
+        if (b4kKeys.length >= 60) {
+          delete state.backup4kReleasesCache[b4kKeys[0]];
+        }
         state.backup4kReleasesCache[cacheKey] = { ts: Date.now(), data };
       }
     }
@@ -1036,7 +1081,7 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
     if (debridReady) {
       statusBanner.innerHTML = `
         <span><strong>${escapeHtml(modeLabel)} ${t("активен", "active")}</strong>${
-        remuxAvail ? t(" · ремукс звука DTS/AC3 -> AAC включен", " · DTS/AC3 -> AAC remux active") : ""
+        remuxAvail ? t(" · ремукс звука DTS/AC3 -> AAC включён", " · DTS/AC3 -> AAC remux active") : ""
       } — ${t(
         "прямое облачное воспроизведение 4K без P2P",
         "direct cloud 4K playback without P2P"
@@ -1047,7 +1092,7 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
       `;
     } else if (torrOnline) {
       statusBanner.innerHTML = `
-        <span><strong>${t("TorrServer подключен", "TorrServer connected")}</strong> (${escapeHtml(torrAddr)})${
+        <span><strong>${t("TorrServer подключён", "TorrServer connected")}</strong> (${escapeHtml(torrAddr)})${
         remuxAvail ? t(" · ремукс звука DTS/AC3 -> AAC активен", " · DTS/AC3 -> AAC remux active") : ""
       } — ${t(
         "прямое воспроизведение 4K UHD BDRemux со звуком и выбором дорожек",
@@ -1188,6 +1233,7 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
               id: item.id || "",
               title: item.title || "",
               orig_title: item.orig_title || "",
+              year: Number(item.year) || 0,
               genres: item.genres || state.activeMeta?.genres || [],
               age_rating: item.age_rating || state.activeMeta?.age_rating || "",
               magnet: rel.magnet,
@@ -1202,6 +1248,22 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
           const tjson = await tres.json();
           if (!state.isPlayerOpen || sessionId !== state.playerSessionId || state.activeSourceTab !== "backup4k") return;
           if (!tres.ok || !tjson || !tjson.ok || !tjson.stream_url) {
+            if (!state.failed4kKeys) state.failed4kKeys = new Set();
+            state.failed4kKeys.add(relKey);
+            if (state.failed4kKeys.size <= 3 && Array.isArray(state._backup4kCandidates)) {
+              const nextCand = state._backup4kCandidates.find(
+                (c) => c.playable && !state.failed4kKeys.has(c.relKey)
+              );
+              if (nextCand) {
+                showToast(
+                  t(
+                    "Переключение на следующую доступную 4K раздачу...",
+                    "Switching to the next available 4K release..."
+                  )
+                );
+                return await launchRelease(nextCand.rel, nextCand.relKey, startAtSec);
+              }
+            }
             loader?.classList.add("hidden");
             showToast(
               tjson?.error ||
@@ -1271,6 +1333,7 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
               id: item.id || "",
               title: item.title || "",
               orig_title: item.orig_title || "",
+              year: Number(item.year) || 0,
               genres: item.genres || state.activeMeta?.genres || [],
               age_rating: item.age_rating || state.activeMeta?.age_rating || "",
               magnet: rel.magnet,
@@ -1310,10 +1373,13 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
       });
     };
 
+    const relFrag = document.createDocumentFragment();
     releases.forEach((rel, idx) => {
       const relKey = String(rel.info_hash || `rel_${idx}_${rel.title || ""}`);
       const canPlayDirect = Boolean(
-        (torrOnline && rel.stream_url) || (debridReady && rel.stream_kind === "debrid" && rel.magnet)
+        (rel.stream_kind === "direct_http" && rel.stream_url) ||
+          (torrOnline && (rel.stream_url || rel.magnet || rel.info_hash)) ||
+          (debridReady && rel.stream_kind === "debrid" && rel.magnet)
       );
       const magnetUri = String(rel.magnet || "");
       const sizeText = translateSizeLabel(rel.size || "");
@@ -1380,8 +1446,22 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
           launchRelease(rel, relKey, cur > 5 ? cur : resumeTime);
         };
       }
-      listEl.appendChild(row);
+      relFrag.appendChild(row);
     });
+    listEl.appendChild(relFrag);
+
+    const failed4kSet = state.failed4kKeys instanceof Set ? state.failed4kKeys : new Set();
+    state._backup4kCandidates = releases.map((rel, idx) => ({
+      rel,
+      relKey: String(rel.info_hash || `rel_${idx}_${rel.title || ""}`),
+      playable: Boolean(
+        (rel.stream_kind === "direct_http" && rel.stream_url) ||
+          (torrOnline && (rel.stream_url || rel.magnet || rel.info_hash)) ||
+          (debridReady && rel.stream_kind === "debrid" && rel.magnet)
+      ),
+    }));
+    state._launchBackup4kCandidate = (rel, relKey, startAtSec) =>
+      launchRelease(rel, relKey, startAtSec);
 
     const preferredIdx = state.preferred4kReleaseKey
       ? releases.findIndex(
@@ -1390,10 +1470,13 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
       : -1;
     const autoIdx = preferredIdx >= 0 ? preferredIdx : 0;
     const autoRel = releases[autoIdx] || null;
+    const autoRelKey = autoRel ? String(autoRel.info_hash || `rel_${autoIdx}_${autoRel.title || ""}`) : "";
     const canAutoLaunch =
       Boolean(autoRel) &&
-      ((torrOnline && !debridReady && Boolean(autoRel.stream_url)) ||
-        (preferredIdx >= 0 && debridReady && autoRel.stream_kind === "debrid" && Boolean(autoRel.magnet)));
+      !failed4kSet.has(autoRelKey) &&
+      ((autoRel.stream_kind === "direct_http" && Boolean(autoRel.stream_url)) ||
+        (torrOnline && !debridReady && Boolean(autoRel.stream_url || autoRel.magnet || autoRel.info_hash)) ||
+        (debridReady && autoRel.stream_kind === "debrid" && Boolean(autoRel.magnet)));
 
     if (
       !warmDirectPlayed &&
@@ -1403,13 +1486,24 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
       ((!video.getAttribute("src") && !state.hlsInstance) || state.forceAutoLaunchNextStream)
     ) {
       state.forceAutoLaunchNextStream = false;
-      const targetKey = String(autoRel.info_hash || `rel_${autoIdx}_${autoRel.title || ""}`);
-      launchRelease(autoRel, targetKey, resumeTime);
+      launchRelease(autoRel, autoRelKey, resumeTime);
     } else {
       syncActiveReleaseRows();
     }
   } catch (err) {
     if (err && err.name === "AbortError") return;
     console.error("Backup stream error:", err);
+    loader?.classList.add("hidden");
+    if (listEl) {
+      listEl.innerHTML = `<div class="player-sub-label" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <span>${escapeHtml(t("Ошибка при поиске 4K-раздач", "Error searching for 4K releases"))}</span>
+        <button type="button" class="atv-btn-secondary atv-btn-xs" id="btn-retry-backup4k">${escapeHtml(
+          t("Повторить", "Retry")
+        )}</button>
+      </div>`;
+      listEl.querySelector("#btn-retry-backup4k")?.addEventListener("click", () => {
+        loadBackup4KReleases(resumeTime, true);
+      });
+    }
   }
 }

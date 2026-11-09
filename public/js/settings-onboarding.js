@@ -1,10 +1,10 @@
-import { state } from "./state.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
 import {
   applyStaticDomTranslations,
   isEn,
   syncLanguageSegmentedControlUI,
   t,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -15,22 +15,23 @@ import {
   syncAllCustomSelects,
   syncCustomSelect,
   syncScrollTopButton,
-} from "./utils.js?v=20261105v5";
-import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
+import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261108v19";
 import {
+  clearCatalogFrontendCache,
   loadCatalog,
   renderLoginBannerIfNeeded,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
 import {
   ensureKidsPinVerifiedForAdminAction,
   renderHeaderProfileSwitcher,
-} from "./features.js?v=20261105v5";
+} from "./features.js?v=20261108v19";
 import {
   _adminPinPayload,
   getNetworkSettingsSnapshot,
   renderIntegrationsList,
-} from "./settings.js?v=20261105v5";
+} from "./settings.js?v=20261108v19";
 
 const _TZ_TO_EU_COUNTRY = {
   "Europe/Warsaw": "PL",
@@ -168,10 +169,14 @@ export function renderSettingsCountryUI() {
   const en = isEn();
   const sorted = getSortedEuCountries();
   const curCode = String(state.userCountry || "PL").toUpperCase();
+  const countryUiSig = `${en ? "en" : "ru"}|${curCode}|${sorted.length}`;
   if (sel && sorted.length > 0) {
-    sel.innerHTML = buildCountryOptionsHtml(sorted, curCode, en);
+    if (sel._countryUiSig !== countryUiSig || sel.options.length === 0) {
+      sel._countryUiSig = countryUiSig;
+      sel.innerHTML = buildCountryOptionsHtml(sorted, curCode, en);
+    }
     sel.value = curCode;
-    syncAllCustomSelects();
+    syncCustomSelect(sel);
   }
   const activeEntry = getCountryEntryByCode(curCode);
   if (hint) {
@@ -182,7 +187,8 @@ export function renderSettingsCountryUI() {
       const summary = en
         ? activeEntry.bypass_summary_en || activeEntry.bypass_summary || ""
         : activeEntry.bypass_summary_ru || activeEntry.bypass_summary || "";
-      hint.textContent = restr ? `${restr} — ${summary}` : summary;
+      hint.textContent = restr || summary;
+      hint.title = restr && summary ? `${restr} — ${summary}` : "";
     } else {
       hint.textContent = t(
         "Обход блокировок и региональные каталоги",
@@ -216,7 +222,10 @@ export async function changeUserCountryInstant(newCountryCode) {
     if (data.integrations) state.integrations = data.integrations;
     if (data.hdrezka?.spoof_region) {
       const spoofEl = document.getElementById("cfg-spoof-region");
-      if (spoofEl) spoofEl.value = data.hdrezka.spoof_region;
+      if (spoofEl) {
+        spoofEl.value = data.hdrezka.spoof_region;
+        syncCustomSelect(spoofEl);
+      }
     }
     if (data.backup_stream?.mode) {
       const bkpEl = document.getElementById("cfg-backup-mode");
@@ -235,6 +244,7 @@ export async function changeUserCountryInstant(newCountryCode) {
     renderSettingsCountryUI();
     renderIntegrationsList();
     applyEnabledServicesVisibility();
+    clearCatalogFrontendCache();
     loadCatalog();
     const prof = data.country_profile || getCountryEntryByCode(cleanCode);
     const cname = prof ? (isEn() ? prof.name_en || prof.name : prof.name_ru || prof.name) : cleanCode;
@@ -256,8 +266,8 @@ const _ONBOARDING_SERVICES_META = [
     name: "HDRezka",
     tagsRu: ["Встроенный плеер", "1080p", "Дубляж + Оригинал", "Без регистрации"],
     tagsEn: ["Built-in Player", "1080p", "Dubs + Original", "No Account"],
-    ru: "Мгновенный запуск фильмов и сериалов во встроенном плеере CineFlow: выбор студий озвучки, автоматическая разблокировка оригинала с субтитрами и пропуск вступительных заставок",
-    en: "Instant movie and series playback inside CineFlow: studio dubbing selector, automatic unlock of original audio with subtitles, and intro skip",
+    ru: "Мгновенный запуск фильмов и сериалов во встроенном плеере Velarium: выбор студий озвучки, автоматическая разблокировка оригинала с субтитрами и пропуск вступительных заставок",
+    en: "Instant movie and series playback inside Velarium: studio dubbing selector, automatic unlock of original audio with subtitles, and intro skip",
   },
   {
     id: "stremio",
@@ -381,7 +391,7 @@ function updateOnboardingBypassSummary(countryCode) {
     : entry.bypass_summary_ru || entry.bypass_summary || "";
   const tags = (en ? entry.bypass_tags_en : entry.bypass_tags_ru) || entry.bypass_tags || [];
   const restrTitle = en ? "Country restrictions" : "Ограничения в выбранной стране";
-  const bypassTitle = en ? "Active CineFlow bypass profile" : "Активный профиль обхода CineFlow";
+  const bypassTitle = en ? "Active Velarium bypass profile" : "Активный профиль обхода Velarium";
 
   const tagsHtml = Array.isArray(tags) && tags.length > 0
     ? `<div class="atv-ob-bypass-tags">${tags
@@ -451,9 +461,13 @@ export function renderOnboardingModalUI() {
   ).toUpperCase();
 
   if (sel && sorted.length > 0) {
-    sel.innerHTML = buildCountryOptionsHtml(sorted, activeCountry, en, "");
+    const obCountrySig = `${en ? "en" : "ru"}|${activeCountry}|${sorted.length}`;
+    if (sel._obCountrySig !== obCountrySig || sel.options.length === 0) {
+      sel._obCountrySig = obCountrySig;
+      sel.innerHTML = buildCountryOptionsHtml(sorted, activeCountry, en, "");
+    }
     sel.value = activeCountry;
-    syncAllCustomSelects();
+    syncCustomSelect(sel);
     sel.onchange = () => {
       const nextCode = String(sel.value || "PL").toUpperCase();
       state.onboardingDraftCountry = nextCode;
@@ -552,6 +566,11 @@ function renderOnboardingServicesRows() {
   ).toUpperCase();
   const countryEntry = getCountryEntryByCode(activeCountry);
   const isP2pStrict = Boolean(countryEntry?.p2p_strict);
+  const obServicesSig = `${en ? "en" : "ru"}|${activeCountry}|${isP2pStrict ? 1 : 0}|${_ONBOARDING_SERVICES_META.map((m) => `${m.id}:${state.onboardingDraftServices?.[m.id] ? 1 : 0}`).join(",")}`;
+  if (srvList._obServicesSig === obServicesSig && srvList.childElementCount > 0) {
+    return;
+  }
+  srvList._obServicesSig = obServicesSig;
 
   srvList.innerHTML = "";
   let renderedBuiltinHead = false;
@@ -574,8 +593,8 @@ function renderOnboardingServicesRows() {
       const gh = document.createElement("div");
       gh.className = "integrations-group-label";
       gh.textContent = t(
-        "Встроенные видеоисточники (плеер CineFlow · без регистрации · рекомендуется)",
-        "Built-in Video Sources (CineFlow Player · No Account Needed · Recommended)"
+        "Встроенные видеоисточники (плеер Velarium · без регистрации)",
+        "Built-in Video Sources (Velarium Player · No Account)"
       );
       srvList.appendChild(gh);
     } else if (srv.group === "official" && !renderedOfficialHead) {
@@ -584,8 +603,8 @@ function renderOnboardingServicesRows() {
       gh.className = "integrations-group-label integrations-group-label-row";
       const spanLbl = document.createElement("span");
       spanLbl.textContent = t(
-        "Официальные стриминговые сервисы (региональный каталог · внешний плеер по подписке)",
-        "Official Streaming Services (Regional Catalog · External Player · Subscription)"
+        "Официальные стриминговые сервисы (по подписке)",
+        "Official Streaming Services (Subscription)"
       );
       officialToggleAllBtn = document.createElement("button");
       officialToggleAllBtn.type = "button";
@@ -611,6 +630,7 @@ function renderOnboardingServicesRows() {
     const checked = Boolean(state.onboardingDraftServices[srv.id]);
     const tags = en ? srv.tagsEn || [] : srv.tagsRu || [];
     const tagsHtml = tags
+      .slice(0, 2)
       .map((tg) => `<span class="atv-ob-srv-tag">${escapeHtml(tg)}</span>`)
       .join("");
     const policyNote =
@@ -765,13 +785,19 @@ export function closeOnboardingModal({ reopenSettings = false } = {}) {
   if (!obMod || obMod.classList.contains("hidden")) return;
   closeCustomSelectMenu();
   obMod.classList.add("hidden");
-  const shouldReopenSettings = Boolean(reopenSettings && state.onboardingReturnToSettings);
+  const cameFromSettings = Boolean(state.onboardingReturnToSettings);
+  const shouldReopenSettings = Boolean(reopenSettings && cameFromSettings);
   state.onboardingReturnToSettings = false;
   if (shouldReopenSettings) {
     const settingsMod = document.getElementById("settings-modal");
     if (settingsMod) {
       settingsMod.classList.remove("hidden");
     }
+  } else if (cameFromSettings) {
+    state.verifiedKidsAdminPin = "";
+    restoreModalTriggerFocus("settings-modal");
+    syncScrollTopButton();
+    return;
   }
   syncScrollTopButton();
   restoreModalTriggerFocus("onboarding-modal");
@@ -838,10 +864,13 @@ export async function skipOnboardingModal() {
     applyEnabledServicesVisibility();
     renderLoginBannerIfNeeded();
     closeOnboardingModal();
+    clearCatalogFrontendCache();
     await loadCatalog();
     showToast(t("Применены настройки по умолчанию", "Default settings applied"));
   } catch (_) {
+    state.setupCompleted = true;
     closeOnboardingModal();
+    showToast(t("Не удалось сохранить настройки", "Failed to save setup"));
   } finally {
     if (skipBtn) skipBtn.disabled = false;
   }
@@ -941,8 +970,9 @@ export async function submitOnboardingModal() {
     applyEnabledServicesVisibility();
     renderLoginBannerIfNeeded();
     closeOnboardingModal();
+    clearCatalogFrontendCache();
     await loadCatalog();
-    showToast(t("Настройка CineFlow завершена", "CineFlow setup completed"));
+    showToast(t("Настройка Velarium завершена", "Velarium setup completed"));
   } catch (_) {
     showToast(t("Не удалось сохранить настройки", "Failed to save setup"));
   } finally {

@@ -5,9 +5,9 @@ import {
   WATCH_HISTORY_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261105v5";
-import { isEn, t } from "./i18n.js?v=20261105v5";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261105v5";
+} from "./state.js?v=20261108v19";
+import { isEn, t } from "./i18n.js?v=20261108v19";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261108v19";
 
 export function escapeAttr(val) {
   return String(val ?? "")
@@ -131,7 +131,7 @@ export async function withKinoriumActionLock(lockKey, controls, asyncFn) {
     await asyncFn();
   } catch (err) {
     if (err && err.name === "AbortError") return;
-    console.warn(`[CineFlow] Kinorium action error (${key}):`, err);
+    console.warn(`[Velarium] Kinorium action error (${key}):`, err);
     showToast(err?.message || t("Ошибка выполнения действия", "Action failed"));
   } finally {
     delete state.pendingKinoriumLocks[key];
@@ -145,6 +145,9 @@ export function getTopOpenModalSheet() {
     ["kids-pin-modal", ".atv-kids-pin-sheet"],
     ["confirm-modal", ".atv-confirm-sheet"],
     ["command-palette-modal", ".atv-palette-sheet"],
+    ["handoff-modal", ".atv-handoff-card"],
+    ["vocab-modal", ".atv-vocab-card"],
+    ["bookmarks-modal", ".atv-bookmarks-sheet"],
     ["movie-roulette-modal", ".atv-roulette-dialog"],
     ["onboarding-modal", ".atv-onboarding-sheet"],
     ["profiles-modal", ".atv-settings-sheet"],
@@ -179,8 +182,7 @@ export function trapModalTabKey(e) {
     )
   ).filter((el) => {
     if (el.closest(".hidden") || el.closest("[aria-hidden='true']")) return false;
-    const rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
+    return el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0;
   });
   if (focusables.length === 0) return false;
   const first = focusables[0];
@@ -257,6 +259,12 @@ export function iconSvg(name, size = 14) {
     sliders: `<svg ${stroke}><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></svg>`,
     skipFwd: `<svg ${stroke}><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>`,
     skipBack: `<svg ${stroke}><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg>`,
+    bookmark: `<svg ${stroke}><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`,
+    edit: `<svg ${stroke}><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`,
+    music: `<svg ${stroke}><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`,
+    settings: `<svg ${stroke}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
+    shuffle: `<svg ${stroke}><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>`,
+    sparkles: `<svg ${stroke}><path d="m12 3 1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3L12 3z"/></svg>`,
   };
   return icons[name] || icons.film;
 }
@@ -285,19 +293,132 @@ export function isSameCatalogWork(a, b) {
   return false;
 }
 
-export function matchCatalogItemSafe(list, candidate) {
-  if (!Array.isArray(list) || !candidate) return null;
+let _safeCatalogMapRef = null;
+let _safeCatalogMapLen = -1;
+let _safeCatalogMapVer = -1;
+let _safeCatById = new Map();
+let _safeCatByKinId = new Map();
+let _safeCatByRezkaId = new Map();
+let _safeCatByTitle = new Map();
+const _YEAR_SUFFIX_RE = /\(\d{4}\)$/;
+
+function _ensureSafeCatalogMap(list) {
+  const curVer = Number(state.catalogIndexVersion) || 0;
+  const curLen = Array.isArray(list) ? list.length : -1;
+  if (list === _safeCatalogMapRef && curLen === _safeCatalogMapLen && curVer === _safeCatalogMapVer) return;
+  _safeCatalogMapRef = list;
+  _safeCatalogMapLen = curLen;
+  _safeCatalogMapVer = curVer;
+  _safeCatById = new Map();
+  _safeCatByKinId = new Map();
+  _safeCatByRezkaId = new Map();
+  _safeCatByTitle = new Map();
+  if (!Array.isArray(list)) return;
+  const addByTitle = (key, it) => {
+    if (!key) return;
+    if (!_safeCatByTitle.has(key)) _safeCatByTitle.set(key, it);
+  };
+  for (let i = 0; i < list.length; i++) {
+    const it = list[i];
+    if (!it) continue;
+    if (it.id) _safeCatById.set(String(it.id), it);
+    const kId = String(it.kinorium?.kinorium_id || it.kinorium_id || "").trim();
+    if (kId) _safeCatByKinId.set(kId, it);
+    const rId = String(it.rezka_id || "").trim();
+    if (rId) _safeCatByRezkaId.set(rId, it);
+    const mType = it.media_type || "movie";
+    const yr = Number(it.year) || 0;
+    const tLow = String(it.title || "").trim().toLowerCase();
+    if (tLow) {
+      if (yr) addByTitle(`${mType}|${tLow}|${yr}`, it);
+      addByTitle(`${mType}|${tLow}|0`, it);
+      addByTitle(`any|${tLow}`, it);
+      const tStripped = tLow.replace(_YEAR_SUFFIX_RE, "").trim();
+      if (tStripped && tStripped !== tLow) {
+        addByTitle(`${mType}|${tStripped}|0`, it);
+        addByTitle(`any|${tStripped}`, it);
+      }
+    }
+    const oLow = String(it.orig_title || "").trim().toLowerCase();
+    if (oLow) {
+      if (yr) addByTitle(`${mType}|${oLow}|${yr}`, it);
+      addByTitle(`${mType}|${oLow}|0`, it);
+      addByTitle(`any|${oLow}`, it);
+      const oStripped = oLow.replace(_YEAR_SUFFIX_RE, "").trim();
+      if (oStripped && oStripped !== oLow) {
+        addByTitle(`${mType}|${oStripped}|0`, it);
+        addByTitle(`any|${oStripped}`, it);
+      }
+    }
+  }
+}
+
+export function matchCatalogItemSafe(listOrCandidate, maybeCandidate = null) {
+  const hasExplicitList = Array.isArray(listOrCandidate);
+  const list = hasExplicitList
+    ? listOrCandidate
+    : Array.isArray(state.catalogItems)
+    ? state.catalogItems
+    : [];
+  const candidate = hasExplicitList ? maybeCandidate : listOrCandidate;
+  if (!Array.isArray(list) || list.length === 0 || !candidate) return null;
+
+  if (list === state.catalogItems) {
+    _ensureSafeCatalogMap(list);
+    if (candidate.id) {
+      const hitId = _safeCatById.get(String(candidate.id));
+      if (hitId) return hitId;
+    }
+    const cKinId = String(candidate.kinorium?.kinorium_id || candidate.kinorium_id || "").trim();
+    if (cKinId && _safeCatByKinId.has(cKinId)) return _safeCatByKinId.get(cKinId);
+    const cRezkaId = String(candidate.rezka_id || "").trim();
+    if (cRezkaId && _safeCatByRezkaId.has(cRezkaId)) return _safeCatByRezkaId.get(cRezkaId);
+    const mType = candidate.media_type || "movie";
+    const yr = Number(candidate.year) || 0;
+    const tLow = String(candidate.title || "").trim().toLowerCase();
+    if (tLow) {
+      const tClean = tLow.replace(_YEAR_SUFFIX_RE, "").trim();
+      const hitT =
+        (yr && _safeCatByTitle.get(`${mType}|${tLow}|${yr}`)) ||
+        _safeCatByTitle.get(`${mType}|${tLow}|0`) ||
+        _safeCatByTitle.get(`any|${tLow}`) ||
+        (tClean !== tLow ? _safeCatByTitle.get(`${mType}|${tClean}|0`) || _safeCatByTitle.get(`any|${tClean}`) : null);
+      if (hitT && isSameCatalogWork(hitT, candidate)) return hitT;
+    }
+    const oLow = String(candidate.orig_title || "").trim().toLowerCase();
+    if (oLow) {
+      const oClean = oLow.replace(_YEAR_SUFFIX_RE, "").trim();
+      const hitO =
+        (yr && _safeCatByTitle.get(`${mType}|${oLow}|${yr}`)) ||
+        _safeCatByTitle.get(`${mType}|${oLow}|0`) ||
+        _safeCatByTitle.get(`any|${oLow}`) ||
+        (oClean !== oLow ? _safeCatByTitle.get(`${mType}|${oClean}|0`) || _safeCatByTitle.get(`any|${oClean}`) : null);
+      if (hitO && isSameCatalogWork(hitO, candidate)) return hitO;
+    }
+    return null;
+  }
+
   if (candidate.id) {
     const byId = list.find((i) => i && i.id && String(i.id) === String(candidate.id));
     if (byId) return byId;
   }
   return list.find((i) => isSameCatalogWork(i, candidate)) || null;
 }
+let _watchHistoryCache = null;
+let _watchHistoryCacheKey = "";
+
 export function getWatchHistoryList() {
   try {
-    const raw = localStorage.getItem(profileStorageKey(WATCH_HISTORY_STORAGE_KEY));
+    const storageKey = profileStorageKey(WATCH_HISTORY_STORAGE_KEY);
+    if (_watchHistoryCache && _watchHistoryCacheKey === storageKey) {
+      return _watchHistoryCache.slice();
+    }
+    const raw = localStorage.getItem(storageKey);
     const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr : [];
+    const res = Array.isArray(arr) ? arr : [];
+    _watchHistoryCache = res;
+    _watchHistoryCacheKey = storageKey;
+    return res.slice();
   } catch (_) {
     return [];
   }
@@ -305,6 +426,7 @@ export function getWatchHistoryList() {
 export function recordWatchHistoryEntry(item, season = 1, episode = 1, currentTime = 0, duration = 0, studioName = "") {
   if (!item || !item.title) return;
   try {
+    const storageKey = profileStorageKey(WATCH_HISTORY_STORAGE_KEY);
     const list = getWatchHistoryList();
     const isSeries = item.media_type === "series";
     const entryKey = `${item.id || item.title.trim().toLowerCase()}:${isSeries ? `S${season}E${episode}` : "movie"}`;
@@ -332,26 +454,47 @@ export function recordWatchHistoryEntry(item, season = 1, episode = 1, currentTi
     };
     const filtered = list.filter((x) => x && x.key !== entryKey);
     filtered.unshift(newEntry);
-    localStorage.setItem(profileStorageKey(WATCH_HISTORY_STORAGE_KEY), JSON.stringify(filtered.slice(0, 150)));
+    const capped = filtered.slice(0, 150);
+    _watchHistoryCache = capped;
+    _watchHistoryCacheKey = storageKey;
+    localStorage.setItem(storageKey, JSON.stringify(capped));
   } catch (err) { window.logDebug?.("Utils", err); }
 }
 let _episodeProgressCache = null;
+let _localProgressEpoch = 0;
 let _seenNotificationsCache = null;
+let _uiPrefsCache = null;
+
+export function getLocalProgressEpoch() {
+  return _localProgressEpoch;
+}
 
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (ev) => {
     if (!ev || !ev.key || ev.key.startsWith(EPISODE_PROGRESS_STORAGE_KEY)) {
       _episodeProgressCache = null;
+      _localProgressEpoch += 1;
     }
     if (!ev || !ev.key || ev.key.startsWith(SEEN_NOTIFICATIONS_STORAGE_KEY)) {
       _seenNotificationsCache = null;
+    }
+    if (!ev || !ev.key || ev.key.startsWith(WATCH_HISTORY_STORAGE_KEY)) {
+      _watchHistoryCache = null;
+      _watchHistoryCacheKey = "";
+    }
+    if (!ev || !ev.key || ev.key === UI_PREFS_STORAGE_KEY) {
+      _uiPrefsCache = null;
     }
   });
 }
 
 export function invalidateLocalCaches() {
   _episodeProgressCache = null;
+  _localProgressEpoch += 1;
   _seenNotificationsCache = null;
+  _watchHistoryCache = null;
+  _watchHistoryCacheKey = "";
+  _uiPrefsCache = null;
 }
 
 export function getEpisodeProgressMap() {
@@ -383,6 +526,19 @@ export function saveEpisodeProgress(item, season = 1, episode = 1, currentTime =
     const titleKey = String(item.title || "").trim().toLowerCase();
     const pct = Math.min(100, Math.max(0, Math.round((currentTime / duration) * 100)));
     const epKey = item.media_type === "series" ? `S${season}E${episode}` : "movie";
+    const existing =
+      (idKey && map[idKey] && map[idKey][epKey]) ||
+      (titleKey && map[titleKey] && map[titleKey][epKey]) ||
+      null;
+    if (
+      existing &&
+      Number(existing.current_time) > 120 &&
+      Number(existing.pct) < 92 &&
+      currentTime < 15 &&
+      !state.vcScrubbing
+    ) {
+      return;
+    }
     const entry = {
       current_time: Math.round(currentTime),
       duration: Math.round(duration),
@@ -398,25 +554,34 @@ export function saveEpisodeProgress(item, season = 1, episode = 1, currentTime =
       map[titleKey][epKey] = entry;
     }
     _episodeProgressCache = map;
+    _localProgressEpoch += 1;
     localStorage.setItem(profileStorageKey(EPISODE_PROGRESS_STORAGE_KEY), JSON.stringify(map));
   } catch (err) { window.logDebug?.("Utils", err); }
 }
 export function getUiPrefs() {
+  if (_uiPrefsCache) return _uiPrefsCache;
   try {
     const raw = localStorage.getItem(UI_PREFS_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) || {} : {};
-    return {
+    _uiPrefsCache = {
       hideWatched: Boolean(parsed.hideWatched),
       appLang: parsed.appLang === "en" ? "en" : "ru",
     };
+    return _uiPrefsCache;
   } catch (_) {
-    return { hideWatched: false, appLang: "ru" };
+    _uiPrefsCache = { hideWatched: false, appLang: "ru" };
+    return _uiPrefsCache;
   }
 }
 export function saveUiPrefs(patch) {
   try {
     const cur = getUiPrefs();
-    localStorage.setItem(UI_PREFS_STORAGE_KEY, JSON.stringify({ ...cur, ...patch }));
+    const next = { ...cur, ...patch };
+    _uiPrefsCache = {
+      hideWatched: Boolean(next.hideWatched),
+      appLang: next.appLang === "en" ? "en" : "ru",
+    };
+    localStorage.setItem(UI_PREFS_STORAGE_KEY, JSON.stringify(_uiPrefsCache));
   } catch (err) { window.logDebug?.("Utils", err); }
 }
 export function getSeenNotificationsSet() {
@@ -451,15 +616,21 @@ export function genitiveAfterIz(n, singularGen, pluralGen) {
   if (abs % 100 !== 11 && abs % 10 === 1) return singularGen;
   return pluralGen;
 }
+
+const _durationLabelCache = new Map();
 export function formatDurationLabel(raw) {
   const s = String(raw || "").trim();
   if (!s) return "";
+  const cacheKey = `${isEn() ? "en" : "ru"}:${s}`;
+  const cached = _durationLabelCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   const hMatch = s.match(/(\d+)\s*(?:ч\.?|час(?:а|ов)?|h(?:r|ours?)?)(?![А-Яа-яЁёA-Za-z])/i);
   const mMatch = s.match(/(\d+)\s*(?:мин\.?|минуты?|минут|m(?:in(?:utes?)?)?)(?![А-Яа-яЁёA-Za-z])/i);
   const colonMatch = !hMatch && !mMatch ? s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/) : null;
   const parsedHours = hMatch ? parseInt(hMatch[1], 10) || 0 : colonMatch ? parseInt(colonMatch[1], 10) || 0 : 0;
   const parsedMins = mMatch ? parseInt(mMatch[1], 10) || 0 : colonMatch ? parseInt(colonMatch[2], 10) || 0 : 0;
   const totalMin = parsedHours * 60 + parsedMins;
+  let result = "";
   if (totalMin > 0) {
     const h = Math.floor(totalMin / 60);
     const rem = totalMin % 60;
@@ -468,42 +639,48 @@ export function formatDurationLabel(raw) {
       if (h > 0 && rem > 0) enFmt = `${h} hr ${rem} min`;
       else if (h > 0) enFmt = `${h} ${h === 1 ? "hour" : "hours"}`;
       else enFmt = `${rem} min`;
-      if (/серия|эпизод|episode/i.test(s)) return `${enFmt} · episode`;
-      return enFmt;
-    }
-    let formatted = "";
-    if (h > 0 && rem > 0) {
-      formatted = `${h} ${pluralRu(h, "час", "часа", "часов")} ${rem} ${pluralRu(
-        rem,
-        "минута",
-        "минуты",
-        "минут"
-      )}`;
-    } else if (h > 0) {
-      formatted = `${h} ${pluralRu(h, "час", "часа", "часов")}`;
+      result = /серия|эпизод|episode/i.test(s) ? `${enFmt} · episode` : enFmt;
     } else {
-      formatted = `${rem} ${pluralRu(rem, "минута", "минуты", "минут")}`;
+      let formatted = "";
+      if (h > 0 && rem > 0) {
+        formatted = `${h} ${pluralRu(h, "час", "часа", "часов")} ${rem} ${pluralRu(
+          rem,
+          "минута",
+          "минуты",
+          "минут"
+        )}`;
+      } else if (h > 0) {
+        formatted = `${h} ${pluralRu(h, "час", "часа", "часов")}`;
+      } else {
+        formatted = `${rem} ${pluralRu(rem, "минута", "минуты", "минут")}`;
+      }
+      result = /серия|эпизод|episode/i.test(s) ? `${formatted} · серия` : formatted;
     }
-    if (/серия|эпизод|episode/i.test(s)) {
-      return `${formatted} · серия`;
-    }
-    return formatted;
-  }
-  if (isEn()) {
-    return s
+  } else if (isEn()) {
+    result = s
       .replace(/(?<![А-Яа-яЁё])мин\.?(?![А-Яа-яЁё])/gi, "min")
       .replace(/(?<![А-Яа-яЁё])ч\.?(?![А-Яа-яЁё])/gi, "hr")
       .replace(/серия|эпизод/gi, "episode");
+  } else {
+    result = s
+      .replace(/(?<![А-Яа-яЁё])мин\.?(?![А-Яа-яЁё])/gi, "минут")
+      .replace(/(?<![А-Яа-яЁё])ч\.?(?![А-Яа-яЁё])/gi, "часов");
   }
-  return s
-    .replace(/(?<![А-Яа-яЁё])мин\.?(?![А-Яа-яЁё])/gi, "минут")
-    .replace(/(?<![А-Яа-яЁё])ч\.?(?![А-Яа-яЁё])/gi, "часов");
+  if (_durationLabelCache.size >= 500) _durationLabelCache.clear();
+  _durationLabelCache.set(cacheKey, result);
+  return result;
 }
+
+const _dateExpandCache = new Map();
 export function expandRussianDateText(raw) {
   const s = String(raw || "").trim();
   if (!s) return "";
+  const cacheKey = `${isEn() ? "en" : "ru"}:${s}`;
+  const cached = _dateExpandCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  let result = "";
   if (isEn()) {
-    return s
+    result = s
       .replace(/(?<![А-Яа-яЁё])(?:янв\.|января|январь)/gi, "Jan")
       .replace(/(?<![А-Яа-яЁё])(?:февр?\.|февраля|февраль)/gi, "Feb")
       .replace(/(?<![А-Яа-яЁё])(?:мар\.|марта|март)/gi, "Mar")
@@ -518,20 +695,24 @@ export function expandRussianDateText(raw) {
       .replace(/(?<![А-Яа-яЁё])(?:дек\.|декабря|декабрь)/gi, "Dec")
       .replace(/\s+г\.(?=\s|$|,|\))/gi, "")
       .replace(/\s+года(?=\s|$|,|\))/gi, "");
+  } else {
+    result = s
+      .replace(/(?<![А-Яа-яЁё])янв\./gi, "января")
+      .replace(/(?<![А-Яа-яЁё])февр?\./gi, "февраля")
+      .replace(/(?<![А-Яа-яЁё])мар\./gi, "марта")
+      .replace(/(?<![А-Яа-яЁё])апр\./gi, "апреля")
+      .replace(/(?<![А-Яа-яЁё])июн\./gi, "июня")
+      .replace(/(?<![А-Яа-яЁё])июл\./gi, "июля")
+      .replace(/(?<![А-Яа-яЁё])авг\./gi, "августа")
+      .replace(/(?<![А-Яа-яЁё])сент?\./gi, "сентября")
+      .replace(/(?<![А-Яа-яЁё])окт\./gi, "октября")
+      .replace(/(?<![А-Яа-яЁё])нояб?\./gi, "ноября")
+      .replace(/(?<![А-Яа-яЁё])дек\./gi, "декабря")
+      .replace(/\s+г\.(?=\s|$|,|\))/gi, "");
   }
-  return s
-    .replace(/(?<![А-Яа-яЁё])янв\./gi, "января")
-    .replace(/(?<![А-Яа-яЁё])февр?\./gi, "февраля")
-    .replace(/(?<![А-Яа-яЁё])мар\./gi, "марта")
-    .replace(/(?<![А-Яа-яЁё])апр\./gi, "апреля")
-    .replace(/(?<![А-Яа-яЁё])июн\./gi, "июня")
-    .replace(/(?<![А-Яа-яЁё])июл\./gi, "июля")
-    .replace(/(?<![А-Яа-яЁё])авг\./gi, "августа")
-    .replace(/(?<![А-Яа-яЁё])сент?\./gi, "сентября")
-    .replace(/(?<![А-Яа-яЁё])окт\./gi, "октября")
-    .replace(/(?<![А-Яа-яЁё])нояб?\./gi, "ноября")
-    .replace(/(?<![А-Яа-яЁё])дек\./gi, "декабря")
-    .replace(/\s+г\.(?=\s|$|,|\))/gi, "");
+  if (_dateExpandCache.size >= 500) _dateExpandCache.clear();
+  _dateExpandCache.set(cacheKey, result);
+  return result;
 }
 export function formatTime(sec) {
   const num = Number(sec);
@@ -735,8 +916,6 @@ export function supportsNativePiP() {
 const _CHEVRON_STRIP_IDS = new Set([
   "continue-watching-grid",
   "search-persons-row",
-  "qp-cast-row",
-  "qp-similar-list",
   "meta-cast-list",
 ]);
 
@@ -806,13 +985,36 @@ export function attachHorizontalWheelScroll(el, options = {}) {
       nextBtn.classList.toggle("hidden", el.scrollLeft >= maxScroll - 6);
     };
 
-    el.addEventListener("scroll", syncChevronState, { passive: true });
-    window.addEventListener("resize", syncChevronState, { passive: true });
+    let chevronRaf = 0;
+    const scheduleSyncChevronState = () => {
+      if (chevronRaf) return;
+      chevronRaf = requestAnimationFrame(() => {
+        chevronRaf = 0;
+        syncChevronState();
+      });
+    };
+
+    const onWindowResize = () => {
+      if (!el.isConnected) {
+        window.removeEventListener("resize", onWindowResize);
+        return;
+      }
+      scheduleSyncChevronState();
+    };
+    el.addEventListener("scroll", scheduleSyncChevronState, { passive: true });
+    window.addEventListener("resize", onWindowResize, { passive: true });
     if (typeof MutationObserver !== "undefined") {
-      const mo = new MutationObserver(() => requestAnimationFrame(syncChevronState));
+      const mo = new MutationObserver(() => {
+        if (!el.isConnected) {
+          mo.disconnect();
+          window.removeEventListener("resize", onWindowResize);
+          return;
+        }
+        scheduleSyncChevronState();
+      });
       mo.observe(el, { childList: true });
     }
-    requestAnimationFrame(syncChevronState);
+    scheduleSyncChevronState();
   }
 }
 let videoCenterTimer = null;
@@ -950,6 +1152,18 @@ export function resolveClientSimilarBundle(item, limit = 8) {
       source: item._cachedSimilarSource || "kinorium",
     };
   }
+  const curPoolSig = `${state.catalogItems?.length || 0}:${state.similarPool?.length || 0}:${state.catalogIndexVersion || 0}`;
+  if (
+    item._cachedClientSimilarBundle &&
+    item._cachedClientSimilarPoolSig === curPoolSig &&
+    Array.isArray(item._cachedClientSimilarBundle.items) &&
+    (item._cachedClientSimilarLimit || 0) >= limit
+  ) {
+    return {
+      items: item._cachedClientSimilarBundle.items.slice(0, limit),
+      source: item._cachedClientSimilarBundle.source,
+    };
+  }
 
   const poolMap = new Map();
   const selfId = String(item.id || "");
@@ -1015,17 +1229,39 @@ export function resolveClientSimilarBundle(item, limit = 8) {
 
   const scored = [];
   poolMap.forEach((cand) => {
+    let simMeta = cand._simMeta;
+    if (!simMeta) {
+      const dirsLow = (cand.directors || [])
+        .map((d) => String(d || "").trim().toLowerCase())
+        .filter(Boolean);
+      const actsLow = (cand.actors || [])
+        .map((a) => String(a || "").trim().toLowerCase())
+        .filter(Boolean);
+      const genresLow = (cand.genres || [])
+        .map((g) => String(g || "").trim().toLowerCase())
+        .filter(Boolean);
+      const tokens =
+        cand._simTokens ||
+        `${cand.title || ""} ${cand.orig_title || ""}`
+          .toLowerCase()
+          .replace(/[^\p{L}\p{N}\s]+/gu, " ")
+          .split(/\s+/);
+      cand._simTokens = tokens;
+      simMeta = { dirsLow, actsLow, genresLow, tokens };
+      cand._simMeta = simMeta;
+    }
+
     let sharedDir = "";
-    for (const d of cand.directors || []) {
-      const k = String(d || "").trim().toLowerCase();
+    for (let i = 0; i < simMeta.dirsLow.length; i++) {
+      const k = simMeta.dirsLow[i];
       if (seedDirectors.has(k)) {
         sharedDir = seedDirectors.get(k);
         break;
       }
     }
     let sharedAct = "";
-    for (const a of cand.actors || []) {
-      const k = String(a || "").trim().toLowerCase();
+    for (let i = 0; i < simMeta.actsLow.length; i++) {
+      const k = simMeta.actsLow[i];
       if (seedActors.has(k)) {
         sharedAct = seedActors.get(k);
         break;
@@ -1034,18 +1270,14 @@ export function resolveClientSimilarBundle(item, limit = 8) {
 
     let hasFranchise = false;
     if (franchiseWords.size > 0) {
-      const candTokens = `${cand.title || ""} ${cand.orig_title || ""}`
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}\s]+/gu, " ")
-        .split(/\s+/);
-      hasFranchise = candTokens.some((w) => franchiseWords.has(w));
+      hasFranchise = simMeta.tokens.some((w) => franchiseWords.has(w));
     }
 
     const matchedGenres = [];
     let specificCount = 0;
     let genreScore = 0;
-    (cand.genres || []).forEach((g) => {
-      const low = String(g || "").trim().toLowerCase();
+    for (let i = 0; i < simMeta.genresLow.length; i++) {
+      const low = simMeta.genresLow[i];
       if (itemGenresMap.has(low)) {
         matchedGenres.push(itemGenresMap.get(low));
         if (BROAD_CLIENT_GENRES.has(low)) {
@@ -1055,7 +1287,7 @@ export function resolveClientSimilarBundle(item, limit = 8) {
           genreScore += 5.0;
         }
       }
-    });
+    }
 
     const strongMatch = Boolean(
       sharedDir ||
@@ -1078,11 +1310,13 @@ export function resolveClientSimilarBundle(item, limit = 8) {
 
     const enrichedCand = { ...cand };
     if (sharedDir) {
+      const enDir = hasCyrillicText(sharedDir) ? transliterateRuToEn(sharedDir) : sharedDir;
       enrichedCand.similar_reason = `Режиссёр: ${sharedDir}`;
-      enrichedCand.similar_reason_en = `Director: ${sharedDir}`;
+      enrichedCand.similar_reason_en = `Director: ${enDir}`;
     } else if (sharedAct) {
+      const enAct = hasCyrillicText(sharedAct) ? transliterateRuToEn(sharedAct) : sharedAct;
       enrichedCand.similar_reason = `В ролях: ${sharedAct}`;
-      enrichedCand.similar_reason_en = `Cast: ${sharedAct}`;
+      enrichedCand.similar_reason_en = `Cast: ${enAct}`;
     } else if (hasFranchise) {
       enrichedCand.similar_reason = "Одна франшиза";
       enrichedCand.similar_reason_en = "Same franchise";
@@ -1095,18 +1329,34 @@ export function resolveClientSimilarBundle(item, limit = 8) {
   });
 
   scored.sort((a, b) => b.score - a.score);
-  return {
-    items: scored.slice(0, limit).map((x) => x.cand),
+  const computedLimit = Math.max(limit, 12);
+  const result = {
+    items: scored.slice(0, computedLimit).map((x) => x.cand),
     source: "curated",
+  };
+  item._cachedClientSimilarBundle = result;
+  item._cachedClientSimilarPoolSig = curPoolSig;
+  item._cachedClientSimilarLimit = computedLimit;
+  return {
+    items: result.items.slice(0, limit),
+    source: result.source,
   };
 }
 
 export function getSimilarReasonLabel(sim) {
   if (!sim) return "";
   if (isEn()) {
-    return String(sim.similar_reason_en || (sim.similar_source === "kinorium" ? "Kinorium similar" : "")).trim();
+    const rawEn = String(
+      sim.similar_reason_en || (sim.similar_source === "kinorium" ? "Kinorium similar" : "")
+    ).trim();
+    return hasCyrillicText(rawEn) ? transliterateRuToEn(rawEn) : rawEn;
   }
-  return String(sim.similar_reason || (sim.similar_source === "kinorium" ? "Подборка Kinorium" : "")).trim();
+  return String(
+    sim.similar_reason || (sim.similar_source === "kinorium" ? "Подборка Kinorium" : "")
+  )
+    .trim()
+    .replace(/\bРежиссер\b/g, "Режиссёр")
+    .replace(/\bАктер\b/g, "Актёр");
 }
 
 export function getSimilarSectionSourceLabel(source) {
@@ -1137,9 +1387,11 @@ function _ensureCustomSelectPortal() {
       document.body.appendChild(_cselectPortal);
     }
   }
-  const pseudoStage = document.documentElement?.classList.contains("is-stage-pseudo-fullscreen")
-    ? document.getElementById("video-stage")
-    : null;
+  const pseudoStage =
+    document.documentElement?.classList.contains("is-stage-pseudo-fullscreen") &&
+    _cselectActiveSelect?.closest("#video-stage")
+      ? document.getElementById("video-stage")
+      : null;
   const fsEl = document.fullscreenElement || document.webkitFullscreenElement || pseudoStage;
   const desiredParent =
     fsEl && fsEl !== document.documentElement && fsEl !== document.body ? fsEl : document.body;
@@ -1188,15 +1440,6 @@ function _resetPopoverInlineBox(el) {
 
 function _flushOutOfFlowLayout(el) {
   if (!el || el.classList.contains("hidden") || typeof document === "undefined") return;
-  const active = document.activeElement;
-  if (active && el.contains(active)) {
-    void el.offsetHeight;
-    return;
-  }
-  el.classList.add("hidden");
-  void el.offsetHeight;
-  el.classList.remove("hidden");
-  void el.offsetHeight;
 }
 
 export function closeFloatingPopovers({
@@ -1272,6 +1515,7 @@ export function closeFloatingPopovers({
     ["vc-studio-popover", "vc-btn-studio"],
     ["vc-subs-popover", "vc-btn-subs"],
     ["vc-quality-popover", "vc-btn-quality"],
+    ["vc-bookmarks-popover", "vc-btn-bookmark"],
   ].forEach(([id, btnId]) => {
     if (id !== exceptId) {
       const el = document.getElementById(id);
@@ -1279,7 +1523,11 @@ export function closeFloatingPopovers({
         el.classList.add("hidden");
         _resetPopoverInlineBox(el);
       }
-      document.getElementById(btnId)?.setAttribute("aria-expanded", "false");
+      const btnEl = document.getElementById(btnId);
+      btnEl?.setAttribute("aria-expanded", "false");
+      if (btnId === "vc-btn-bookmark") {
+        btnEl?.classList.remove("active");
+      }
     }
   });
   if (!keepGearPopover && exceptId !== "player-gear-popover") {
@@ -1295,9 +1543,11 @@ export function closeFloatingPopovers({
   const stage = document.getElementById("video-stage");
   if (stage) {
     const anyStagePop = [
+      "vc-episodes-popover",
       "vc-studio-popover",
       "vc-subs-popover",
       "vc-quality-popover",
+      "vc-bookmarks-popover",
       "player-gear-popover",
     ].some((id) => {
       const el = document.getElementById(id);
@@ -1335,30 +1585,28 @@ export function clampFloatingPopover(popoverEl, { isHeader = false } = {}) {
   if (r.width <= 0 && r.height <= 0) return;
 
   let mutated = false;
+  let effWidth = r.width;
   const maxAllowedW = Math.max(180, vw - 20);
-  if (r.width > maxAllowedW) {
+  if (effWidth > maxAllowedW) {
     popoverEl.style.maxWidth = `${maxAllowedW}px`;
+    effWidth = maxAllowedW;
     mutated = true;
-    r = popoverEl.getBoundingClientRect();
   }
-  if (r.left < 10 || r.right > vw - 10) {
+  if (r.left < 10 || r.left + effWidth > vw - 10) {
     let targetLeft = r.left;
-    if (targetLeft + r.width > vw - 10) targetLeft = vw - 10 - r.width;
+    if (targetLeft + effWidth > vw - 10) targetLeft = vw - 10 - effWidth;
     if (targetLeft < 10) targetLeft = 10;
+    const offsetParentRect = popoverEl.offsetParent
+      ? popoverEl.offsetParent.getBoundingClientRect()
+      : { left: 0 };
     popoverEl.style.right = "auto";
-    popoverEl.style.left = "0px";
-    const zeroRect = popoverEl.getBoundingClientRect();
-    popoverEl.style.left = `${Math.round(targetLeft - zeroRect.left)}px`;
+    popoverEl.style.left = `${Math.round(targetLeft - offsetParentRect.left)}px`;
     mutated = true;
-    r = popoverEl.getBoundingClientRect();
   }
   if (r.bottom > vh - 10 && r.top > 0) {
     popoverEl.style.maxHeight = `${Math.max(120, Math.floor(vh - r.top - 12))}px`;
     popoverEl.style.overflowY = "auto";
     mutated = true;
-  }
-  if (mutated) {
-    _flushOutOfFlowLayout(popoverEl);
   }
 }
 
@@ -1423,34 +1671,30 @@ export function clampStagePopover(popoverEl) {
   if (r.width <= 0 && r.height <= 0) return;
 
   let mutated = false;
+  let effWidth = r.width;
   const availW = Math.max(160, Math.floor(rightBound - leftBound));
-  if (r.width > availW) {
+  if (effWidth > availW) {
     popoverEl.style.maxWidth = `${availW}px`;
+    effWidth = availW;
     mutated = true;
-    r = popoverEl.getBoundingClientRect();
   }
   if (r.top < topBound && r.bottom > topBound + 80) {
     popoverEl.style.maxHeight = `${Math.max(110, Math.floor(r.bottom - topBound))}px`;
     mutated = true;
-    r = popoverEl.getBoundingClientRect();
-  }
-  if (r.bottom > vh - 8 && r.top > 0) {
+  } else if (r.bottom > vh - 8 && r.top > 0) {
     popoverEl.style.maxHeight = `${Math.max(110, Math.floor(vh - r.top - 10))}px`;
     mutated = true;
-    r = popoverEl.getBoundingClientRect();
   }
-  if (r.left < leftBound || r.right > rightBound) {
+  if (r.left < leftBound || r.left + effWidth > rightBound) {
     let targetLeft = r.left;
-    if (targetLeft + r.width > rightBound) targetLeft = rightBound - r.width;
+    if (targetLeft + effWidth > rightBound) targetLeft = rightBound - effWidth;
     if (targetLeft < leftBound) targetLeft = leftBound;
+    const offsetParentRect = popoverEl.offsetParent
+      ? popoverEl.offsetParent.getBoundingClientRect()
+      : stR;
     popoverEl.style.right = "auto";
-    popoverEl.style.left = "0px";
-    const zeroRect = popoverEl.getBoundingClientRect();
-    popoverEl.style.left = `${Math.round(targetLeft - zeroRect.left)}px`;
+    popoverEl.style.left = `${Math.round(targetLeft - offsetParentRect.left)}px`;
     mutated = true;
-  }
-  if (mutated) {
-    _flushOutOfFlowLayout(popoverEl);
   }
 }
 
@@ -1528,7 +1772,6 @@ function _positionCustomSelectPortal() {
     _cselectPortal.style.bottom = "auto";
     _cselectPortal.style.top = `${topPx}px`;
   }
-  _flushOutOfFlowLayout(_cselectPortal);
 }
 
 function _renderOpenCustomSelectPortal() {
@@ -1624,6 +1867,12 @@ function _renderOpenCustomSelectPortal() {
 
   const searchInp = portal.querySelector(".atv-cselect-search");
   if (searchInp && listEl) {
+    const itemBtns = Array.from(listEl.querySelectorAll(".atv-cselect-item"));
+    itemBtns.forEach((b) => {
+      b._searchLower = (b.textContent || "").toLowerCase();
+    });
+    const groupHeads = Array.from(listEl.querySelectorAll(".atv-cselect-group-head"));
+    const emptyEl = listEl.querySelector(".atv-cselect-empty");
     searchInp.addEventListener("keydown", (ev) => {
       if (ev.key !== "Escape" && ev.key !== "ArrowDown" && ev.key !== "ArrowUp" && ev.key !== "Enter" && ev.key !== "Tab") {
         ev.stopPropagation();
@@ -1631,22 +1880,20 @@ function _renderOpenCustomSelectPortal() {
     });
     searchInp.addEventListener("input", () => {
       const q = String(searchInp.value || "").trim().toLowerCase();
-      const itemBtns = Array.from(listEl.querySelectorAll(".atv-cselect-item"));
       const visibleGroups = new Set();
       let visCount = 0;
       itemBtns.forEach((b) => {
-        const match = !q || b.textContent.toLowerCase().includes(q);
+        const match = !q || b._searchLower.includes(q);
         b.classList.toggle("hidden", !match);
         if (match) {
           visCount += 1;
           if (b.dataset.groupId) visibleGroups.add(b.dataset.groupId);
         }
       });
-      listEl.querySelectorAll(".atv-cselect-group-head").forEach((gh) => {
+      groupHeads.forEach((gh) => {
         const gid = gh.dataset.groupHead || "";
         gh.classList.toggle("hidden", Boolean(q && !visibleGroups.has(gid)));
       });
-      const emptyEl = listEl.querySelector(".atv-cselect-empty");
       if (emptyEl) emptyEl.classList.toggle("hidden", visCount > 0);
       itemBtns.forEach((b) => b.classList.remove("focused-opt"));
       const firstVis = itemBtns.find((b) => !b.classList.contains("hidden") && !b.disabled);
@@ -1713,6 +1960,18 @@ export function syncCustomSelect(selectEl) {
   const labelEl = selectEl._cfLabelEl;
   const wasOpen = _cselectActiveSelect === selectEl && isCustomSelectMenuOpen();
 
+  if (selectEl.options && selectEl.options.length > 0 && selectEl.selectedIndex < 0) {
+    selectEl.selectedIndex = 0;
+  }
+  const selOpt =
+    (selectEl.selectedIndex >= 0 ? selectEl.options[selectEl.selectedIndex] : null) || selectEl.options[0] || null;
+  const nextText = selOpt ? String(selOpt.textContent || "").trim() : "—";
+  const titleVal = selectEl.getAttribute("title") || "";
+  const ariaLbl = selectEl.getAttribute("aria-label") || titleVal || "";
+  const syncSig = `${selectEl.className}|${wasOpen ? 1 : 0}|${selectEl.disabled ? 1 : 0}|${selectEl.selectedIndex}|${nextText}|${titleVal}|${ariaLbl}`;
+  if (selectEl._cfSyncSig === syncSig) return;
+  selectEl._cfSyncSig = syncSig;
+
   const nextClasses = ["atv-cselect-btn"];
   Array.from(selectEl.classList || []).forEach((cls) => {
     if (cls !== "atv-native-select-hidden") {
@@ -1728,22 +1987,14 @@ export function syncCustomSelect(selectEl) {
   const isDis = Boolean(selectEl.disabled);
   if (btn.disabled !== isDis) btn.disabled = isDis;
 
-  const titleVal = selectEl.getAttribute("title") || "";
   if ((btn.getAttribute("title") || "") !== titleVal) {
     if (titleVal) btn.setAttribute("title", titleVal);
     else btn.removeAttribute("title");
   }
-  const ariaLbl = selectEl.getAttribute("aria-label") || titleVal || "";
   if (ariaLbl && (btn.getAttribute("aria-label") || "") !== ariaLbl) {
     btn.setAttribute("aria-label", ariaLbl);
   }
 
-  if (selectEl.options && selectEl.options.length > 0 && selectEl.selectedIndex < 0) {
-    selectEl.selectedIndex = 0;
-  }
-  const selOpt =
-    (selectEl.selectedIndex >= 0 ? selectEl.options[selectEl.selectedIndex] : null) || selectEl.options[0] || null;
-  const nextText = selOpt ? String(selOpt.textContent || "").trim() : "—";
   if (labelEl && labelEl.textContent !== nextText) {
     labelEl.textContent = nextText;
   }
@@ -1760,7 +2011,7 @@ export function upgradeCustomSelect(selectEl) {
   if (!selectEl || selectEl._cfTriggerBtn) return;
   if (
     selectEl.getAttribute("aria-hidden") === "true" ||
-    Boolean(selectEl.closest('[aria-hidden="true"]'))
+    Boolean(selectEl.closest("#rezka-controls-bar"))
   ) {
     return;
   }
@@ -1817,6 +2068,18 @@ export function upgradeCustomSelect(selectEl) {
     _openCustomSelectMenu(selectEl, btn);
   });
 
+  const groupWrap = selectEl.closest(".atv-select-group");
+  if (groupWrap && !groupWrap._cfSelectGroupBound) {
+    groupWrap._cfSelectGroupBound = true;
+    groupWrap.addEventListener("click", (e) => {
+      if (e.target && btn.contains(e.target)) return;
+      if (selectEl.disabled || groupWrap.classList.contains("is-single-season")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      _openCustomSelectMenu(selectEl, btn);
+    });
+  }
+
   btn.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") {
       if (!isCustomSelectMenuOpen() || _cselectActiveSelect !== selectEl) {
@@ -1848,9 +2111,10 @@ export function upgradeCustomSelect(selectEl) {
   syncCustomSelect(selectEl);
 }
 
-export function initCustomSelects() {
+export function initCustomSelects(root = null) {
   if (typeof document === "undefined") return;
-  document.querySelectorAll("select").forEach((sel) => upgradeCustomSelect(sel));
+  const scope = root && typeof root.querySelectorAll === "function" ? root : document;
+  scope.querySelectorAll("select").forEach((sel) => upgradeCustomSelect(sel));
 
   if (_cselectGlobalBound) return;
   _cselectGlobalBound = true;
@@ -1872,56 +2136,75 @@ export function initCustomSelects() {
     closeCustomSelectMenu({ restoreFocus: false });
   });
 
+  let _cselectScrollRaf = false;
   document.addEventListener(
     "scroll",
     (e) => {
       if (!isCustomSelectMenuOpen()) return;
       if (_cselectPortal && e.target && _cselectPortal.contains(e.target)) return;
-      if (_cselectActiveBtn && _cselectActiveBtn.isConnected) {
-        const rect = _cselectActiveBtn.getBoundingClientRect();
-        const vh = window.innerHeight || document.documentElement.clientHeight || 0;
-        if (rect.width > 0 && rect.bottom > 12 && rect.top < vh - 12) {
-          _positionCustomSelectPortal();
-          return;
+      if (_cselectScrollRaf) return;
+      _cselectScrollRaf = true;
+      requestAnimationFrame(() => {
+        _cselectScrollRaf = false;
+        if (!isCustomSelectMenuOpen()) return;
+        if (_cselectActiveBtn && _cselectActiveBtn.isConnected) {
+          const rect = _cselectActiveBtn.getBoundingClientRect();
+          const vh = window.innerHeight || document.documentElement.clientHeight || 0;
+          if (rect.width > 0 && rect.bottom > 12 && rect.top < vh - 12) {
+            _positionCustomSelectPortal();
+            return;
+          }
         }
-      }
-      closeCustomSelectMenu({ restoreFocus: false });
+        closeCustomSelectMenu({ restoreFocus: false });
+      });
     },
     true
   );
 
+  let _cselectResizeRaf = false;
   window.addEventListener(
     "resize",
     () => {
-      ["notifications-popover", "profile-switcher-popover", "search-live-popover"].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el && !el.classList.contains("hidden")) {
-          clampFloatingPopover(el, { isHeader: true });
-        }
-      });
-      ["kinorium-status-popover", "kinorium-postwatch-overlay"].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el && !el.classList.contains("hidden")) {
-          clampFloatingPopover(el);
-        }
-      });
-      ["player-gear-popover", "vc-studio-popover", "vc-subs-popover", "vc-quality-popover"].forEach(
-        (id) => {
+      if (_cselectResizeRaf) return;
+      _cselectResizeRaf = true;
+      requestAnimationFrame(() => {
+        _cselectResizeRaf = false;
+        ["notifications-popover", "profile-switcher-popover", "search-live-popover"].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el && !el.classList.contains("hidden")) {
+            clampFloatingPopover(el, { isHeader: true });
+          }
+        });
+        ["kinorium-status-popover", "kinorium-postwatch-overlay"].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el && !el.classList.contains("hidden")) {
+            clampFloatingPopover(el);
+          }
+        });
+        [
+          "player-gear-popover",
+          "vc-studio-popover",
+          "vc-subs-popover",
+          "vc-quality-popover",
+          "vc-bookmarks-popover",
+        ].forEach((id) => {
           const el = document.getElementById(id);
           if (el && !el.classList.contains("hidden")) {
             clampStagePopover(el);
           }
+        });
+        if (!isCustomSelectMenuOpen()) return;
+        const curVw = window.innerWidth || 0;
+        const searchFocused = Boolean(
+          _cselectPortal && document.activeElement && _cselectPortal.contains(document.activeElement)
+        );
+        if (searchFocused || Math.abs(curVw - _cselectLastVw) < 4) {
+          _positionCustomSelectPortal();
+          return;
         }
-      );
-      if (!isCustomSelectMenuOpen()) return;
-      const curVw = window.innerWidth || 0;
-      const searchFocused = Boolean(_cselectPortal && document.activeElement && _cselectPortal.contains(document.activeElement));
-      if (searchFocused || Math.abs(curVw - _cselectLastVw) < 4) {
-        _positionCustomSelectPortal();
-        return;
-      }
-      _cselectLastVw = curVw;
-      closeCustomSelectMenu({ restoreFocus: false });
+        _cselectLastVw = curVw;
+        closeCustomSelectMenu({ restoreFocus: false });
+      });
     },
     { passive: true }
   );
@@ -1997,21 +2280,50 @@ export function initCustomSelects() {
     },
     true
   );
+}
 
-  if (typeof MutationObserver !== "undefined" && document.body) {
-    const bodyMo = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        for (const node of m.addedNodes || []) {
-          if (!node || node.nodeType !== 1) continue;
-          if ((node.tagName || "").toUpperCase() === "SELECT") {
-            upgradeCustomSelect(node);
-          } else if (typeof node.querySelectorAll === "function") {
-            node.querySelectorAll("select").forEach((s) => upgradeCustomSelect(s));
-          }
-        }
-      }
-    });
-    bodyMo.observe(document.body, { childList: true, subtree: true });
+let _dlIndexRef = null;
+let _dlIndexLen = -1;
+let _dlIndexSig = "";
+let _dlIndexVer = 0;
+let _dlByKeyMap = new Map();
+
+function _ensureDownloadsLookup(list) {
+  let sig = `${list.length}`;
+  if (list.length > 0) {
+    const first = list[0];
+    const last = list[list.length - 1];
+    let completedCnt = 0;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i]?.status === "completed") completedCnt += 1;
+    }
+    sig = `${list.length}:${completedCnt}:${first?.id || ""}:${first?.status || ""}:${last?.id || ""}:${last?.status || ""}`;
+  }
+  if (list === _dlIndexRef && list.length === _dlIndexLen && sig === _dlIndexSig) return;
+  _dlIndexRef = list;
+  _dlIndexLen = list.length;
+  _dlIndexSig = sig;
+  _dlIndexVer += 1;
+  _dlByKeyMap = new Map();
+  const addHit = (key, dl) => {
+    if (!key) return;
+    let bucket = _dlByKeyMap.get(key);
+    if (!bucket) {
+      bucket = [];
+      _dlByKeyMap.set(key, bucket);
+    }
+    if (!bucket.includes(dl)) bucket.push(dl);
+  };
+  for (let i = 0; i < list.length; i++) {
+    const dl = list[i];
+    if (!dl) continue;
+    if (dl.item_id) addHit(`id:${String(dl.item_id).trim()}`, dl);
+    if (dl.kinorium_id) addHit(`kin:${String(dl.kinorium_id).trim()}`, dl);
+    if (dl.rezka_id) addHit(`rz:${String(dl.rezka_id).trim()}`, dl);
+    const tNorm = String(dl.title || "").trim().toLowerCase();
+    if (tNorm) addHit(`t:${tNorm}`, dl);
+    const oNorm = String(dl.orig_title || "").trim().toLowerCase();
+    if (oNorm) addHit(`o:${oNorm}`, dl);
   }
 }
 
@@ -2019,6 +2331,8 @@ export function findAllOfflineDownloadsForTitle(item, season = null, episode = n
   if (!item) return [];
   const list = Array.isArray(state.downloadsItems) ? state.downloadsItems : [];
   if (list.length === 0) return [];
+  _ensureDownloadsLookup(list);
+
   const allowed = Array.isArray(statuses) && statuses.length > 0 ? new Set(statuses) : null;
   const itemId = String(item.id || item.item_id || "").trim();
   const kinId = String(item.kinorium?.kinorium_id || item.kinorium_id || "").trim();
@@ -2029,6 +2343,26 @@ export function findAllOfflineDownloadsForTitle(item, season = null, episode = n
   const wantEp = isSeries && season != null && episode != null;
   const sNum = Number(season) || 1;
   const eNum = Number(episode) || 1;
+
+  const candidates = [];
+  const seen = new Set();
+  const collectBucket = (key) => {
+    const bucket = _dlByKeyMap.get(key);
+    if (!bucket) return;
+    for (let i = 0; i < bucket.length; i++) {
+      const dl = bucket[i];
+      if (!seen.has(dl)) {
+        seen.add(dl);
+        candidates.push(dl);
+      }
+    }
+  };
+  if (itemId) collectBucket(`id:${itemId}`);
+  if (kinId) collectBucket(`kin:${kinId}`);
+  if (rezkaId) collectBucket(`rz:${rezkaId}`);
+  if (titleNorm) collectBucket(`t:${titleNorm}`);
+  if (origNorm) collectBucket(`o:${origNorm}`);
+  if (candidates.length === 0) return [];
 
   const matchesTitle = (dl) => {
     if (!dl || (allowed && !allowed.has(dl.status))) return false;
@@ -2042,7 +2376,7 @@ export function findAllOfflineDownloadsForTitle(item, season = null, episode = n
   };
 
   if (wantEp) {
-    return list.filter(
+    return candidates.filter(
       (dl) =>
         matchesTitle(dl) &&
         dl.media_type === "series" &&
@@ -2050,21 +2384,47 @@ export function findAllOfflineDownloadsForTitle(item, season = null, episode = n
         (Number(dl.episode) || 1) === eNum
     );
   }
-  return list.filter(matchesTitle);
+  return candidates.filter(matchesTitle);
 }
 
 export function findOfflineDownloadForTitle(item, season = null, episode = null, statuses = ["completed"]) {
+  if (!item) return null;
+  const list = Array.isArray(state.downloadsItems) ? state.downloadsItems : [];
+  if (list.length === 0) return null;
+  _ensureDownloadsLookup(list);
+  const isDefaultCompletedCheck =
+    season == null &&
+    episode == null &&
+    Array.isArray(statuses) &&
+    statuses.length === 1 &&
+    statuses[0] === "completed";
+  if (isDefaultCompletedCheck && item._dlCacheVer === _dlIndexVer) {
+    return item._dlCacheVal || null;
+  }
   const hits = findAllOfflineDownloadsForTitle(item, season, episode, statuses);
-  return hits.length > 0 ? hits[0] : null;
+  const hit = hits.length > 0 ? hits[0] : null;
+  if (isDefaultCompletedCheck) {
+    item._dlCacheVer = _dlIndexVer;
+    item._dlCacheVal = hit;
+  }
+  return hit;
 }
+
+let _velariumDebugCached = null;
 
 export function logDebug(scope, ...args) {
   try {
+    if (_velariumDebugCached === null && typeof window !== "undefined") {
+      _velariumDebugCached = Boolean(
+        window.__VELARIUM_DEBUG__ ||
+          (typeof localStorage !== "undefined" && localStorage.getItem("velarium_debug") === "1")
+      );
+    }
     if (
       typeof window !== "undefined" &&
-      (window.__CINEFLOW_DEBUG__ || (typeof localStorage !== "undefined" && localStorage.getItem("cineflow_debug") === "1"))
+      (window.__VELARIUM_DEBUG__ || _velariumDebugCached)
     ) {
-      console.debug(`[CineFlow:${scope}]`, ...args);
+      console.debug(`[Velarium:${scope}]`, ...args);
     }
   } catch (err) { window.logDebug?.("Utils", err); }
 }

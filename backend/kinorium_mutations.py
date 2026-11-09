@@ -1,5 +1,5 @@
 """
-CineFlow — Kinorium Status, Episode, Rating & Profile Stats Mutations Submodule (`backend/kinorium_mutations.py`).
+Velarium — Kinorium Status, Episode, Rating & Profile Stats Mutations Submodule (`backend/kinorium_mutations.py`).
 
 Encapsulates optimistic local state mutations and background two-way Kinorium writebacks:
 - Continue Watching dismiss & restore (`dismiss_continue_watching`, `restore_continue_watching`)
@@ -12,11 +12,18 @@ Encapsulates optimistic local state mutations and background two-way Kinorium wr
 - Account configuration & auto-promotion to watching (`configure_account`, `_promote_to_watching_with_status`)
 """
 
+import concurrent.futures
+import copy
 import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from backend.kinorium_parsers import _norm_title, _safe_year_int
+
+_KIN_MUTATION_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="VelariumKinMut",
+)
 
 
 def dismiss_continue_watching(self, item_id: str, title: str = "") -> Dict[str, Any]:
@@ -306,7 +313,10 @@ def _run_remote_sync_bg(self, fn, *args, **kwargs) -> bool:
         finally:
             self._sync_cookie_tl.cookie = None
 
-    threading.Thread(target=_worker, daemon=True).start()
+    try:
+        _KIN_MUTATION_EXECUTOR.submit(_worker)
+    except RuntimeError:
+        threading.Thread(target=_worker, daemon=True).start()
     return True
 
 
@@ -534,6 +544,15 @@ def toggle_episode_watched(
 
 
 def get_profile_stats(self) -> Dict[str, Any]:
+    stats_cache_key = (
+        getattr(self, "_profile_id", ""),
+        getattr(self, "_state_version", 0),
+        time.localtime().tm_year,
+    )
+    cached_stats = getattr(self, "_cached_profile_stats", None)
+    if cached_stats and cached_stats[0] == stats_cache_key:
+        return copy.deepcopy(cached_stats[1])
+
     with self._state_lock:
         watched_dict = dict(self.state.get("remote_watched_items") or {})
         watching_dict = dict(self.state.get("remote_watching_items") or {})
@@ -542,6 +561,8 @@ def get_profile_stats(self) -> Dict[str, Any]:
         local_ratings = dict(self.state.get("ratings") or {})
         friends_by_kid = dict(self.state.get("friends_ratings_by_kid") or {})
         friends_list_snap = list(self.state.get("friends") or [])
+        watched_episodes_map = dict(self.state.get("watched_episodes") or {})
+        watched_local_map = dict(self.state.get("watched") or {})
 
     watched_movies = 0
     watched_series = 0
@@ -559,6 +580,8 @@ def get_profile_stats(self) -> Dict[str, Any]:
     favorites: List[Dict[str, Any]] = []
     friend_stats: Dict[str, Dict[str, Any]] = {}
     genre_stats: Dict[str, Dict[str, Any]] = {}
+    director_stats: Dict[str, Dict[str, Any]] = {}
+    actor_stats: Dict[str, Dict[str, Any]] = {}
     yearly_buckets: Dict[int, Dict[str, Any]] = {}
 
     for kid, entry in watched_dict.items():
@@ -678,6 +701,26 @@ def get_profile_stats(self) -> Dict[str, Any]:
                 gs_entry["score_sum"] += float(sc_valid)
                 gs_entry["rated"] += 1
 
+        for raw_d in entry.get("directors") or []:
+            d_str = str(raw_d or "").strip()
+            if not d_str:
+                continue
+            ds_entry = director_stats.setdefault(d_str, {"name": d_str, "count": 0, "score_sum": 0.0, "rated": 0})
+            ds_entry["count"] += 1
+            if sc_valid is not None:
+                ds_entry["score_sum"] += float(sc_valid)
+                ds_entry["rated"] += 1
+
+        for raw_a in entry.get("actors") or []:
+            a_str = str(raw_a or "").strip()
+            if not a_str:
+                continue
+            as_entry = actor_stats.setdefault(a_str, {"name": a_str, "count": 0, "score_sum": 0.0, "rated": 0})
+            as_entry["count"] += 1
+            if sc_valid is not None:
+                as_entry["score_sum"] += float(sc_valid)
+                as_entry["rated"] += 1
+
     favorites.sort(key=lambda x: (x["score"], _safe_year_int(x.get("year"))), reverse=True)
     friend_meta_by_name = {
         str(f.get("name") or "").strip(): f
@@ -732,28 +775,94 @@ def get_profile_stats(self) -> Dict[str, Any]:
         )
 
     total_watched = len(watched_dict)
-    estimated_hours = round(watched_movies * 2.0 + watched_series * 10.5)
-    return {
+    explicit_ep_count = 0
+    for ep_seasons in watched_episodes_map.values():
+        if isinstance(ep_seasons, dict):
+            for ep_list in ep_seasons.values():
+                if isinstance(ep_list, list):
+                    explicit_ep_count += len(ep_list)
+    watched_episodes_count = max(explicit_ep_count, watched_series * 8)
+
+    top_directors_out = []
+    for d_obj in sorted(director_stats.values(), key=lambda x: (x["count"], x["score_sum"]), reverse=True)[:8]:
+        top_directors_out.append(
+            {
+                "name": d_obj["name"],
+                "count": d_obj["count"],
+                "avg_score": round(d_obj["score_sum"] / d_obj["rated"], 1) if d_obj["rated"] > 0 else None,
+            }
+        )
+
+    top_actors_out = []
+    for a_obj in sorted(actor_stats.values(), key=lambda x: (x["count"], x["score_sum"]), reverse=True)[:10]:
+        top_actors_out.append(
+            {
+                "name": a_obj["name"],
+                "count": a_obj["count"],
+                "avg_score": round(a_obj["score_sum"] / a_obj["rated"], 1) if a_obj["rated"] > 0 else None,
+            }
+        )
+
+    day_counts: Dict[str, int] = {}
+    for w_val in watched_local_map.values():
+        if isinstance(w_val, dict) and w_val.get("watched_at"):
+            day_prefix = str(w_val.get("watched_at") or "")[:10]
+            if len(day_prefix) == 10:
+                day_counts[day_prefix] = day_counts.get(day_prefix, 0) + 1
+    longest_marathon = max(day_counts.values()) if day_counts else (max(2, min(10, watched_series * 2)) if watched_series > 0 else (1 if watched_movies > 0 else 0))
+
+    avg_u = round(sum(user_scores) / len(user_scores), 2) if user_scores else 0.0
+    if watched_series > watched_movies and watched_series >= 3:
+        persona_ru = "Мастер сериальных марафонов"
+        persona_en = "Series Marathon Master"
+    elif avg_u >= 8.2:
+        persona_ru = "Щедрый ценитель кино"
+        persona_en = "Generous Cinema Connoisseur"
+    elif 0 < avg_u <= 6.8:
+        persona_ru = "Строгий кинокритик"
+        persona_en = "Strict Film Critic"
+    else:
+        persona_ru = "Истинный синефил"
+        persona_en = "True Cinephile"
+
+    fav_decade = max(decades.items(), key=lambda kv: kv[1])[0] if any(decades.values()) else cur_decade_key
+    top_genre_name = top_genres_out[0]["genre"] if top_genres_out else ""
+
+    estimated_hours = round(watched_movies * 2.0 + max(watched_series * 10.5, explicit_ep_count * 0.75))
+    result = {
         "profile_name": self.state.get("account", {}).get("display_name") or "Киноман",
         "user_id": self.state.get("account", {}).get("user_id") or "",
         "total_watched": total_watched,
         "watched_movies": watched_movies,
         "watched_series": watched_series,
+        "watched_episodes_count": watched_episodes_count,
         "watching_count": len(watching_dict),
         "watchlist_count": len(watchlist_dict),
         "never_count": len(never_dict),
         "estimated_hours": estimated_hours,
         "estimated_days": round(estimated_hours / 24, 1),
         "rated_count": len(user_scores),
-        "avg_user_rating": round(sum(user_scores) / len(user_scores), 2) if user_scores else 0.0,
+        "avg_user_rating": avg_u,
         "avg_kinorium_rating": round(sum(kin_scores) / len(kin_scores), 2) if kin_scores else 0.0,
         "ratings_histogram": histogram,
         "decades": decades,
         "top_genres": top_genres_out,
+        "top_directors": top_directors_out,
+        "top_actors": top_actors_out,
         "yearly_summary": yearly_summary_out,
         "friends_comparison": friends_out[:8],
         "top_favorites": favorites[:12],
+        "cinema_wrap": {
+            "persona_ru": persona_ru,
+            "persona_en": persona_en,
+            "top_genre": top_genre_name,
+            "favorite_decade": fav_decade,
+            "longest_marathon_episodes": longest_marathon,
+            "watched_episodes_count": watched_episodes_count,
+        },
     }
+    self._cached_profile_stats = (stats_cache_key, copy.deepcopy(result))
+    return result
 
 
 def mark_watched(
@@ -1335,6 +1444,8 @@ def toggle_watchlist(self, item_id: str, title: str = "", orig_title: str = "", 
                 }
             if eff_kid:
                 k_pref = f"kin_{eff_kid}"
+                if k_pref not in wl_list:
+                    wl_list.append(k_pref)
                 if k_pref in rem_wl:
                     rem_wl.remove(k_pref)
                 if k_pref in loc_w:
@@ -1867,21 +1978,23 @@ def _promote_to_watching_with_status(
             item_id,
             title,
             orig_title,
-            allow_network=True,
+            allow_network=False,
             media_type=mtype,
         )
         eff_kid = str(resolved) if (resolved and str(resolved).isdigit()) else ""
+    eff_rkey = eff_kid or (str(item_id).strip() if str(item_id or "").strip() else f"local_{_norm_title(title or orig_title)}")
 
     with self._state_lock:
         loc_w = self.state.setdefault("watching_local", [])
         rem_w = self.state.setdefault("watching_removed", [])
         rem_wl = self.state.setdefault("watchlist_removed", [])
+        wl_list = self.state.setdefault("watchlist", [])
         if item_id and item_id not in loc_w:
             loc_w.append(item_id)
         if item_id in rem_w:
             rem_w.remove(item_id)
-        if item_id in self.state["watchlist"]:
-            self.state["watchlist"].remove(item_id)
+        if item_id in wl_list:
+            wl_list.remove(item_id)
         if was_in_watchlist and item_id and item_id not in rem_wl:
             rem_wl.append(item_id)
 
@@ -1891,37 +2004,75 @@ def _promote_to_watching_with_status(
                 loc_w.append(k_pref)
             if k_pref in rem_w:
                 rem_w.remove(k_pref)
+            if k_pref in wl_list:
+                wl_list.remove(k_pref)
             if was_in_watchlist and k_pref not in rem_wl:
                 rem_wl.append(k_pref)
-            (self.state.get("remote_watchlist_items") or {}).pop(eff_kid, None)
+        if eff_rkey:
+            for k_pop in {str(eff_rkey), str(eff_kid), str(item_id or "").strip()} - {""}:
+                (self.state.get("remote_watchlist_items") or {}).pop(k_pop, None)
             extra_kw = dict(extra)
             extra_kw.setdefault("media_type", mtype)
-            tpl = self._ensure_remote_entry_template(eff_kid, title, orig_title, extra=extra_kw)
+            tpl = self._ensure_remote_entry_template(eff_kid or eff_rkey, title, orig_title, extra=extra_kw)
             tpl["watching"] = True
             tpl["watched"] = False
             tpl["in_watchlist"] = False
             tpl["status"] = "now"
-            self.state.setdefault("remote_watching_items", {})[eff_kid] = tpl
+            self.state.setdefault("remote_watching_items", {})[str(eff_rkey)] = tpl
+        self._build_lookup_indices()
 
-    self._build_lookup_indices()
-    if eff_kid:
-        if was_in_watchlist:
-            self._sync_to_kinorium_remote(
-                action="watchlist_remove",
-                item_id=item_id or f"kin_{eff_kid}",
-                title=title,
-                orig_title=orig_title,
-                resolved_kid=eff_kid,
+    enqueue_pid = self._profile_id
+
+    def _bg_promote_watching():
+        eff_k = eff_kid or (
+            self._resolve_kinorium_id(
+                item_id,
+                title,
+                orig_title,
+                allow_network=True,
+                media_type=mtype,
             )
-        remote_ok = bool(
-            self._sync_to_kinorium_remote(
-                action="watching_add",
-                item_id=item_id or f"kin_{eff_kid}",
-                title=title,
-                orig_title=orig_title,
-                resolved_kid=eff_kid,
-            )
+            or ""
         )
+        if self._profile_id != enqueue_pid:
+            return
+        if eff_k and str(eff_k).isdigit() and eff_rkey != str(eff_k):
+            with self._state_lock:
+                if self._profile_id != enqueue_pid:
+                    return
+                rwg_d = self.state.setdefault("remote_watching_items", {})
+                migrated = rwg_d.pop(str(eff_rkey), None)
+                if isinstance(migrated, dict):
+                    migrated["kinorium_id"] = str(eff_k)
+                    rwg_d.setdefault(str(eff_k), migrated)
+                (self.state.get("remote_watchlist_items") or {}).pop(str(eff_k), None)
+                k_pref = f"kin_{eff_k}"
+                loc_w_bg = self.state.setdefault("watching_local", [])
+                if k_pref not in loc_w_bg:
+                    loc_w_bg.append(k_pref)
+                self._build_lookup_indices()
+                self._save_state()
+        if eff_k and str(eff_k).isdigit():
+            if was_in_watchlist:
+                self._sync_to_kinorium_remote(
+                    action="watchlist_remove",
+                    item_id=item_id or f"kin_{eff_k}",
+                    title=title,
+                    orig_title=orig_title,
+                    resolved_kid=str(eff_k),
+                )
+            return bool(
+                self._sync_to_kinorium_remote(
+                    action="watching_add",
+                    item_id=item_id or f"kin_{eff_k}",
+                    title=title,
+                    orig_title=orig_title,
+                    resolved_kid=str(eff_k),
+                )
+            )
+        return False
+
+    remote_ok = bool(self._run_remote_sync_bg(_bg_promote_watching))
     return True, remote_ok
 
 

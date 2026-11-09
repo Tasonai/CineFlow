@@ -1,38 +1,46 @@
-import { state } from "./state.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
 import {
   displayDescription,
   displayPoster,
   displayTitle,
+  getItemGenreEntries,
   hasCyrillicText,
   isEn,
   t,
+  translateCareer,
   translateGenre,
   transliterateRuToEn,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   escapeAttr,
   escapeHtml,
   iconSvg,
   rememberModalTriggerFocus,
   restoreModalTriggerFocus,
+  showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
 import {
+  buildFallbackAvatarSvg,
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261105v5";
-import { openPlayerModal } from "./player.js?v=20261105v5";
+} from "./modals.js?v=20261108v19";
+import {
+  attachSmartPosterFallback,
+  buildFallbackPosterSvg,
+} from "./catalog-cards.js?v=20261108v19";
+import { openPlayerModal } from "./player.js?v=20261108v19";
 import {
   getPrimaryRating,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261105v5";
+} from "./catalog-media-resolver.js?v=20261108v19";
 import {
   scheduleHeroAmbientTeaser,
   stopHeroAmbientTeaser,
-} from "./catalog-hero.js?v=20261105v5";
+} from "./catalog-hero.js?v=20261108v19";
 
 export function openMovieRouletteModal() {
   const modal = document.getElementById("movie-roulette-modal");
@@ -244,24 +252,87 @@ function renderRouletteCard(container, item, isFinal = false) {
   const year = item.year || "";
   const ratingNum = Number(getPrimaryRating(item) || item.rating || item.vote_average || item.kinorium?.rating || 0);
   const rating = ratingNum > 0 ? ratingNum.toFixed(1) : "";
-  const poster = displayPoster(item) || "/icons/poster-placeholder.png";
-  const genres = getItemGenreEntries(item)
-    .slice(0, 3)
-    .map((g) => (typeof g === "string" ? translateGenre(g) : g.label || g.en || g.ru || g.raw || g.name || ""))
-    .filter(Boolean)
-    .join(", ");
-  const overview = displayDescription(item) || item.overview || "";
+  const poster = displayPoster(item) || buildFallbackPosterSvg(title, year);
+  const genres = isFinal
+    ? getItemGenreEntries(item)
+        .slice(0, 3)
+        .map((g) => (typeof g === "string" ? translateGenre(g) : g.label || g.en || g.ru || g.raw || g.name || ""))
+        .filter(Boolean)
+        .join(", ")
+    : "";
+  const overview = isFinal ? displayDescription(item) || item.overview || "" : "";
+  const metaHtml = `${rating > 0 ? `<span class="atv-roulette-score">${escapeHtml(rating)}</span>` : ""}${
+    year ? `<span>${escapeHtml(String(year))}</span>` : ""
+  }${genres ? `<span class="atv-roulette-genres">${escapeHtml(genres)}</span>` : ""}`;
+
+  const existingTitleEl = container.querySelector(".atv-roulette-title");
+  if (existingTitleEl) {
+    if (existingTitleEl.textContent !== title) {
+      existingTitleEl.textContent = title;
+    }
+    const existingPosterEl = container.querySelector(".atv-roulette-poster");
+    if (existingPosterEl && (isFinal || !existingPosterEl.getAttribute("src")) && existingPosterEl.getAttribute("src") !== poster) {
+      existingPosterEl.src = poster;
+      attachSmartPosterFallback(existingPosterEl, item);
+    }
+    const existingMetaEl = container.querySelector(".atv-roulette-meta-row");
+    if (existingMetaEl && existingMetaEl._lastMetaHtml !== metaHtml) {
+      existingMetaEl.innerHTML = metaHtml;
+      existingMetaEl._lastMetaHtml = metaHtml;
+    }
+    const existingOverviewEl = container.querySelector(".atv-roulette-overview");
+    if (existingOverviewEl) {
+      if (existingOverviewEl.textContent !== overview) {
+        existingOverviewEl.textContent = overview;
+      }
+      existingOverviewEl.style.display = overview ? "" : "none";
+    }
+    let actionsEl = container.querySelector(".atv-roulette-card-actions");
+    if (!isFinal && actionsEl) {
+      actionsEl.remove();
+    } else if (isFinal) {
+      if (!actionsEl) {
+        actionsEl = document.createElement("div");
+        actionsEl.className = "atv-roulette-card-actions";
+        actionsEl.innerHTML = `
+          <button type="button" class="atv-btn-primary atv-btn-sm" id="btn-roulette-watch">
+            <svg class="atv-ico" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6.2 4.85v14.3a1 1 0 0 0 1.53.85l11.2-7.15a1 1 0 0 0 0-1.7L7.73 4a1 1 0 0 0-1.53.85z"/></svg>
+            <span>${t("Смотреть", "Watch")}</span>
+          </button>
+          <button type="button" class="atv-btn-secondary atv-btn-sm" id="btn-roulette-details">
+            ${t("Подробнее", "Details")}
+          </button>
+        `;
+        const infoEl = container.querySelector(".atv-roulette-info");
+        if (infoEl) infoEl.appendChild(actionsEl);
+      }
+      const watchBtn = container.querySelector("#btn-roulette-watch");
+      if (watchBtn) {
+        watchBtn.onclick = () => {
+          closeMovieRouletteModal();
+          const info = resolveSeriesEpisodeInfo(item);
+          openPlayerModal(item, resolvePreferredPlayTab(item, info.season, info.episode), info.season, info.episode, info.currentTime);
+        };
+      }
+      const detailsBtn = container.querySelector("#btn-roulette-details");
+      if (detailsBtn) {
+        detailsBtn.onclick = () => {
+          closeMovieRouletteModal();
+          openQuickPeekModal(item);
+        };
+      }
+    }
+    return;
+  }
 
   container.innerHTML = `
     <img class="atv-roulette-poster" src="${escapeAttr(poster)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
     <div class="atv-roulette-info">
       <div class="atv-roulette-title">${escapeHtml(title)}</div>
       <div class="atv-roulette-meta-row">
-        ${rating > 0 ? `<span class="atv-roulette-score">${escapeHtml(rating)}</span>` : ""}
-        ${year ? `<span>${escapeHtml(String(year))}</span>` : ""}
-        ${genres ? `<span class="atv-roulette-genres">${escapeHtml(genres)}</span>` : ""}
+        ${metaHtml}
       </div>
-      ${overview ? `<div class="atv-roulette-overview">${escapeHtml(overview)}</div>` : ""}
+      <div class="atv-roulette-overview"${overview ? "" : ' style="display:none"'}>${escapeHtml(overview)}</div>
       ${
         isFinal
           ? `
@@ -278,6 +349,10 @@ function renderRouletteCard(container, item, isFinal = false) {
       }
     </div>
   `;
+  const rPosterEl = container.querySelector(".atv-roulette-poster");
+  if (rPosterEl) {
+    attachSmartPosterFallback(rPosterEl, item);
+  }
 
   if (isFinal) {
     const watchBtn = container.querySelector("#btn-roulette-watch");
@@ -523,20 +598,26 @@ async function searchCommandPalette(query) {
   _paletteActiveIdx = 0;
   const qLower = query.toLowerCase();
 
-  const localCandidates = (Array.isArray(state.catalogItems) ? state.catalogItems : []).concat(
-    Array.isArray(state.heroItems) ? state.heroItems : []
-  );
   const seenIds = new Set();
   const localMatched = [];
-  for (const it of localCandidates) {
-    if (!it || seenIds.has(it.id)) continue;
-    const tRu = (it.title || "").toLowerCase();
-    const tOrig = (it.orig_title || "").toLowerCase();
-    if (tRu.includes(qLower) || tOrig.includes(qLower)) {
-      seenIds.add(it.id);
-      localMatched.push(it);
-      if (localMatched.length >= 8) break;
+  const localSources = [state.catalogItems, state.heroItems];
+  for (let sIdx = 0; sIdx < localSources.length; sIdx++) {
+    const srcArr = localSources[sIdx];
+    if (!Array.isArray(srcArr)) continue;
+    for (let i = 0; i < srcArr.length; i++) {
+      const it = srcArr[i];
+      if (!it || seenIds.has(it.id)) continue;
+      const hay =
+        typeof it._searchTitleLow === "string"
+          ? it._searchTitleLow
+          : (it._searchTitleLow = `${it.title || ""}\0${it.orig_title || ""}`.toLowerCase());
+      if (hay.includes(qLower)) {
+        seenIds.add(it.id);
+        localMatched.push(it);
+        if (localMatched.length >= 8) break;
+      }
     }
+    if (localMatched.length >= 8) break;
   }
 
   let networkTitles = [];
@@ -564,7 +645,13 @@ async function searchCommandPalette(query) {
         networkPersons = personsArr.slice(0, 4);
       }
     }
-  } catch (err) { window.logDebug?.("CatalogDiscovery", err); }
+  } catch (err) {
+    if (err?.name === "AbortError") return;
+    window.logDebug?.("CatalogDiscovery", err);
+  }
+
+  const curInputVal = document.getElementById("command-palette-input")?.value.trim() || "";
+  if (curInputVal !== query) return;
 
   const allTitles = localMatched.concat(networkTitles).slice(0, 10);
 
@@ -582,7 +669,7 @@ async function searchCommandPalette(query) {
       const idx = actionsList.length;
       actionsList.push({ type: "item", data: item });
       const pTitle = displayTitle(item);
-      const poster = displayPoster(item) || "/icons/poster-placeholder.png";
+      const poster = displayPoster(item) || buildFallbackPosterSvg(pTitle, item.year);
       const ratingNum = Number(getPrimaryRating(item) || item.rating || item.vote_average || item.kinorium?.rating || 0);
       const rating = ratingNum > 0 ? ratingNum.toFixed(1) : "";
       const metaStr = [item.year, item.media_type === "series" ? t("Сериал", "Series") : t("Фильм", "Movie")]
@@ -608,7 +695,8 @@ async function searchCommandPalette(query) {
     html += `<div class="atv-palette-group-title">${t("Персоны", "People")}</div>`;
     networkPersons.forEach((person) => {
       const idx = actionsList.length;
-      actionsList.push({ type: "person", data: person });
+      const rawPhoto = String(person.photo || person.avatar || "").trim();
+      actionsList.push({ type: "person", data: { ...person, photo: rawPhoto || person.photo || "" } });
       const rawName = person.name || person.orig_name || "";
       const pName =
         isEn()
@@ -621,7 +709,7 @@ async function searchCommandPalette(query) {
         )}&url=${encodeURIComponent(person.photo || person.avatar || "")}&hint=${encodeURIComponent(
           person.photo || person.avatar || ""
         )}`;
-      const pRole = person.role || t("Актёр", "Actor");
+      const pRole = person.role ? translateCareer(person.role) : t("Актёр", "Actor");
 
       html += `
         <button type="button" role="option" aria-selected="${idx === 0 ? "true" : "false"}" id="palette-opt-${idx}" class="atv-palette-item ${idx === 0 ? "is-active" : ""}" data-idx="${idx}">
@@ -642,6 +730,18 @@ async function searchCommandPalette(query) {
   }
 
   container.querySelectorAll(".atv-palette-item").forEach((btn, idx) => {
+    const target = actionsList[idx];
+    const imgEl = btn.querySelector("img");
+    if (imgEl && target) {
+      if (target.type === "item") {
+        attachSmartPosterFallback(imgEl, target.data);
+      } else if (target.type === "person") {
+        imgEl.onerror = () => {
+          imgEl.onerror = null;
+          imgEl.src = buildFallbackAvatarSvg(target.data?.name || target.data?.orig_name || "");
+        };
+      }
+    }
     btn.addEventListener("click", () => {
       closeCommandPalette();
       const target = actionsList[idx];

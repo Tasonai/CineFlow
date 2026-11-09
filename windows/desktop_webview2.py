@@ -26,19 +26,19 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-_cineflow_server: Any = None
+_velarium_server: Any = None
 
 
 def _ensure_server_module() -> Any:
-    global _cineflow_server
-    if _cineflow_server is None:
+    global _velarium_server
+    if _velarium_server is None:
         import server as _srv_mod
 
-        _cineflow_server = _srv_mod
-    return _cineflow_server
+        _velarium_server = _srv_mod
+    return _velarium_server
 
 
-def _probe_existing_cineflow_port(port: int) -> bool:
+def _probe_existing_velarium_port(port: int) -> bool:
     try:
         req = urllib.request.Request(
             f"http://127.0.0.1:{int(port)}/api/system/status",
@@ -73,14 +73,14 @@ def _is_port_free(port: int) -> bool:
 
 
 def _shutdown_desktop_runtime(server_thread: Optional[threading.Thread] = None) -> None:
-    if _cineflow_server is None:
+    if _velarium_server is None:
         return
     try:
-        _cineflow_server.sync_lan_listener(False)
+        _velarium_server.sync_lan_listener(False)
     except Exception:
         pass
     try:
-        httpd = _cineflow_server.SERVER_RUNTIME.get("server")
+        httpd = _velarium_server.SERVER_RUNTIME.get("server")
         if httpd is not None:
             httpd.shutdown()
             if server_thread is not None and server_thread.is_alive():
@@ -89,15 +89,21 @@ def _shutdown_desktop_runtime(server_thread: Optional[threading.Thread] = None) 
     except Exception:
         pass
     try:
-        _cineflow_server.backup_stream_engine.shutdown_local_torrserver()
+        _velarium_server.backup_stream_engine.shutdown_local_torrserver()
     except Exception:
         pass
     try:
-        _cineflow_server.download_manager.shutdown()
+        _velarium_server.download_manager.shutdown()
     except Exception:
         pass
     try:
-        _cineflow_server.kinorium_service._flush_state_on_exit()
+        from backend.routes.system import _close_active_stream_embed_proc
+
+        _close_active_stream_embed_proc()
+    except Exception:
+        pass
+    try:
+        _velarium_server.kinorium_service._flush_state_on_exit()
     except Exception:
         pass
 
@@ -144,8 +150,8 @@ def main() -> None:
     owns_server = True
     server_thread: Optional[threading.Thread] = None
 
-    if _probe_existing_cineflow_port(port):
-        # Background CineFlow daemon is already serving 127.0.0.1:8765 — attach UI without
+    if _probe_existing_velarium_port(port):
+        # Background Velarium daemon is already serving 127.0.0.1:8765 — attach UI without
         # importing server or spawning duplicate background workers / atexit hooks.
         owns_server = False
         actual_port = port
@@ -153,7 +159,7 @@ def main() -> None:
         if not _is_port_free(port):
             found_free = None
             for cand_port in range(8766, 8776):
-                if _probe_existing_cineflow_port(cand_port):
+                if _probe_existing_velarium_port(cand_port):
                     owns_server = False
                     found_free = cand_port
                     break
@@ -161,7 +167,7 @@ def main() -> None:
                     found_free = cand_port
                     break
             if found_free is None:
-                _safe_stderr_write(f"[CineFlow] No available loopback port in 8765..8775\n")
+                _safe_stderr_write(f"[Velarium] No available loopback port in 8765..8775\n")
                 return
             port = found_free
 
@@ -170,12 +176,12 @@ def main() -> None:
             server_thread = threading.Thread(target=srv_mod.run_server, args=(port,), daemon=True)
             server_thread.start()
             if not wait_for_port(port, timeout=20.0):
-                _safe_stderr_write(f"[CineFlow] Local HTTP server failed to bind 127.0.0.1:{port}\n")
+                _safe_stderr_write(f"[Velarium] Local HTTP server failed to bind 127.0.0.1:{port}\n")
                 _shutdown_desktop_runtime(server_thread)
                 return
             actual_port = int(srv_mod.SERVER_RUNTIME.get("port") or port)
-            if not srv_mod._is_port_already_serving_cineflow(actual_port):
-                _safe_stderr_write(f"[CineFlow] Port 127.0.0.1:{actual_port} is not serving CineFlow\n")
+            if not srv_mod._is_port_already_serving_velarium(actual_port):
+                _safe_stderr_write(f"[Velarium] Port 127.0.0.1:{actual_port} is not serving Velarium\n")
                 _shutdown_desktop_runtime(server_thread)
                 return
         else:
@@ -188,7 +194,7 @@ def main() -> None:
             import webview  # pywebview uses Microsoft Edge WebView2 on Windows 10/11
 
             webview.create_window(
-                title="CineFlow",
+                title="Velarium",
                 url=url,
                 width=win_w,
                 height=win_h,
@@ -197,7 +203,7 @@ def main() -> None:
             )
             webview.start(gui="edgechromium")
         except Exception as exc:
-            _safe_stderr_write(f"[CineFlow] WebView2 unavailable ({exc}); opening system browser.\n")
+            _safe_stderr_write(f"[Velarium] WebView2 unavailable ({exc}); opening system browser.\n")
             webbrowser.open(url)
             if owns_server and server_thread is not None:
                 try:

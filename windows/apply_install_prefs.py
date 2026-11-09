@@ -11,7 +11,7 @@ def apply_app_lang(install_dir: str, app_lang: str) -> None:
     data_dir = os.path.join(install_dir, "data")
     os.makedirs(data_dir, exist_ok=True)
     settings_path = os.path.join(data_dir, "server_settings.json")
-    db_path = os.path.join(data_dir, "cineflow.db")
+    db_path = os.path.join(data_dir, "velarium.db")
 
     payload = {}
     if os.path.isfile(settings_path):
@@ -79,8 +79,8 @@ def apply_app_lang(install_dir: str, app_lang: str) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Apply CineFlow installer preferences")
-    parser.add_argument("--install-dir", required=True, help="Target CineFlow installation directory")
+    parser = argparse.ArgumentParser(description="Apply Velarium installer preferences")
+    parser.add_argument("--install-dir", required=True, help="Target Velarium installation directory")
     parser.add_argument("--app-lang", default="ru", help="Initial application interface language (ru or en)")
     args = parser.parse_args()
     try:
@@ -88,7 +88,7 @@ def main() -> int:
         return 0
     except Exception as exc:
         if sys.stderr is not None:
-            sys.stderr.write(f"[CineFlow Setup] Failed to persist app_lang: {exc}\n")
+            sys.stderr.write(f"[Velarium Setup] Failed to persist app_lang: {exc}\n")
         return 1
 
 

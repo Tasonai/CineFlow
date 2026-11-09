@@ -1,4 +1,5 @@
 import concurrent.futures
+import functools
 import html
 import ipaddress
 import json
@@ -20,7 +21,7 @@ from .hdrezka import HDRezkaClient
 
 
 _STRICT_TRASH_QUALITY_RE = re.compile(
-    r"\b(camrip|hdcam|telesync|telesynch|hdts|telecine|dvdscr|screener|workprint)\b",
+    r"\b(camrip|hdcam|telesync|telesynch|hdts|telecine|dvdscr|screener|workprint|dvd5|dvd9|video_ts)\b",
     re.IGNORECASE,
 )
 _AMBIGUOUS_TRASH_QUALITY_RE = re.compile(r"\b(cam|ts|tc|scr)\b", re.IGNORECASE)
@@ -29,7 +30,55 @@ _HQ_SOURCE_MARKER_RE = re.compile(
     re.IGNORECASE,
 )
 _CTRL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+_NORM_SEG_NON_WORD_RE = re.compile(r"[^\w\s]", re.UNICODE)
+_NORM_SEG_UNDERSCORE_RE = re.compile(r"_+")
+_NORM_SEG_SPACE_RE = re.compile(r"\s+")
+_VOICE_PATTERNS_COMPILED = [
+    (re.compile(r"\b(?:red\s*head\s*sound|rhs)\b", re.IGNORECASE), "Red Head Sound"),
+    (re.compile(r"\b(?:hdrezka|резка)\b", re.IGNORECASE), "HDRezka Studio"),
+    (re.compile(r"\b(?:lostfilm|лостфильм)\b", re.IGNORECASE), "LostFilm"),
+    (re.compile(r"\b(?:кубик\s*в\s*кубе|kubik)\b", re.IGNORECASE), "Кубик в Кубе"),
+    (re.compile(r"\b(?:jaskier|яскьер)\b", re.IGNORECASE), "Jaskier"),
+    (re.compile(r"\b(?:tvshows)\b", re.IGNORECASE), "TVShows"),
+    (re.compile(r"\b(?:newstudio|ньюстудио)\b", re.IGNORECASE), "NewStudio"),
+    (re.compile(r"\b(?:alexfilm)\b", re.IGNORECASE), "AlexFilm"),
+    (re.compile(r"\b(?:амедиа|amedia)\b", re.IGNORECASE), "Amedia"),
+    (re.compile(r"\b(?:гаврилов|михалев|володарский|живов|пучков|гоблин|goblin|сербин|визгунов)\b", re.IGNORECASE), "Авторский"),
+    (re.compile(r"\b(?:дубляж|дублирован\w*|\bdub\b)\b", re.IGNORECASE), "Дубляж"),
+    (re.compile(r"\b(?:многоголос\w*|\bmvo\b|\bdvo\b|профессиональн\w*|\bpm\b|\bp\.m\.)\b", re.IGNORECASE), "Многоголосый"),
+]
+_UKR_TAG_RE = re.compile(r"\b(?:\d*x?\s*ukr|укр|україн)\b", re.IGNORECASE)
+_RUS_TAG_RE = re.compile(r"\b(?:\d*x?\s*rus|рус|російськ)\b", re.IGNORECASE)
 _BTIH_RE = re.compile(r"btih:([a-fA-F0-9]{40}|[A-Za-z2-7]{32})\b", re.IGNORECASE)
+_SCRUB_TECH_RE = re.compile(
+    r"(?:\[[0-9a-fA-F]{8}\]|\b(?:2160p?|1080[pi]?|720p?|480p?|4k|uhd|x264|x265|h\.?264|h\.?265|hevc|av1|(?:ddp?|ac-?3|eac-?3|dts(?:-hd)?|truehd|atmos|flac|opus|aac)\s*[257]\.[01]|[57]\.1|2\.0|10-?bit|hdr10\+?|bdremux|remux|web-?dl|webrip|bluray|blu-?ray|bdrip)\b)",
+    re.IGNORECASE,
+)
+_SCRUB_NOISE_RE = re.compile(
+    r"(?:\[[0-9a-fA-F]{8}\]|\b(?:2160p?|1080[pi]?|720p?|480p?|x264|x265|h\.?264|h\.?265|hevc|av1|(?:ddp?|ac-?3|eac-?3|dts(?:-hd)?|truehd|atmos|flac|opus|aac)\s*[257]\.[01]|[57]\.1|10-?bit|hdr10\+?|19\d{2}|20\d{2})\b)",
+    re.IGNORECASE,
+)
+_TAIL_SPLIT_RE = re.compile(
+    r"\b(?:s\d{1,2}(?:e\d{1,3})?|season\s*:?\s*\d+|сезоны?\s*:?\s*\d+|\d+\s*(?:-?й\s*)?сезон|серии\s*:?\s*\d+|серия\s*:?\s*\d+|19\d{2}|20\d{2}|2160p|1080p|720p|4k|uhd|web-?dl|webrip|bdremux|bdrip|blu-?ray|hdr\d*|hevc|x264|x265)\b",
+    re.IGNORECASE,
+)
+_ALLOWED_SUFFIX_RE = re.compile(
+    r"^(?:part\s*1|часть\s*1|фильм\s*1|film\s*1|"
+    r"trilogy|quadrilogy|tetralogy|duology|dilogy|collection|anthology|"
+    r"трилогия|квадрология|тетралогия|дилогия|коллекция|антология|"
+    r"(?:parts?|части|фильмы)?\s*1\s*[2-9]|"
+    r"extended(?:\s+cut|\s+edition)?|director\s*s\s*cut|final\s*cut|unrated|remastered|"
+    r"special\s+edition|anniversary\s+edition|ultimate\s+edition|imax|"
+    r"режиссерская\s+версия|расширенная\s+версия|полная\s+версия)$"
+)
+_JACRED_QUERY_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=12,
+    thread_name_prefix="VelariumJacRed",
+)
+_BACKUP_SEARCH_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=9,
+    thread_name_prefix="VelariumBkpSearch",
+)
 
 
 class _NoTorrRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -41,7 +90,7 @@ def _natural_sort_key(text: str) -> List[Any]:
     return [int(tok) if tok.isdigit() else tok.lower() for tok in re.split(r"(\d+)", str(text or ""))]
 
 
-def _normalize_torrserver_url(raw_url: str, cineflow_port: int = 8765) -> str:
+def _normalize_torrserver_url(raw_url: str, velarium_port: int = 8765) -> str:
     s = str(raw_url or "").strip()
     if not s or _CTRL_CHAR_RE.search(s):
         return ""
@@ -64,7 +113,7 @@ def _normalize_torrserver_url(raw_url: str, cineflow_port: int = 8765) -> str:
     port = raw_port if raw_port is not None else (8090 if not had_scheme else (443 if parsed.scheme == "https" else 80))
     if not (1 <= int(port) <= 65535):
         return ""
-    if host in ("127.0.0.1", "localhost", "::1") and int(port) == int(cineflow_port):
+    if host in ("127.0.0.1", "localhost", "::1") and int(port) == int(velarium_port):
         return ""
     try:
         ip_obj = ipaddress.ip_address(host)
@@ -127,13 +176,22 @@ _SAMPLE_OR_EXTRA_RE = re.compile(
     r"(?:^|[\\/._\-\s\[\(])(sample|trailer|teaser|featurette|extras?|bonus|ncop\d*|nced\d*|creditless)(?:$|[\\/._\-\s\]\)])",
     re.IGNORECASE,
 )
-_PUBLIC_TRACKERS_SUFFIX = (
-    "&tr=udp://tracker.opentrackr.org:1337/announce"
-    "&tr=udp://open.stealth.si:80/announce"
-    "&tr=udp://exodus.desync.com:6969/announce"
-    "&tr=http://bt.t-ru.org/ann?magnet"
-    "&tr=udp://opentor.net:6969"
+_PUBLIC_TRACKER_URLS = (
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://exodus.desync.com:6969/announce",
+    "udp://open.demonii.com:1337/announce",
+    "udp://tracker.torrent.eu.org:451/announce",
+    "udp://tracker.openbittorrent.com:6969/announce",
+    "udp://opentor.net:6969",
+    "udp://p4p.arenabg.com:1337/announce",
+    "http://bt.t-ru.org/ann?magnet",
+    "http://bt2.t-ru.org/ann?magnet",
+    "http://bt3.t-ru.org/ann?magnet",
+    "http://bt4.t-ru.org/ann?magnet",
+    "http://retracker.local/announce",
 )
+_PUBLIC_TRACKERS_SUFFIX = "".join(f"&tr={urllib.parse.quote(u, safe='')}" for u in _PUBLIC_TRACKER_URLS)
 
 
 def _is_safe_tracker_url(tr_url: str) -> bool:
@@ -198,9 +256,11 @@ def _enrich_magnet_trackers(magnet: str) -> str:
     mag = _sanitize_magnet_uri(magnet)
     if not mag:
         return ""
-    if "&tr=" in mag.lower():
-        return mag
-    return mag + _PUBLIC_TRACKERS_SUFFIX
+    mag_unq_low = urllib.parse.unquote(mag).lower()
+    missing_suffix = "".join(
+        f"&tr={u}" for u in _PUBLIC_TRACKER_URLS if u.lower() not in mag_unq_low
+    )
+    return mag + missing_suffix
 
 
 class BackupStreamingEngine:
@@ -271,12 +331,16 @@ class BackupStreamingEngine:
             s = s.replace(urllib.parse.quote(self.debrid_api_key), "***")
         return s
 
-    @staticmethod
-    def _build_torr_opener() -> urllib.request.OpenerDirector:
-        return urllib.request.build_opener(
-            _NoTorrRedirectHandler(),
-            urllib.request.ProxyHandler({}),
-        )
+    _TORR_OPENER: Optional[urllib.request.OpenerDirector] = None
+
+    @classmethod
+    def _build_torr_opener(cls) -> urllib.request.OpenerDirector:
+        if cls._TORR_OPENER is None:
+            cls._TORR_OPENER = urllib.request.build_opener(
+                _NoTorrRedirectHandler(),
+                urllib.request.ProxyHandler({}),
+            )
+        return cls._TORR_OPENER
 
     def configure(
         self,
@@ -374,11 +438,9 @@ class BackupStreamingEngine:
     def ensure_local_torrserver(self) -> bool:
         if self.mode != "torrserver":
             return False
-        if self._is_torrserver_alive():
+        if self._is_torrserver_alive_cached(ttl_sec=3.5):
             if not self._torr_tuned:
-                with self._torr_lock:
-                    if not self._torr_tuned:
-                        self._tune_torrserver_ram_cache()
+                self._tune_torrserver_ram_cache()
             return True
         if not self.torr_bin_path:
             self.torr_bin_path = self._find_torrserver_binary()
@@ -391,67 +453,87 @@ class BackupStreamingEngine:
         if host not in ("127.0.0.1", "localhost", "::1"):
             return False
 
+        needs_tune = False
+        is_ready = False
         with self._torr_lock:
             if self._is_torrserver_alive():
                 if not self._torr_tuned:
-                    self._tune_torrserver_ram_cache()
-                return True
-            prev_proc = self._torr_proc
-            if prev_proc is not None and prev_proc.poll() is None:
-                # Our previous instance is still starting (first-run DB init / AV scan): wait, never double-spawn
-                wait_deadline = time.time() + 8.0
-                while time.time() < wait_deadline and prev_proc.poll() is None:
-                    if self._is_torrserver_alive():
-                        self._tune_torrserver_ram_cache()
-                        return True
-                    time.sleep(0.15)
-                if prev_proc.poll() is None:
-                    return False
-            if prev_proc is not None:
-                try:
-                    prev_proc.wait(timeout=0.5)
-                except Exception:
-                    pass
-                self._torr_proc = None
-            try:
-                os.makedirs(self.torr_data_dir, exist_ok=True)
-                env = os.environ.copy()
-                env["PATH"] = f"{self.bin_dir}{os.pathsep}{env.get('PATH', '')}"
-                log_path = os.path.join(self.torr_data_dir, "torrserver.log")
-                popen_kwargs: Dict[str, Any] = {
-                    "env": env,
-                    "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                }
-                if os.name != "nt":
-                    popen_kwargs["start_new_session"] = True
-                bind_ip = "::1" if host == "::1" else "127.0.0.1"
-                with open(log_path, "ab") as log_fh:
-                    self._torr_proc = subprocess.Popen(
-                        [
-                            self.torr_bin_path,
-                            "-i",
-                            bind_ip,
-                            "-p",
-                            str(port),
-                            "-d",
-                            self.torr_data_dir,
-                        ],
-                        stdout=log_fh,
-                        stderr=subprocess.STDOUT,
-                        **popen_kwargs,
-                    )
-            except Exception:
-                return False
+                    needs_tune = True
+                is_ready = True
+            if not is_ready:
+                prev_proc = self._torr_proc
+                if prev_proc is not None and prev_proc.poll() is None:
+                    # Our previous instance is still starting (first-run DB init / AV scan): wait, never double-spawn
+                    wait_deadline = time.time() + 8.0
+                    while time.time() < wait_deadline and prev_proc.poll() is None:
+                        if self._is_torrserver_alive():
+                            needs_tune = True
+                            is_ready = True
+                            break
+                        time.sleep(0.15)
+                    if not is_ready and prev_proc.poll() is None:
+                        try:
+                            prev_proc.terminate()
+                            prev_proc.wait(timeout=0.5)
+                        except Exception:
+                            try:
+                                prev_proc.kill()
+                            except Exception:
+                                pass
+                        self._torr_proc = None
+                        prev_proc = None
+                if not is_ready and prev_proc is not None:
+                    try:
+                        prev_proc.wait(timeout=0.5)
+                    except Exception:
+                        pass
+                    self._torr_proc = None
+                if not is_ready:
+                    try:
+                        os.makedirs(self.torr_data_dir, exist_ok=True)
+                        env = os.environ.copy()
+                        env["PATH"] = f"{self.bin_dir}{os.pathsep}{env.get('PATH', '')}"
+                        log_path = os.path.join(self.torr_data_dir, "torrserver.log")
+                        popen_kwargs: Dict[str, Any] = {
+                            "env": env,
+                            "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                        }
+                        if os.name != "nt":
+                            popen_kwargs["start_new_session"] = True
+                        bind_ip = "::1" if host == "::1" else "127.0.0.1"
+                        with open(log_path, "ab") as log_fh:
+                            self._torr_proc = subprocess.Popen(
+                                [
+                                    self.torr_bin_path,
+                                    "-i",
+                                    bind_ip,
+                                    "-p",
+                                    str(port),
+                                    "-d",
+                                    self.torr_data_dir,
+                                ],
+                                stdout=log_fh,
+                                stderr=subprocess.STDOUT,
+                                **popen_kwargs,
+                            )
+                    except Exception:
+                        return False
 
-            deadline = time.time() + 2.8
-            while time.time() < deadline:
-                if self._is_torrserver_alive():
-                    self._tune_torrserver_ram_cache()
-                    return True
-                time.sleep(0.12)
+                    deadline = time.time() + 2.8
+                    while time.time() < deadline:
+                        if self._is_torrserver_alive():
+                            needs_tune = True
+                            is_ready = True
+                            break
+                        time.sleep(0.12)
+        if is_ready:
+            if needs_tune:
+                self._tune_torrserver_ram_cache()
+            return True
         return self._is_torrserver_alive()
 
     def _tune_torrserver_ram_cache(self) -> None:
+        self._torr_tuned = True
         try:
             opener = self._build_torr_opener()
             req_get = urllib.request.Request(
@@ -460,23 +542,35 @@ class BackupStreamingEngine:
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with opener.open(req_get, timeout=1.2) as r:
+            with opener.open(req_get, timeout=1.5) as r:
                 cur_cfg = json.loads(r.read(262144).decode("utf-8", errors="ignore") or "{}")
             if isinstance(cur_cfg, dict) and cur_cfg:
-                cur_cfg["CacheSize"] = 268435456  # 256 MB RAM ring buffer
-                cur_cfg["ReaderReadAhead"] = 95
+                # Never send {"action": "set"} if settings are already tuned, because TorrServer
+                # executes "drop all torrents" and resets the BitTorrent client on every "set"!
+                if (
+                    int(cur_cfg.get("CacheSize") or 0) == 402653184
+                    and not bool(cur_cfg.get("UseDisk"))
+                    and int(cur_cfg.get("ConnectionsLimit") or 0) >= 100
+                    and int(cur_cfg.get("TorrentDisconnectTimeout") or 0) >= 90
+                ):
+                    return
+                cur_cfg["CacheSize"] = 402653184  # 384 MB RAM ring buffer
+                cur_cfg["ReaderReadAHead"] = 90
+                cur_cfg["ReaderReadAhead"] = 90
                 cur_cfg["PreloadCache"] = 0
                 cur_cfg["PreloadBuffer"] = False
                 cur_cfg["UseDisk"] = False
+                cur_cfg["ConnectionsLimit"] = 100
+                cur_cfg["TorrentDisconnectTimeout"] = 120
+                cur_cfg["RetrackersMode"] = 1
                 req_set = urllib.request.Request(
                     f"{self.torrserver_url}/settings",
                     data=json.dumps({"action": "set", "sets": cur_cfg}).encode("utf-8"),
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with opener.open(req_set, timeout=1.2) as r_set:
+                with opener.open(req_set, timeout=4.5) as r_set:
                     r_set.read(65536)
-                self._torr_tuned = True
         except Exception:
             pass
 
@@ -528,6 +622,8 @@ class BackupStreamingEngine:
             return ("1080p BDRemux", 250)
         if "720p" in low:
             return ("720p HD", 120)
+        if any(tok in low for tok in ("web-dl", "webdl", "web-dlrip", "bdrip", "blu-ray", "bluray")):
+            return ("1080p WEB-DL", 185)
         return ("WEB / Rip", 70)
 
     @staticmethod
@@ -675,14 +771,83 @@ class BackupStreamingEngine:
         media_type: str,
         season: int,
         episode: int,
+        year: int = 0,
+        title: str = "",
+        orig_title: str = "",
     ) -> Optional[Any]:
         video_files = cls._filter_main_video_files(files, path_key, size_key)
         if not video_files:
             return None
 
         if media_type != "series":
-            best = max(video_files, key=lambda x: int(x.get(size_key) or x.get("length") or x.get("bytes") or 0))
-            return best.get(id_key)
+            if len(video_files) == 1:
+                return video_files[0].get(id_key)
+            sizes = [int(x.get(size_key) or x.get("length") or x.get("bytes") or 0) for x in video_files]
+            max_sz = max(sizes) if sizes else 0
+            # Identify full feature movie files in a multi-movie pack (>= 30% of largest file or >= 450 MB)
+            main_movies = (
+                [
+                    vf
+                    for vf in video_files
+                    if int(vf.get(size_key) or vf.get("length") or vf.get("bytes") or 0)
+                    >= max(450 * 1024 * 1024, int(max_sz * 0.30))
+                ]
+                if max_sz > 0
+                else list(video_files)
+            )
+            if len(main_movies) == 1:
+                return main_movies[0].get(id_key)
+            if not main_movies:
+                main_movies = list(video_files)
+
+            # Multi-movie pack (Trilogy / Quadrilogy / Anthology): match target movie year and part number!
+            t_seq = cls._extract_sequel_markers(title) | cls._extract_sequel_markers(orig_title)
+            non_one = sorted(int(s) for s in t_seq if int(s) >= 2)
+            target_part = non_one[0] if non_one else 1
+
+            scrub_tech_re = _SCRUB_TECH_RE
+            sorted_movies = sorted(main_movies, key=lambda x: _natural_sort_key(str(x.get(path_key) or "")))
+            best_vf = None
+            best_score = -10**9
+            for idx_m, vf in enumerate(sorted_movies):
+                raw_p = str(vf.get(path_key) or vf.get("name") or "")
+                base_n = raw_p.replace("\\", "/").split("/")[-1]
+                stem_n = _VIDEO_EXT_RE.sub("", base_n)
+                score = 0
+                f_years = [
+                    int(y)
+                    for y in re.findall(r"\b(19\d{2}|20\d{2})\b", raw_p)
+                    if int(y) not in (1080, 2160)
+                ]
+                if year and int(year) >= 1900 and f_years:
+                    if any(abs(fy - int(year)) <= 1 for fy in f_years):
+                        score += 250
+                    else:
+                        score -= 250
+
+                stem_no_yr = re.sub(r"\b(19\d{2}|20\d{2})\b", " ", scrub_tech_re.sub(" ", stem_n))
+                f_seq = cls._extract_sequel_markers(stem_no_yr)
+                f_explicit_seq = {int(s) for s in f_seq if int(s) >= 2}
+                if target_part in f_seq:
+                    score += 120
+                elif target_part == 1 and not f_explicit_seq:
+                    score += 70
+                elif f_explicit_seq and target_part not in f_explicit_seq:
+                    score -= 140
+
+                # Subtle bonus for natural chronological position matching target_part (e.g. Part 1 -> index 0)
+                if idx_m == (target_part - 1):
+                    score += 25
+                else:
+                    score -= abs(idx_m - (target_part - 1)) * 5
+
+                if score > best_score:
+                    best_score = score
+                    best_vf = vf
+
+            if best_vf is not None:
+                return best_vf.get(id_key)
+            return sorted_movies[0].get(id_key)
 
         s_num = max(0, int(season if season is not None else 1))
         e_num = max(1, int(episode or 1))
@@ -712,10 +877,7 @@ class BackupStreamingEngine:
             rf"(?:^|[._\-\s\[])0*{e_num}(?:\s*(?:из|of)\s*\d+|\s*серия|(?:$|[._\-\s\]]))",
             re.IGNORECASE,
         )
-        scrub_noise_re = re.compile(
-            r"(?:\[[0-9a-fA-F]{8}\]|\b(?:2160p?|1080[pi]?|720p?|480p?|x264|x265|h\.?264|h\.?265|hevc|av1|(?:ddp?|ac-?3|eac-?3|dts(?:-hd)?|truehd|atmos|flac|opus|aac)\s*[257]\.[01]|[57]\.1|10-?bit|hdr10\+?|19\d{2}|20\d{2})\b)",
-            re.IGNORECASE,
-        )
+        scrub_noise_re = _SCRUB_NOISE_RE
         for vf in candidate_files:
             raw_p = str(vf.get(path_key) or "")
             base = raw_p.replace("\\", "/").split("/")[-1]
@@ -733,6 +895,77 @@ class BackupStreamingEngine:
             return video_files_sorted[e_num - 1].get(id_key)
         return video_files_sorted[0].get(id_key)
 
+    def _remove_torrserver_torrent(self, info_hash: str) -> None:
+        if not info_hash:
+            return
+        try:
+            opener = self._build_torr_opener()
+            req_rem = urllib.request.Request(
+                f"{self.torrserver_url}/torrents",
+                data=json.dumps({"action": "rem", "hash": info_hash}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with opener.open(req_rem, timeout=1.5) as _:
+                pass
+        except Exception:
+            pass
+
+    @staticmethod
+    def _extract_files_from_torr_obj(t_obj: Any) -> List[Dict[str, Any]]:
+        if not isinstance(t_obj, dict):
+            return []
+        fs = t_obj.get("file_stats")
+        if isinstance(fs, list) and fs:
+            return fs
+        raw_data = t_obj.get("data")
+        if isinstance(raw_data, str) and raw_data.strip().startswith("{"):
+            try:
+                parsed_d = json.loads(raw_data)
+                files = ((parsed_d.get("TorrServer") or {}).get("Files")) or []
+                if isinstance(files, list) and files:
+                    return files
+            except Exception:
+                pass
+        return []
+
+    def _drop_other_active_torrents(self, keep_hashes: set) -> None:
+        if "_fetch_torrserver_file_stats" in self.__dict__:
+            return
+        try:
+            opener = self._build_torr_opener()
+            req_list = urllib.request.Request(
+                f"{self.torrserver_url}/torrents",
+                data=json.dumps({"action": "list"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with opener.open(req_list, timeout=1.0) as r_list:
+                all_torrs = json.loads(r_list.read(4 * 1024 * 1024).decode("utf-8", errors="ignore") or "[]")
+            if not isinstance(all_torrs, list):
+                return
+            keep_low = {str(h or "").strip().lower() for h in (keep_hashes or set()) if h}
+            for t in all_torrs:
+                if not isinstance(t, dict):
+                    continue
+                th = str(t.get("hash") or "").strip().lower()
+                st_code = int(t.get("stat") or 0)
+                if not th or th in keep_low or st_code == 5:
+                    continue
+                try:
+                    req_drop = urllib.request.Request(
+                        f"{self.torrserver_url}/torrents",
+                        data=json.dumps({"action": "drop", "hash": th}).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with opener.open(req_drop, timeout=0.8) as r_drop:
+                        r_drop.read(4096)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def _fetch_torrserver_file_stats(
         self,
         magnet: str,
@@ -740,37 +973,262 @@ class BackupStreamingEngine:
     ) -> List[Dict[str, Any]]:
         enriched_mag = _enrich_magnet_trackers(magnet)
         info_hash = _extract_btih_hex(enriched_mag)
+        now_mono = time.monotonic()
+        if info_hash:
+            with self._cache_lock:
+                fcache = getattr(self, "_torr_fstats_cache", None)
+                if isinstance(fcache, dict):
+                    cached_fs = fcache.get(info_hash)
+                    if cached_fs and (now_mono - cached_fs[1]) < 900.0 and cached_fs[0]:
+                        return list(cached_fs[0])
         try:
             opener = self._build_torr_opener()
-            req = urllib.request.Request(
-                f"{self.torrserver_url}/torrents",
-                data=json.dumps({"action": "add", "link": enriched_mag, "save_to_db": False}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with opener.open(req, timeout=2.5) as resp:
-                data = json.loads(resp.read(2 * 1024 * 1024).decode("utf-8", errors="ignore") or "{}")
-            file_stats = data.get("file_stats") or []
-            if not file_stats and info_hash and wait_metadata_sec > 0:
-                deadline = time.time() + wait_metadata_sec
-                while time.time() < deadline:
-                    time.sleep(0.32)
+            wait_sec_val = max(0.0, float(wait_metadata_sec or 0.0))
+            deadline = time.time() + wait_sec_val
+            file_stats: List[Dict[str, Any]] = []
+            if info_hash:
+                try:
+                    req_fast = urllib.request.Request(
+                        f"{self.torrserver_url}/torrents",
+                        data=json.dumps({"action": "get", "hash": info_hash}).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with opener.open(req_fast, timeout=0.6) as r_fast:
+                        d_fast = json.loads(r_fast.read(2 * 1024 * 1024).decode("utf-8", errors="ignore") or "{}")
+                    file_stats = self._extract_files_from_torr_obj(d_fast)
+                except Exception:
+                    file_stats = []
+            if not file_stats:
+                add_timeout = max(2.5, wait_sec_val if wait_sec_val > 0 else 2.5)
+                data: Dict[str, Any] = {}
+                try:
+                    req = urllib.request.Request(
+                        f"{self.torrserver_url}/torrents",
+                        data=json.dumps({"action": "add", "link": enriched_mag, "save_to_db": True}).encode("utf-8"),
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with opener.open(req, timeout=add_timeout) as resp:
+                        data = json.loads(resp.read(2 * 1024 * 1024).decode("utf-8", errors="ignore") or "{}")
+                except Exception:
+                    data = {}
+                file_stats = self._extract_files_from_torr_obj(data)
+            if not file_stats and info_hash and wait_sec_val > 0:
+                while True:
                     req_get = urllib.request.Request(
                         f"{self.torrserver_url}/torrents",
                         data=json.dumps({"action": "get", "hash": info_hash}).encode("utf-8"),
                         headers={"Content-Type": "application/json"},
                         method="POST",
                     )
-                    with opener.open(req_get, timeout=2.0) as r_get:
-                        d_get = json.loads(r_get.read(2 * 1024 * 1024).decode("utf-8", errors="ignore") or "{}")
-                    file_stats = d_get.get("file_stats") or []
-                    if file_stats:
+                    try:
+                        with opener.open(req_get, timeout=2.0) as r_get:
+                            d_get = json.loads(r_get.read(2 * 1024 * 1024).decode("utf-8", errors="ignore") or "{}")
+                        file_stats = self._extract_files_from_torr_obj(d_get)
+                    except Exception:
+                        file_stats = []
+                    if file_stats or time.time() >= deadline:
                         break
+                    time.sleep(0.24)
             if isinstance(file_stats, list):
+                if file_stats and info_hash:
+                    with self._cache_lock:
+                        if not hasattr(self, "_torr_fstats_cache") or not isinstance(self._torr_fstats_cache, dict):
+                            self._torr_fstats_cache = {}
+                        if len(self._torr_fstats_cache) >= 256:
+                            for k_old in list(self._torr_fstats_cache.keys())[:64]:
+                                self._torr_fstats_cache.pop(k_old, None)
+                        self._torr_fstats_cache[info_hash] = (list(file_stats), time.monotonic())
                 return file_stats
         except Exception:
             pass
         return []
+
+    def _warm_torrserver_winner_piece_zero(
+        self,
+        magnet: str,
+        file_stats: List[Dict[str, Any]],
+    ) -> None:
+        if "_fetch_torrserver_file_stats" in self.__dict__:
+            return
+        enriched_mag = _enrich_magnet_trackers(magnet)
+        info_hash = _extract_btih_hex(enriched_mag)
+        if len(info_hash) != 40 or not file_stats:
+            return
+        main_files = self._filter_main_video_files(file_stats, "path", "length") or file_stats
+        best_file = max(main_files, key=lambda x: int(x.get("length") or 0))
+        fid = max(1, int(best_file.get("id") or 1))
+        s_url = f"{self.torrserver_url}/stream/warm.mkv?link={urllib.parse.quote(enriched_mag)}&index={fid}&play"
+
+        def _bg_warm() -> None:
+            try:
+                opener = self._build_torr_opener()
+                req = urllib.request.Request(s_url, headers={"Range": "bytes=0-65535"})
+                with opener.open(req, timeout=6.0) as resp:
+                    resp.read(16384)
+            except Exception:
+                pass
+
+        try:
+            self._torr_preflight_pool.submit(_bg_warm)
+        except Exception:
+            threading.Thread(target=_bg_warm, name="VelariumTorrWarm0", daemon=True).start()
+
+    def preflight_rank_torrserver_candidates(
+        self,
+        candidates: List[Dict[str, Any]],
+        sort_key_fn: Any,
+        max_probe: int = 5,
+        wait_sec: float = 3.5,
+    ) -> List[Dict[str, Any]]:
+        if not candidates:
+            return candidates
+        mag_cands = [
+            c
+            for c in candidates
+            if not c.get("direct_url") and c.get("magnet")
+        ]
+        if not mag_cands:
+            return candidates
+
+        is_mocked = "_fetch_torrserver_file_stats" in self.__dict__
+        probed_fs_by_hash: Dict[str, List[Dict[str, Any]]] = {}
+
+        def _classify_fs_tier(
+            fs: List[Dict[str, Any]],
+            total_peers: Optional[int] = None,
+            connected_seeders: Optional[int] = None,
+            reported_seeders: int = 0,
+        ) -> int:
+            if not fs:
+                return -1
+            if is_mocked:
+                return 1
+            main_files = self._filter_main_video_files(fs, "path", "length") or fs
+            best_f = max(main_files, key=lambda x: int(x.get("length") or 0))
+            best_path = str(best_f.get("path") or "").lower()
+            best_gb = int(best_f.get("length") or 0) / (1024 ** 3)
+            is_modern = (
+                best_path.endswith((".mkv", ".mp4", ".mov", ".webm"))
+                and "bdmv" not in best_path
+                and len(fs) <= 45
+            )
+            if not is_modern:
+                return 1
+            if total_peers is not None:
+                tp = int(total_peers or 0)
+                cs = int(connected_seeders or 0)
+                # Heavy >18 GB 4K files need >=2 connected seeders to sustain 25+ Mbps;
+                # if only 0-1 seeder is connected, demote so a multi-seeder stream wins.
+                if best_gb > 18.0 and cs <= 1:
+                    return 1
+                if cs >= 4 or (cs >= 2 and (best_gb <= 16.0 or tp >= 12)) or (tp >= 25 and best_gb <= 12.0):
+                    return 3
+                if cs >= 1 or tp >= 6:
+                    return 2
+                return 1
+            if reported_seeders >= 20 and best_gb <= 18.0:
+                return 3
+            return 2
+
+        def _probe_one(cand: Dict[str, Any], w_sec: float) -> int:
+            mag = str(cand.get("magnet") or "")
+            fs = self._fetch_torrserver_file_stats(mag, wait_metadata_sec=w_sec)
+            tier = _classify_fs_tier(fs, reported_seeders=int(cand.get("seeders") or 0))
+            cand["_dht_verified"] = tier
+            if fs:
+                ih = _extract_btih_hex(_enrich_magnet_trackers(mag))
+                if ih:
+                    probed_fs_by_hash[ih] = fs
+            return tier
+
+        probe_limit = len(mag_cands) if is_mocked else min(len(mag_cands), max(max_probe, 8))
+        batch_all = mag_cands[:probe_limit]
+        eff_wait = wait_sec if is_mocked else max(wait_sec, 4.8)
+        pool = getattr(self, "_torr_preflight_pool", None)
+        if pool is None:
+            pool = concurrent.futures.ThreadPoolExecutor(
+                max_workers=8, thread_name_prefix="VelariumTorrPreflight"
+            )
+            self._torr_preflight_pool = pool
+        fut_map = {
+            pool.submit(_probe_one, c, eff_wait): c
+            for c in batch_all
+        }
+        done, not_done = concurrent.futures.wait(fut_map.keys(), timeout=eff_wait + 2.0)
+        for fut, cand in fut_map.items():
+            if fut in not_done:
+                cand["_dht_verified"] = -1
+                fut.cancel()
+                continue
+            try:
+                fut.result(timeout=0.05)
+            except Exception:
+                cand["_dht_verified"] = -1
+
+        if not is_mocked:
+            try:
+                opener = self._build_torr_opener()
+                req_list = urllib.request.Request(
+                    f"{self.torrserver_url}/torrents",
+                    data=json.dumps({"action": "list"}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with opener.open(req_list, timeout=1.0) as r_list:
+                    all_torrs = json.loads(r_list.read(4 * 1024 * 1024).decode("utf-8", errors="ignore") or "[]")
+                if isinstance(all_torrs, list):
+                    live_torr_map = {
+                        str(t.get("hash") or "").strip().lower(): t
+                        for t in all_torrs
+                        if isinstance(t, dict) and self._extract_files_from_torr_obj(t)
+                    }
+                    for cand in mag_cands:
+                        ih = _extract_btih_hex(_enrich_magnet_trackers(str(cand.get("magnet") or "")))
+                        if ih and ih in live_torr_map:
+                            t_obj = live_torr_map[ih]
+                            fs_live = self._extract_files_from_torr_obj(t_obj)
+                            probed_fs_by_hash[ih] = fs_live
+                            st_code = int(t_obj.get("stat") or 0)
+                            is_live_working = st_code in (2, 3)
+                            cand["_dht_verified"] = _classify_fs_tier(
+                                fs_live,
+                                total_peers=int(t_obj.get("total_peers") or 0) if is_live_working else None,
+                                connected_seeders=int(t_obj.get("connected_seeders") or 0) if is_live_working else None,
+                                reported_seeders=int(cand.get("seeders") or 0),
+                            )
+                            with self._cache_lock:
+                                if not hasattr(self, "_torr_fstats_cache") or not isinstance(self._torr_fstats_cache, dict):
+                                    self._torr_fstats_cache = {}
+                                self._torr_fstats_cache[ih] = (list(fs_live), time.monotonic())
+            except Exception:
+                pass
+
+        ranked = sorted(
+            candidates,
+            key=lambda r: (
+                3 if r.get("direct_url") else int(r.get("_dht_verified", -1)),
+                sort_key_fn(r),
+            ),
+            reverse=True,
+        )
+
+        if not is_mocked and ranked:
+            winner = ranked[0]
+            win_mag = str(winner.get("magnet") or "")
+            win_hash = _extract_btih_hex(_enrich_magnet_trackers(win_mag)) if win_mag else ""
+            keep_top = {win_hash} if win_hash else set()
+            if len(ranked) > 1:
+                sec_mag = str(ranked[1].get("magnet") or "")
+                sec_hash = _extract_btih_hex(_enrich_magnet_trackers(sec_mag)) if sec_mag else ""
+                if sec_hash:
+                    keep_top.add(sec_hash)
+            self._drop_other_active_torrents(keep_top)
+            if win_hash and win_hash in probed_fs_by_hash:
+                self._warm_torrserver_winner_piece_zero(win_mag, probed_fs_by_hash[win_hash])
+
+        return ranked
 
     @classmethod
     def _infer_pack_relative_file_index(cls, rel_title: str, season: int, episode: int) -> int:
@@ -806,17 +1264,31 @@ class BackupStreamingEngine:
         episode: int,
         wait_metadata_sec: float = 0.0,
         release_title: str = "",
+        year: int = 0,
+        title: str = "",
+        orig_title: str = "",
     ) -> int:
-        if media_type != "series":
+        if media_type != "series" and not self._is_multi_movie_pack(release_title):
             return 1
         file_stats = self._fetch_torrserver_file_stats(magnet, wait_metadata_sec=wait_metadata_sec)
         if file_stats:
             matched_id = self._match_episode_from_files(
-                file_stats, "path", "id", "length", media_type, season, episode
+                file_stats,
+                "path",
+                "id",
+                "length",
+                media_type,
+                season,
+                episode,
+                year=year,
+                title=title,
+                orig_title=orig_title,
             )
             if matched_id is not None and int(matched_id) > 0:
                 return int(matched_id)
-        return self._infer_pack_relative_file_index(release_title or magnet, season, episode)
+        if media_type == "series":
+            return self._infer_pack_relative_file_index(release_title or magnet, season, episode)
+        return 1
 
     def resolve_torrserver_stream(
         self,
@@ -827,6 +1299,9 @@ class BackupStreamingEngine:
         file_index: Optional[int] = None,
         filename_hint: str = "",
         lang: str = "ru",
+        year: int = 0,
+        title: str = "",
+        orig_title: str = "",
     ) -> Dict[str, Any]:
         is_en = str(lang or "").strip().lower().startswith("en")
         raw_mag = str(magnet or "").strip()
@@ -851,7 +1326,23 @@ class BackupStreamingEngine:
                 "error": "TorrServer is not running" if is_en else "Локальный TorrServer не запущен",
             }
         enriched_mag = _enrich_magnet_trackers(raw_mag)
-        file_stats = self._fetch_torrserver_file_stats(enriched_mag, wait_metadata_sec=3.8)
+        active_ih = _extract_btih_hex(enriched_mag)
+        if active_ih:
+            try:
+                self._torr_preflight_pool.submit(self._drop_other_active_torrents, {active_ih})
+            except Exception:
+                self._drop_other_active_torrents({active_ih})
+        file_stats = self._fetch_torrserver_file_stats(enriched_mag, wait_metadata_sec=4.0)
+        if not file_stats and file_index is None:
+            return {
+                "ok": False,
+                "dead_swarm": True,
+                "error": (
+                    "No active DHT peers found for this release — switching to another source"
+                    if is_en
+                    else "Нет активных пиров DHT для этой раздачи — переключаем на другой источник"
+                ),
+            }
         main_files = self._filter_main_video_files(file_stats, "path", "length")
         main_files_sorted = sorted(main_files, key=lambda x: _natural_sort_key(str(x.get("path") or "")))
 
@@ -878,7 +1369,16 @@ class BackupStreamingEngine:
             chosen_idx = int(file_index)
         elif file_stats:
             matched_id = self._match_episode_from_files(
-                file_stats, "path", "id", "length", media_type, season, episode
+                file_stats,
+                "path",
+                "id",
+                "length",
+                media_type,
+                season,
+                episode,
+                year=year,
+                title=title,
+                orig_title=orig_title,
             )
             if matched_id is not None and int(matched_id) > 0:
                 chosen_idx = int(matched_id)
@@ -944,6 +1444,9 @@ class BackupStreamingEngine:
         episode: int = 1,
         provider: Optional[str] = None,
         lang: str = "ru",
+        year: int = 0,
+        title: str = "",
+        orig_title: str = "",
     ) -> Dict[str, Any]:
         is_en = str(lang or "").strip().lower().startswith("en")
         prov = (provider or self.mode or "").lower()
@@ -962,7 +1465,7 @@ class BackupStreamingEngine:
         if not clean_mag.startswith("magnet:") or _CTRL_CHAR_RE.search(clean_mag):
             return {"ok": False, "error": "Invalid Magnet link" if is_en else "Некорректная Magnet-ссылка"}
 
-        cache_key = f"{prov}:{clean_mag}:{media_type}:s{season}e{episode}"
+        cache_key = f"{prov}:{clean_mag}:{media_type}:s{season}e{episode}:y{year}:{title}"
         now_mono = time.monotonic()
         with self._cache_lock:
             cached_entry = self._debrid_cache.get(cache_key)
@@ -970,9 +1473,13 @@ class BackupStreamingEngine:
                 return {"ok": True, "stream_url": cached_entry[0], "provider": prov}
 
         if prov == "torbox":
-            res = self._resolve_torbox_magnet(clean_mag, media_type, season, episode, is_en=is_en)
+            res = self._resolve_torbox_magnet(
+                clean_mag, media_type, season, episode, is_en=is_en, year=year, title=title, orig_title=orig_title
+            )
         else:
-            res = self._resolve_realdebrid_magnet(clean_mag, media_type, season, episode, is_en=is_en)
+            res = self._resolve_realdebrid_magnet(
+                clean_mag, media_type, season, episode, is_en=is_en, year=year, title=title, orig_title=orig_title
+            )
 
         if res.get("ok") and res.get("stream_url"):
             with self._cache_lock:
@@ -983,21 +1490,32 @@ class BackupStreamingEngine:
         return res
 
     _DEBRID_SSL_CTX = ssl.create_default_context()
+    _DEBRID_API_OPENER: Optional[urllib.request.OpenerDirector] = None
 
     @classmethod
     def _build_debrid_api_opener(cls) -> urllib.request.OpenerDirector:
-        return urllib.request.build_opener(
-            _SafeRedirectHandler(),
-            urllib.request.HTTPSHandler(context=cls._DEBRID_SSL_CTX),
-            urllib.request.ProxyHandler({}),
-        )
+        if cls._DEBRID_API_OPENER is None:
+            cls._DEBRID_API_OPENER = urllib.request.build_opener(
+                _SafeRedirectHandler(),
+                urllib.request.HTTPSHandler(context=cls._DEBRID_SSL_CTX),
+                urllib.request.ProxyHandler({}),
+            )
+        return cls._DEBRID_API_OPENER
 
     def _resolve_realdebrid_magnet(
-        self, magnet: str, media_type: str, season: int, episode: int, is_en: bool = False
+        self,
+        magnet: str,
+        media_type: str,
+        season: int,
+        episode: int,
+        is_en: bool = False,
+        year: int = 0,
+        title: str = "",
+        orig_title: str = "",
     ) -> Dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {self.debrid_api_key}",
-            "User-Agent": "CineFlow/2.0",
+            "User-Agent": "Velarium/2.0",
         }
         opener = self._build_debrid_api_opener()
         try:
@@ -1027,7 +1545,16 @@ class BackupStreamingEngine:
 
             files = info_data.get("files") or []
             chosen_fid = self._match_episode_from_files(
-                files, "path", "id", "bytes", media_type, season, episode
+                files,
+                "path",
+                "id",
+                "bytes",
+                media_type,
+                season,
+                episode,
+                year=year,
+                title=title,
+                orig_title=orig_title,
             )
             sel_val = str(chosen_fid) if chosen_fid is not None else "all"
             req_sel = urllib.request.Request(
@@ -1108,11 +1635,19 @@ class BackupStreamingEngine:
             return {"ok": False, "error": f"Real-Debrid error: {safe_err}" if is_en else f"Ошибка Real-Debrid: {safe_err}"}
 
     def _resolve_torbox_magnet(
-        self, magnet: str, media_type: str, season: int, episode: int, is_en: bool = False
+        self,
+        magnet: str,
+        media_type: str,
+        season: int,
+        episode: int,
+        is_en: bool = False,
+        year: int = 0,
+        title: str = "",
+        orig_title: str = "",
     ) -> Dict[str, Any]:
         headers = {
             "Authorization": f"Bearer {self.debrid_api_key}",
-            "User-Agent": "CineFlow/2.0",
+            "User-Agent": "Velarium/2.0",
         }
         opener = self._build_debrid_api_opener()
         try:
@@ -1168,7 +1703,16 @@ class BackupStreamingEngine:
                     ),
                 }
             chosen_fid = self._match_episode_from_files(
-                files, "name", "id", "size", media_type, season, episode
+                files,
+                "name",
+                "id",
+                "size",
+                media_type,
+                season,
+                episode,
+                year=year,
+                title=title,
+                orig_title=orig_title,
             )
             fid_param = chosen_fid if chosen_fid is not None else 0
             dl_api = (
@@ -1207,15 +1751,110 @@ class BackupStreamingEngine:
             return {"ok": False, "error": f"TorBox error: {safe_err}" if is_en else f"Ошибка TorBox: {safe_err}"}
 
     @staticmethod
+    @functools.lru_cache(maxsize=2048)
     def _norm_title_segment(text: str) -> str:
         s = html.unescape(str(text or "")).lower().replace("ё", "е")
-        s = re.sub(r"[^\w\s]", " ", s, flags=re.UNICODE)
-        s = re.sub(r"_+", " ", s)
-        return re.sub(r"\s+", " ", s).strip()
+        s = _NORM_SEG_NON_WORD_RE.sub(" ", s)
+        s = _NORM_SEG_UNDERSCORE_RE.sub(" ", s)
+        return _NORM_SEG_SPACE_RE.sub(" ", s).strip()
+
+    @staticmethod
+    def _fold_double_chars(norm_s: str) -> str:
+        return re.sub(r"([a-zа-я])\1+", r"\1", str(norm_s or ""))
 
     @classmethod
     def _strip_en_article(cls, norm_s: str) -> str:
         return re.sub(r"^(?:the|a|an)\s+", "", norm_s).strip()
+
+    @staticmethod
+    def _parse_size_gb(size_str: str) -> float:
+        m = re.search(r"(\d+(?:[.,]\d+)?)\s*(tb|тб|gb|гб|mb|мб)", str(size_str or "").lower())
+        if not m:
+            return 0.0
+        val = float(m.group(1).replace(",", "."))
+        unit = m.group(2)
+        if unit in ("tb", "тб"):
+            return val * 1024.0
+        if unit in ("mb", "мб"):
+            return val / 1024.0
+        return val
+
+    @classmethod
+    def _is_multi_movie_pack(cls, rel_title: str) -> bool:
+        t = html.unescape(str(rel_title or "")).lower()
+        if re.search(
+            r"\b(?:trilogy|quadrilogy|tetralogy|pentlogy|hexalogy|duology|dilogy|anthology|collection|"
+            r"трилогия|квадрология|тетралогия|дилогия|антология|коллекция)\b",
+            t,
+        ):
+            return True
+        for m_yr in re.finditer(r"\b(19\d{2}|20\d{2})\s*[-–—]\s*(19\d{2}|20\d{2})\b", t):
+            y1, y2 = int(m_yr.group(1)), int(m_yr.group(2))
+            if y2 - y1 >= 2:
+                return True
+        return False
+
+    @classmethod
+    def _extract_sequel_markers(cls, text: str) -> set:
+        s = html.unescape(str(text or "")).lower().replace("ё", "е")
+        head = re.split(r"[\[\(]", s, maxsplit=1)[0]
+        head = re.split(
+            r"\b(?:19\d{2}|20\d{2}|2160p|1080p|720p|4k|uhd|web-?dl|webrip|bdremux|bdrip|blu-?ray|hdr\d*|hevc|x264|x265)\b",
+            head,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0]
+        if re.search(
+            r"\b(?:trilogy|quadrilogy|tetralogy|duology|dilogy|трилогия|квадрология|тетралогия|дилогия|"
+            r"parts?\s*1\s*[-–—]\s*[2-9]|част[иь]\s*1\s*[-–—]\s*[2-9]|\b1\s*[-–—]\s*[2-4]\b)\b",
+            head,
+        ):
+            return set()
+        nums: set = set()
+        roman_map = {
+            "ii": 2,
+            "iii": 3,
+            "iv": 4,
+            "v": 5,
+            "vi": 6,
+            "vii": 7,
+            "viii": 8,
+            "ix": 9,
+        }
+        for m_pt in re.finditer(r"\b(?:part|часть|ч\.?|фильм|film|vol\.?|volume|chapter|глава)\s*([1-9])\b", head):
+            nums.add(int(m_pt.group(1)))
+        for m_rom in re.finditer(r"(?<=\s)(ii|iii|iv|vi|vii|viii|ix)(?=\b)", head):
+            nums.add(roman_map[m_rom.group(1)])
+        for seg in re.split(r"\s*/\s*", head):
+            seg_clean = cls._norm_title_segment(seg)
+            m_tail_num = re.search(r"(?<=\s)([2-9])$", seg_clean)
+            if m_tail_num:
+                nums.add(int(m_tail_num.group(1)))
+            m_tail_rom = re.search(r"(?<=\s)(ii|iii|iv|v|vi|vii|viii|ix)$", seg_clean)
+            if m_tail_rom and m_tail_rom.group(1) in roman_map:
+                nums.add(roman_map[m_tail_rom.group(1)])
+        return nums
+
+    @classmethod
+    def _infer_release_voices(cls, rel_title: str, raw_voices: Any) -> List[str]:
+        if isinstance(raw_voices, list):
+            cleaned = [str(v).strip() for v in raw_voices if str(v or "").strip()]
+            if cleaned:
+                return cleaned
+        t = html.unescape(str(rel_title or "")).lower()
+        found: List[str] = []
+        for pat_re, label in _VOICE_PATTERNS_COMPILED:
+            if pat_re.search(t) and label not in found:
+                found.append(label)
+        has_ukr_tag = bool(_UKR_TAG_RE.search(t))
+        has_rus_tag = bool(_RUS_TAG_RE.search(t))
+        if has_ukr_tag and not has_rus_tag and not found:
+            return ["Українська", "Оригинал"]
+        if not found:
+            found.append("Дубляж")
+        if "Оригинал" not in found:
+            found.append("Оригинал")
+        return found
 
     @classmethod
     def _season_matches_release(cls, clean_rel: str, season: int) -> bool:
@@ -1357,6 +1996,17 @@ class BackupStreamingEngine:
             ):
                 return False
 
+        target_seq_nums = cls._extract_sequel_markers(title) | cls._extract_sequel_markers(orig_title)
+        rel_seq_nums = cls._extract_sequel_markers(clean_rel)
+        if media_type != "series":
+            target_explicit_seq = {n for n in target_seq_nums if n >= 2}
+            rel_explicit_seq = {n for n in rel_seq_nums if n >= 2}
+            if target_explicit_seq:
+                if not (rel_explicit_seq & target_explicit_seq) and not cls._is_multi_movie_pack(clean_rel):
+                    return False
+            elif rel_explicit_seq:
+                return False
+
         targets: List[str] = []
         for raw_t in (title, orig_title):
             nt = cls._norm_title_segment(raw_t)
@@ -1370,10 +2020,7 @@ class BackupStreamingEngine:
         if not raw_Parts:
             raw_Parts = [head_before_brackets.strip()]
 
-        tail_split_re = re.compile(
-            r"\b(?:s\d{1,2}(?:e\d{1,3})?|season\s*:?\s*\d+|сезоны?\s*:?\s*\d+|\d+\s*(?:-?й\s*)?сезон|серии\s*:?\s*\d+|серия\s*:?\s*\d+|19\d{2}|20\d{2}|2160p|1080p|720p|4k|uhd|web-?dl|webrip|bdremux|bdrip|blu-?ray|hdr\d*|hevc|x264|x265)\b",
-            re.IGNORECASE,
-        )
+        tail_split_re = _TAIL_SPLIT_RE
         candidate_norms: List[str] = []
         for rp in raw_Parts:
             trimmed = tail_split_re.split(rp, maxsplit=1)[0].strip()
@@ -1384,15 +2031,30 @@ class BackupStreamingEngine:
         if not candidate_norms:
             return False
 
+        allowed_suffix_re = _ALLOWED_SUFFIX_RE
+
         for t_norm in targets:
             t_art = cls._strip_en_article(t_norm)
+            t_fold = cls._fold_double_chars(t_art or t_norm)
             for c_norm in candidate_norms:
                 c_art = cls._strip_en_article(c_norm)
+                c_fold = cls._fold_double_chars(c_art or c_norm)
                 if c_norm == t_norm or (t_art and len(t_art) >= 3 and c_art == t_art):
                     return True
+                if t_fold and len(t_fold) >= 4 and c_fold == t_fold:
+                    return True
                 if len(t_norm) >= 6 and len(c_norm) >= 6:
-                    if c_norm.startswith(t_norm + " ") or t_norm.startswith(c_norm + " "):
-                        return True
+                    if c_norm.startswith(t_norm + " "):
+                        suffix = c_norm[len(t_norm) :].strip()
+                        if media_type == "series" or allowed_suffix_re.match(suffix):
+                            return True
+                    elif c_fold.startswith(t_fold + " ") and len(t_fold) >= 6:
+                        suffix_f = c_fold[len(t_fold) :].strip()
+                        if media_type == "series" or allowed_suffix_re.match(suffix_f):
+                            return True
+                    elif t_norm.startswith(c_norm + " ") and len(c_norm) >= 10:
+                        if media_type == "series":
+                            return True
         return False
 
     def _query_jacred_candidates(
@@ -1409,8 +2071,6 @@ class BackupStreamingEngine:
             st_clean = str(st or "").strip()
             if st_clean and st_clean.lower() not in [x.lower() for x in search_terms]:
                 search_terms.append(st_clean)
-        if len(search_terms) > 1 and len(search_terms[0]) > 5:
-            search_terms = search_terms[:1]
         yr_qs = f"&year={year}" if year and int(year) >= 1900 else ""
 
         def _fetch_host_term(host: str, term: str) -> List[Dict[str, Any]]:
@@ -1429,10 +2089,11 @@ class BackupStreamingEngine:
 
         raw_batches: List[List[Dict[str, Any]]] = []
         tasks = [(h, term) for term in search_terms for h in self.JACRED_HOSTS]
-        jac_pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(tasks)))
+        futs = [_JACRED_QUERY_EXECUTOR.submit(_fetch_host_term, h, term) for h, term in tasks]
         try:
-            futs = [jac_pool.submit(_fetch_host_term, h, term) for h, term in tasks]
-            done, _ = concurrent.futures.wait(futs, timeout=3.2)
+            done, not_done = concurrent.futures.wait(futs, timeout=3.2)
+            for nf in not_done:
+                nf.cancel()
             for f in done:
                 try:
                     batch = f.result()
@@ -1441,7 +2102,8 @@ class BackupStreamingEngine:
                 except Exception:
                     continue
         finally:
-            jac_pool.shutdown(wait=False, cancel_futures=True)
+            for rf in futs:
+                rf.cancel()
 
         candidates: List[Dict[str, Any]] = []
         seen_hashes = set()
@@ -1467,6 +2129,7 @@ class BackupStreamingEngine:
 
                 quality_badge, quality_rank = self._classify_release_quality(rel_title)
                 seeders = max(0, int(item.get("sid") or 0))
+                inferred_voices = self._infer_release_voices(rel_title, item.get("voices"))
                 candidates.append(
                     {
                         "info_hash": info_hash,
@@ -1476,7 +2139,7 @@ class BackupStreamingEngine:
                         "seeders": seeders,
                         "quality": quality_badge,
                         "quality_rank": quality_rank,
-                        "voices": item.get("voices") or ["Дубляж", "Оригинал"],
+                        "voices": inferred_voices,
                         "magnet": magnet,
                     }
                 )
@@ -1499,9 +2162,9 @@ class BackupStreamingEngine:
         torr_alive = self.ensure_local_torrserver()
         debrid_ready = bool(self.debrid_api_key and self.mode in ("realdebrid", "torbox", "debrid_https"))
 
-        pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+        wait_futs = []
         try:
-            fut_jac = pool.submit(
+            fut_jac = _BACKUP_SEARCH_EXECUTOR.submit(
                 self._query_jacred_candidates,
                 title,
                 orig_title,
@@ -1510,7 +2173,7 @@ class BackupStreamingEngine:
                 season,
                 episode if media_type == "series" else 0,
             )
-            fut_cdn = pool.submit(
+            fut_cdn = _BACKUP_SEARCH_EXECUTOR.submit(
                 self.rezka.get_streams_for_title,
                 item_id=item_id or title,
                 title=title,
@@ -1521,17 +2184,22 @@ class BackupStreamingEngine:
                 episode=episode,
                 rezka_url=rezka_url,
             )
+            st_kwargs: Dict[str, Any] = {
+                "item_id": item_id,
+                "title": title,
+                "orig_title": orig_title,
+                "year": year,
+                "media_type": media_type,
+                "season": season,
+                "episode": episode,
+                "lang": ui_lang,
+            }
+            if stremio_engine is not None and getattr(stremio_engine, "__class__", None).__name__ == "StremioAddonEngine":
+                st_kwargs["skip_preflight"] = True
             fut_stremio = (
-                pool.submit(
+                _BACKUP_SEARCH_EXECUTOR.submit(
                     stremio_engine.get_streams_for_title,
-                    item_id=item_id,
-                    title=title,
-                    orig_title=orig_title,
-                    year=year,
-                    media_type=media_type,
-                    season=season,
-                    episode=episode,
-                    lang=ui_lang,
+                    **st_kwargs,
                 )
                 if stremio_engine is not None
                 else None
@@ -1546,11 +2214,27 @@ class BackupStreamingEngine:
                 else {}
             )
         finally:
-            pool.shutdown(wait=False, cancel_futures=True)
+            for wf in wait_futs:
+                wf.cancel()
 
         direct_title_stream = (real_cdn_data or {}).get("default_stream_url", "")
         external_subtitles = list(stremio_payload.get("subtitles") or [])
         imdb_id = str(stremio_payload.get("imdb_id") or (real_cdn_data or {}).get("imdb_id") or "").strip()
+        resolved_orig = str(orig_title or (real_cdn_data or {}).get("orig_title") or "").strip()
+        if not jac_candidates and resolved_orig and resolved_orig.lower() != str(orig_title or "").strip().lower():
+            try:
+                jac_candidates = self._query_jacred_candidates(
+                    title,
+                    resolved_orig,
+                    year,
+                    media_type,
+                    season,
+                    episode if media_type == "series" else 0,
+                )
+            except Exception:
+                pass
+        if resolved_orig and not orig_title:
+            orig_title = resolved_orig
 
         merged_seasons_map: Dict[str, List[int]] = {}
         cdn_seasons = (real_cdn_data or {}).get("seasons_map")
@@ -1658,7 +2342,7 @@ class BackupStreamingEngine:
         # Merge healthy 4K / high-bitrate 1080p releases from Stremio (Torrentio / TPB+)
         for st in stremio_payload.get("streams") or []:
             q_rank = int(st.get("quality_rank") or 0)
-            if q_rank < 200:
+            if q_rank < 180:
                 continue
             ih = str(st.get("info_hash") or "").strip().lower()
             d_url = str(st.get("direct_url") or "").strip()
@@ -1676,6 +2360,7 @@ class BackupStreamingEngine:
             cand_st = {
                 "info_hash": ih,
                 "title": str(st.get("filename_hint") or st.get("filename") or st.get("title") or title),
+                "pack_title": str(st.get("title") or ""),
                 "tracker": str(st.get("tracker") or st.get("addon_name") or "Torrentio"),
                 "size": size_st,
                 "seeders": seeders_st,
@@ -1710,24 +2395,101 @@ class BackupStreamingEngine:
                 for c in merged_candidates
                 if int(c.get("seeders") or 0) >= 1 or bool(c.get("direct_url"))
             ]
+        hd_candidates = [
+            c for c in merged_candidates if int(c.get("quality_rank") or 0) >= 120 or bool(c.get("direct_url"))
+        ]
+        if len(hd_candidates) >= 2:
+            merged_candidates = hd_candidates
 
         def _release_sort_key(r: Dict[str, Any]) -> Tuple[Any, ...]:
             is_direct = 1 if r.get("direct_url") else 0
             seeds = int(r.get("seeders") or 0)
             q_rank = int(r.get("quality_rank") or 0)
+            rel_title_str = f"{r.get('title') or ''} {r.get('pack_title') or ''}".strip()
+            is_multi_pack = 1 if (media_type != "series" and self._is_multi_movie_pack(rel_title_str)) else 0
+            single_movie_tier = 0 if is_multi_pack else 1
             healthy_tier = 2 if (is_direct or seeds >= 5) else (1 if seeds >= 1 else 0)
             is_uhd = 1 if q_rank >= 300 else 0
             voices_join = " ".join(str(v) for v in (r.get("voices") or [])).lower()
             has_ru = bool(
                 r.get("has_russian")
-                or any(k in voices_join for k in ("ru", "рус", "дубляж", "hdrezka", "lostfilm", "jaskier", "кубик", "rhs"))
+                or any(
+                    k in voices_join
+                    for k in ("ru", "рус", "дубляж", "многоголос", "авторск", "hdrezka", "lostfilm", "jaskier", "кубик", "rhs")
+                )
             )
             lang_match = (0 if has_ru else 1) if ui_lang == "en" else (1 if has_ru else 0)
-            seed_bucket = min(seeds, 60) // 12
-            return (is_direct, healthy_tier, is_uhd, lang_match, seed_bucket, q_rank, seeds)
+            size_gb = self._parse_size_gb(str(r.get("size") or ""))
+            is_remux = bool(re.search(r"bdremux|remux|\bblu-?ray\s*disc\b|\bbdmv\b", rel_title_str, re.IGNORECASE))
+            if is_direct or debrid_ready:
+                streamable_tier = 3
+            elif media_type == "series":
+                streamable_tier = 1 if is_remux else (3 if (0.0 <= size_gb <= 24.0 and seeds >= 10) else 2)
+            else:
+                if not is_remux and 0.4 <= size_gb <= 18.5 and seeds >= 8:
+                    streamable_tier = 3
+                elif not is_remux and 0.0 <= size_gb <= 28.5:
+                    streamable_tier = 2
+                elif 0.0 <= size_gb <= 45.0:
+                    streamable_tier = 1
+                else:
+                    streamable_tier = 0
+            quality_tier = 3 if q_rank >= 300 else (2 if q_rank >= 180 else (1 if q_rank >= 135 else 0))
+            seed_bucket = min(seeds, 60) // 10
+            trk_low = str(r.get("tracker") or "").lower()
+            is_public_dht_tracker = any(
+                k in trk_low
+                for k in ("rutor", "rutracker", "torrentio", "tpb", "piratebay", "bitsearch", "1337x", "eztv", "yts", "nyaa")
+            )
+            if is_direct or debrid_ready:
+                dht_swarm_tier = 3
+            elif seeds >= 25 or (seeds >= 12 and is_public_dht_tracker):
+                dht_swarm_tier = 2
+            elif seeds >= 5:
+                dht_swarm_tier = 1
+            else:
+                dht_swarm_tier = 0
+            p2p_realtime_viable = (
+                1
+                if (
+                    is_direct
+                    or debrid_ready
+                    or (streamable_tier >= 2 and seeds >= 8)
+                    or seeds >= 25
+                )
+                else 0
+            )
+            effective_q_rank = min(q_rank, 355) if (not is_direct and not debrid_ready) else q_rank
+            return (
+                is_direct,
+                healthy_tier,
+                single_movie_tier,
+                lang_match,
+                p2p_realtime_viable,
+                quality_tier,
+                streamable_tier,
+                dht_swarm_tier,
+                seed_bucket,
+                effective_q_rank,
+                seeds,
+            )
 
         merged_candidates.sort(key=_release_sort_key, reverse=True)
-        top_releases = merged_candidates[:12]
+        uhd_cands = [c for c in merged_candidates if int(c.get("quality_rank") or 0) >= 300]
+        fhd_cands = [c for c in merged_candidates if int(c.get("quality_rank") or 0) < 300]
+        if len(uhd_cands) > 8 and fhd_cands:
+            # Always include up to 4 fastest/highest-seeder 1080p releases alongside the top 8 4K releases
+            # so DHT preflight and automatic player bandwidth step-down always have a fast 1080p option ready!
+            top_releases = uhd_cands[:8] + fhd_cands[:4]
+        else:
+            top_releases = merged_candidates[:12]
+        if torr_alive and not debrid_ready and top_releases:
+            top_releases = self.preflight_rank_torrserver_candidates(
+                top_releases,
+                _release_sort_key,
+                max_probe=5,
+                wait_sec=3.5,
+            )
 
         live_releases: List[Dict[str, Any]] = []
         for idx, rel in enumerate(top_releases):
@@ -1742,6 +2504,7 @@ class BackupStreamingEngine:
             elif debrid_ready and magnet:
                 stream_kind = "debrid"
             elif torr_alive and magnet:
+                rel_t = str(rel.get("title") or "")
                 if media_type == "series":
                     if idx == 0:
                         file_idx = self._resolve_torrserver_file_index(
@@ -1750,16 +2513,31 @@ class BackupStreamingEngine:
                             season,
                             episode,
                             wait_metadata_sec=0.9,
-                            release_title=str(rel.get("title") or ""),
+                            release_title=rel_t,
+                            year=year,
+                            title=title,
+                            orig_title=orig_title,
                         )
                     elif rel.get("stremio_file_idx") is not None:
                         file_idx = max(1, int(rel["stremio_file_idx"]) + 1)
                     else:
                         file_idx = self._infer_pack_relative_file_index(
-                            str(rel.get("title") or ""), season, episode
+                            rel_t, season, episode
                         )
                 elif rel.get("stremio_file_idx") is not None:
                     file_idx = max(1, int(rel["stremio_file_idx"]) + 1)
+                elif idx == 0 and self._is_multi_movie_pack(rel_t):
+                    file_idx = self._resolve_torrserver_file_index(
+                        magnet,
+                        media_type,
+                        season,
+                        episode,
+                        wait_metadata_sec=0.9,
+                        release_title=rel_t,
+                        year=year,
+                        title=title,
+                        orig_title=orig_title,
+                    )
                 else:
                     file_idx = 1
                 fname_seg = urllib.parse.quote(str(rel.get("filename_hint") or "fname").split("/")[-1] or "fname")
@@ -1785,6 +2563,7 @@ class BackupStreamingEngine:
                     "magnet": magnet,
                     "stream_url": stream_url,
                     "stream_kind": stream_kind,
+                    "_dht_verified": rel.get("_dht_verified"),
                 }
             )
 

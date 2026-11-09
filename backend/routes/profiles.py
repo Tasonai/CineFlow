@@ -1,5 +1,5 @@
 """
-CineFlow Profiles Route Handlers
+Velarium Profiles Route Handlers
 Dispatches /api/profiles and /api/profiles/* requests.
 """
 

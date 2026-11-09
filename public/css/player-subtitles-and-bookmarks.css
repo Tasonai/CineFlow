@@ -53,8 +53,7 @@ html.is-tv-mode .type-pill {
 }
 
 @media (max-width: 980px) {
-  #vc-btn-offline-dl,
-  #vc-btn-remote {
+  #vc-btn-offline-dl {
     display: none;
   }
 }
@@ -84,7 +83,7 @@ html.is-tv-mode .type-pill {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: background 0.14s ease, color 0.14s ease;
+  transition: background 0.14s ease-out, color 0.14s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -157,7 +156,7 @@ html.is-tv-mode .type-pill {
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 0.14s ease, color 0.14s ease;
+  transition: background 0.14s ease-out, color 0.14s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -279,45 +278,489 @@ html.is-tv-mode .type-pill {
   color: rgba(255, 255, 255, 0.65);
 }
 
-/* Apple TV-style X-Ray Cast Shelf on Video Pause (disabled — cast shown below player) */
+/* Apple TV-style Deep X-Ray Shelf on Video Pause (Cast, Soundtrack, Trivia) */
+@keyframes atvXrayShelfIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .atv-xray-pause-shelf {
-  display: none !important;
   position: absolute;
   left: 20px;
   right: 20px;
-  bottom: 84px;
+  bottom: 86px;
   z-index: 25;
   background: #141416;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 14px;
   padding: 12px 16px;
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
   transform: translateY(0);
   opacity: 1;
-  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
-  pointer-events: none;
+  transform-origin: bottom center;
+  transition: transform 0.22s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)), opacity 0.18s ease-out;
+  pointer-events: auto;
+}
+
+.atv-xray-pause-shelf:not(.hidden) {
+  animation: atvXrayShelfIn 0.22s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
 .atv-xray-pause-shelf.hidden {
   display: none;
 }
 
-.atv-video-stage.vc-popover-open .atv-xray-pause-shelf {
+.atv-xray-pause-shelf.is-compact {
+  top: 64px;
+  left: 20px;
+  right: auto;
+  bottom: auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  transform-origin: top left;
+}
+
+.atv-xray-pause-shelf.is-compact .atv-xray-header,
+.atv-xray-pause-shelf.is-compact .atv-xray-cast-list,
+.atv-xray-pause-shelf.is-compact .atv-xray-soundtrack-list,
+.atv-xray-pause-shelf.is-compact .atv-xray-trivia-list,
+.atv-xray-pause-shelf.is-compact .atv-xray-carousel-wrap {
+  display: none !important;
+}
+
+.atv-xray-compact-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(460px, calc(100vw - 48px));
+  padding: 6px 11px 6px 8px;
+  border-radius: 999px;
+  background: rgba(20, 20, 24, 0.92);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background-color 160ms ease, border-color 160ms ease;
+}
+
+.atv-xray-compact-pill.hidden {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-xray-compact-pill:hover {
+    background: rgba(30, 30, 36, 0.9);
+    border-color: rgba(255, 255, 255, 0.26);
+    transform: translateY(-1px);
+  }
+}
+
+.atv-xray-compact-pill:active {
+  transform: scale(0.97);
+}
+
+.atv-xray-compact-pill:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.9);
+}
+
+.atv-xray-compact-avatars {
+  display: inline-flex;
+  align-items: center;
+}
+
+.atv-xray-compact-avatars:empty {
+  display: none;
+}
+
+.atv-xray-compact-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid rgba(20, 20, 24, 0.95);
+  margin-left: -5px;
+}
+
+.atv-xray-compact-avatar:first-child {
+  margin-left: 0;
+}
+
+.atv-xray-compact-summary {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.atv-xray-compact-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.atv-video-stage.vc-popover-open .atv-xray-pause-shelf,
+.atv-video-stage.vc-popover-open .atv-next-ep-toast,
+.atv-video-stage.vc-popover-open .atv-skip-btn {
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
+}
+
+.atv-xray-tabs {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 3px;
+  border-radius: 9px;
+}
+
+.atv-xray-tab-btn {
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+.atv-xray-tab-btn.active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+}
+
+.atv-xray-tab-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.88);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-xray-tab-btn:hover:not(.active) {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+
+.atv-xray-soundtrack-list,
+.atv-xray-trivia-list {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+
+.atv-xray-soundtrack-list.hidden,
+.atv-xray-trivia-list.hidden,
+.atv-xray-cast-list.hidden {
+  display: none;
+}
+
+.atv-xray-cast-list.can-scroll-right:not(.can-scroll-left),
+.atv-xray-soundtrack-list.can-scroll-right:not(.can-scroll-left),
+.atv-xray-trivia-list.can-scroll-right:not(.can-scroll-left) {
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 28px), transparent 100%);
+}
+
+.atv-xray-cast-list.can-scroll-left:not(.can-scroll-right),
+.atv-xray-soundtrack-list.can-scroll-left:not(.can-scroll-right),
+.atv-xray-trivia-list.can-scroll-left:not(.can-scroll-right) {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 28px, #000 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 28px, #000 100%);
+}
+
+.atv-xray-cast-list.can-scroll-left.can-scroll-right,
+.atv-xray-soundtrack-list.can-scroll-left.can-scroll-right,
+.atv-xray-trivia-list.can-scroll-left.can-scroll-right {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 24px, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 24px, #000 calc(100% - 24px), transparent 100%);
+}
+
+.atv-xray-track-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 11px;
+  padding: 10px 12px;
+  min-width: 265px;
+  max-width: 340px;
+  flex-shrink: 0;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.atv-xray-track-card.is-playing {
+  background: rgba(253, 224, 71, 0.08);
+  border-color: rgba(253, 224, 71, 0.45);
+}
+
+.atv-xray-track-card.is-in-scene:not(.is-playing) {
+  background: rgba(125, 211, 252, 0.08);
+  border-color: rgba(125, 211, 252, 0.34);
+}
+
+.atv-xray-scene-pill {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1.5px 5.5px;
+  border-radius: 4px;
+  background: rgba(125, 211, 252, 0.18);
+  color: #7dd3fc;
+}
+
+.atv-xray-track-title-row,
+.atv-xray-actor-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.atv-xray-track-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.atv-xray-track-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fde047;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.atv-xray-track-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.atv-xray-track-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.atv-xray-track-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f5f7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-xray-track-artist {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.65);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-xray-track-scene {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.atv-xray-track-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.atv-xray-action-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5f5f7;
+  font-size: 11px;
+  font-weight: 600;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 7px;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.15s ease-out, border-color 0.15s ease-out, color 0.15s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+.atv-xray-icon-pill {
+  width: 26px;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.atv-xray-action-pill.is-playing {
+  background: rgba(253, 224, 71, 0.22);
+  border-color: rgba(253, 224, 71, 0.55);
+  color: #fde047;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-xray-action-pill:hover {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.26);
+  }
+}
+
+.atv-xray-action-pill:focus-visible,
+.atv-xray-trivia-copy:focus-visible,
+.atv-xray-trivia-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.88);
+}
+
+.atv-xray-trivia-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 9px 13px;
+  min-width: 265px;
+  max-width: 360px;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, max-width 0.18s ease;
+}
+
+.atv-xray-trivia-card.is-expanded {
+  max-width: 480px;
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.atv-xray-trivia-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.atv-xray-trivia-badge {
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(125, 211, 252, 0.16);
+  color: #7dd3fc;
+}
+
+.atv-xray-trivia-copy {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-xray-trivia-card:hover {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+  .atv-xray-trivia-copy:hover {
+    color: #f5f5f7;
+    background: rgba(255, 255, 255, 0.12);
+  }
+}
+
+.atv-xray-trivia-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.44;
+  color: rgba(255, 255, 255, 0.86);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.atv-xray-trivia-card.is-expanded .atv-xray-trivia-text {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.atv-xray-empty {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  padding: 6px 2px;
 }
 
 .atv-xray-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-bottom: 10px;
 }
 
 .atv-xray-title-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
 }
 
 .atv-xray-badge {
@@ -331,10 +774,74 @@ html.is-tv-mode .type-pill {
   color: #f5f5f7;
 }
 
+.atv-xray-scene-meta {
+  font-size: 11.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.68);
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.atv-xray-scene-meta.hidden {
+  display: none;
+}
+
 .atv-xray-title {
   font-size: 13px;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.85);
+}
+
+.atv-xray-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.atv-xray-nav-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.82);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease, transform 140ms cubic-bezier(0.23, 1, 0.32, 1), opacity 150ms ease;
+}
+
+.atv-xray-nav-btn.is-hidden {
+  display: none;
+}
+
+.atv-xray-nav-btn:disabled {
+  opacity: 0.32;
+  cursor: default;
+  pointer-events: none;
+}
+
+.atv-xray-nav-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.9);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-xray-nav-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.22);
+    color: #ffffff;
+  }
+}
+
+.atv-xray-nav-btn:active:not(:disabled) {
+  transform: scale(0.94);
 }
 
 .atv-xray-close {
@@ -385,21 +892,33 @@ html.is-tv-mode .type-pill {
 .atv-xray-actor-card {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  padding: 7px 14px;
+  border-radius: 12px;
+  padding: 6px 13px 6px 7px;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
   outline: none;
-  transition: background 0.18s ease, transform 0.18s ease;
+  text-align: left;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.atv-xray-actor-card.is-director {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.atv-xray-actor-card.is-in-scene {
+  background: rgba(125, 211, 252, 0.08);
+  border-color: rgba(125, 211, 252, 0.34);
 }
 
 @media (hover: hover) and (pointer: fine) {
   .atv-xray-actor-card:hover {
-    background: rgba(255, 255, 255, 0.13);
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.24);
     transform: translateY(-1px);
   }
 }
@@ -410,27 +929,70 @@ html.is-tv-mode .type-pill {
 }
 
 .atv-xray-actor-avatar {
-  display: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #242427;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  flex-shrink: 0;
+  display: block;
+}
+
+.atv-xray-actor-monogram {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #242427;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #f5f5f7;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  user-select: none;
 }
 
 .atv-xray-actor-info {
   display: flex;
   flex-direction: column;
   line-height: 1.25;
+  max-width: 240px;
+  min-width: 0;
 }
 
 .atv-xray-actor-name {
   font-size: 13px;
   font-weight: 600;
   color: #f5f5f7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .atv-xray-actor-role {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Apple TV Floating Next Episode Toast at Detected Credits */
+@keyframes atvNextEpToastIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
 .atv-next-ep-toast {
   position: absolute;
   bottom: 86px;
@@ -445,9 +1007,14 @@ html.is-tv-mode .type-pill {
   border-radius: 14px;
   padding: 10px 14px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
-  max-width: 480px;
-  width: 90%;
-  transition: opacity 0.25s ease-out, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 520px;
+  width: 92%;
+  transform-origin: bottom center;
+  transition: opacity 0.22s ease-out, transform 0.22s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+.atv-next-ep-toast:not(.hidden) {
+  animation: atvNextEpToastIn 0.22s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
 .atv-next-ep-toast.hidden {
@@ -523,6 +1090,9 @@ html.is-tv-mode .type-pill {
 .atv-next-ep-sub {
   font-size: 12px;
   color: rgba(235, 235, 245, 0.72);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .atv-next-ep-actions {
@@ -680,7 +1250,7 @@ html.is-tv-mode .type-pill {
   color: rgba(245, 245, 247, 0.88);
   text-align: left;
   cursor: pointer;
-  transition: background 0.14s ease, color 0.14s ease;
+  transition: background 0.14s ease-out, color 0.14s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -745,6 +1315,17 @@ html.is-tv-mode .type-pill {
 }
 
 /* Interactive Click-to-Translate Subtitle Words & Dictionary Popover */
+@keyframes atvSubDictPopoverIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) scale(1) translateY(0);
+  }
+}
+
 .atv-sub-dict-popover {
   position: absolute;
   left: 50%;
@@ -762,6 +1343,10 @@ html.is-tv-mode .type-pill {
   transform-origin: bottom center;
 }
 
+.atv-sub-dict-popover:not(.hidden) {
+  animation: atvSubDictPopoverIn 0.16s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
 .atv-sub-dict-popover.hidden {
   display: none !important;
 }
@@ -774,14 +1359,30 @@ html.is-tv-mode .type-pill {
   margin-bottom: 6px;
 }
 
+.atv-sub-dict-word-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.atv-sub-dict-arrow {
+  display: inline-flex;
+  align-items: center;
+  color: rgba(235, 235, 245, 0.5);
+  flex-shrink: 0;
+}
+
 .atv-sub-dict-word {
   font-size: 16px;
   font-weight: 700;
   color: #ffffff;
   letter-spacing: -0.01em;
   min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
 }
 
 .atv-sub-dict-close {
@@ -798,7 +1399,7 @@ html.is-tv-mode .type-pill {
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.15s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)), color 0.15s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1));
+  transition: background 0.15s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)), color 0.15s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1)), transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 .atv-sub-dict-close::before {
@@ -840,8 +1441,9 @@ html.is-tv-mode .type-pill {
   font-weight: 600;
   color: #86efac;
   min-width: 0;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
 }
 
 .atv-sub-dict-alts {
@@ -964,25 +1566,36 @@ html.is-tv-mode .type-pill {
 .atv-vocab-item-head {
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: 10px;
+  min-width: 0;
 }
 
 .atv-vocab-item-word {
   font-size: 16px;
   font-weight: 700;
   color: #ffffff;
+  overflow-wrap: break-word;
 }
 
 .atv-vocab-item-trans {
   font-size: 14px;
   font-weight: 600;
   color: #86efac;
+  overflow-wrap: break-word;
+}
+
+.atv-vocab-item-alts {
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.58);
+  overflow-wrap: break-word;
 }
 
 .atv-vocab-item-ctx {
   font-size: 12.5px;
   color: rgba(245, 245, 247, 0.75);
   line-height: 1.4;
+  overflow-wrap: break-word;
 }
 
 .atv-vocab-item-meta {
@@ -993,6 +1606,7 @@ html.is-tv-mode .type-pill {
 .atv-vocab-del-btn {
   background: transparent;
   border: none;
+  outline: none;
   color: rgba(245, 245, 247, 0.4);
   cursor: pointer;
   padding: 4px;
@@ -1000,7 +1614,13 @@ html.is-tv-mode .type-pill {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.15s, background 0.15s;
+  transition: color 0.15s ease-out, background 0.15s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+.atv-vocab-del-btn:focus-visible {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.65);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1026,7 +1646,19 @@ html.is-tv-mode .type-pill {
 .atv-cselect-btn:active:not(:disabled),
 .atv-remote-sec-btn:active:not(:disabled),
 .atv-remote-icon-btn:active:not(:disabled),
-.atv-remote-mode-btn:active:not(:disabled) {
+.atv-remote-mode-btn:active:not(:disabled),
+.atv-xray-tab-btn:active:not(:disabled),
+.atv-xray-action-pill:active:not(:disabled),
+.atv-xray-actor-card:active:not(:disabled),
+.atv-vc-ep-season-pill:active:not(:disabled),
+.atv-vc-ep-row:active:not(:disabled),
+.atv-vocab-del-btn:active:not(:disabled),
+.atv-vc-bookmark-btn:active:not(:disabled),
+.atv-vc-icon-btn-ghost:active:not(:disabled),
+.atv-vc-bm-jump:active:not(:disabled),
+.atv-vc-bm-edit:active:not(:disabled),
+.atv-vc-bm-del:active:not(:disabled),
+.atv-vc-footer-link:active:not(:disabled) {
   transform: scale(0.97);
 }
 
@@ -1047,6 +1679,22 @@ input[type="range"]:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.9), 0 0 0 4px rgba(255, 255, 255, 0.22);
   border-radius: 999px;
+}
+
+[role="tab"]:focus-visible,
+[role="option"]:focus-visible,
+[role="slider"]:focus-visible,
+[role="menuitem"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(245, 245, 247, 0.88);
+}
+
+.atv-vc-popover,
+.atv-gear-popover,
+.atv-sub-dict-popover,
+.atv-vc-ep-list,
+.atv-vocab-body {
+  overscroll-behavior: contain;
 }
 
 /* ==========================================================================
@@ -1097,6 +1745,7 @@ input[type="range"]:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
 }
 
 .atv-bookmark-title-wrap h4,
@@ -1105,6 +1754,10 @@ input[type="range"]:focus-visible {
   font-weight: 600;
   color: #f5f5f7;
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .atv-bookmark-badge,
@@ -1245,6 +1898,7 @@ input[type="range"]:focus-visible {
   cursor: pointer;
   padding: 0;
   text-align: left;
+  transition: transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 .atv-vc-bookmark-btn .atv-vc-time {
@@ -1281,13 +1935,87 @@ input[type="range"]:focus-visible {
   outline: none;
   color: rgba(235, 235, 245, 0.45);
   cursor: pointer;
-  transition: background 0.14s, color 0.14s;
+  transition: background 0.14s ease-out, color 0.14s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 @media (hover: hover) and (pointer: fine) {
   .atv-vc-icon-btn-ghost:hover {
     background: rgba(255, 255, 255, 0.08);
     color: #f5f5f7;
+  }
+}
+
+.atv-vc-bookmarks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.atv-vc-bm-jump {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  padding: 4px 2px;
+  text-align: left;
+  color: #f5f5f7;
+  transition: transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+.atv-vc-bm-time {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+  background: rgba(255, 255, 255, 0.12);
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.atv-vc-bm-note {
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.78);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-vc-bm-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.atv-vc-bm-edit,
+.atv-vc-bm-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  outline: none;
+  color: rgba(245, 245, 247, 0.76);
+  cursor: pointer;
+  transition: background 0.14s ease-out, color 0.14s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-vc-bm-edit:hover,
+  .atv-vc-bm-del:hover {
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
   }
 }
 
@@ -1311,7 +2039,7 @@ input[type="range"]:focus-visible {
   font-size: 11.5px;
   cursor: pointer;
   border-radius: 6px;
-  transition: background 0.14s, color 0.14s;
+  transition: background 0.14s ease-out, color 0.14s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 @media (hover: hover) and (pointer: fine) {

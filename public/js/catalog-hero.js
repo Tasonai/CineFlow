@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
 import {
   displayBackdrop,
   displayCountries,
@@ -8,32 +8,34 @@ import {
   isEn,
   t,
   translateGenre,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   cssUrl,
   escapeHtml,
   iconSvg,
   setAmbientColor,
-} from "./utils.js?v=20261105v5";
-import { openQuickPeekModal } from "./modals.js?v=20261105v5";
-import { openPlayerModal } from "./player.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
+import { openQuickPeekModal } from "./modals.js?v=20261108v19";
+import { openPlayerModal } from "./player.js?v=20261108v19";
 import {
   _hashItemKey,
   filterCatalogItemsByGenreAndYear,
   seededShuffle,
-} from "./catalog-filters.js?v=20261105v5";
+} from "./catalog-filters.js?v=20261108v19";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261105v5";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261105v5";
+} from "./catalog-media-resolver.js?v=20261108v19";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261108v19";
 
-const LAST_HERO_ID_STORAGE_KEY = "cineflow_last_hero_id";
+const LAST_HERO_ID_STORAGE_KEY = "velarium_last_hero_id";
 let _heroRecordedThisLaunch = false;
+let _lastHeroPoolSig = "";
 
 export function resetHeroRecordedThisLaunch() {
   _heroRecordedThisLaunch = false;
+  _lastHeroPoolSig = "";
 }
 
 let _heroTeaserTimer = null;
@@ -42,6 +44,15 @@ let _heroTeaserAbort = null;
 let _heroTeaserMsgHandler = null;
 
 export function stopHeroAmbientTeaser() {
+  if (
+    !_heroTeaserTimer &&
+    !_heroTeaserRevealTimer &&
+    !_heroTeaserAbort &&
+    !_heroTeaserMsgHandler &&
+    !state.heroTeaserPlaying
+  ) {
+    return;
+  }
   if (_heroTeaserTimer) {
     clearTimeout(_heroTeaserTimer);
     _heroTeaserTimer = null;
@@ -257,11 +268,21 @@ export function stopHeroAutoTimer() {
     clearInterval(state.heroTimerId);
     state.heroTimerId = null;
   }
+  if (state.heroSlideFadeTimer) {
+    clearTimeout(state.heroSlideFadeTimer);
+    state.heroSlideFadeTimer = null;
+  }
+  if (typeof document !== "undefined") {
+    document.getElementById("hero-banner")?.classList.remove("hero-fading");
+  }
   stopHeroAmbientTeaser();
 }
 
 export function startHeroAutoTimer() {
-  stopHeroAutoTimer();
+  if (state.heroTimerId) {
+    clearInterval(state.heroTimerId);
+    state.heroTimerId = null;
+  }
   if (!state.heroItems || state.heroItems.length <= 1) return;
   if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
     return;
@@ -321,8 +342,7 @@ export function renderHeroSlide(idx, smooth = false) {
       : "";
     const typeLabel = featured.media_type === "series" ? t("Сериал", "Series") : t("Фильм", "Movie");
     const genresText = (featured.genres || []).slice(0, 2).map(translateGenre).join(", ");
-    const countryLabel = displayCountries(featured);
-    const kickerParts = [typeLabel, genresText, countryLabel, featured.year, scorePart].filter(Boolean);
+    const kickerParts = [typeLabel, genresText, featured.year, scorePart].filter(Boolean);
 
     let heroPrimaryHtml = `${iconSvg("play", 13)}<span>${t("Смотреть", "Watch")}</span>`;
     if (primaryTab === "offline") {
@@ -445,31 +465,49 @@ export function renderHeroSlide(idx, smooth = false) {
       controlsWrap.classList.toggle("hidden", list.length <= 1);
       dotsWrap.setAttribute("role", "tablist");
       dotsWrap.setAttribute("aria-label", t("Слайды витрины", "Hero slides"));
-      dotsWrap.innerHTML = "";
-      list.forEach((itemSlide, dotIdx) => {
-        const dot = document.createElement("button");
-        dot.type = "button";
-        dot.setAttribute("role", "tab");
-        dot.setAttribute("aria-selected", dotIdx === idx ? "true" : "false");
-        const slideTitle = displayTitle(itemSlide) || `${t("Слайд", "Slide")} ${dotIdx + 1}`;
-        dot.setAttribute("aria-label", slideTitle);
-        dot.className = `atv-hero-dot${dotIdx === idx ? " active" : ""}`;
-        dot.title = slideTitle;
-        dot.onclick = (e) => {
-          e.stopPropagation();
-          if (state.heroIndex === dotIdx) return;
-          state.heroIndex = dotIdx;
-          renderHeroSlide(dotIdx, true);
-          startHeroAutoTimer();
-        };
-        dotsWrap.appendChild(dot);
-      });
+      if (dotsWrap.childElementCount === list.length) {
+        const dotBtns = dotsWrap.children;
+        for (let dotIdx = 0; dotIdx < dotBtns.length; dotIdx++) {
+          const dot = dotBtns[dotIdx];
+          const isAct = dotIdx === idx;
+          dot.classList.toggle("active", isAct);
+          dot.setAttribute("aria-selected", isAct ? "true" : "false");
+          const slideTitle = displayTitle(list[dotIdx]) || `${t("Слайд", "Slide")} ${dotIdx + 1}`;
+          dot.setAttribute("aria-label", slideTitle);
+          dot.title = slideTitle;
+        }
+      } else {
+        dotsWrap.innerHTML = "";
+        list.forEach((itemSlide, dotIdx) => {
+          const dot = document.createElement("button");
+          dot.type = "button";
+          dot.setAttribute("role", "tab");
+          dot.setAttribute("aria-selected", dotIdx === idx ? "true" : "false");
+          const slideTitle = displayTitle(itemSlide) || `${t("Слайд", "Slide")} ${dotIdx + 1}`;
+          dot.setAttribute("aria-label", slideTitle);
+          dot.className = `atv-hero-dot${dotIdx === idx ? " active" : ""}`;
+          dot.title = slideTitle;
+          dot.onclick = (e) => {
+            e.stopPropagation();
+            if (state.heroIndex === dotIdx) return;
+            state.heroIndex = dotIdx;
+            renderHeroSlide(dotIdx, true);
+            startHeroAutoTimer();
+          };
+          dotsWrap.appendChild(dot);
+        });
+      }
     }
   };
 
+  if (state.heroSlideFadeTimer) {
+    clearTimeout(state.heroSlideFadeTimer);
+    state.heroSlideFadeTimer = null;
+  }
   if (smooth) {
     heroSection.classList.add("hero-fading");
-    setTimeout(() => {
+    state.heroSlideFadeTimer = setTimeout(() => {
+      state.heroSlideFadeTimer = null;
       applyContent();
       requestAnimationFrame(() => heroSection.classList.remove("hero-fading"));
       scheduleHeroAmbientTeaser(featured);
@@ -481,7 +519,7 @@ export function renderHeroSlide(idx, smooth = false) {
   }
 }
 
-export function renderHero() {
+export function renderHero(preFilteredItems = null) {
   const heroSection = document.getElementById("hero-banner");
   if (!heroSection) return;
 
@@ -511,7 +549,10 @@ export function renderHero() {
     );
   };
 
-  const activePool = filterCatalogItemsByGenreAndYear(state.catalogItems).filter((it) => {
+  const filteredCandidates = Array.isArray(preFilteredItems)
+    ? preFilteredItems
+    : filterCatalogItemsByGenreAndYear(state.catalogItems);
+  const activePool = filteredCandidates.filter((it) => {
     if (state.mediaTypeFilter === "movie") return it.media_type === "movie";
     if (state.mediaTypeFilter === "series") return it.media_type === "series";
     return true;
@@ -522,6 +563,26 @@ export function renderHero() {
       ? basePool.filter((it) => it && it.primary_provider === state.providerFilter)
       : [];
   const sourcePool = provPrimaryPool.length > 0 ? provPrimaryPool : basePool;
+
+  const poolSig = `${state.appLang || "ru"}:${sourcePool.length}:${sourcePool[0]?.id || ""}:${sourcePool[sourcePool.length - 1]?.id || ""}:${state.mediaTypeFilter}:${state.providerFilter}:${state.genreFilter}:${state.yearFilter}:${state.collectionFilter || "all"}:${state.kinoriumSection || "all"}:${state.hideWatched ? 1 : 0}:${state.friendsFilter ? 1 : 0}:${state.selectedFriend || ""}`;
+  if (poolSig === _lastHeroPoolSig && Array.isArray(state.heroItems) && state.heroItems.length > 0) {
+    if (state.heroIndex >= state.heroItems.length) {
+      state.heroIndex = 0;
+    }
+    const curHero = state.heroItems[state.heroIndex];
+    const slideSig = curHero
+      ? `${curHero.id || ""}|${state.appLang || "ru"}|${curHero.kinorium?.in_watchlist ? 1 : 0}|${curHero.kinorium?.watched ? 1 : 0}|${curHero.kinorium?.watching ? 1 : 0}|${curHero.kinorium?.user_rating || 0}`
+      : "";
+    if (state._lastHeroSlideSig !== slideSig) {
+      state._lastHeroSlideSig = slideSig;
+      renderHeroSlide(state.heroIndex, false);
+    }
+    if (!state.heroTimerId) {
+      startHeroAutoTimer();
+    }
+    return;
+  }
+  _lastHeroPoolSig = poolSig;
 
   const widescreenCandidates = seededShuffle(
     sourcePool.filter(hasTrueWidescreenBackdrop),
@@ -534,6 +595,7 @@ export function renderHero() {
   const startWithMovie = (_hashItemKey("hero_lead_type", 77) & 1) === 1;
   const maxLen = Math.max(widescreenMovies.length, widescreenSeries.length);
   for (let idx = 0; idx < maxLen; idx++) {
+    if (picked.length >= 6) break;
     if (startWithMovie) {
       if (widescreenMovies[idx]) pushUnique(widescreenMovies[idx]);
       if (widescreenSeries[idx]) pushUnique(widescreenSeries[idx]);
@@ -543,8 +605,12 @@ export function renderHero() {
     }
   }
 
-  seededShuffle(sourcePool.filter((i) => i.backdrop), 103).forEach(pushUnique);
-  seededShuffle(sourcePool, 105).forEach(pushUnique);
+  if (picked.length < 6) {
+    seededShuffle(sourcePool.filter((i) => i.backdrop), 103).forEach(pushUnique);
+  }
+  if (picked.length < 6) {
+    seededShuffle(sourcePool, 105).forEach(pushUnique);
+  }
 
   if (picked.length > 1) {
     try {

@@ -1,5 +1,5 @@
 """
-CineFlow System Service
+Velarium System Service
 Encapsulates system status monitoring, hardware capability detection,
 QR code generation, and dynamic LAN HTTP listener synchronization.
 """
@@ -51,7 +51,9 @@ def build_system_status_payload(
 
     macos_app_built = False
     if base_dir:
-        macos_app_built = os.path.isdir(os.path.join(base_dir, "dist", "CineFlow.app"))
+        macos_app_built = os.path.isdir(os.path.join(base_dir, "dist", "Velarium.app")) or os.path.isdir(
+            os.path.join(base_dir, "dist", "CineFlow.app")
+        )
 
     norm_lang = (
         norm_lang_fn(app_prefs.get("app_lang"), "ru")
@@ -73,7 +75,7 @@ def build_system_status_payload(
     )
 
     return {
-        "app": "cineflow",
+        "app": "velarium",
         "version": app_version,
         "platform": sys.platform,
         "is_macos": sys.platform == "darwin",
@@ -133,7 +135,7 @@ def sync_lan_listener(
                 srv_to_close.server_close()
             except Exception:
                 pass
-        threading.Thread(target=_shut_srv, args=(existing,), daemon=True, name="CineFlowLanShutdown").start()
+        threading.Thread(target=_shut_srv, args=(existing,), daemon=True, name="VelariumLanShutdown").start()
 
     if lan_enabled and lan_ip:
         try:
@@ -145,11 +147,11 @@ def sync_lan_listener(
             threading.Thread(
                 target=lan_srv.serve_forever,
                 kwargs={"poll_interval": poll_interval},
-                name="CineFlowLanHTTP",
+                name="VelariumLanHTTP",
                 daemon=True,
             ).start()
         except Exception as exc:
-            sys.stderr.write(f"[CineFlow] Failed to bind LAN listener on {lan_ip}:{port}: {exc}\n")
+            sys.stderr.write(f"[Velarium] Failed to bind LAN listener on {lan_ip}:{port}: {exc}\n")
 
 
 class SystemService:

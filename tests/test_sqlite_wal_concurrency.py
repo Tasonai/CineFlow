@@ -1,5 +1,5 @@
 """
-Tests for CineFlowStorageDB SQLite WAL concurrency and thread-local read connections.
+Tests for VelariumStorageDB SQLite WAL concurrency and thread-local read connections.
 Verifies that readers do not block on active writer locks and concurrent reads scale without serialization.
 """
 
@@ -9,13 +9,13 @@ import tempfile
 import threading
 import time
 import unittest
-from backend.storage_db import CineFlowStorageDB
+from backend.storage_db import VelariumStorageDB
 
 
 class TestSQLiteWALConcurrency(unittest.TestCase):
     def setUp(self):
-        self.tmp_dir = tempfile.mkdtemp(prefix="cineflow_db_test_")
-        self.db = CineFlowStorageDB(self.tmp_dir)
+        self.tmp_dir = tempfile.mkdtemp(prefix="velarium_db_test_")
+        self.db = VelariumStorageDB(self.tmp_dir)
 
     def tearDown(self):
         self.db.close()

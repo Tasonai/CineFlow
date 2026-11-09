@@ -282,6 +282,40 @@
   margin: 0 0 12px;
 }
 
+.atv-paid-services-details {
+  margin-top: 2px;
+  border-bottom: none;
+}
+
+.atv-paid-services-details > summary {
+  padding: 12px 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(235, 235, 245, 0.72);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.atv-paid-services-details[open] > summary {
+  color: #f5f5f7;
+}
+
+.atv-paid-services-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.kin-manual-details {
+  margin-top: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: none;
+}
+
+.kin-manual-details > summary {
+  padding: 8px 0 4px;
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.64);
+}
+
 .atv-set-field {
   display: flex;
   align-items: center;
@@ -292,7 +326,10 @@
 .atv-set-field > label {
   font-size: 12px;
   color: var(--text-tertiary);
-  flex-shrink: 0;
+  flex: 1 1 180px;
+  min-width: 0;
+  line-height: 1.35;
+  text-wrap: pretty;
 }
 
 .atv-set-field > input {
@@ -527,6 +564,10 @@
   outline: none;
 }
 
+.atv-backup-paste-textarea:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-blue);
+}
+
 .atv-backup-paste-actions {
   display: flex;
   align-items: center;
@@ -582,8 +623,61 @@
 .atv-about-desc {
   font-size: 13px;
   line-height: 1.58;
-  max-width: 65ch;
-  color: rgba(235, 235, 245, 0.78);
+  max-width: 68ch;
+  color: rgba(235, 235, 245, 0.84);
+}
+
+.atv-about-features {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.atv-about-features-heading {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(235, 235, 245, 0.56);
+}
+
+.atv-about-features-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.atv-about-feature-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.atv-about-feature-item:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.atv-about-feature-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f5f5f7;
+  line-height: 1.35;
+}
+
+.atv-about-feature-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(235, 235, 245, 0.72);
 }
 
 .atv-about-list {
@@ -663,7 +757,8 @@
   gap: 10px;
 }
 
-.atv-spinner-inline {
+.atv-spinner-inline,
+.atv-spinner-sm {
   width: 15px;
   height: 15px;
   border-width: 2px;
@@ -1637,7 +1732,8 @@
   flex-wrap: wrap;
 }
 
-.atv-about-update-info {
+.atv-about-update-info,
+.atv-about-update-title-col {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1645,14 +1741,16 @@
   flex: 1 1 auto;
 }
 
-.atv-about-update-title-row {
+.atv-about-update-title-row,
+.atv-about-update-head-row {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.atv-about-update-heading {
+.atv-about-update-heading,
+.atv-about-update-head-row strong {
   font-size: 13.5px;
   font-weight: 600;
   color: #f5f5f7;
@@ -1713,13 +1811,27 @@
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #f5f5f7, #86efac);
-  transition: width 0.25s ease;
 }
 
-.atv-about-update-progress-text {
+.atv-about-update-progress-text,
+.atv-about-update-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: rgba(235, 235, 245, 0.7);
+}
+
+#ob-kinorium-manual-details {
+  margin-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: none;
+}
+
+#ob-kinorium-manual-details > .atv-ob-kin-fields {
+  padding-top: 6px;
 }
 
 .atv-about-update-notes {

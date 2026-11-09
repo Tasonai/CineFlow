@@ -1,5 +1,5 @@
 """
-CineFlow Kinorium Person & Filmography Parsers.
+Velarium Kinorium Person & Filmography Parsers.
 
 Extracts structured artist profiles, biographies, career roles, and filmography sections
 from Kinorium JSON search API responses and HTML artist pages (schema.org LD-JSON + DOM).
@@ -113,6 +113,7 @@ def parse_search_persons_and_movies(raw_json: str) -> Dict[str, List[Dict[str, A
                 rat_f = 0.0
             movies.append(
                 {
+                    "id": f"kin_{eid}",
                     "kinorium_id": eid,
                     "title": ru_title,
                     "orig_title": orig_title,

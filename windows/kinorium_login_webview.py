@@ -8,7 +8,7 @@ Supports:
 3. Chromium `--app` + CDP cookie capture using the user's default Chromium browser (or installed
    Chrome / Brave / Vivaldi / Edge fallback), including HttpOnly session cookies.
 4. Optional pywebview fallback.
-Prints `CINEFLOW_KINORIUM_AUTH:{...}` JSON to stdout as soon as user logs into kinorium.com.
+Prints `VELARIUM_KINORIUM_AUTH:{...}` JSON to stdout as soon as user logs into kinorium.com.
 """
 
 import base64
@@ -32,7 +32,7 @@ import webbrowser
 from typing import Any, Dict, List, Optional, Tuple
 
 
-RESULT_PREFIX = "CINEFLOW_KINORIUM_AUTH:"
+RESULT_PREFIX = "VELARIUM_KINORIUM_AUTH:"
 
 AUTO_OPEN_LOGIN_JS = """
 (function() {
@@ -268,8 +268,10 @@ def find_default_browser() -> Tuple[str, str]:
                 for h in pl.get("LSHandlers") or []:
                     if not isinstance(h, dict):
                         continue
-                    if h.get("LSHandlerURLScheme") == "https":
-                        role = str(h.get("LSHandlerRoleAll") or "").lower().strip()
+                    scheme = str(h.get("LSHandlerURLScheme") or "").lower().strip()
+                    ctype = str(h.get("LSHandlerContentType") or "").lower().strip()
+                    if scheme in ("https", "http") or ctype in ("public.html", "public.xhtml"):
+                        role = str(h.get("LSHandlerRoleAll") or h.get("LSHandlerRoleViewer") or "").lower().strip()
                         if role in bundle_map:
                             exe_path, fam = bundle_map[role]
                             if os.path.isfile(exe_path):
@@ -444,23 +446,28 @@ def read_gecko_kinorium_cookies(db_path: str) -> Optional[Dict[str, Any]]:
     try:
         dst_db = os.path.join(tmp_dir, "cookies.sqlite")
         shutil.copy2(db_path, dst_db)
-        for suffix in ("-wal", "-shm"):
-            src_extra = db_path + suffix
-            if os.path.isfile(src_extra):
-                try:
-                    shutil.copy2(src_extra, dst_db + suffix)
-                except Exception:
-                    pass
+        src_wal = db_path + "-wal"
+        if os.path.isfile(src_wal):
+            try:
+                shutil.copy2(src_wal, dst_db + "-wal")
+            except Exception:
+                pass
 
-        conn = sqlite3.connect(dst_db, timeout=2.0)
-        try:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT name, value, host, lastAccessed, expiry FROM moz_cookies WHERE host LIKE '%kinorium.%'"
-            )
-            rows = cur.fetchall()
-        finally:
-            conn.close()
+        rows = []
+        for _attempt in range(3):
+            try:
+                conn = sqlite3.connect(dst_db, timeout=2.0)
+                try:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT name, value, host, lastAccessed, expiry FROM moz_cookies WHERE host LIKE '%kinorium.%'"
+                    )
+                    rows = cur.fetchall()
+                finally:
+                    conn.close()
+                break
+            except Exception:
+                time.sleep(0.05)
 
         if not rows:
             return None
@@ -518,6 +525,16 @@ def read_gecko_kinorium_cookies(db_path: str) -> Optional[Dict[str, Any]]:
 
 
 def _open_url_in_default_browser(browser_exe: str, url: str) -> None:
+    if sys.platform == "darwin":
+        try:
+            subprocess.Popen(
+                ["/usr/bin/open", url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return
+        except Exception:
+            pass
     try:
         if browser_exe and os.path.isfile(browser_exe):
             subprocess.Popen(
@@ -542,12 +559,13 @@ def _run_gecko_default_browser_login(
 ) -> int:
     """
     Signs into Kinorium using the user's Gecko-based default browser (e.g. Zen Browser or Firefox):
-    - If the user is connecting for the first time (`not has_existing_cookie`) or switching to an account
-      that is already signed into their default browser (`uid != current_uid`), imports the session immediately.
-    - If the user is already connected as `current_uid` with a cookie and clicked 'Войти через Kinorium'
-      again (e.g. to switch to a different account or re-authenticate), opens Kinorium in their default
-      browser and waits for a new or updated login session in `cookies.sqlite`.
+    Always opens Kinorium in the user's default browser so the flow is visible and transparent,
+    and captures the authenticated session from `cookies.sqlite` immediately if already signed in
+    or as soon as the user completes sign-in.
     """
+    login_url = url.rstrip("/") + "/#login"
+    _open_url_in_default_browser(browser_exe, login_url)
+
     dbs = find_gecko_cookie_dbs()
     initial_snapshots: Dict[str, Dict[str, Any]] = {}
     for db_p in dbs:
@@ -556,6 +574,7 @@ def _run_gecko_default_browser_login(
             initial_snapshots[db_p] = info
             uid_found = str(info["user_id"])
             if not has_existing_cookie or (current_uid and uid_found != current_uid) or not current_uid:
+                time.sleep(0.15)
                 emit_result(
                     {
                         "ok": True,
@@ -566,13 +585,10 @@ def _run_gecko_default_browser_login(
                 )
                 return 0
 
-    login_url = url.rstrip("/") + "/#login"
-    _open_url_in_default_browser(browser_exe, login_url)
-
     deadline = time.time() + 300.0
     start_ts = time.time()
     while time.time() < deadline:
-        time.sleep(1.2)
+        time.sleep(0.6)
         for db_p in find_gecko_cookie_dbs():
             info = read_gecko_kinorium_cookies(db_p)
             if not info or not info.get("user_id"):
@@ -589,12 +605,12 @@ def _run_gecko_default_browser_login(
                     }
                 )
                 return 0
-            # Accept if user switched account, or re-logged in (new auth/session token), or after 8s if valid
+            # Accept if user switched account, or re-logged in (new auth/session token), or after 3.5s if valid
             if (
                 uid_now != str(prev.get("user_id") or "")
                 or info.get("auth_val") != prev.get("auth_val")
                 or info.get("session_val") != prev.get("session_val")
-                or (time.time() - start_ts > 8.0 and info.get("last_accessed", 0) > prev.get("last_accessed", 0))
+                or (time.time() - start_ts > 3.5)
             ):
                 emit_result(
                     {
@@ -810,7 +826,7 @@ def _format_cdp_cookies(raw_cookies: List[Dict[str, Any]], fallback_doc_cookie: 
 
 def _run_chromium_cdp_login(browser_exe: str, url: str) -> int:
     port = _pick_free_loopback_port()
-    temp_profile = tempfile.mkdtemp(prefix="cineflow_kinorium_auth_")
+    temp_profile = tempfile.mkdtemp(prefix="velarium_kinorium_auth_")
     proc: Optional[subprocess.Popen] = None
     cleaned = False
     parent_closed = threading.Event()
@@ -1104,7 +1120,7 @@ def main() -> int:
             current_uid = str(cli_args[idx + 1] or "").strip()
 
     url = "https://en.kinorium.com/" if is_en else "https://ru.kinorium.com/"
-    title = "Sign in to Kinorium — CineFlow" if is_en else "Вход в Kinorium — CineFlow"
+    title = "Sign in to Kinorium — Velarium" if is_en else "Вход в Kinorium — Velarium"
 
     if not prefer_pywebview:
         def_exe, def_fam = find_default_browser()

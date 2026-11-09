@@ -1,56 +1,58 @@
-// CineFlow Catalog Shelves & Carousels Subsystem
+// Velarium Catalog Shelves & Carousels Subsystem
 // Manages "Continue Watching", "Curated Collections" (Friends' picks, In your taste,
 // Short movies tonight, Top Kinorium/IMDb), and separated/unified catalog shelves.
 
-import { state } from "./state.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
 import {
   displayBackdrop,
   displayPoster,
   displayTitle,
+  formatRussianTypography,
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
   escapeHtml,
   formatTime,
   getEpisodeProgress,
+  getLocalProgressEpoch,
   iconSvg,
   matchCatalogItemSafe,
   showToast,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
 import {
   buildPersonPhotoCard,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261105v5";
+} from "./modals.js?v=20261108v19";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
   renderPosterCardsInto,
-} from "./catalog-cards.js?v=20261105v5";
+} from "./catalog-cards.js?v=20261108v19";
 import {
   filterCatalogItemsByGenreAndYear,
   sortCatalogItems,
-} from "./catalog-filters.js?v=20261105v5";
+} from "./catalog-filters.js?v=20261108v19";
 import {
   formatRemainingTime,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261105v5";
-import { renderHero } from "./catalog-hero.js?v=20261105v5";
-import { renderNotificationsBell, renderReleaseCalendarShelf } from "./catalog-notifications.js?v=20261105v5";
+} from "./catalog-media-resolver.js?v=20261108v19";
+import { renderHero } from "./catalog-hero.js?v=20261108v19";
+import { renderNotificationsBell, renderReleaseCalendarShelf } from "./catalog-notifications.js?v=20261108v19";
 import {
   clearCatalogFrontendCache,
   loadCatalog,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261105v5";
-import { getOfflineCatalogItems } from "./features-downloads.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
+import { getOfflineCatalogItems } from "./features-downloads.js?v=20261108v19";
 
 export function renderContinueWatching() {
   renderNotificationsBell();
@@ -88,13 +90,14 @@ export function renderContinueWatching() {
     visibleCw.length === 0
   ) {
     section.classList.add("hidden");
+    grid._cwRenderSig = "";
     return;
   }
   if (headingEl) {
     headingEl.textContent =
       state.mediaTypeFilter === "movie"
         ? t("Продолжить просмотр фильмов", "Continue Watching Movies")
-        : t("Новые серии и продолжить просмотр", "New Episodes & Continue Watching");
+        : t("Продолжить просмотр", "Continue Watching");
   }
   if (headerWrap) {
     let restoreBtn = document.getElementById("btn-restore-cw-hidden");
@@ -143,10 +146,15 @@ export function renderContinueWatching() {
     }
   }
   section.classList.remove("hidden");
-  grid.innerHTML = "";
-
   const CW_INITIAL_LIMIT = 12;
   const renderedCw = state.cwExpanded ? visibleCw : visibleCw.slice(0, CW_INITIAL_LIMIT);
+  const cwRenderSig = `${state.appLang || "ru"}|${state.mediaTypeFilter || "all"}|${state.cwExpanded ? 1 : 0}|${visibleCw.length}|${state.catalogIndexVersion || 0}|${state.liveSeriesUpdatesVersion || 0}|${getLocalProgressEpoch()}|${renderedCw.map((c) => `${c.id || c.title}:${Math.round((c.progress || 0) * 100)}:${c.current_time || 0}:${c.season || 0}:${c.episode || 0}:${c.is_new_episode ? 1 : 0}:${c.studio || ""}`).join(",")}`;
+  if (grid._cwRenderSig === cwRenderSig && grid.children.length > 0) {
+    return;
+  }
+  grid._cwRenderSig = cwRenderSig;
+  grid.innerHTML = "";
+  const cwFrag = document.createDocumentFragment();
 
   renderedCw.forEach((cw) => {
     const rawPct = Math.round((cw.progress || 0) * 100);
@@ -310,7 +318,7 @@ export function renderContinueWatching() {
         openUpNextItem();
       }
     };
-    grid.appendChild(card);
+    cwFrag.appendChild(card);
   });
 
   if (!state.cwExpanded && visibleCw.length > CW_INITIAL_LIMIT) {
@@ -326,26 +334,41 @@ export function renderContinueWatching() {
       state.cwExpanded = true;
       renderContinueWatching();
     };
-    grid.appendChild(moreBtn);
+    cwFrag.appendChild(moreBtn);
   }
+  grid.appendChild(cwFrag);
 }
 
 export function parseItemDurationMinutes(item) {
   if (!item) return 0;
+  if (typeof item._parsedDurationMins === "number") {
+    return item._parsedDurationMins;
+  }
   const direct = Number(item.duration_minutes || item.runtime || 0);
-  if (direct > 0) return direct;
+  if (direct > 0) {
+    item._parsedDurationMins = direct;
+    return direct;
+  }
   const lbl = String(item.duration_label || item.duration || "").trim();
-  if (!lbl) return 0;
+  if (!lbl) {
+    item._parsedDurationMins = 0;
+    return 0;
+  }
   const hmMatch = lbl.match(/(\d+)\s*(?:ч|h|hr|ч\.)\s*(\d+)?/i);
   if (hmMatch) {
     const hrs = parseInt(hmMatch[1], 10) || 0;
     const mins = parseInt(hmMatch[2] || "0", 10) || 0;
-    return hrs * 60 + mins;
+    const total = hrs * 60 + mins;
+    item._parsedDurationMins = total;
+    return total;
   }
   const minMatch = lbl.match(/(\d{2,3})\s*(?:мин|min|m\b)/i);
   if (minMatch) {
-    return parseInt(minMatch[1], 10) || 0;
+    const total = parseInt(minMatch[1], 10) || 0;
+    item._parsedDurationMins = total;
+    return total;
   }
+  item._parsedDurationMins = 0;
   return 0;
 }
 
@@ -353,9 +376,9 @@ export function renderCuratedShelves(allItemsSorted = []) {
   const section = document.getElementById("curated-shelves-section");
   const stack = document.getElementById("curated-shelves-stack");
   const toggleBtn = document.getElementById("btn-toggle-curated-shelves");
-  const toggleLbl = document.getElementById("curated-shelves-btn-label");
+  const toggleLbl = document.getElementById("lbl-toggle-curated-shelves");
   if (toggleLbl) {
-    toggleLbl.textContent = t("Подборки", "Curated");
+    toggleLbl.textContent = t("Подборки", "Collections");
   }
   const isMainCatalog =
     state.kinoriumSection === "all" &&
@@ -369,6 +392,14 @@ export function renderCuratedShelves(allItemsSorted = []) {
   if (!isMainCatalog || state.showCuratedShelves === false || !Array.isArray(allItemsSorted) || allItemsSorted.length === 0) {
     section.classList.add("hidden");
     stack.innerHTML = "";
+    stack._lastCuratedShelvesSig = "";
+    stack._lastCuratedInputSig = "";
+    return;
+  }
+
+  const inputSig = `${allItemsSorted.length}|${allItemsSorted[0]?.id || ""}|${allItemsSorted[allItemsSorted.length - 1]?.id || ""}|${state.catalogIndexVersion || 0}|${state.liveSeriesUpdatesVersion || 0}|${state.mediaTypeFilter || "all"}|${state.appLang || "ru"}|${state.activeProfile?.id || "main"}`;
+  if (stack._lastCuratedInputSig === inputSig && stack.children.length > 0) {
+    section.classList.remove("hidden");
     return;
   }
 
@@ -382,27 +413,40 @@ export function renderCuratedShelves(allItemsSorted = []) {
   if (unwatchedPool.length === 0) {
     section.classList.add("hidden");
     stack.innerHTML = "";
+    stack._lastCuratedShelvesSig = "";
+    stack._lastCuratedInputSig = "";
     return;
   }
 
+  const scoreMemo = new WeakMap();
   const getBestScore = (it) => {
+    if (!it || typeof it !== "object") return 0;
+    const cached = scoreMemo.get(it);
+    if (cached !== undefined) return cached;
     const k = parseFloat(it?.kinorium?.kinorium_rating || it?.ratings?.kinorium || 0) || 0;
     const im = parseFloat(it?.ratings?.imdb || 0) || 0;
-    return Math.max(k, im);
+    const val = Math.max(k, im);
+    scoreMemo.set(it, val);
+    return val;
   };
 
   const shelves = [];
 
   // 1. Высоко оценили друзья
   if (isServiceEnabled("kinorium")) {
-    const friendsPicks = unwatchedPool
-      .filter((it) => {
-        const avg = getFriendsAverageScore(it);
-        const hasHighFriend = (it.kinorium?.friends_ratings || []).some((fr) => parseFloat(fr?.score) >= 8);
-        return avg >= 7.5 || hasHighFriend;
-      })
-      .sort((a, b) => getFriendsAverageScore(b) - getFriendsAverageScore(a) || getBestScore(b) - getBestScore(a))
-      .slice(0, 14);
+    const friendsScored = [];
+    for (let i = 0; i < unwatchedPool.length; i++) {
+      const it = unwatchedPool[i];
+      const avg = getFriendsAverageScore(it);
+      const hasHighFriend = (it.kinorium?.friends_ratings || []).some((fr) => parseFloat(fr?.score) >= 8);
+      if (avg >= 7.5 || hasHighFriend) {
+        friendsScored.push({ it, avg });
+      }
+    }
+    const friendsPicks = friendsScored
+      .sort((a, b) => b.avg - a.avg || getBestScore(b.it) - getBestScore(a.it))
+      .slice(0, 14)
+      .map((entry) => entry.it);
     if (friendsPicks.length >= 3) {
       shelves.push({
         id: "curated-friends-top",
@@ -413,26 +457,40 @@ export function renderCuratedShelves(allItemsSorted = []) {
     }
   }
 
+  const _getNormGenres = (it) => {
+    if (!it || typeof it !== "object") return [];
+    if (Array.isArray(it._normGenres)) return it._normGenres;
+    const raw = Array.isArray(it.genres) ? it.genres : [];
+    it._normGenres = raw.map((g) => String(g || "").trim().toLowerCase()).filter(Boolean);
+    return it._normGenres;
+  };
+
   // 2. В вашем вкусе
-  const favGenreWeights = new Map();
-  (state.catalogItems || []).forEach((it) => {
-    const uScore = Number(it?.kinorium?.user_rating || 0);
-    const weight = uScore >= 8 ? 3 : it?.kinorium?.watching || it?.kinorium?.in_watchlist ? 1 : 0;
-    if (weight > 0) {
-      (it.genres || []).forEach((g) => {
-        const cleanG = String(g || "").trim().toLowerCase();
-        if (cleanG && cleanG !== "фильм" && cleanG !== "сериал" && cleanG !== "movie" && cleanG !== "series") {
-          favGenreWeights.set(cleanG, (favGenreWeights.get(cleanG) || 0) + weight);
-        }
-      });
-    }
-  });
+  const catPool = state.catalogItems || [];
+  const favVer = `${Number(state.catalogIndexVersion) || 0}|${catPool.length}`;
+  let favGenreWeights = state._cachedFavGenreWeights;
+  if (!(favGenreWeights instanceof Map) || state._cachedFavGenreWeightsVer !== favVer) {
+    favGenreWeights = new Map();
+    catPool.forEach((it) => {
+      const uScore = Number(it?.kinorium?.user_rating || 0);
+      const weight = uScore >= 8 ? 3 : it?.kinorium?.watching || it?.kinorium?.in_watchlist ? 1 : 0;
+      if (weight > 0) {
+        _getNormGenres(it).forEach((cleanG) => {
+          if (cleanG && cleanG !== "фильм" && cleanG !== "сериал" && cleanG !== "movie" && cleanG !== "series") {
+            favGenreWeights.set(cleanG, (favGenreWeights.get(cleanG) || 0) + weight);
+          }
+        });
+      }
+    });
+    state._cachedFavGenreWeights = favGenreWeights;
+    state._cachedFavGenreWeightsVer = favVer;
+  }
   if (favGenreWeights.size > 0) {
     const tastePicks = unwatchedPool
       .map((it) => {
         let gScore = 0;
-        (it.genres || []).forEach((g) => {
-          const w = favGenreWeights.get(String(g || "").trim().toLowerCase()) || 0;
+        _getNormGenres(it).forEach((cleanG) => {
+          const w = favGenreWeights.get(cleanG) || 0;
           gScore += w;
         });
         return { item: it, score: gScore * 2 + getBestScore(it) };
@@ -466,7 +524,7 @@ export function renderCuratedShelves(allItemsSorted = []) {
         .filter((it) => {
           const mins = parseItemDurationMinutes(it);
           if (mins > 105) return false;
-          const hasCompactG = (it.genres || []).some((g) => compactGenres.has(String(g || "").trim().toLowerCase()));
+          const hasCompactG = _getNormGenres(it).some((g) => compactGenres.has(g));
           return hasCompactG && getBestScore(it) >= 7.2;
         })
         .sort((a, b) => getBestScore(b) - getBestScore(a));
@@ -506,39 +564,51 @@ export function renderCuratedShelves(allItemsSorted = []) {
   if (shelves.length === 0) {
     section.classList.add("hidden");
     stack.innerHTML = "";
+    stack._lastCuratedShelvesSig = "";
     return;
   }
 
+  const curSig = shelves.map((s) => `${s.id}:${s.items.map((it) => it.id || it.kinorium_id || it.title).join(",")}`).join("|");
+  stack._lastCuratedInputSig = inputSig;
+  if (stack._lastCuratedShelvesSig === curSig && stack.children.length === shelves.length) {
+    section.classList.remove("hidden");
+    return;
+  }
+  stack._lastCuratedShelvesSig = curSig;
+
   section.classList.remove("hidden");
   stack.innerHTML = "";
+  const stackFrag = document.createDocumentFragment();
   shelves.forEach((shelf) => {
     const block = document.createElement("div");
     block.className = "atv-curated-shelf";
     block.id = shelf.id;
     block.innerHTML = `
       <div class="atv-section-header">
-        <div class="atv-shelf-title-wrap">
-          <h2>${escapeHtml(shelf.title)}</h2>
-          <span class="atv-shelf-count">${shelf.items.length}</span>
-          <span class="atv-shelf-breakdown">${escapeHtml(shelf.sub)}</span>
+        <div class="atv-section-title-group atv-shelf-title-wrap" title="${escapeAttr(shelf.sub || "")}">
+          <h2>${escapeHtml(formatRussianTypography(shelf.title))}</h2>
+          <span class="atv-section-count atv-shelf-count">${shelf.items.length}</span>
+          <span class="atv-section-breakdown atv-shelf-breakdown hidden">${escapeHtml(formatRussianTypography(shelf.sub))}</span>
         </div>
       </div>
     `;
     const row = document.createElement("div");
     row.className = "atv-curated-row";
+    const rowFrag = document.createDocumentFragment();
     shelf.items.forEach((item) => {
-      row.appendChild(createPosterCardElement(item));
+      rowFrag.appendChild(createPosterCardElement(item));
     });
+    row.appendChild(rowFrag);
     attachHorizontalWheelScroll(row);
     block.appendChild(row);
-    stack.appendChild(block);
+    stackFrag.appendChild(block);
   });
+  stack.appendChild(stackFrag);
 }
 
 // Render separated Series ("Сериалы") and Movies ("Фильмы") shelves on Main Screen (12 per page each),
 // or a unified 12-per-page paginated grid when viewing a Kinorium section
-export function renderCatalogShelves() {
-  renderHero();
+export function renderCatalogShelves({ skipHero = false } = {}) {
   const unifiedSection = document.getElementById("unified-kinorium-section");
   const unifiedGrid = document.getElementById("unified-kinorium-grid");
   const unifiedHeading = document.getElementById("unified-kinorium-heading");
@@ -559,6 +629,9 @@ export function renderCatalogShelves() {
     sourceItems = getOfflineCatalogItems();
   }
   const baseItems = filterCatalogItemsByGenreAndYear(sourceItems);
+  if (!skipHero) {
+    renderHero(sourceItems === state.catalogItems ? baseItems : null);
+  }
   const allItemsSorted = sortCatalogItems(baseItems);
   const seriesItems = allItemsSorted.filter((i) => i.media_type === "series");
   const movieItems = allItemsSorted.filter((i) => i.media_type === "movie");
@@ -611,18 +684,25 @@ export function renderCatalogShelves() {
       if (searchPersonsCount) {
         searchPersonsCount.textContent = `${matchedPersons.length}`;
       }
-      searchPersonsRow.innerHTML = "";
-      matchedPersons.forEach((p) => {
-        searchPersonsRow.appendChild(
-          buildPersonPhotoCard(p, (personObj) => {
-            openPersonModal(personObj);
-          })
-        );
-      });
-      attachHorizontalWheelScroll(searchPersonsRow);
+      const personsSig = `${state.appLang || "ru"}|${matchedPersons.map((p) => `${p.name || ""}:${p.photo || ""}`).join(",")}`;
+      if (searchPersonsRow._personsSig !== personsSig) {
+        searchPersonsRow._personsSig = personsSig;
+        searchPersonsRow.innerHTML = "";
+        const personsFrag = document.createDocumentFragment();
+        matchedPersons.forEach((p) => {
+          personsFrag.appendChild(
+            buildPersonPhotoCard(p, (personObj) => {
+              openPersonModal(personObj);
+            })
+          );
+        });
+        searchPersonsRow.appendChild(personsFrag);
+        attachHorizontalWheelScroll(searchPersonsRow);
+      }
       searchPersonsSection.classList.remove("hidden");
       hasVisibleItems = true;
     } else {
+      searchPersonsRow._personsSig = "";
       searchPersonsRow.innerHTML = "";
       searchPersonsSection.classList.add("hidden");
     }
@@ -794,7 +874,7 @@ export function renderCatalogShelves() {
       )}</div>`;
     } else if (state.kinoriumSection !== "all" && state.kinoriumSection !== "premieres" && !acc.connected) {
       disconnectedHint = `<div class="atv-catalog-empty-sub">${t(
-        "Профиль Kinorium сейчас не подключен. Откройте Настройки в правом верхнем углу, чтобы ввести ваш ID или ссылку на профиль Kinorium.",
+        "Профиль Kinorium сейчас не подключён. Откройте Настройки в правом верхнем углу, чтобы ввести ваш ID или ссылку на профиль Kinorium.",
         "Kinorium profile is not connected. Open Settings in the top-right corner to enter your Kinorium ID or profile URL."
       )}</div>`;
     } else {

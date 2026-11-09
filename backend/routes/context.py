@@ -1,5 +1,5 @@
 """
-CineFlow Server Context Adapter
+Velarium Server Context Adapter
 Provides unified dependency access for route handlers in backend.routes.
 """
 
@@ -21,20 +21,24 @@ class ServerContext:
         self._provider_fn: Optional[Callable[[str], Any]] = provider_fn
         self._services: Optional[Any] = services
         self._providers: Dict[str, Any] = dict(kwargs)
+        self._resolved_cache: Dict[str, Any] = {}
 
     def register(self, key: str, value: Any) -> None:
         self._providers[key] = value
+        self._resolved_cache.pop(key, None)
 
     def update(self, mapping: Dict[str, Any]) -> None:
         self._providers.update(mapping)
+        self._resolved_cache.clear()
 
     def register_provider(self, fn: Callable[[str], Any]) -> None:
         self._provider_fn = fn
+        self._resolved_cache.clear()
 
     def _resolve(self, name: str) -> Any:
         if name in self._providers:
             val = self._providers[name]
-            if callable(val) and getattr(val, "__cineflow_lazy__", False):
+            if callable(val) and getattr(val, "__velarium_lazy__", False):
                 return val()
             return val
         if self._provider_fn is not None:
@@ -44,8 +48,13 @@ class ServerContext:
                     return res
             except Exception:
                 pass
+        if name in self._resolved_cache:
+            return self._resolved_cache[name]
         if self._services is not None and hasattr(self._services, name):
-            return getattr(self._services, name)
+            val = getattr(self._services, name)
+            if val is not None:
+                self._resolved_cache[name] = val
+            return val
         return None
 
     def __getattr__(self, name: str) -> Any:
@@ -163,6 +172,39 @@ class ServerContext:
     def en_meta_resolver(self) -> Any:
         return self._resolve("en_meta_resolver")
 
+    @property
+    def base_dir(self) -> str:
+        res = self._resolve("base_dir") or self._resolve("BASE_DIR")
+        return str(res or "")
+
+    @property
+    def public_dir(self) -> str:
+        res = self._resolve("public_dir") or self._resolve("PUBLIC_DIR")
+        return str(res or "")
+
+    @property
+    def data_dir(self) -> str:
+        res = self._resolve("data_dir") or self._resolve("DATA_DIR")
+        return str(res or "")
+
+    @property
+    def settings_path(self) -> str:
+        res = self._resolve("settings_path") or self._resolve("SETTINGS_PATH")
+        return str(res or "")
+
+    @property
+    def bin_dir(self) -> str:
+        res = self._resolve("bin_dir") or self._resolve("BIN_DIR")
+        return str(res or "")
+
+    @property
+    def build_loopback_NO_PROXY_OPENER(self) -> Any:
+        res = self._resolve("build_loopback_NO_PROXY_OPENER")
+        if res is not None:
+            return res
+        import urllib.request
+        return lambda: urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
     # -------------------------------------------------------------------------
     # Server Lifecycle, Settings & Configuration Methods
     # -------------------------------------------------------------------------
@@ -273,7 +315,7 @@ class ServerContext:
         if res is not None:
             return bool(res)
         import os
-        return os.environ.get("CINEFLOW_VERBOSE_LOG", "0").strip().lower() in ("1", "true", "yes")
+        return os.environ.get("VELARIUM_VERBOSE_LOG", "0").strip().lower() in ("1", "true", "yes")
 
     @property
     def has_cyrillic(self) -> Any:

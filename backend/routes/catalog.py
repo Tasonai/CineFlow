@@ -1,9 +1,16 @@
 """
-CineFlow Catalog & Search Route Handlers
+Velarium Catalog & Search Route Handlers
 Dispatches /api/catalog and /api/search requests.
 """
 
 from typing import Dict, Any, List
+
+
+def _safe_int(val: Any, default: int = 1) -> int:
+    try:
+        return int(val) if val is not None and str(val).strip() != "" else default
+    except (ValueError, TypeError):
+        return default
 
 
 def build_offline_catalog_payload(ctx, media_type: str = "all", lang: str = "ru") -> Dict[str, Any]:
@@ -46,13 +53,13 @@ def build_offline_catalog_payload(ctx, media_type: str = "all", lang: str = "ru"
                 or (f"rezka_{it.get('rezka_id')}" if it.get("rezka_id") else "")
                 or str(it.get("title") or "").strip().lower()
             )
-            s_num = int(it.get("season") or 1)
-            e_num = int(it.get("episode") or 1)
+            s_num = max(1, _safe_int(it.get("season"), 1))
+            e_num = max(1, _safe_int(it.get("episode"), 1))
 
             if group_key not in series_groups:
                 series_item = {
                     "id": it.get("item_id") or group_key,
-                    "title": it.get("title") or "CineFlow",
+                    "title": it.get("title") or "Velarium",
                     "orig_title": it.get("orig_title") or "",
                     "year": it.get("year") or "",
                     "media_type": "series",
@@ -80,7 +87,7 @@ def build_offline_catalog_payload(ctx, media_type: str = "all", lang: str = "ru"
         else:
             movie_item = {
                 "id": it.get("item_id") or f"dl_{it.get('download_id')}",
-                "title": it.get("title") or "CineFlow",
+                "title": it.get("title") or "Velarium",
                 "orig_title": it.get("orig_title") or "",
                 "year": it.get("year") or "",
                 "media_type": "movie",
@@ -150,6 +157,8 @@ def handle_catalog(handler, qs, parsed, ctx):
     prof_mgr = getattr(ctx, "profile_manager", None)
     if prof_mgr and hasattr(prof_mgr, "is_kids_mode_active") and prof_mgr.is_kids_mode_active():
         cat_payload = prof_mgr.filter_catalog_payload_for_kids(cat_payload)
+    else:
+        cat_payload = dict(cat_payload)
     if prof_mgr and hasattr(prof_mgr, "get_active_profile"):
         cat_payload["active_profile"] = prof_mgr.get_active_profile(
             lang=req_lang,

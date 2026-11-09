@@ -1,7 +1,7 @@
 """
-CineFlow Cinema Request Handler
+Velarium Cinema Request Handler
 Encapsulates HTTP request dispatching, security headers, CORS/Origin validation,
-DNS-rebinding protection, JSON parsing, and static file serving for CineFlow.
+DNS-rebinding protection, JSON parsing, and static file serving for Velarium.
 """
 
 import gzip
@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from backend.routes import (
+    GET_ROUTES,
     dispatch_get_route,
     dispatch_post_route,
     dispatch_streaming_route,
@@ -43,7 +44,7 @@ _CACHED_OWN_MDNS_HOSTNAME = _compute_own_mdns_hostname()
 
 class CinemaRequestHandler(BaseHTTPRequestHandler):
     """
-    Main HTTP request handler for CineFlow.
+    Main HTTP request handler for Velarium.
     Implements:
     - DNS rebinding prevention (_is_allowed_host_header)
     - Anti-CSRF Origin and CORS validation (_is_trusted_origin)
@@ -84,18 +85,32 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
+    def _get_parsed_url_and_qs(self) -> Tuple[urllib.parse.ParseResult, Dict[str, Any]]:
+        raw_path = self.path
+        if getattr(self, "_cached_raw_path", None) == raw_path:
+            return self._cached_parsed_url, self._cached_qs
+        parsed = urllib.parse.urlparse(raw_path)
+        qs = urllib.parse.parse_qs(parsed.query)
+        self._cached_raw_path = raw_path
+        self._cached_parsed_url = parsed
+        self._cached_qs = qs
+        return parsed, qs
+
     def log_message(self, format, *args):
-        is_daemon_mode = ("--launchd" in sys.argv) and not bool(os.environ.get("CINEFLOW_VERBOSE_LOG"))
+        is_daemon_mode = ("--launchd" in sys.argv) and not bool(
+            os.environ.get("VELARIUM_VERBOSE_LOG") or os.environ.get("CINEFLOW_VERBOSE_LOG")
+        )
         if is_daemon_mode or "/api/proxy-stream" in self.path or "/api/remote/" in self.path:
             return
         # Log path only: query strings may carry pairing keys (?k=), PINs, or URLs
-        safe_path = urllib.parse.urlparse(self.path).path
-        log_line = f"[CineFlow] {self.command} {safe_path}\n"
+        parsed, _ = self._get_parsed_url_and_qs()
+        safe_path = parsed.path
+        log_line = f"[Velarium] {self.command} {safe_path}\n"
         log_fn = getattr(type(self), "_safe_log_fn", None)
         if log_fn is not None:
             log_fn(log_line, False)
             return
-        srv = sys.modules.get("server")
+        srv = sys.modules.get("server") or sys.modules.get("__main__")
         if srv is not None and hasattr(srv, "_safe_log"):
             srv._safe_log(log_line, False)
         else:
@@ -113,7 +128,7 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
             return getter()
         if hasattr(self.server, "server_context") and self.server.server_context:
             return self.server.server_context
-        srv = sys.modules.get("server")
+        srv = sys.modules.get("server") or sys.modules.get("__main__")
         if srv is not None and hasattr(srv, "SERVER_CONTEXT"):
             return srv.SERVER_CONTEXT
         return None
@@ -284,7 +299,7 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
             self.send_header(
                 "Access-Control-Allow-Headers",
-                "Content-Type, X-CineFlow-Pin, X-CineFlow-Key, X-CineFlow-Intent",
+                "Content-Type, X-Velarium-Pin, X-Velarium-Key, X-Velarium-Intent, X-CineFlow-Pin, X-CineFlow-Key, X-CineFlow-Intent",
             )
             self.end_headers()
             if self.command != "HEAD":
@@ -340,15 +355,16 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
         self.send_header(
             "Access-Control-Allow-Headers",
-            "Content-Type, X-CineFlow-Pin, X-CineFlow-Key, X-CineFlow-Intent",
+            "Content-Type, X-Velarium-Pin, X-Velarium-Key, X-Velarium-Intent, X-CineFlow-Pin, X-CineFlow-Key, X-CineFlow-Intent",
         )
         self.end_headers()
 
     def _handle_proxy_stream(self, qs: dict, head_only: bool = False) -> None:
+        parsed, _ = self._get_parsed_url_and_qs()
         handle_proxy_stream(
             self,
             qs,
-            urllib.parse.urlparse(self.path),
+            parsed,
             self.server_context,
             head_only=head_only,
         )
@@ -379,9 +395,8 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         if self._reject_bad_host():
             return
-        parsed = urllib.parse.urlparse(self.path)
+        parsed, qs = self._get_parsed_url_and_qs()
         path = parsed.path
-        qs = urllib.parse.parse_qs(parsed.query)
         if (
             path.startswith("/api/")
             and path not in ("/api/proxy-stream", "/api/proxy-vtt")
@@ -453,7 +468,7 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
                 "/api/remote/commands",
                 "/api/remote/catalog",
             }
-            if path in known_get_apis:
+            if path in GET_ROUTES or path in known_get_apis:
                 head_media_types = {
                     "/api/remux-stream": "video/mp4",
                     "/api/download-mp4": "video/mp4",
@@ -496,10 +511,11 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
     ) -> bool:
         if self._is_loopback_client():
             return True
-        parsed_q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        _, parsed_q = self._get_parsed_url_and_qs()
         k_val = str(
             (body or {}).get("k")
             or (parsed_q.get("k", [""])[0])
+            or self.headers.get("X-Velarium-Key")
             or self.headers.get("X-CineFlow-Key")
             or ""
         ).strip()
@@ -529,7 +545,12 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
     ) -> bool:
         pm = getattr(self.server_context, "profile_manager", None)
         msg_fn = getattr(self.server_context, "msg", lambda ru, en, l=None: ru)
-        pin_clean = str(pin_value or self.headers.get("X-CineFlow-Pin") or "").strip()
+        pin_clean = str(
+            pin_value
+            or self.headers.get("X-Velarium-Pin")
+            or self.headers.get("X-CineFlow-Pin")
+            or ""
+        ).strip()
         if pm and pm.is_active_kids_pin_locked() and not pm.verify_active_kids_pin(pin_clean):
             lock_rem = pm.get_pin_lockout_remaining()
             if lock_rem > 0:
@@ -566,9 +587,8 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
             pass
         if self._reject_bad_host():
             return
-        parsed = urllib.parse.urlparse(self.path)
+        parsed, qs = self._get_parsed_url_and_qs()
         path = parsed.path
-        qs = urllib.parse.parse_qs(parsed.query)
 
         if path.startswith("/api/") and self.headers.get("Origin") and not self._is_trusted_origin():
             self._send_json({"ok": False, "error": "Forbidden cross-origin request"}, status=403)
@@ -589,7 +609,7 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self._reject_bad_host():
             return
-        parsed = urllib.parse.urlparse(self.path)
+        parsed, qs = self._get_parsed_url_and_qs()
         path = parsed.path
         if self.headers.get("Origin") and not self._is_trusted_origin():
             self._send_json({"ok": False, "error": "Forbidden cross-origin request"}, status=403)
@@ -610,7 +630,6 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        qs = urllib.parse.parse_qs(parsed.query)
         if dispatch_post_route(self, path, qs, parsed, body, self.server_context):
             return
 

@@ -1,10 +1,11 @@
-import { state } from "./state.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
 import {
   displayTitle,
+  hasCyrillicText,
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -19,12 +20,12 @@ import {
   showToast,
   showVideoOsd,
   syncScrollTopButton,
-} from "./utils.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
 import {
   getDefaultPlayableSourceTab,
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
 import {
   closePlayerModal,
   getEffectivePlaybackTiming,
@@ -32,12 +33,12 @@ import {
   openPlayerModal,
   switchSourceTab,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261105v5";
+} from "./player.js?v=20261108v19";
 import {
   ensureKidsPinVerifiedForAdminAction,
   exitBrowserFullscreenIfNeeded,
   formatBytesHuman,
-} from "./features.js?v=20261105v5";
+} from "./features.js?v=20261108v19";
 
 // ============================================================================
 // 4. OFFLINE DOWNLOADS MANAGER ("Скачать в дорогу" — MP4 + Audio + RU/EN VTT)
@@ -92,12 +93,28 @@ export function syncDownloadsHeaderBadge() {
   }
 }
 
+let _lastCompletedDlListRef = null;
+let _lastCompletedDlCount = -1;
+let _lastCompletedDlSigVal = "";
+
 export function _completedDownloadsSignature(list) {
-  return (Array.isArray(list) ? list : [])
+  if (!Array.isArray(list) || list.length === 0) return "";
+  let completedCount = 0;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i]?.status === "completed") completedCount += 1;
+  }
+  if (list === _lastCompletedDlListRef && completedCount === _lastCompletedDlCount) {
+    return _lastCompletedDlSigVal;
+  }
+  const sig = list
     .filter((x) => x && x.status === "completed")
     .map((x) => String(x.download_id || ""))
     .sort()
     .join("|");
+  _lastCompletedDlListRef = list;
+  _lastCompletedDlCount = completedCount;
+  _lastCompletedDlSigVal = sig;
+  return sig;
 }
 
 export function getOfflineCatalogItems() {
@@ -120,7 +137,7 @@ export function getOfflineCatalogItems() {
           id: it.item_id || groupKey,
           kinorium_id: it.kinorium_id || "",
           rezka_id: it.rezka_id || "",
-          title: it.title || "CineFlow",
+          title: it.title || "Velarium",
           orig_title: it.orig_title || "",
           year: it.year || "",
           media_type: "series",
@@ -154,7 +171,7 @@ export function getOfflineCatalogItems() {
         id: it.item_id || `dl_${it.download_id}`,
         kinorium_id: it.kinorium_id || "",
         rezka_id: it.rezka_id || "",
-        title: it.title || "CineFlow",
+        title: it.title || "Velarium",
         orig_title: it.orig_title || "",
         year: it.year || "",
         media_type: "movie",
@@ -329,7 +346,7 @@ export async function enqueueBatchSeriesDownload(mode = "next3") {
         kinorium_id: String(item.kinorium?.kinorium_id || item.kinorium_id || ""),
         rezka_id: String(item.rezka_id || ""),
         rezka_url: String(item.rezka_url || ""),
-        title: item.title || displayTitle(item) || "CineFlow",
+        title: item.title || displayTitle(item) || "Velarium",
         orig_title: item.orig_title || "",
         year: item.year || "",
         season: sNum,
@@ -396,7 +413,12 @@ export async function enqueueBatchSeriesDownload(mode = "next3") {
   }
 }
 
+let _downloadsRefreshInFlight = false;
+
 export async function refreshDownloadsState() {
+  if (_downloadsRefreshInFlight) return;
+  if (typeof document !== "undefined" && document.hidden && !state.isPlayerOpen) return;
+  _downloadsRefreshInFlight = true;
   try {
     const res = await fetch(`/api/downloads?lang=${encodeURIComponent(state.appLang || "ru")}`);
     if (!res.ok) return;
@@ -442,6 +464,9 @@ export async function refreshDownloadsState() {
       state.downloadsPollTimerId = null;
     }
   } catch (err) { window.logDebug?.("FeaturesDownloads", err); }
+  finally {
+    _downloadsRefreshInFlight = false;
+  }
 }
 
 export function startDownloadsPollingIfNeeded() {
@@ -453,6 +478,12 @@ export function startDownloadsPollingIfNeeded() {
 
 export async function downloadCurrentPlayerStreamOffline() {
   if (!state.isPlayerOpen || !state.activeItem) return;
+  document.getElementById("player-gear-popover")?.classList.add("hidden");
+  const gearBtn = document.getElementById("btn-player-gear");
+  gearBtn?.classList.remove("active");
+  gearBtn?.setAttribute("aria-expanded", "false");
+  document.getElementById("video-stage")?.classList.remove("vc-popover-open");
+  document.getElementById("video-stage")?.parentElement?.classList.remove("vc-popover-open");
   if (state.isPlayingOfflineDownload || state.activeSourceTab === "offline") {
     showToast(t("Это видео уже воспроизводится из офлайн-папки", "This video is already playing from offline storage"));
     openDownloadsModal();
@@ -517,7 +548,7 @@ export async function downloadCurrentPlayerStreamOffline() {
         kinorium_id: String(item.kinorium?.kinorium_id || item.kinorium_id || ""),
         rezka_id: String(item.rezka_id || ""),
         rezka_url: String(item.rezka_url || ""),
-        title: item.title || displayTitle(item) || "CineFlow",
+        title: item.title || displayTitle(item) || "Velarium",
         orig_title: item.orig_title || "",
         year: item.year || "",
         media_type: item.media_type || "movie",
@@ -641,6 +672,7 @@ export function renderDownloadsModalList(downloadsDir = "") {
   }
 
   if (items.length === 0) {
+    listEl.dataset.dlStructureKey = "empty";
     listEl.innerHTML = `
       <div class="atv-dl-empty">
         <div class="atv-dl-empty-ico">${iconSvg("download", 24)}</div>
@@ -656,14 +688,64 @@ export function renderDownloadsModalList(downloadsDir = "") {
     return;
   }
 
+  const formatDlStatusLine = (dl) => {
+    const st = dl.status;
+    const pct = Math.min(100, Math.max(0, Math.round(Number(dl.progress_pct) || 0)));
+    if (st === "completed") {
+      return `${t("Доступно без интернета", "Ready for offline playback")} · ${formatBytesHuman(dl.file_size)}`;
+    }
+    if (st === "downloading") {
+      const speedPart = dl.speed_label ? ` · ${dl.speed_label}` : "";
+      const etaPart =
+        Number(dl.eta_sec) > 0
+          ? ` · ${t("осталось", "left")} ${formatTime(dl.eta_sec)}`
+          : "";
+      return `${t("Сохранение MP4", "Saving MP4")}: ${pct}% (${formatBytesHuman(dl.downloaded_bytes)})${speedPart}${etaPart}`;
+    }
+    if (st === "queued") {
+      return t("В очереди на ремукс...", "Queued for remux...");
+    }
+    if (st === "cancelled") {
+      return t("Загрузка отменена", "Download cancelled");
+    }
+    return dl.error || t("Ошибка сохранения потока", "Stream download failed");
+  };
+
+  const structureKey = `${state.appLang || "ru"}|${items
+    .map((dl) => `${dl.download_id}:${dl.status}:${dl.quality || ""}:${dl.studio || ""}`)
+    .join("|")}`;
+  if (listEl.dataset.dlStructureKey === structureKey) {
+    const rowMap = listEl._cfDlRowMap;
+    if (rowMap instanceof Map) {
+      items.forEach((dl) => {
+        const entry = rowMap.get(String(dl.download_id || ""));
+        if (!entry) return;
+        const pct = Math.min(100, Math.max(0, Math.round(Number(dl.progress_pct) || 0)));
+        if (entry.fillEl) {
+          entry.fillEl.style.width = `${Math.max(3, pct)}%`;
+        }
+        if (entry.noteEl) {
+          const nextNote = formatDlStatusLine(dl);
+          if (entry.noteEl.textContent !== nextNote) {
+            entry.noteEl.textContent = nextNote;
+          }
+        }
+      });
+      return;
+    }
+  }
+  listEl.dataset.dlStructureKey = structureKey;
+
   listEl.innerHTML = items
     .map((dl) => {
       const did = dl.download_id;
       const isSeries = dl.media_type === "series";
-      const titleDisp = isEn() && dl.orig_title ? dl.orig_title : dl.title || "CineFlow";
+      const titleDisp = isEn() && dl.orig_title ? dl.orig_title : dl.title || "Velarium";
+      const rawEpTitle = String(dl.episode_title || "").trim();
+      const locEpTitle = isEn() && hasCyrillicText(rawEpTitle) ? "" : rawEpTitle;
       const epLine = isSeries
         ? `${t(`Сезон ${dl.season}, Серия ${dl.episode}`, `Season ${dl.season}, Episode ${dl.episode}`)}${
-            dl.episode_title ? ` — ${dl.episode_title}` : ""
+            locEpTitle ? ` — ${locEpTitle}` : ""
           }`
         : dl.year
         ? String(dl.year)
@@ -761,6 +843,24 @@ export function renderDownloadsModalList(downloadsDir = "") {
     })
     .join("");
 
+  const newRowMap = new Map();
+  listEl.querySelectorAll(".atv-dl-row[data-dl-id]").forEach((r) => {
+    newRowMap.set(r.dataset.dlId, {
+      fillEl: r.querySelector(".atv-dl-progress-fill"),
+      noteEl: r.querySelector(".atv-dl-status-note"),
+    });
+  });
+  listEl._cfDlRowMap = newRowMap;
+
+  listEl.querySelectorAll("img.atv-dl-poster").forEach((imgEl) => {
+    imgEl.onerror = () => {
+      const ph = document.createElement("div");
+      ph.className = "atv-dl-poster is-placeholder";
+      ph.innerHTML = iconSvg("film", 18);
+      imgEl.replaceWith(ph);
+    };
+  });
+
   listEl.querySelectorAll("[data-play-dl]").forEach((b) => {
     b.onclick = () => {
       const found = items.find((x) => x.download_id === b.dataset.playDl);
@@ -837,7 +937,7 @@ export async function playOfflineDownload(dlItem) {
         kinorium_id: dlItem.kinorium_id || "",
         rezka_id: dlItem.rezka_id || "",
         rezka_url: dlItem.rezka_url || "",
-        title: dlItem.title || "CineFlow",
+        title: dlItem.title || "Velarium",
         orig_title: dlItem.orig_title || "",
         year: dlItem.year || "",
         media_type: dlItem.media_type || "movie",

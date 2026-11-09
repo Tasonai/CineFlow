@@ -13,13 +13,174 @@ Modular route handlers for Title & Person Metadata, Subtitles, Calendar and Prov
 
 from __future__ import annotations
 
+import concurrent.futures
+import copy
+import json
 import re
 import threading
 import time
 import urllib.parse
-from typing import Any, Dict, List
+import urllib.request
+from typing import Any, Dict, List, Tuple
 
 from backend.hdrezka import HDRezkaClient
+
+_XRAY_CACHE_LOCK = threading.Lock()
+_XRAY_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_META_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=12)
+
+_CURATED_SOUNDTRACKS: Dict[str, List[Dict[str, str]]] = {
+    "breaking bad": [
+        {"title": "Breaking Bad Main Title Theme (Extended)", "artist": "Dave Porter", "album": "Breaking Bad (Original Score)", "scene_ru": "Открывающие титры", "scene_en": "Opening Credits"},
+        {"title": "Baby Blue", "artist": "Badfinger", "album": "Straight Up", "scene_ru": "Финальная сцена сериала", "scene_en": "Series Finale Scene"},
+        {"title": "Crystal Blue Persuasion", "artist": "Tommy James & The Shondells", "album": "Crimson & Clover", "scene_ru": "Монтаж лаборатории", "scene_en": "Lab Montage Sequence"},
+        {"title": "DLZ", "artist": "TV on the Radio", "album": "Dear Science", "scene_ru": "Сцена на парковке («Stay out of my territory»)", "scene_en": "Parking Lot Confrontation"},
+    ],
+    "ted lasso": [
+        {"title": "Ted Lasso Theme", "artist": "Marcus Mumford & Tom Howe", "album": "Ted Lasso (Apple TV+ Original Soundtrack)", "scene_ru": "Вступительная заставка", "scene_en": "Main Title Theme"},
+        {"title": "Forever", "artist": "Mumford & Sons", "album": "Delta", "scene_ru": "Эмоциональный финал матча", "scene_en": "Post-Match Montage"},
+        {"title": "She's a Rainbow", "artist": "The Rolling Stones", "album": "Their Satanic Majesties Request", "scene_ru": "Сцена Роя Кента и Кили на стадионе", "scene_en": "Roy Kent Stadium Entrance"},
+    ],
+    "interstellar": [
+        {"title": "Cornfield Chase", "artist": "Hans Zimmer", "album": "Interstellar (Original Motion Picture Soundtrack)", "scene_ru": "Погоня через кукурузное поле", "scene_en": "Cornfield Chase Sequence"},
+        {"title": "No Time for Caution", "artist": "Hans Zimmer", "album": "Interstellar (Original Motion Picture Soundtrack)", "scene_ru": "Стыковка со станцией «Эндьюранс»", "scene_en": "Endurance Docking Scene"},
+        {"title": "Stay", "artist": "Hans Zimmer", "album": "Interstellar (Original Motion Picture Soundtrack)", "scene_ru": "Прощание Купера с Мёрф", "scene_en": "Cooper & Murph Farewell"},
+    ],
+    "oppenheimer": [
+        {"title": "Can You Hear the Music", "artist": "Ludwig Göransson", "album": "Oppenheimer (Original Motion Picture Soundtrack)", "scene_ru": "Квантовый мир и учёба в Европе", "scene_en": "Quantum Visions Montage"},
+        {"title": "Destroyer of Worlds", "artist": "Ludwig Göransson", "album": "Oppenheimer (Original Motion Picture Soundtrack)", "scene_ru": "Финальный диалог у пруда", "scene_en": "Final Pond Conversation"},
+        {"title": "Trinity", "artist": "Ludwig Göransson", "album": "Oppenheimer (Original Motion Picture Soundtrack)", "scene_ru": "Испытание «Тринити» в пустыне", "scene_en": "Trinity Test Sequence"},
+    ],
+    "dune": [
+        {"title": "Paul's Dream", "artist": "Hans Zimmer", "album": "Dune (Original Motion Picture Soundtrack)", "scene_ru": "Видения Пола Атрейдеса", "scene_en": "Paul's Visions of Arrakis"},
+        {"title": "Gom Jabbar", "artist": "Hans Zimmer", "album": "Dune (Original Motion Picture Soundtrack)", "scene_ru": "Испытание Бене Гессерит", "scene_en": "Bene Gesserit Test Scene"},
+        {"title": "Ripples in the Sand", "artist": "Hans Zimmer", "album": "Dune (Original Motion Picture Soundtrack)", "scene_ru": "Встреча с песчаным червём", "scene_en": "Sandworm Encounter"},
+    ],
+    "severance": [
+        {"title": "Main Titles", "artist": "Theodore Shapiro", "album": "Severance: Season 1 (Apple TV+ Original Series Soundtrack)", "scene_ru": "Главная тема Lumon Industries", "scene_en": "Lumon Main Titles"},
+        {"title": "Labor of Love", "artist": "Theodore Shapiro", "album": "Severance: Season 1 (Apple TV+ Original Series Soundtrack)", "scene_ru": "Коридоры этажа разделения", "scene_en": "Severed Floor Hallways"},
+        {"title": "Music Dance Experience", "artist": "Theodore Shapiro", "album": "Severance: Season 1 (Apple TV+ Original Series Soundtrack)", "scene_ru": "Музыкально-танцевальная пауза в отделе МД", "scene_en": "MDR Music Dance Experience"},
+    ],
+    "arcane": [
+        {"title": "Enemy", "artist": "Imagine Dragons & JID", "album": "Arcane League of Legends (Soundtrack)", "scene_ru": "Открывающая заставка", "scene_en": "Opening Title Sequence"},
+        {"title": "What Could Have Been", "artist": "Sting feat. Ray Chen", "album": "Arcane League of Legends (Soundtrack)", "scene_ru": "Финальная сцена первого сезона", "scene_en": "Season 1 Finale Climax"},
+        {"title": "Dynasties and Dystopia", "artist": "Denzel Curry, Gizzle & Bren Joy", "album": "Arcane League of Legends (Soundtrack)", "scene_ru": "Бой Экко и Джинкс на мосту", "scene_en": "Bridge Duel Scene"},
+    ],
+    "stranger things": [
+        {"title": "Stranger Things", "artist": "Kyle Dixon & Michael Stein", "album": "Stranger Things, Vol. 1", "scene_ru": "Неоновая заставка", "scene_en": "Opening Synth Credits"},
+        {"title": "Running Up That Hill (A Deal with God)", "artist": "Kate Bush", "album": "Hounds of Love", "scene_ru": "Побег Макс из Изнанки", "scene_en": "Max Escaping Vecna"},
+        {"title": "Master of Puppets", "artist": "Metallica", "album": "Master of Puppets", "scene_ru": "Гитарное соло Эдди Мансона", "scene_en": "Eddie Munson Upside Down Solo"},
+    ],
+    "silo": [
+        {"title": "Silo Main Title", "artist": "Atli Örvarsson", "album": "Silo: Season 1 (Apple TV+ Original Series Soundtrack)", "scene_ru": "Вступительные титры", "scene_en": "Opening Title Sequence"},
+        {"title": "Juliette", "artist": "Atli Örvarsson", "album": "Silo: Season 1 (Apple TV+ Original Series Soundtrack)", "scene_ru": "Тема Джульетты Николс", "scene_en": "Juliette Nichols Theme"},
+        {"title": "The Generator", "artist": "Atli Örvarsson", "album": "Silo: Season 1 (Apple TV+ Original Series Soundtrack)", "scene_ru": "Механический сектор на глубине бункера", "scene_en": "Down Deep Mechanical Sector"},
+        {"title": "We Do Not Know", "artist": "Atli Örvarsson", "album": "Silo: Season 1 (Apple TV+ Original Series Soundtrack)", "scene_ru": "Финальный выход к внешнему миру", "scene_en": "Final Walk Toward the Surface"},
+    ],
+    "the last of us": [
+        {"title": "The Last of Us", "artist": "Gustavo Santaolalla", "album": "The Last of Us (HBO Original Series Soundtrack)", "scene_ru": "Главная тема на ронроко", "scene_en": "Opening Credits Theme"},
+        {"title": "Never Let Me Down Again", "artist": "Depeche Mode", "album": "Music for the Masses", "scene_ru": "Радиосигнал конца первой серии («Проблемы в 80-х»)", "scene_en": "Episode 1 Radio Code Ending"},
+        {"title": "Long, Long Time", "artist": "Linda Ronstadt", "album": "Silk Purse", "scene_ru": "История Билла и Фрэнка за пианино", "scene_en": "Bill & Frank Piano Scene"},
+        {"title": "All Gone (No Escape)", "artist": "Gustavo Santaolalla", "album": "The Last of Us (HBO Original Series Soundtrack)", "scene_ru": "Финал в госпитале Солт-Лейк-Сити", "scene_en": "Salt Lake Hospital Climax"},
+    ],
+    "fallout": [
+        {"title": "I Don't Want to Set the World on Fire", "artist": "The Ink Spots", "album": "The Anthology", "scene_ru": "Выход Люси из Убежища 33", "scene_en": "Vault 33 Surface Reveal"},
+        {"title": "Crawl Out Through the Fallout", "artist": "Sheldon Allman", "album": "Folk Songs for the 21st Century", "scene_ru": "Перестрелка в Филли", "scene_en": "Filly Shootout Sequence"},
+        {"title": "Brotherhood of Steel", "artist": "Ramin Djawadi", "album": "Fallout (Prime Video Original Series Soundtrack)", "scene_ru": "Прибытие силовой брони Братства Стали", "scene_en": "Power Armor Arrival"},
+    ],
+    "the gentlemen": [
+        {"title": "Cumberland Gap", "artist": "David Rawlings", "album": "Poor David's Almanack", "scene_ru": "Вступительные титры поместья Холстед", "scene_en": "Halstead Manor Opening Credits"},
+        {"title": "That's Entertainment", "artist": "The Jam", "album": "Sound Affects", "scene_ru": "Операция Эдди и Сюзи", "scene_en": "Eddie & Susie Heist Montage"},
+        {"title": "The Gentlemen Theme", "artist": "Christopher Benstead", "album": "The Gentlemen (Original Soundtrack)", "scene_ru": "Переговоры в лондонском клубе", "scene_en": "London Club Negotiation"},
+    ],
+    "inception": [
+        {"title": "Time", "artist": "Hans Zimmer", "album": "Inception (Music from the Motion Picture)", "scene_ru": "Пробуждение в самолёте и вращающийся волчок", "scene_en": "Awakening & Spinning Top Finale"},
+        {"title": "Dream Is Collapsing", "artist": "Hans Zimmer", "album": "Inception (Music from the Motion Picture)", "scene_ru": "Разрушение уровней сна", "scene_en": "Collapsing Dream Layers"},
+        {"title": "Non, je ne regrette rien", "artist": "Édith Piaf", "album": "Édith Piaf", "scene_ru": "Сигнал «выброса» из сна", "scene_en": "Synchronized Kick Signal"},
+    ],
+    "the dark knight": [
+        {"title": "Why So Serious?", "artist": "Hans Zimmer & James Newton Howard", "album": "The Dark Knight (Original Motion Picture Soundtrack)", "scene_ru": "Ограбление банка в начале фильма", "scene_en": "Opening Bank Heist"},
+        {"title": "Like a Dog Chasing Cars", "artist": "Hans Zimmer & James Newton Howard", "scene_ru": "Ночная погоня на Бэтподе по Готэму", "scene_en": "Gotham Batpod Chase"},
+        {"title": "A Dark Knight", "artist": "Hans Zimmer & James Newton Howard", "scene_ru": "Финальный монолог комиссара Гордона", "scene_en": "Gordon's Final Monologue"},
+    ],
+}
+
+_CURATED_TRIVIA: Dict[str, List[Dict[str, str]]] = {
+    "breaking bad": [
+        {"badge_ru": "Съёмки", "badge_en": "Production", "text_ru": "Формула в вступительных титрах C10H15N (молекулярная масса 149.24) — реальная химическая формула метамфетамина, а зеленые символы элементов складываются в имена создателей и актёров.", "text_en": "The chemical formula C10H15N (molecular weight 149.24) in the opening credits is the real formula of methamphetamine, while the periodic elements highlight cast names."},
+        {"badge_ru": "Пасхалка", "badge_en": "Easter Egg", "text_ru": "Координаты лотерейного билета Уолтера Уайта (34°59′20″ с. ш. 106°36′52″ з. д.) ведут не в пустыню, а прямо к павильону студии Q Studios в Альбукерке, где снимался сериал.", "text_en": "Walter White's lottery ticket coordinates point directly to Studio Q in Albuquerque where the series was filmed."},
+        {"badge_ru": "Деталь сцены", "badge_en": "Scene Detail", "text_ru": "Цветовая палитра одежды персонажей меняется по мере развития сюжета: Уолтер постепенно переходит от бежевых тонов к тёмным оттенкам Хайзенберга.", "text_en": "Vince Gilligan designed a strict color-coding system for every character's wardrobe reflecting their moral arc."},
+    ],
+    "ted lasso": [
+        {"badge_ru": "Съёмки", "badge_en": "Production", "text_ru": "Рецепт фирменного печенья Теда Лассо («Biscuits with the Boss») разрабатывался специально для съёмок: это классическое шотландское песочное печенье shortbread с крупной солью.", "text_en": "Ted's famous pink-box 'Biscuits with the Boss' are authentic buttery shortbread custom-baked daily for the set."},
+        {"badge_ru": "Деталь сцены", "badge_en": "Scene Detail", "text_ru": "Стадион клуба «Ричмонд» (Nelson Road) на самом деле снимался на домашней арене английского клуба «Кристал Пэлас» — Selhurst Park в Южном Лондоне.", "text_en": "AFC Richmond's Nelson Road stadium scenes were filmed on location at Crystal Palace's Selhurst Park in London."},
+    ],
+    "interstellar": [
+        {"badge_ru": "Научный факт", "badge_en": "Science Fact", "text_ru": "Визуализация чёрной дыры «Гаргантюа» рассчитывалась астрофизиком Кипом Торном: уравнения гравитационного линзирования дали настолько точную модель, что по итогам работы вышли научные статьи.", "text_en": "Astrophysicist Kip Thorne's equations for the Gargantua black hole produced new scientific discoveries in gravitational lensing."},
+        {"badge_ru": "Деталь сцены", "badge_en": "Scene Detail", "text_ru": "На водной планете Миллер каждые 1.25 секунды в саундтреке Ханса Циммера звучит отчётливый тик — каждый такой удар равен одним земным суткам.", "text_en": "On Miller's planet, Hans Zimmer's score ticks once every 1.25 seconds—each tick representing a full day passing on Earth."},
+    ],
+    "oppenheimer": [
+        {"badge_ru": "Плёнка IMAX", "badge_en": "IMAX Film", "text_ru": "Кристофер Нолан снимал сцены с точки зрения Оппенгеймера в цвете, а объективные исторические слушания с участием Льюиса Штраусса — на специально созданную 65-мм чёрно-белую плёнку Kodak IMAX.", "text_en": "Kodak engineered the first-ever 65mm black-and-white IMAX film stock specifically for the objective Lewis Strauss sequences."},
+        {"badge_ru": "Практические эффекты", "badge_en": "Practical FX", "text_ru": "Взрыв испытания «Тринити» был снят полностью без компьютерной графики (CGI) с использованием масштабных пиротехнических зарядов, магния и высокоскоростных камер.", "text_en": "The Trinity nuclear test sequence was recreated entirely in-camera using practical miniatures and pyrotechnics without CGI."},
+    ],
+    "dune": [
+        {"badge_ru": "Дизайн звука", "badge_en": "Sound Design", "text_ru": "Глухой ритмичный звук «манок» (thumper) и движение песчаных червей записывались путём погружения гидрофонов глубоко в настоящие песчаные дюны Долины Смерти.", "text_en": "Sound designers buried hydrophones deep inside Death Valley sand dunes to record authentic low-frequency sandworm vibrations."},
+        {"badge_ru": "Локации", "badge_en": "Locations", "text_ru": "Пейзажи Арракиса снимались в пустыне Вади-Рам в Иордании и оазисе Лива в ОАЭ на рассвете и закате, чтобы избежать резких полуденных теней.", "text_en": "Arrakis exteriors were filmed in Wadi Rum, Jordan and the Liwa Oasis in the UAE during golden hour."},
+    ],
+    "severance": [
+        {"badge_ru": "Архитектура", "badge_en": "Architecture", "text_ru": "Здание штаб-квартиры Lumon Industries снималось в реальном комплексе Bell Labs Holmdel в Нью-Джерси, спроектированном архитектором Ээро Саариненом в 1962 году.", "text_en": "Lumon Industries headquarters was filmed at the iconic Eero Saarinen-designed Bell Labs Holmdel Complex in New Jersey."},
+        {"badge_ru": "Деталь сцены", "badge_en": "Scene Detail", "text_ru": "На этаже разделения используются только винтажные мониторы и клавиатуры без клавиши Escape — символ того, что у внутренних личностей («инни») нет выхода.", "text_en": "The terminals in Macrodata Refinement were custom-built without an Escape key to symbolize the innies' lack of control."},
+    ],
+    "silo": [
+        {"badge_ru": "Декорации", "badge_en": "Production Design", "text_ru": "Центральная винтовая лестница бункера была построена в натуральную величину высотой в три этажа на студии Hoddesdon в Великобритании, что позволило снимать длинные проходки без склеек.", "text_en": "The massive spiral staircase of the Silo was constructed as a practical three-story physical set at Hoddesdon Studios in the UK."},
+        {"badge_ru": "Литературная основа", "badge_en": "Literary Origin", "text_ru": "Сериал основан на трилогии романов Хью Хауи «Укрытие» («Wool», «Shift», «Dust»), которую автор изначально опубликовал самостоятельно в виде короткого рассказа.", "text_en": "Adapted from Hugh Howey's dystopian 'Wool' trilogy, which originally began as a self-published short story in 2011."},
+    ],
+    "the last of us": [
+        {"badge_ru": "Грим и эффекты", "badge_en": "Practical Makeup", "text_ru": "Щелкуны (Clickers) и топляки создавались мастером пластического грима Барри Гоуэром вручную: актёры-каскадёры разучивали пластику движений на основе оригинальной игры Naughty Dog.", "text_en": "Prosthetics designer Barrie Gower sculpted practical Cordyceps suits worn by contortionists trained in the original game's movement."},
+        {"badge_ru": "Саундтрек", "badge_en": "Soundtrack", "text_ru": "По радио в машине Джоэла песни 1960–70-х годов означают безопасность, а хиты 1980-х (например, Depeche Mode) служат зашифрованным сигналом опасности от контрабандистов.", "text_en": "By smuggler radio code, 60s and 70s songs signal nothing new, while 1980s tracks warn of active trouble."},
+    ],
+    "fallout": [
+        {"badge_ru": "Реквизит", "badge_en": "Props & Design", "text_ru": "Наручный компьютер Pip-Boy на руке Люси был собран с работающим OLED-дисплеем и настоящими кнопками, чтобы актёры могли взаимодействовать с интерфейсом прямо в кадре.", "text_en": "Lucy's wrist-mounted Pip-Boy featured a functional screen and physical dials operated live on camera."},
+        {"badge_ru": "Локации", "badge_en": "Locations", "text_ru": "Заброшенные пустоши снимались на Алмазном берегу Намибии в заброшенном шахтёрском городе Колманскоп, занесённом настоящими песками пустыни Намиб.", "text_en": "Wasteland exteriors were filmed on location in Kolmanskop, an abandoned diamond-mining ghost town in Namibia."},
+    ],
+    "inception": [
+        {"badge_ru": "Музыка и время", "badge_en": "Music & Time", "text_ru": "Ханс Циммер построил весь саундтрек «Начала» путём экстремального замедления медных духовых из песни Эдит Пиаф «Non, je ne regrette rien», отражая замедление времени во сне.", "text_en": "Hans Zimmer derived the entire brass motif of the score by slowing down Édith Piaf's 'Non, je ne regrette rien' to match dream-time dilation."},
+        {"badge_ru": "Практическая сцена", "badge_en": "Practical Set", "text_ru": "Драка в невесомости с Артуром снималась без тросов внутри вращающегося на 360 градусов коридора длиной 30 метров, собранного в ангаре дирижаблей Кардингтон.", "text_en": "The zero-gravity hotel hallway fight was filmed inside a giant 100-foot rotating centrifuge rig built inside a British airship hangar."},
+    ],
+    "the dark knight": [
+        {"badge_ru": "Камера IMAX", "badge_en": "IMAX First", "text_ru": "«Тёмный рыцарь» стал первым художественным фильмом в истории Голливуда, ключевые экшен-сцены которого (включая ограбление банка в прологе) снимались на 70-мм камеры IMAX.", "text_en": "The Dark Knight was the first major feature film in history to shoot action sequences—including the opening bank heist—on 70mm IMAX cameras."},
+        {"badge_ru": "Актёрская игра", "badge_en": "Method Acting", "text_ru": "Хит Леджер в течение шести недель перед съёмками вёл дневник персонажа в номере отеля, разрабатывая характерный тембр голоса и пластику Джокера.", "text_en": "Heath Ledger isolated himself in a hotel room for six weeks keeping an in-character diary to develop the Joker's voice and posture."},
+    ],
+    "the gentlemen": [
+        {"badge_ru": "Локации", "badge_en": "Locations", "text_ru": "Родовое поместье герцога Холстед снималось в реальном английском загородном доме Badminton House в Глостершире, принадлежащем герцогам Бофорт с XVII века.", "text_en": "Halstead Manor was filmed at Badminton House in Gloucestershire, the historic seat of the Dukes of Beaufort since the 17th century."},
+        {"badge_ru": "Костюмы", "badge_en": "Costume Design", "text_ru": "Клетчатые спортивные костюмы тренера и его учеников шились на заказ художником по костюмам Майклом Уилкинсоном из классического британского твида Lovat Mill.", "text_en": "Coach's signature plaid tracksuits were custom-tailored by costume designer Michael Wilkinson using authentic Scottish estate tweed."},
+    ],
+    "arcane": [
+        {"badge_ru": "Анимация", "badge_en": "Animation Craft", "text_ru": "Французская студия Fortiche работала над первым сезоном «Аркейна» более шести лет, сочетая трёхмерные модели персонажей с расписанными вручную 2D-текстурами и эффектами дыма.", "text_en": "French studio Fortiche spent six years crafting Season 1, blending 3D character rigs with hand-painted 2D textures and non-photorealistic lighting."},
+    ],
+    "stranger things": [
+        {"badge_ru": "Саундтрек", "badge_en": "Chart Revival", "text_ru": "После выхода четвёртого сезона песня Кейт Буш «Running Up That Hill» (1985) впервые за 37 лет возглавила мировые чарты, став ключевым лейтмотивом спасения Макс.", "text_en": "Featured as Max's lifeline against Vecna, Kate Bush's 1985 single 'Running Up That Hill' surged to #1 globally 37 years after its release."},
+    ],
+}
+
+_CURATED_TITLE_ALIASES: Dict[str, str] = {
+    "во все тяжкие": "breaking bad",
+    "тед лассо": "ted lasso",
+    "интерстеллар": "interstellar",
+    "оппенгеймер": "oppenheimer",
+    "дюна": "dune",
+    "разделение": "severance",
+    "аркейн": "arcane",
+    "очень странные дела": "stranger things",
+    "укрытие": "silo",
+    "бункер": "silo",
+    "одни из нас": "the last of us",
+    "фоллаут": "fallout",
+    "джентльмены": "the gentlemen",
+    "начало": "inception",
+    "темный рыцарь": "the dark knight",
+}
+
 
 
 def handle_trailer(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
@@ -109,13 +270,32 @@ def handle_person(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bo
 def handle_person_photo(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
     name = qs.get("name", [""])[0].strip()
     hint_url = (qs.get("url", [""])[0] or qs.get("hint", [""])[0]).strip()
-    cache_key = (hint_url or name.lower()).strip()
+    strict_photo = qs.get("strict", ["0"])[0].strip().lower() in ("1", "true", "yes") or qs.get(
+        "no_initials", ["0"]
+    )[0].strip().lower() in ("1", "true", "yes")
+    name_key = name.lower().replace("ё", "е").strip()
+    cache_key = (hint_url or name_key).strip()
     cached_hit = None
-    if cache_key:
+    if cache_key or name_key:
         with ctx.person_photo_lock:
-            cached_hit = ctx.person_photo_cache.get(cache_key)
+            cached_hit = (
+                ctx.person_photo_cache.get(cache_key)
+                if cache_key
+                else None
+            ) or (
+                ctx.person_photo_cache.get(name_key)
+                if name_key
+                else None
+            )
     if cached_hit:
         cached_ctype, cached_bytes = cached_hit
+        if strict_photo and "svg" in str(cached_ctype).lower():
+            handler.send_response(404)
+            handler.send_header("Content-Type", "text/plain; charset=utf-8")
+            handler.send_header("Cache-Control", "public, max-age=600")
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+            return True
         handler.send_response(200)
         handler.send_header("Content-Type", cached_ctype)
         handler.send_header("X-Content-Type-Options", "nosniff")
@@ -127,11 +307,44 @@ def handle_person_photo(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any)
         return True
 
     candidate_urls = []
-    if hint_url and ctx.is_allowed_media_source_url(hint_url, allow_torrserver_loopback=False):
-        candidate_urls.append(hint_url)
+
+    def _add_photo_candidate(raw_u: str) -> None:
+        u = str(raw_u or "").strip()
+        if not u:
+            return
+        if (
+            ctx.is_allowed_media_source_url(u, allow_torrserver_loopback=False)
+            and ctx.rezka_client._is_valid_person_photo_url(u)
+            and u not in candidate_urls
+        ):
+            candidate_urls.append(u)
+        try:
+            p_cand = urllib.parse.urlparse(u)
+            if re.match(r"^/i/\d+/\d+/\d+/", p_cand.path or ""):
+                static_alt = f"https://statichdrezka.ac{p_cand.path}"
+                if (
+                    static_alt not in candidate_urls
+                    and ctx.is_allowed_media_source_url(static_alt, allow_torrserver_loopback=False)
+                    and ctx.rezka_client._is_valid_person_photo_url(static_alt)
+                ):
+                    candidate_urls.append(static_alt)
+                mirror_base = str(getattr(ctx.rezka_client, "base_url", "") or "").rstrip("/")
+                if mirror_base.startswith("http"):
+                    mirror_alt = f"{mirror_base}{p_cand.path}"
+                    if (
+                        mirror_alt not in candidate_urls
+                        and ctx.is_allowed_media_source_url(mirror_alt, allow_torrserver_loopback=False)
+                        and ctx.rezka_client._is_valid_person_photo_url(mirror_alt)
+                    ):
+                        candidate_urls.append(mirror_alt)
+        except Exception:
+            pass
+
+    if hint_url:
+        _add_photo_candidate(hint_url)
     resolved_url = ctx.rezka_client.resolve_person_photo(name)
-    if resolved_url and resolved_url not in candidate_urls:
-        candidate_urls.append(resolved_url)
+    if resolved_url:
+        _add_photo_candidate(resolved_url)
 
     proxy_cfg = getattr(ctx.rezka_client, "proxy_url", None)
     for p_url in candidate_urls:
@@ -145,16 +358,21 @@ def handle_person_photo(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any)
                 timeout=4.0,
                 proxy_url=proxy_cfg,
             ) as resp:
+                final_resp_url = str(getattr(resp, "url", "") or resp.geturl() or p_url)
+                if not ctx.rezka_client._is_valid_person_photo_url(final_resp_url):
+                    continue
                 raw_img = resp.read(524288)
                 sniff_ctype = ctx.sniff_raster_image_type(raw_img)
-                if resp.status == 200 and raw_img and sniff_ctype:
+                if resp.status == 200 and raw_img and len(raw_img) >= 512 and sniff_ctype:
                     out_ctype = sniff_ctype
-                    if cache_key:
-                        with ctx.person_photo_lock:
-                            if len(ctx.person_photo_cache) > 350:
-                                for k_old in list(ctx.person_photo_cache.keys())[:88]:
-                                    ctx.person_photo_cache.pop(k_old, None)
+                    with ctx.person_photo_lock:
+                        if len(ctx.person_photo_cache) > 350:
+                            for k_old in list(ctx.person_photo_cache.keys())[:88]:
+                                ctx.person_photo_cache.pop(k_old, None)
+                        if cache_key:
                             ctx.person_photo_cache[cache_key] = (out_ctype, raw_img)
+                        if name_key:
+                            ctx.person_photo_cache[name_key] = (out_ctype, raw_img)
                     handler.send_response(200)
                     handler.send_header("Content-Type", out_ctype)
                     handler.send_header("X-Content-Type-Options", "nosniff")
@@ -166,6 +384,14 @@ def handle_person_photo(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any)
                     return True
         except Exception:
             continue
+
+    if strict_photo:
+        handler.send_response(404)
+        handler.send_header("Content-Type", "text/plain; charset=utf-8")
+        handler.send_header("Cache-Control", "public, max-age=600")
+        handler.send_header("Content-Length", "0")
+        handler.end_headers()
+        return True
 
     parts = [w for w in name.split() if w]
     initials = "".join(w[0].upper() for w in parts[:2]) or "CF"
@@ -181,10 +407,18 @@ def handle_person_photo(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any)
         f'<text x="60" y="90" fill="#e5e5ea" font-family="-apple-system,sans-serif" '
         f'font-size="36" font-weight="600" text-anchor="middle">{safe_initials}</text></svg>'
     ).encode("utf-8")
+    with ctx.person_photo_lock:
+        if len(ctx.person_photo_cache) > 350:
+            for k_old in list(ctx.person_photo_cache.keys())[:88]:
+                ctx.person_photo_cache.pop(k_old, None)
+        if cache_key:
+            ctx.person_photo_cache[cache_key] = ("image/svg+xml; charset=utf-8", svg)
+        if name_key:
+            ctx.person_photo_cache[name_key] = ("image/svg+xml; charset=utf-8", svg)
     handler.send_response(200)
     handler.send_header("Content-Type", "image/svg+xml; charset=utf-8")
     handler.send_header("Content-Length", str(len(svg)))
-    handler.send_header("Cache-Control", "public, max-age=86400")
+    handler.send_header("Cache-Control", "public, max-age=3600")
     handler.end_headers()
     handler.wfile.write(svg)
     return True
@@ -266,20 +500,17 @@ def handle_title_meta(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
     inferred_imdb = item_id if re.match(r"^tt\d{5,10}$", item_id) else ""
     req_prof_id_tm = str(getattr(ctx.kinorium_service, "_profile_id", "main") or "main")
 
-    reconcile_thread = None
+    reconcile_fut = None
     if media_type == "series" and ctx.kinorium_service.is_service_enabled("kinorium"):
-        reconcile_thread = threading.Thread(
-            target=ctx.kinorium_service.reconcile_series_episodes,
-            kwargs={
-                "item_id": kin_item_id,
-                "title": title,
-                "orig_title": orig_title,
-                "kid": kin_kid or None,
-            },
-            daemon=True,
+        reconcile_fut = _META_EXECUTOR.submit(
+            ctx.kinorium_service.reconcile_series_episodes,
+            item_id=kin_item_id,
+            title=title,
+            orig_title=orig_title,
+            kid=kin_kid or None,
         )
-        reconcile_thread.start()
 
+    kin_extras_lock = threading.Lock()
     kin_extras_holder: Dict[str, Any] = {
         "pct": None,
         "kinorium_id": kin_kid,
@@ -302,23 +533,25 @@ def handle_title_meta(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
                 media_type=media_type,
                 allow_network=True,
             )
-            kin_extras_holder["pct"] = extras.get("critics_pct")
-            if extras.get("kinorium_id"):
-                kin_extras_holder["kinorium_id"] = extras["kinorium_id"]
-            kin_extras_holder["similar_raw"] = extras.get("similar_raw")
-            if extras.get("description"):
-                kin_extras_holder["description"] = str(extras.get("description") or "").strip()
-            eff_k_ep = str(kin_extras_holder.get("kinorium_id") or kin_kid or "").strip()
+            desc_val = str(extras.get("description") or "").strip() if extras.get("description") else ""
+            with kin_extras_lock:
+                kin_extras_holder["pct"] = extras.get("critics_pct")
+                if extras.get("kinorium_id"):
+                    kin_extras_holder["kinorium_id"] = extras["kinorium_id"]
+                kin_extras_holder["similar_raw"] = extras.get("similar_raw")
+                if desc_val:
+                    kin_extras_holder["description"] = desc_val
+                eff_k_ep = str(kin_extras_holder.get("kinorium_id") or kin_kid or "").strip()
             if (
                 eff_k_ep.isdigit()
-                and kin_extras_holder["description"]
+                and desc_val
                 and str(getattr(ctx.kinorium_service, "_profile_id", "main") or "main") == req_prof_id_tm
             ):
                 with ctx.kinorium_service._state_lock:
-                    ctx.kinorium_service.state.setdefault("descriptions_by_kid", {})[eff_k_ep] = kin_extras_holder["description"]
+                    ctx.kinorium_service.state.setdefault("descriptions_by_kid", {})[eff_k_ep] = desc_val
             if (
                 media_type == "series"
-                and reconcile_thread is None
+                and reconcile_fut is None
                 and eff_k_ep.isdigit()
                 and str(getattr(ctx.kinorium_service, "_profile_id", "main") or "main") == req_prof_id_tm
             ):
@@ -349,14 +582,11 @@ def handle_title_meta(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
             need_episodes=(media_type == "series"),
         )
 
-    critics_thread = threading.Thread(target=_fetch_kin_extras_bg, daemon=True)
-    critics_thread.start()
-    jw_offers_thread = threading.Thread(target=_fetch_jw_offers_bg, daemon=True)
-    jw_offers_thread.start()
-    en_thread = None
+    critics_fut = _META_EXECUTOR.submit(_fetch_kin_extras_bg)
+    jw_offers_fut = _META_EXECUTOR.submit(_fetch_jw_offers_bg)
+    en_fut = None
     if req_lang == "en" or media_type == "series":
-        en_thread = threading.Thread(target=_fetch_en_bg, daemon=True)
-        en_thread.start()
+        en_fut = _META_EXECUTOR.submit(_fetch_en_bg)
 
     meta = ctx.rezka_client._resolve_page_metadata(
         num_id,
@@ -368,10 +598,13 @@ def handle_title_meta(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
         imdb_id=inferred_imdb,
     )
     bg_deadline = time.time() + 4.5
-    for th in (reconcile_thread, critics_thread, jw_offers_thread, en_thread):
-        if th is not None and th.is_alive():
+    for fut in (reconcile_fut, critics_fut, jw_offers_fut, en_fut):
+        if fut is not None and not fut.done():
             rem = max(0.05, bg_deadline - time.time())
-            th.join(timeout=rem)
+            try:
+                fut.result(timeout=rem)
+            except Exception:
+                pass
 
     if ctx.profile_manager.is_kids_mode_active():
         cand_tm = ctx.build_trusted_item_for_kids_check(
@@ -493,10 +726,31 @@ def handle_title_meta(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
             resp_payload["directors"] = [p["name"] for p in en_data["cast_people"] if p.get("is_director")]
         if not resp_payload["actors"]:
             resp_payload["actors"] = [p["name"] for p in en_data["cast_people"] if not p.get("is_director")]
-    elif not resp_payload["directors"] and isinstance(en_data, dict) and en_data.get("directors"):
-        resp_payload["directors"] = en_data["directors"]
-    if not resp_payload["actors"] and isinstance(en_data, dict) and en_data.get("actors"):
-        resp_payload["actors"] = en_data["actors"]
+    else:
+        if not resp_payload["directors"] and isinstance(en_data, dict):
+            resp_payload["directors"] = list(en_data.get("directors") or en_data.get("directors_en") or [])
+        if not resp_payload["actors"] and isinstance(en_data, dict):
+            resp_payload["actors"] = list(en_data.get("actors") or en_data.get("actors_en") or [])
+        if not resp_payload["cast_people"] and (resp_payload["directors"] or resp_payload["actors"]):
+            synth_cast: List[Dict[str, Any]] = []
+            seen_synth = set()
+            for d_nm in resp_payload["directors"][:4]:
+                d_str = str(d_nm or "").strip()
+                if not d_str or d_str.lower() in seen_synth:
+                    continue
+                seen_synth.add(d_str.lower())
+                with ctx.rezka_client._cache_lock:
+                    ph_d = ctx.rezka_client.person_photo_by_name.get(d_str.lower(), "")
+                synth_cast.append({"name": d_str, "role": "Режиссёр", "is_director": True, "photo": ph_d})
+            for a_nm in resp_payload["actors"][:14]:
+                a_str = str(a_nm or "").strip()
+                if not a_str or a_str.lower() in seen_synth:
+                    continue
+                seen_synth.add(a_str.lower())
+                with ctx.rezka_client._cache_lock:
+                    ph_a = ctx.rezka_client.person_photo_by_name.get(a_str.lower(), "")
+                synth_cast.append({"name": a_str, "role": "В ролях", "is_director": False, "photo": ph_a})
+            resp_payload["cast_people"] = synth_cast
 
     raw_studios = meta.get("studios", []) if meta else []
     free_studios = [s for s in raw_studios if not s.get("is_prem_locked")]
@@ -563,7 +817,7 @@ def handle_title_meta(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
         directors=meta.get("directors", []) if meta else [],
         actors=meta.get("actors", []) if meta else [],
         preloaded_raw=kin_extras_holder.get("similar_raw"),
-        allow_network=False,
+        allow_network=bool(eff_kin_id_str and kin_extras_holder.get("similar_raw") is None),
         lang=req_lang,
         limit=12,
     )
@@ -572,6 +826,21 @@ def handle_title_meta(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
         sim_items = ctx.profile_manager.filter_items_for_kids(sim_items)
     resp_payload["similar_items"] = sim_items
     resp_payload["similar_source"] = sim_bundle.get("source", "curated")
+    fr_bundle = ctx.aggregator.resolve_franchise_for_title(
+        item_id=kin_item_id or item_id,
+        rezka_id=str(resp_payload.get("rezka_id") or num_id or explicit_rezka_id or ""),
+        title=title,
+        orig_title=orig_title,
+        year=year,
+        media_type=media_type,
+        preloaded_parts=(meta.get("franchise_parts") if isinstance(meta, dict) else None),
+        lang=req_lang,
+    )
+    fr_items = fr_bundle.get("items", [])
+    if ctx.profile_manager.is_kids_mode_active() and len(fr_items) >= 2:
+        fr_items = ctx.profile_manager.filter_items_for_kids(fr_items)
+    resp_payload["franchise_items"] = fr_items if len(fr_items) >= 2 else []
+    resp_payload["franchise_source"] = fr_bundle.get("source", "none")
     if kin_extras_holder.get("kinorium_id"):
         resp_payload["kinorium_id"] = str(kin_extras_holder["kinorium_id"])
     resp_payload["providers"] = jw_offers_holder.get("offers") or []
@@ -794,14 +1063,30 @@ def handle_title_meta(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
         if isinstance(cand_c, dict):
             imdb_rating = (cand_c.get("ratings") or {}).get("imdb") or cand_c.get("imdb_rating")
     if imdb_rating is None:
-        en_cached = ctx.en_meta_resolver.resolve(
-            item_id=kin_item_id or item_id,
-            title=title,
-            orig_title=orig_title,
-            year=year,
-            media_type=media_type,
-            kinorium_id=eff_kin_id_str or kin_kid,
-            need_episodes=False,
+        en_cached = (
+            en_data
+            if isinstance(en_data, dict)
+            else (
+                ctx.en_meta_resolver.get_cached(
+                    item_id=kin_item_id or item_id,
+                    title=title,
+                    orig_title=orig_title,
+                    year=year,
+                    media_type=media_type,
+                    kinorium_id=eff_kin_id_str or kin_kid,
+                    include_episodes=False,
+                )
+                if en_fut is not None
+                else ctx.en_meta_resolver.resolve(
+                    item_id=kin_item_id or item_id,
+                    title=title,
+                    orig_title=orig_title,
+                    year=year,
+                    media_type=media_type,
+                    kinorium_id=eff_kin_id_str or kin_kid,
+                    need_episodes=False,
+                )
+            )
         )
         if isinstance(en_cached, dict):
             if en_cached.get("imdb_id") and not resp_payload.get("imdb_id"):
@@ -815,8 +1100,595 @@ def handle_title_meta(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
         "imdb": imdb_rating,
         "critics": final_critics,
     }
+    xray_inline = _build_xray_payload(
+        title=title,
+        orig_title=orig_title,
+        year=year,
+        media_type=media_type,
+        directors=(resp_payload.get("directors_en") if req_lang == "en" else None) or resp_payload.get("directors") or [],
+        actors=(resp_payload.get("actors_en") if req_lang == "en" else None) or resp_payload.get("actors") or [],
+        genres=(resp_payload.get("genres_en") if req_lang == "en" else None) or resp_payload.get("genres") or [],
+        countries=(resp_payload.get("countries_en") if req_lang == "en" else None) or resp_payload.get("countries") or [],
+        kinorium_rating=kin_rating,
+        imdb_rating=imdb_rating,
+        critics_rating=final_critics,
+        lang=req_lang,
+        allow_network=False,
+    )
+    resp_payload["soundtrack"] = xray_inline["soundtrack"]
+    resp_payload["trivia"] = xray_inline["trivia"]
     handler._send_json(resp_payload)
     return True
+
+
+_CURATED_KEY_PATTERNS: Dict[str, Any] = {}
+
+
+def _matches_curated_key(norm_key: str, cur_key: str) -> bool:
+    if norm_key == cur_key:
+        return True
+    if cur_key not in norm_key:
+        return False
+    pat = _CURATED_KEY_PATTERNS.get(cur_key)
+    if pat is None:
+        pat = re.compile(r"(?:^|\b)" + re.escape(cur_key) + r"(?:\b|$)")
+        if len(_CURATED_KEY_PATTERNS) < 512:
+            _CURATED_KEY_PATTERNS[cur_key] = pat
+    return bool(pat.search(norm_key))
+
+
+def _build_xray_payload(
+    *,
+    title: str,
+    orig_title: str,
+    year: int = 0,
+    media_type: str = "movie",
+    directors: List[str] | None = None,
+    actors: List[str] | None = None,
+    genres: List[str] | None = None,
+    countries: List[str] | None = None,
+    kinorium_rating: Any = None,
+    imdb_rating: Any = None,
+    critics_rating: Any = None,
+    lang: str = "ru",
+    allow_network: bool = True,
+) -> Dict[str, Any]:
+    is_en = str(lang or "ru").lower().startswith("en")
+    norm_keys: List[str] = []
+    _series_only_aliases = {"укрытие", "бункер", "разделение", "аркейн"}
+    for raw_t in (orig_title, title):
+        cleaned = re.sub(r"[^a-zа-яё0-9\s]", " ", str(raw_t or "").lower()).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned_yo = cleaned.replace("ё", "е")
+        for ck in (cleaned, cleaned_yo):
+            if ck and ck not in norm_keys:
+                norm_keys.append(ck)
+            if ck in _series_only_aliases and media_type != "series":
+                continue
+            alias_target = _CURATED_TITLE_ALIASES.get(ck)
+            if alias_target and alias_target not in norm_keys:
+                norm_keys.append(alias_target)
+
+    cache_key = f"{'|'.join(norm_keys)}:{year}:{media_type}:{'en' if is_en else 'ru'}:{'net' if allow_network else 'local'}"
+    now = time.time()
+    with _XRAY_CACHE_LOCK:
+        cached = _XRAY_CACHE.get(cache_key)
+        if cached and (now - cached[0]) < 86400:
+            base = dict(cached[1])
+            base["soundtrack"] = list(base.get("soundtrack") or [])
+            base["trivia"] = list(base.get("trivia") or [])
+            return base
+
+    soundtrack: List[Dict[str, str]] = []
+    for nk in norm_keys:
+        for cur_k, tracks in _CURATED_SOUNDTRACKS.items():
+            if _matches_curated_key(nk, cur_k):
+                for tr in tracks:
+                    q_pair = urllib.parse.quote(f"{tr['artist']} {tr['title']}")
+                    soundtrack.append(
+                        {
+                            "title": tr["title"],
+                            "artist": tr["artist"],
+                            "album": tr.get("album", ""),
+                            "scene": tr.get("scene_en" if is_en else "scene_ru", ""),
+                            "preview_url": tr.get("preview_url", ""),
+                            "artwork_url": tr.get("artwork_url", ""),
+                            "apple_music_url": f"https://music.apple.com/search?term={q_pair}",
+                            "spotify_url": f"https://open.spotify.com/search/{q_pair}",
+                            "youtube_url": f"https://music.youtube.com/search?q={q_pair}",
+                        }
+                    )
+                break
+        if soundtrack:
+            break
+
+    used_synthetic_fallback = False
+    itunes_network_failed = False
+    needs_itunes_enrichment = len(soundtrack) < 4 or any(not t.get("preview_url") for t in soundtrack)
+    if allow_network and needs_itunes_enrichment and (orig_title or title):
+        target_q = (orig_title or title).strip()
+        search_q = f"{target_q} soundtrack"
+        itunes_url = (
+            f"https://itunes.apple.com/search?term={urllib.parse.quote(search_q)}"
+            f"&media=music&entity=song&limit=10"
+        )
+        try:
+            req = urllib.request.Request(
+                itunes_url,
+                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Velarium/2.7"},
+            )
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            with opener.open(req, timeout=2.4) as resp:
+                data = json.loads(resp.read(524288).decode("utf-8", errors="replace"))
+            results = data.get("results") if isinstance(data, dict) else []
+            title_tokens = [
+                tok
+                for tok in re.split(r"\s+", re.sub(r"[^a-zа-яё0-9\s]", " ", target_q.lower()).strip())
+                if len(tok) >= 3 and tok not in ("the", "and", "for", "from", "part", "season")
+            ]
+            existing_by_title = {t["title"].lower(): t for t in soundtrack}
+            seen_titles = set(existing_by_title.keys())
+            matched_candidates: List[Dict[str, str]] = []
+            fallback_candidates: List[Dict[str, str]] = []
+            for r in results or []:
+                if not isinstance(r, dict):
+                    continue
+                t_name = str(r.get("trackName") or "").strip()
+                a_name = str(r.get("artistName") or "").strip()
+                c_name = str(r.get("collectionName") or "Original Soundtrack").strip()
+                if not t_name or not a_name:
+                    continue
+                t_lower = t_name.lower()
+                hi_res_art = str(r.get("artworkUrl100") or "").replace("100x100bb", "300x300bb")
+                if t_lower in existing_by_title:
+                    cur_tr = existing_by_title[t_lower]
+                    if not cur_tr.get("preview_url") and r.get("previewUrl"):
+                        cur_tr["preview_url"] = str(r["previewUrl"])
+                    if not cur_tr.get("artwork_url") and hi_res_art:
+                        cur_tr["artwork_url"] = hi_res_art
+                    continue
+                if t_lower in seen_titles:
+                    continue
+                seen_titles.add(t_lower)
+                q_pair = urllib.parse.quote(f"{a_name} {t_name}")
+                cand_entry = {
+                    "title": t_name,
+                    "artist": a_name,
+                    "album": c_name,
+                    "scene": "Official Soundtrack" if is_en else "Официальный саундтрек",
+                    "preview_url": str(r.get("previewUrl") or ""),
+                    "artwork_url": hi_res_art,
+                    "apple_music_url": str(r.get("trackViewUrl") or f"https://music.apple.com/search?term={q_pair}"),
+                    "spotify_url": f"https://open.spotify.com/search/{q_pair}",
+                    "youtube_url": f"https://music.youtube.com/search?q={q_pair}",
+                }
+                haystack = f"{c_name} {t_name} {a_name}".lower()
+                if not title_tokens or any(tok in haystack for tok in title_tokens):
+                    matched_candidates.append(cand_entry)
+                else:
+                    fallback_candidates.append(cand_entry)
+            chosen_pool = matched_candidates if matched_candidates else (fallback_candidates[:3] if not soundtrack else [])
+            for cand_tr in chosen_pool:
+                if len(soundtrack) >= 8:
+                    break
+                soundtrack.append(cand_tr)
+        except Exception:
+            itunes_network_failed = True
+
+    disp_title = (orig_title or title or "Velarium").strip() if is_en else (title or orig_title or "Velarium").strip()
+    orig_disp = (orig_title or disp_title).strip()
+    if not soundtrack:
+        used_synthetic_fallback = True
+        q_ost = urllib.parse.quote(f"{orig_disp} Original Soundtrack")
+        soundtrack = [
+            {
+                "title": f"{orig_disp} (Original Soundtrack)" if is_en else f"Саундтрек к «{disp_title}»",
+                "artist": "Official Motion Picture Audio" if is_en else "Поиск альбома в музыкальных сервисах",
+                "album": f"{orig_disp} (OST)",
+                "scene": "Official Soundtrack" if is_en else "Официальный саундтрек",
+                "preview_url": "",
+                "is_search_fallback": True,
+                "apple_music_url": f"https://music.apple.com/search?term={q_ost}",
+                "spotify_url": f"https://open.spotify.com/search/{q_ost}",
+                "youtube_url": f"https://music.youtube.com/search?q={q_ost}",
+            },
+        ]
+
+    trivia: List[Dict[str, str]] = []
+    for nk in norm_keys:
+        for cur_k, facts in _CURATED_TRIVIA.items():
+            if _matches_curated_key(nk, cur_k):
+                for fc in facts:
+                    trivia.append(
+                        {
+                            "badge": fc.get("badge_en" if is_en else "badge_ru", "Trivia"),
+                            "text": fc.get("text_en" if is_en else "text_ru", ""),
+                        }
+                    )
+                break
+        if trivia:
+            break
+
+    if allow_network and len(trivia) < 4 and (title or orig_title):
+        wiki_facts = _fetch_wikipedia_xray_trivia(
+            title=title,
+            orig_title=orig_title,
+            year=year,
+            media_type=media_type,
+            is_en=is_en,
+        )
+        seen_tr_txt = {t["text"][:48].lower() for t in trivia if t.get("text")}
+        for wf in wiki_facts:
+            wf_txt = str(wf.get("text") or "").strip()
+            if wf_txt and wf_txt[:48].lower() not in seen_tr_txt:
+                seen_tr_txt.add(wf_txt[:48].lower())
+                trivia.append(wf)
+                if len(trivia) >= 6:
+                    break
+
+    dirs_clean = [str(d).strip() for d in (directors or []) if str(d).strip()]
+    acts_clean = [str(a).strip() for a in (actors or []) if str(a).strip()]
+    genres_clean = [str(g).strip() for g in (genres or []) if str(g).strip()]
+    countries_clean = [str(c).strip() for c in (countries or []) if str(c).strip()]
+
+    if len(trivia) < 3 and orig_title and title and orig_title.strip().lower() != title.strip().lower():
+        meta_bits_ru = [f"Оригинальное название: «{orig_title}»"]
+        meta_bits_en = [f"Original release title: \"{orig_title}\""]
+        if year:
+            meta_bits_ru.append(f"год выхода: {year}")
+            meta_bits_en.append(f"release year: {year}")
+        if countries_clean:
+            meta_bits_ru.append(f"страна: {', '.join(countries_clean[:2])}")
+            meta_bits_en.append(f"country: {', '.join(countries_clean[:2])}")
+        if dirs_clean:
+            meta_bits_ru.append(f"режиссёр: {', '.join(dirs_clean[:2])}")
+            meta_bits_en.append(f"directed by {', '.join(dirs_clean[:2])}")
+        trivia.append(
+            {
+                "badge": "Release Info" if is_en else "Паспорт релиза",
+                "text": ("; ".join(meta_bits_en) + ".") if is_en else ("; ".join(meta_bits_ru) + "."),
+            }
+        )
+    if len(trivia) < 3 and (kinorium_rating or imdb_rating or critics_rating):
+        parts_ru = []
+        parts_en = []
+        if kinorium_rating:
+            parts_ru.append(f"Kinorium {kinorium_rating}")
+            parts_en.append(f"Kinorium {kinorium_rating}")
+        if imdb_rating:
+            parts_ru.append(f"IMDb {imdb_rating}")
+            parts_en.append(f"IMDb {imdb_rating}")
+        if critics_rating:
+            parts_ru.append(f"критики {critics_rating}%")
+            parts_en.append(f"Critics {critics_rating}%")
+        trivia.append(
+            {
+                "badge": "Reception" if is_en else "Оценки и приём",
+                "text": (
+                    f"Audience and critical ratings for {disp_title}: {', '.join(parts_en)}."
+                    if is_en
+                    else f"Рейтинг у зрителей и прессы для «{disp_title}»: {', '.join(parts_ru)}."
+                ),
+            }
+        )
+    if not trivia:
+        summary_parts_ru = [f"«{disp_title}»"]
+        summary_parts_en = [disp_title]
+        if year:
+            summary_parts_ru.append(f"({year})")
+            summary_parts_en.append(f"({year})")
+        if dirs_clean:
+            summary_parts_ru.append(f"— режиссёр {', '.join(dirs_clean[:2])}")
+            summary_parts_en.append(f"— directed by {', '.join(dirs_clean[:2])}")
+        if acts_clean:
+            summary_parts_ru.append(f"в главных ролях: {', '.join(acts_clean[:3])}")
+            summary_parts_en.append(f"starring {', '.join(acts_clean[:3])}")
+        trivia.append(
+            {
+                "badge": "Production" if is_en else "О проекте",
+                "text": (" ".join(summary_parts_en) + ".") if is_en else (" ".join(summary_parts_ru) + "."),
+            }
+        )
+
+    payload = {
+        "ok": True,
+        "soundtrack": soundtrack[:8],
+        "trivia": trivia[:7],
+    }
+    if not itunes_network_failed:
+        with _XRAY_CACHE_LOCK:
+            if len(_XRAY_CACHE) > 400:
+                oldest_keys = sorted(_XRAY_CACHE.keys(), key=lambda k: _XRAY_CACHE[k][0])[:100]
+                for ok_k in oldest_keys:
+                    _XRAY_CACHE.pop(ok_k, None)
+            cache_ts = (now - 86100.0) if used_synthetic_fallback else now
+            _XRAY_CACHE[cache_key] = (cache_ts, copy.deepcopy(payload))
+    return payload
+
+
+def _fetch_wikipedia_xray_trivia(
+    *,
+    title: str,
+    orig_title: str,
+    year: int = 0,
+    media_type: str = "movie",
+    is_en: bool = False,
+) -> List[Dict[str, str]]:
+    wiki_lang = "en" if is_en else "ru"
+    primary_q = (orig_title or title).strip() if is_en else (title or orig_title).strip()
+    if not primary_q:
+        return []
+    type_hint = (
+        ("TV series" if media_type == "series" else "film")
+        if is_en
+        else ("сериал" if media_type == "series" else "фильм")
+    )
+    search_q = f"{primary_q} {year} {type_hint}".strip() if year else f"{primary_q} {type_hint}".strip()
+    url = (
+        f"https://{wiki_lang}.wikipedia.org/w/api.php?action=query&generator=search"
+        f"&gsrsearch={urllib.parse.quote(search_q)}&gsrlimit=2"
+        f"&prop=extracts&explaintext=1&exsectionformat=wiki&exchars=5500&format=json"
+    )
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "VelariumCinema/2.7 (https://127.0.0.1:8765)",
+                "Accept": "application/json",
+            },
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=2.2) as resp:
+            data = json.loads(resp.read(524288).decode("utf-8", errors="replace"))
+        pages = ((data.get("query") or {}).get("pages") or {}) if isinstance(data, dict) else {}
+        if not isinstance(pages, dict) or not pages:
+            return []
+        sorted_pages = sorted(
+            pages.values(),
+            key=lambda p: int(p.get("index", 999)) if isinstance(p, dict) else 999,
+        )
+        target_extract = ""
+        p_norm = re.sub(r"[^a-zа-яё0-9]+", "", primary_q.lower())
+        o_norm = re.sub(r"[^a-zа-яё0-9]+", "", (orig_title or "").lower())
+        for pg in sorted_pages:
+            if not isinstance(pg, dict):
+                continue
+            pg_title = str(pg.get("title") or "").strip()
+            pg_base = re.sub(r"\s*\([^)]*\)\s*", "", pg_title).strip()
+            pg_norm = re.sub(r"[^a-zа-яё0-9]+", "", pg_base.lower())
+            if not pg_norm:
+                continue
+            if (p_norm and (p_norm in pg_norm or pg_norm in p_norm)) or (o_norm and (o_norm in pg_norm or pg_norm in o_norm)):
+                target_extract = str(pg.get("extract") or "").strip()
+                if target_extract:
+                    break
+        if not target_extract:
+            return []
+
+        section_badges_ru = {
+            "съёмки": "Съёмки",
+            "съемки": "Съёмки",
+            "производство": "Производство",
+            "история создания": "История создания",
+            "разработка": "Разработка",
+            "кастинг": "Кастинг",
+            "подбор актёров": "Кастинг",
+            "музыка": "Саундтрек",
+            "саундтрек": "Саундтрек",
+            "визуальные эффекты": "Визуальные эффекты",
+            "декорации": "Декорации",
+            "локации": "Локации",
+            "интересные факты": "Интересный факт",
+            "факты": "Интересный факт",
+            "восприятие": "Критика и приём",
+            "критика": "Критика и приём",
+            "награды": "Награды и признание",
+        }
+        section_badges_en = {
+            "production": "Production",
+            "filming": "Filming",
+            "development": "Development",
+            "casting": "Casting",
+            "music": "Music & Score",
+            "soundtrack": "Soundtrack",
+            "visual effects": "Visual Effects",
+            "design": "Production Design",
+            "reception": "Critical Reception",
+            "accolades": "Accolades",
+        }
+        badge_map = section_badges_en if is_en else section_badges_ru
+
+        results: List[Dict[str, str]] = []
+        intro_paragraphs: List[str] = []
+        in_intro = True
+        current_badge = ""
+        for raw_line in target_extract.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            m_sec = re.match(r"^={2,4}\s*(.+?)\s*={2,4}$", line)
+            if m_sec:
+                in_intro = False
+                sec_name = m_sec.group(1).strip().lower()
+                matched_b = ""
+                for k_sec, v_badge in badge_map.items():
+                    if k_sec in sec_name:
+                        matched_b = v_badge
+                        break
+                current_badge = matched_b
+                continue
+            clean_p = re.sub(r"\s+", " ", line).strip()
+            if len(clean_p) < 75:
+                continue
+            if len(clean_p) > 310:
+                sentences = re.split(r"(?<=[.!?])\s+", clean_p)
+                acc = ""
+                for s_part in sentences:
+                    if not acc:
+                        acc = s_part
+                    elif len(acc) + 1 + len(s_part) <= 300:
+                        acc = f"{acc} {s_part}"
+                    else:
+                        break
+                clean_p = acc if len(acc) >= 75 else clean_p[:295].rsplit(" ", 1)[0] + "…"
+            if in_intro:
+                intro_paragraphs.append(clean_p)
+                continue
+            if not current_badge:
+                continue
+            results.append({"badge": current_badge, "text": clean_p})
+            if len(results) >= 4:
+                break
+        if len(results) < 2 and intro_paragraphs:
+            for idx_p, ip in enumerate(intro_paragraphs[1:] if len(intro_paragraphs) > 1 else intro_paragraphs):
+                results.append(
+                    {
+                        "badge": ("History & Release" if idx_p == 0 else "Overview")
+                        if is_en
+                        else ("История релиза" if idx_p == 0 else "О проекте"),
+                        "text": ip,
+                    }
+                )
+                if len(results) >= 3:
+                    break
+        return results
+    except Exception:
+        return []
+
+
+def handle_xray(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
+    item_id = qs.get("id", [""])[0].strip()
+    kinorium_id = qs.get("kinorium_id", [""])[0].strip()
+    title = qs.get("title", [""])[0].strip()
+    orig_title = qs.get("orig_title", [""])[0].strip()
+    year = ctx.qs_int(qs, "year", 0)
+    media_type = qs.get("media_type", ["movie"])[0].strip() or "movie"
+    req_lang = ctx.norm_app_lang(qs.get("lang", [ctx.app_prefs.get("app_lang", "ru")])[0], ctx.app_prefs.get("app_lang", "ru"))
+    allow_net = qs.get("allow_network", ["1"])[0].strip() not in ("0", "false", "no")
+
+    if ctx.profile_manager.is_kids_mode_active():
+        cand_item = ctx.build_trusted_item_for_kids_check(
+            item_id=item_id or kinorium_id,
+            title=title,
+            orig_title=orig_title,
+            media_type=media_type,
+        )
+        probe_xr = (
+            cand_item
+            if (cand_item and (cand_item.get("genres") or cand_item.get("description") or cand_item.get("age_rating")))
+            else {
+                **(cand_item if isinstance(cand_item, dict) else {}),
+                "id": item_id or kinorium_id,
+                "title": title,
+                "orig_title": orig_title,
+                "media_type": media_type,
+                "genres": ["семейный"],
+            }
+        )
+        if not ctx.profile_manager.is_item_kids_safe(probe_xr):
+            handler._send_json({"ok": False, "error": "kids_restricted", "soundtrack": [], "trivia": []}, status=403)
+            return True
+
+    cand = None
+    if hasattr(ctx, "aggregator") and hasattr(ctx.aggregator, "lookup_cached_item"):
+        cand = ctx.aggregator.lookup_cached_item(item_id) or (
+            ctx.aggregator.lookup_cached_item(f"kin_{kinorium_id}") if kinorium_id else None
+        )
+    is_en_req = req_lang == "en"
+    directors = (
+        ((cand.get("directors_en") if is_en_req else None) or cand.get("directors"))
+        if isinstance(cand, dict)
+        else None
+    ) or []
+    actors = (
+        ((cand.get("actors_en") if is_en_req else None) or cand.get("actors"))
+        if isinstance(cand, dict)
+        else None
+    ) or []
+    genres = (
+        ((cand.get("genres_en") if is_en_req else None) or cand.get("genres"))
+        if isinstance(cand, dict)
+        else None
+    ) or []
+    countries = (
+        ((cand.get("countries_en") if is_en_req else None) or cand.get("countries"))
+        if isinstance(cand, dict)
+        else None
+    ) or []
+    ratings = (cand.get("ratings") if isinstance(cand, dict) else None) or {}
+    payload = _build_xray_payload(
+        title=title or (cand.get("title") if isinstance(cand, dict) else "") or "",
+        orig_title=orig_title or (cand.get("orig_title") if isinstance(cand, dict) else "") or "",
+        year=year or int((cand.get("year") if isinstance(cand, dict) else 0) or 0),
+        media_type=media_type,
+        directors=directors,
+        actors=actors,
+        genres=genres,
+        countries=countries,
+        kinorium_rating=ratings.get("kinorium"),
+        imdb_rating=ratings.get("imdb"),
+        critics_rating=ratings.get("critics"),
+        lang=req_lang,
+        allow_network=allow_net,
+    )
+    if isinstance(cand, dict):
+        if cand.get("cast_people"):
+            payload["cast_people"] = cand.get("cast_people")
+        if cand.get("cast_people_en"):
+            payload["cast_people_en"] = cand.get("cast_people_en")
+        if directors:
+            payload["directors"] = directors
+        if actors:
+            payload["actors"] = actors
+    if not payload.get("cast_people") and allow_net and hasattr(ctx, "rezka_client") and (title or orig_title):
+        try:
+            num_id_xr = HDRezkaClient._extract_safe_rezka_id(
+                item_id=item_id,
+                explicit_rezka_id=str((cand or {}).get("rezka_id") or ""),
+                rezka_url=str((cand or {}).get("rezka_url") or ""),
+            )
+            rz_meta = ctx.rezka_client._resolve_page_metadata(
+                num_id_xr,
+                title or str((cand or {}).get("title") or ""),
+                orig_title or str((cand or {}).get("orig_title") or ""),
+                str((cand or {}).get("rezka_url") or "") or None,
+                year=year or int((cand or {}).get("year") or 0),
+                media_type=media_type,
+            )
+            if isinstance(rz_meta, dict):
+                if rz_meta.get("cast_people"):
+                    payload["cast_people"] = rz_meta["cast_people"]
+                if rz_meta.get("directors") and not payload.get("directors"):
+                    directors = rz_meta["directors"]
+                    payload["directors"] = directors
+                if rz_meta.get("actors") and not payload.get("actors"):
+                    actors = rz_meta["actors"]
+                    payload["actors"] = actors
+        except Exception:
+            pass
+    if not payload.get("cast_people") and (directors or actors):
+        synth_xr: List[Dict[str, Any]] = []
+        seen_xr = set()
+        for d_nm in directors[:4]:
+            d_str = str(d_nm or "").strip()
+            if not d_str or d_str.lower() in seen_xr:
+                continue
+            seen_xr.add(d_str.lower())
+            with ctx.rezka_client._cache_lock:
+                ph_d = ctx.rezka_client.person_photo_by_name.get(d_str.lower(), "")
+            synth_xr.append({"name": d_str, "role": "Director" if is_en_req else "Режиссёр", "is_director": True, "photo": ph_d})
+        for a_nm in actors[:12]:
+            a_str = str(a_nm or "").strip()
+            if not a_str or a_str.lower() in seen_xr:
+                continue
+            seen_xr.add(a_str.lower())
+            with ctx.rezka_client._cache_lock:
+                ph_a = ctx.rezka_client.person_photo_by_name.get(a_str.lower(), "")
+            synth_xr.append({"name": a_str, "role": "Actor" if is_en_req else "В ролях", "is_director": False, "photo": ph_a})
+        payload["cast_people"] = synth_xr
+    handler._send_json(payload)
+    return True
+
 
 
 def handle_provider_link(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
@@ -957,6 +1829,7 @@ META_GET_ROUTES = {
     "/api/person": handle_person,
     "/api/person-photo": handle_person_photo,
     "/api/title-meta": handle_title_meta,
+    "/api/xray": handle_xray,
     "/api/provider-link": handle_provider_link,
     "/api/skip-intro": handle_skip_intro,
     "/api/subtitles/search": handle_subtitles_search,

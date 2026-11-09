@@ -1,5 +1,5 @@
-import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261105v5";
-import { displayTitle, isEn, t, translateStudioName } from "./i18n.js?v=20261105v5";
+import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261108v19";
+import { displayTitle, isEn, t, translateStudioName } from "./i18n.js?v=20261108v19";
 import {
   clampFloatingPopover,
   closeCustomSelectMenu,
@@ -23,7 +23,7 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -31,7 +31,7 @@ import {
   getPlayerPrefs,
   savePlayerPrefs,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261105v5";
+} from "./audio-dsp.js?v=20261108v19";
 import {
   applyEnabledServicesVisibility,
   clearCatalogFrontendCache,
@@ -46,13 +46,13 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261105v5";
+} from "./modals.js?v=20261108v19";
 import {
   closeAllVcPopovers,
   closePlayerModal,
@@ -70,19 +70,19 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261105v5";
+} from "./player.js?v=20261108v19";
 import {
   closeOnboardingModal,
   openSettingsModal,
   renderIntegrationsList,
   toggleLanAccess,
   updateBackupSummaryStat,
-} from "./settings.js?v=20261105v5";
+} from "./settings.js?v=20261108v19";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   switchCastModalTab,
-} from "./remote.js?v=20261105v5";
+} from "./remote.js?v=20261108v19";
 
 export function exitBrowserFullscreenIfNeeded() {
   if (typeof document === "undefined") return;
@@ -102,10 +102,10 @@ export function exitBrowserFullscreenIfNeeded() {
 export function isNativeMacApp() {
   if (typeof window === "undefined") return false;
   return Boolean(
-    window.__CINEFLOW_MACOS_APP__ ||
+    window.__VELARIUM_MACOS_APP__ ||
       (window.webkit &&
         window.webkit.messageHandlers &&
-        window.webkit.messageHandlers.cineflowNative)
+        window.webkit.messageHandlers.velariumNative)
   );
 }
 
@@ -155,7 +155,7 @@ export function syncNativeNowPlaying(force = false) {
     } catch (err) { window.logDebug?.("Features", err); }
   }
 
-  const handler = window.webkit?.messageHandlers?.cineflowNative;
+  const handler = window.webkit?.messageHandlers?.velariumNative;
   if (!handler || typeof handler.postMessage !== "function") return;
 
   if (!active) {
@@ -184,8 +184,8 @@ export function syncNativeNowPlaying(force = false) {
     handler.postMessage({
       action: "nowPlaying",
       active: true,
-      title: displayTitle(item) || "CineFlow",
-      subtitle: subtitle || "CineFlow",
+      title: displayTitle(item) || "Velarium",
+      subtitle: subtitle || "Velarium",
       duration: Number(dur) || 0,
       currentTime: Number(cur) || 0,
       playing: Boolean(video && !video.paused && !video.ended),
@@ -198,7 +198,7 @@ export function syncNativeNowPlaying(force = false) {
 function registerNativeBridgeCallbacks() {
   if (typeof window === "undefined") return;
 
-  window.__cineflowHandleNativeMediaCommand = (cmd, value) => {
+  window.__velariumHandleNativeMediaCommand = (cmd, value) => {
     if (!state.isPlayerOpen) return;
     const video = document.getElementById("native-video");
     if (!video) return;
@@ -264,7 +264,7 @@ import {
   _editingProfileId,
   _editingProfileColor,
   _clearKidsPinRequested,
-} from "./features-profiles.js?v=20261105v5";
+} from "./features-profiles.js?v=20261108v19";
 
 export {
   PROFILE_COLOR_SWATCHES,
@@ -373,66 +373,33 @@ export async function startOneClickKinoriumLogin(triggerBtn = null) {
     verifiedPin = entered;
   }
 
-  const origHtml = triggerBtn ? triggerBtn.innerHTML : "";
-  const setBtnBusy = (busy) => {
-    if (!triggerBtn) return;
-    triggerBtn.disabled = busy;
-    if (busy) {
-      triggerBtn.innerHTML = `<span>${t("Ожидание входа в окне Kinorium...", "Waiting for Kinorium sign-in...")}</span>`;
-    } else if (origHtml) {
-      triggerBtn.innerHTML = origHtml;
-    }
+  const getLiveButtons = () => {
+    const list = Array.from(document.querySelectorAll(".btn-kin-one-click, #btn-ob-kinorium-one-click"));
+    if (triggerBtn && !list.includes(triggerBtn)) list.push(triggerBtn);
+    return list;
+  };
+  const setBtnBusy = (busy, customLabel = "") => {
+    const labelText =
+      customLabel || t("Ожидание входа в браузере...", "Waiting for browser sign-in...");
+    getLiveButtons().forEach((btn) => {
+      if (!btn) return;
+      btn.disabled = busy;
+      if (busy) {
+        if (!btn.dataset.origHtml) {
+          btn.dataset.origHtml = btn.innerHTML;
+        }
+        btn.innerHTML = `<span class="spinner-xs"></span> <span>${labelText}</span>`;
+      } else if (btn.dataset.origHtml) {
+        btn.innerHTML = btn.dataset.origHtml;
+        delete btn.dataset.origHtml;
+      } else {
+        btn.innerHTML = `<span>${t("Войти в 1 клик (авто)", "1-Click Sign In")}</span>`;
+      }
+    });
   };
 
   state.kinoriumOneClickPolling = true;
   setBtnBusy(true);
-
-  if (isNativeMacApp() && window.webkit?.messageHandlers?.cineflowNative) {
-    window.__cineflowOnNativeKinoriumAuth = async (nativeRes) => {
-      try {
-        if (!nativeRes || nativeRes.cancelled) {
-          showToast(t("Вход в Kinorium отменён", "Kinorium sign-in cancelled"));
-          return;
-        }
-        if (!nativeRes.ok || !nativeRes.user_id) {
-          showToast(nativeRes?.error || t("Не удалось определить профиль Kinorium", "Could not detect Kinorium profile"));
-          return;
-        }
-        const compRes = await fetch("/api/kinorium/one-click-complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user_id: nativeRes.user_id,
-            session_cookie: nativeRes.cookie || nativeRes.session_cookie || "",
-            display_name: nativeRes.display_name || "",
-            pin: verifiedPin,
-            lang: state.appLang || "ru",
-          }),
-        });
-        const compData = await compRes.json();
-        if (!compRes.ok || !compData.ok) {
-          showToast(compData.error || t("Ошибка сохранения сессии Kinorium", "Failed to save Kinorium session"));
-          return;
-        }
-        await finalizeKinoriumOneClickSuccess(compData);
-      } catch (_) {
-        showToast(t("Ошибка при завершении входа в Kinorium", "Error completing Kinorium sign-in"));
-      } finally {
-        state.kinoriumOneClickPolling = false;
-        setBtnBusy(false);
-      }
-    };
-
-    try {
-      window.webkit.messageHandlers.cineflowNative.postMessage({
-        action: "kinoriumOneClickLogin",
-        lang: state.appLang || "ru",
-      });
-      return;
-    } catch (_) {
-      // Fall through to standalone helper endpoint if messageHandler fails
-    }
-  }
 
   try {
     const startRes = await fetch("/api/kinorium/one-click-login", {
@@ -452,8 +419,8 @@ export async function startOneClickKinoriumLogin(triggerBtn = null) {
       showToast(
         startData.error ||
           t(
-            "Встроенное окно входа недоступно на этой системе — укажите ID профиля вручную",
-            "Built-in login window is unavailable on this system — enter profile ID manually"
+            "Автоматический вход недоступен на этой системе — укажите ID профиля вручную",
+            "Automatic sign-in is unavailable on this system — enter profile ID manually"
           )
       );
       return;
@@ -461,8 +428,8 @@ export async function startOneClickKinoriumLogin(triggerBtn = null) {
 
     showToast(
       t(
-        "Открыто окно Kinorium — войдите в аккаунт, данные подтянутся автоматически",
-        "Kinorium window opened — sign in and your account will sync automatically"
+        "Открыт браузер по умолчанию — войдите в Kinorium, профиль подключится автоматически",
+        "Default browser opened — sign in to Kinorium and your profile will link automatically"
       )
     );
 
@@ -471,10 +438,11 @@ export async function startOneClickKinoriumLogin(triggerBtn = null) {
       state.kinoriumOneClickPollTimer = null;
     }
     const pollStartTs = Date.now();
-    const pollTimer = setInterval(async () => {
+    let announcedSyncing = false;
+    const checkOneClickStatus = async () => {
       if (Date.now() - pollStartTs > 310000) {
-        clearInterval(pollTimer);
-        if (state.kinoriumOneClickPollTimer === pollTimer) {
+        if (state.kinoriumOneClickPollTimer) {
+          clearInterval(state.kinoriumOneClickPollTimer);
           state.kinoriumOneClickPollTimer = null;
         }
         state.kinoriumOneClickPolling = false;
@@ -485,12 +453,46 @@ export async function startOneClickKinoriumLogin(triggerBtn = null) {
         const stRes = await fetch("/api/kinorium/one-click-status");
         if (!stRes.ok) return;
         const stData = await stRes.json();
-        if (stData.status === "waiting" || stData.status === "syncing" || stData.status === "running") {
+        if (stData.status === "syncing") {
+          if (stData.kinorium_account) {
+            state.kinoriumAccount = stData.kinorium_account;
+            updateKinoriumUserBadge();
+          }
+          if (stData.integrations) {
+            state.integrations = stData.integrations;
+          }
+          const dispName =
+            stData.display_name ||
+            stData.kinorium_account?.display_name ||
+            (stData.user_id ? `ID ${stData.user_id}` : "Kinorium");
+          setBtnBusy(
+            true,
+            t(`Вход выполнен (${dispName}) · синхронизация...`, `Signed in (${dispName}) · syncing...`)
+          );
+          const statusEl = document.querySelector(".kinorium-card .integration-status");
+          if (statusEl) {
+            statusEl.textContent = t(
+              `${dispName} · синхронизация списков и оценок...`,
+              `${dispName} · syncing lists & ratings...`
+            );
+          }
+          if (!announcedSyncing) {
+            announcedSyncing = true;
+            showToast(
+              t(
+                `Вход выполнен (${dispName}) — синхронизируем списки Kinorium...`,
+                `Signed in (${dispName}) — syncing Kinorium lists...`
+              )
+            );
+          }
+          return;
+        }
+        if (stData.status === "waiting" || stData.status === "running") {
           return;
         }
 
-        clearInterval(pollTimer);
-        if (state.kinoriumOneClickPollTimer === pollTimer) {
+        if (state.kinoriumOneClickPollTimer) {
+          clearInterval(state.kinoriumOneClickPollTimer);
           state.kinoriumOneClickPollTimer = null;
         }
         state.kinoriumOneClickPolling = false;
@@ -504,8 +506,10 @@ export async function startOneClickKinoriumLogin(triggerBtn = null) {
           showToast(stData.error || t("Не удалось выполнить вход в Kinorium", "Kinorium sign-in failed"));
         }
       } catch (err) { window.logDebug?.("Features", err); }
-    }, 1200);
+    };
+    const pollTimer = setInterval(checkOneClickStatus, 650);
     state.kinoriumOneClickPollTimer = pollTimer;
+    setTimeout(checkOneClickStatus, 350);
   } catch (_) {
     state.kinoriumOneClickPolling = false;
     setBtnBusy(false);
@@ -536,7 +540,7 @@ import {
   retryOfflineDownload,
   deleteOfflineDownload,
   openDownloadsFolder,
-} from "./features-downloads.js?v=20261105v5";
+} from "./features-downloads.js?v=20261108v19";
 
 export {
   syncDownloadsHeaderBadge,
@@ -576,7 +580,7 @@ import {
   executeRemoteDpadCommand as _executeRemoteDpadCommand,
   handleTvSpatialKeydown,
   startGamepadPollingLoop,
-} from "./features-tv-mode.js?v=20261105v5";
+} from "./features-tv-mode.js?v=20261108v19";
 
 export {
   clearTvFocusClass,
@@ -616,7 +620,7 @@ import {
   applyPendingTvDeepLinkIfReady,
   openPlayerHandoffModal,
   closePlayerHandoffModal,
-} from "./features-cast.js?v=20261105v5";
+} from "./features-cast.js?v=20261108v19";
 
 export {
   supportsWebkitAirPlay,
@@ -745,6 +749,21 @@ export function initRoadmapFeatures() {
   document.getElementById("btn-remote-rotate-key")?.addEventListener("click", () => {
     loadAndRenderRemotePairingPanel(true);
   });
+  document.getElementById("btn-remote-open-preview")?.addEventListener("click", async () => {
+    const urlStr =
+      state.remotePairInfo?.remote_url ||
+      document.getElementById("remote-pair-url-text")?.textContent ||
+      "";
+    if (urlStr && urlStr !== "—") {
+      try {
+        window.open(urlStr, "_blank", "noopener,noreferrer,width=430,height=840");
+      } catch (_) {}
+      const ok = await copyTextToClipboard(urlStr);
+      if (ok) {
+        showToast(t("Ссылка веб-пульта скопирована", "Web remote link copied"));
+      }
+    }
+  });
   document.getElementById("btn-tv-airplay-picker")?.addEventListener("click", () => {
     triggerNativeAirPlayPicker();
   });
@@ -768,7 +787,18 @@ export function initRoadmapFeatures() {
     if (e.target.id === "tv-cast-modal") closeTvCastModal();
   });
 
-  // Handoff modal buttons
+  // Handoff modal buttons & remote switch
+  document.getElementById("btn-gear-remote")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.getElementById("player-gear-popover")?.classList.add("hidden");
+    document.getElementById("btn-player-gear")?.classList.remove("active");
+    openTvCastModal("phone");
+  });
+  document.getElementById("btn-handoff-to-remote")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closePlayerHandoffModal();
+    openTvCastModal("phone");
+  });
   document.getElementById("btn-player-handoff")?.addEventListener("click", (e) => {
     e.stopPropagation();
     openPlayerHandoffModal();

@@ -17,6 +17,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .kinorium import _norm_title
 
+_JW_PROVIDER_EXECUTOR = ThreadPoolExecutor(
+    max_workers=4,
+    thread_name_prefix="VelariumJwProv",
+)
+
 JW_GRAPHQL_URL = "https://apis.justwatch.com/graphql"
 
 JW_PACKAGE_MAP: Dict[str, List[str]] = {
@@ -385,29 +390,28 @@ class JustWatchClient:
         with self._lock:
             cached_entry = self._provider_jw_cache.get(cache_key)
             if cached_entry and (now - cached_entry[0]) < 900 and cached_entry[1]:
-                return [copy.deepcopy(it) for it in cached_entry[1]]
+                return [dict(it) for it in cached_entry[1]]
 
         shows: List[Dict[str, Any]] = []
         movies: List[Dict[str, Any]] = []
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            f_shows = pool.submit(
-                self.query_graphql,
-                {"objectTypes": ["SHOW"], "packages": packages},
-                24,
-            )
-            f_movies = pool.submit(
-                self.query_graphql,
-                {"objectTypes": ["MOVIE"], "packages": packages},
-                24,
-            )
-            try:
-                shows = f_shows.result(timeout=6.0) or []
-            except Exception:
-                shows = []
-            try:
-                movies = f_movies.result(timeout=6.0) or []
-            except Exception:
-                movies = []
+        f_shows = _JW_PROVIDER_EXECUTOR.submit(
+            self.query_graphql,
+            {"objectTypes": ["SHOW"], "packages": packages},
+            24,
+        )
+        f_movies = _JW_PROVIDER_EXECUTOR.submit(
+            self.query_graphql,
+            {"objectTypes": ["MOVIE"], "packages": packages},
+            24,
+        )
+        try:
+            shows = f_shows.result(timeout=6.0) or []
+        except Exception:
+            shows = []
+        try:
+            movies = f_movies.result(timeout=6.0) or []
+        except Exception:
+            movies = []
 
         if not shows and not movies:
             fallback = self.query_graphql({"packages": packages}, first=24) or []
@@ -447,8 +451,8 @@ class JustWatchClient:
                 if len(self._provider_jw_cache) > 64:
                     for k_ev in list(self._provider_jw_cache.keys())[:16]:
                         self._provider_jw_cache.pop(k_ev, None)
-                self._provider_jw_cache[cache_key] = (now, [copy.deepcopy(it) for it in combined])
-        return [copy.deepcopy(it) for it in combined]
+                self._provider_jw_cache[cache_key] = (now, [dict(it) for it in combined])
+        return [dict(it) for it in combined]
 
     def resolve_provider_offers_for_title(
         self,

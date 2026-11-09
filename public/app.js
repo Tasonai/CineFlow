@@ -5,7 +5,7 @@ import {
   UI_PREFS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./js/state.js?v=20261105v5";
+} from "./js/state.js?v=20261108v19";
 import {
   applyStaticDomTranslations,
   displayPoster,
@@ -14,7 +14,7 @@ import {
   secondaryTitle,
   syncLanguageSegmentedControlUI,
   t,
-} from "./js/i18n.js?v=20261105v5";
+} from "./js/i18n.js?v=20261108v19";
 import {
   attachHorizontalWheelScroll,
   clampFloatingPopover,
@@ -41,12 +41,13 @@ import {
   showToast,
   showVideoOsd,
   supportsNativePiP,
+  syncAllCustomSelects,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
   trapModalTabKey,
   triggerVideoCenterIndicator,
   withKinoriumActionLock,
-} from "./js/utils.js?v=20261105v5";
+} from "./js/utils.js?v=20261108v19";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -61,7 +62,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./js/audio-dsp.js?v=20261105v5";
+} from "./js/audio-dsp.js?v=20261108v19";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -96,7 +97,7 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./js/catalog.js?v=20261105v5";
+} from "./js/catalog.js?v=20261108v19";
 import {
   buildFallbackAvatarSvg,
   closePersonModal,
@@ -110,7 +111,7 @@ import {
   switchStatsModalTab,
   initQuickPeekBindings,
   syncQuickPeekStatusesUI,
-} from "./js/modals.js?v=20261105v5";
+} from "./js/modals.js?v=20261108v19";
 import {
   activateSelectedSubtitleTrack,
   adjustAudioOffset,
@@ -174,20 +175,20 @@ import {
   updateMiniPlayerTitle,
   updateModalKinoriumHeader,
   wakeVideoControls,
-} from "./js/player.js?v=20261105v5";
+} from "./js/player.js?v=20261108v19";
 import {
   adjustSubtitleOffset,
   bindSubtitleFileAndDropListeners,
   closeSubtitleDictPopover,
   resetSubtitleOffset,
   syncSubtitleOffsetUI,
-} from "./js/subtitles.js?v=20261105v5";
+} from "./js/subtitles.js?v=20261108v19";
 import {
   initDesktopRemoteAgent,
   initMobileRemoteController,
   isMobileRemoteUrl,
   pushDesktopRemoteStateNow,
-} from "./js/remote.js?v=20261105v5";
+} from "./js/remote.js?v=20261108v19";
 import {
   applyAppLanguage,
   checkAppUpdates,
@@ -200,11 +201,11 @@ import {
   renderSettingsCountryUI,
   requestCloseSettingsModal,
   switchSettingsTab,
-} from "./js/settings.js?v=20261105v5";
+} from "./js/settings.js?v=20261108v19";
 import {
   initBookmarksListeners,
   openBookmarksModal,
-} from "./js/player-bookmarks.js?v=20261105v5";
+} from "./js/player-bookmarks.js?v=20261108v19";
 import {
   applyPendingTvDeepLinkIfReady,
   applyProfilesPayload,
@@ -218,17 +219,17 @@ import {
   initRoadmapFeatures,
   reloadProfileLocalPlayerPrefs,
   renderHeaderProfileSwitcher,
-} from "./js/features.js?v=20261105v5";
-import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261105v5";
+} from "./js/features.js?v=20261108v19";
+import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261108v19";
 import {
   initCatalogLiveSearch,
   closeLiveSearchPopover,
   resetCatalogFiltersForGlobalSearch,
   syncSearchClearButton,
-} from "./js/catalog-live-search.js?v=20261105v5";
-import { initGlobalHotkeys } from "./js/app-hotkeys.js?v=20261105v5";
+} from "./js/catalog-live-search.js?v=20261108v19";
+import { initGlobalHotkeys } from "./js/app-hotkeys.js?v=20261108v19";
 
-function initCineFlowApp() {
+function initVelariumApp() {
   document.documentElement.classList.toggle("is-ios-device", isIosOrIpadOs());
   document.documentElement.classList.toggle(
     "is-windows",
@@ -272,6 +273,9 @@ function initCineFlowApp() {
   state.videoCrop = initPrefs.videoCrop || "contain";
   state.subSize = initPrefs.subSize || "medium";
   state.subBg = initPrefs.subBg || "semi";
+  state.subFont = initPrefs.subFont || "sans";
+  state.subColor = initPrefs.subColor || "white";
+  state.subEdge = initPrefs.subEdge || "soft";
   state.ambilightEnabled = initPrefs.ambilightEnabled !== false;
   state.autoSkipIntro = initPrefs.autoSkipIntro !== false;
   state.hideWatched = Boolean(initUi.hideWatched);
@@ -409,7 +413,8 @@ function initCineFlowApp() {
   document.getElementById("video-crop-group")?.classList.toggle("crop-active", state.videoCrop !== "contain");
   const ambiToggleInit = document.getElementById("ambilight-toggle");
   if (ambiToggleInit) ambiToggleInit.checked = Boolean(state.ambilightEnabled);
-  applySubtitleStylePrefs(state.subSize, state.subBg);
+  applySubtitleStylePrefs(state.subSize, state.subBg, state.subFont, state.subColor, state.subEdge);
+  syncAllCustomSelects();
   document.getElementById("btn-hide-watched")?.classList.toggle("active", state.hideWatched);
   updateActiveFiltersBadge();
   updatePlayerGearActiveDot();
@@ -687,10 +692,10 @@ function initCineFlowApp() {
     if (
       state.isPlayerOpen &&
       state.hasPlayerHistoryEntry &&
-      !window.history.state?.cineflowPlayerModal
+      !window.history.state?.velariumPlayerModal
     ) {
       try {
-        window.history.pushState({ cineflowPlayerModal: true }, "");
+        window.history.pushState({ velariumPlayerModal: true }, "");
       } catch (err) { window.logDebug?.("App", err); }
     }
   };
@@ -857,8 +862,8 @@ function initCineFlowApp() {
 
 if (typeof document !== "undefined") {
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initCineFlowApp);
+    document.addEventListener("DOMContentLoaded", initVelariumApp);
   } else {
-    initCineFlowApp();
+    initVelariumApp();
   }
 }

@@ -1,21 +1,22 @@
-import { state } from "./state.js?v=20261105v5";
-import { t } from "./i18n.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
+import { t } from "./i18n.js?v=20261108v19";
 import {
   closeCustomSelectMenu,
+  closeFloatingPopovers,
   isCustomSelectMenuOpen,
   showToast,
   showVideoOsd,
-} from "./utils.js?v=20261105v5";
-import { savePlayerPrefs } from "./audio-dsp.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
+import { savePlayerPrefs } from "./audio-dsp.js?v=20261108v19";
 import {
   closeCommandPalette,
   closeMovieRouletteModal,
-} from "./catalog.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261105v5";
+} from "./modals.js?v=20261108v19";
 import {
   closeAllVcPopovers,
   closePlayerModal,
@@ -28,27 +29,40 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261105v5";
-import { closeOnboardingModal } from "./settings.js?v=20261105v5";
-import { closeDownloadsModal } from "./features-downloads.js?v=20261105v5";
-import { closeTvCastModal } from "./features-cast.js?v=20261105v5";
+} from "./player.js?v=20261108v19";
+import { closeOnboardingModal } from "./settings.js?v=20261108v19";
+import { closeDownloadsModal } from "./features-downloads.js?v=20261108v19";
+import { closeTvCastModal } from "./features-cast.js?v=20261108v19";
 import {
   closeKidsPinModal,
   closeProfilePopover,
   closeProfilesModal,
-} from "./features.js?v=20261105v5";
+} from "./features.js?v=20261108v19";
 
 // ============================================================================
 // 5. TV MODE (D-Pad / Gamepad Spatial Navigation + AirPlay / DLNA / QR)
 // ============================================================================
 
+let _currentTvFocusedEl = null;
+
 export function clearTvFocusClass() {
-  document.querySelectorAll(".tv-focused").forEach((el) => el.classList.remove("tv-focused"));
+  if (_currentTvFocusedEl) {
+    _currentTvFocusedEl.classList.remove("tv-focused");
+    _currentTvFocusedEl = null;
+    return;
+  }
+  const stray = document.querySelector(".tv-focused");
+  if (stray) stray.classList.remove("tv-focused");
 }
 
 export function setTvFocusedElement(el) {
   if (!el) return;
-  clearTvFocusClass();
+  if (_currentTvFocusedEl && _currentTvFocusedEl !== el) {
+    _currentTvFocusedEl.classList.remove("tv-focused");
+  } else if (!_currentTvFocusedEl) {
+    clearTvFocusClass();
+  }
+  _currentTvFocusedEl = el;
   el.classList.add("tv-focused");
   try {
     el.focus({ preventScroll: true });
@@ -67,10 +81,12 @@ export function collectTvNavigableElements() {
     }
   } else {
     const popoverOrder = [
+      "atv-bookmark-dialog",
       "vc-episodes-popover",
       "vc-studio-popover",
       "vc-subs-popover",
       "vc-quality-popover",
+      "vc-bookmarks-popover",
       "atv-sub-dict-popover",
       "player-gear-popover",
       "kinorium-status-popover",
@@ -99,6 +115,8 @@ export function collectTvNavigableElements() {
         "onboarding-modal",
         "profiles-modal",
         "handoff-modal",
+        "vocab-modal",
+        "bookmarks-modal",
         "tv-cast-modal",
         "downloads-modal",
         "stats-modal",
@@ -135,20 +153,55 @@ export function collectTvNavigableElements() {
     "[tabindex='0']",
   ].join(", ");
 
-  return Array.from(scopeRoot.querySelectorAll(selector)).filter((el) => {
-    if (el.closest(".hidden") || el.closest("[aria-hidden='true']")) return false;
+  const nowNavMs = Date.now();
+  const curScrollX = typeof window !== "undefined" ? window.scrollX || 0 : 0;
+  const curScrollY = typeof window !== "undefined" ? window.scrollY || 0 : 0;
+  if (
+    _tvNavCache &&
+    _tvNavCache.scopeRoot === scopeRoot &&
+    nowNavMs - _tvNavCache.ts < 650 &&
+    Math.abs(curScrollX - _tvNavCache.scrollX) < 12 &&
+    Math.abs(curScrollY - _tvNavCache.scrollY) < 12 &&
+    _tvNavCache.items.length > 0 &&
+    _tvNavCache.items[0].isConnected
+  ) {
+    return _tvNavCache.items;
+  }
+
+  _lastRectMap = new WeakMap();
+  const items = Array.from(scopeRoot.querySelectorAll(selector)).filter((el) => {
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 16 || rect.height < 16) return false;
+    if (el.closest(".hidden, [aria-hidden='true']")) return false;
     // Skip hover-only nested card buttons so D-pad focuses the poster/card container cleanly
     if (
       el.classList.contains("atv-poster-play-center") ||
       el.classList.contains("atv-upnext-remove") ||
-      (el.closest(".atv-poster-item") && !el.classList.contains("atv-poster-item")) ||
-      (el.closest(".atv-upnext-card") && !el.classList.contains("atv-upnext-card"))
+      (!el.classList.contains("atv-poster-item") &&
+        !el.classList.contains("atv-upnext-card") &&
+        el.closest(".atv-poster-item, .atv-upnext-card"))
     ) {
       return false;
     }
-    const rect = el.getBoundingClientRect();
-    return rect.width >= 16 && rect.height >= 16;
+    _lastRectMap.set(el, rect);
+    return true;
   });
+  _tvNavCache = { scopeRoot, ts: nowNavMs, scrollX: curScrollX, scrollY: curScrollY, items };
+  return items;
+}
+
+let _lastRectMap = new WeakMap();
+let _tvNavCache = null;
+
+function getActiveTvFocusedElement() {
+  if (
+    _currentTvFocusedEl &&
+    _currentTvFocusedEl.isConnected &&
+    _currentTvFocusedEl.classList.contains("tv-focused")
+  ) {
+    return _currentTvFocusedEl;
+  }
+  return document.querySelector(".tv-focused");
 }
 
 export function getPreferredInitialTvFocus(candidates) {
@@ -180,7 +233,7 @@ export function moveSpatialFocus(direction) {
   if (candidates.length === 0) return false;
 
   const current =
-    document.querySelector(".tv-focused") ||
+    getActiveTvFocusedElement() ||
     (candidates.includes(document.activeElement) ? document.activeElement : null);
 
   if (!current || !candidates.includes(current)) {
@@ -188,7 +241,7 @@ export function moveSpatialFocus(direction) {
     return true;
   }
 
-  const curRect = current.getBoundingClientRect();
+  const curRect = _lastRectMap.get(current) || current.getBoundingClientRect();
   const cx = curRect.left + curRect.width / 2;
   const cy = curRect.top + curRect.height / 2;
 
@@ -197,7 +250,7 @@ export function moveSpatialFocus(direction) {
 
   for (const cand of candidates) {
     if (cand === current) continue;
-    const r = cand.getBoundingClientRect();
+    const r = _lastRectMap.get(cand) || cand.getBoundingClientRect();
     const tx = r.left + r.width / 2;
     const ty = r.top + r.height / 2;
     const dx = tx - cx;
@@ -256,7 +309,7 @@ export function toggleTvMode(forceBool = null, silent = false) {
   }
   if (next) {
     const candidates = collectTvNavigableElements();
-    const current = document.querySelector(".tv-focused");
+    const current = getActiveTvFocusedElement();
     const first =
       current && candidates.includes(current)
         ? current
@@ -311,6 +364,22 @@ export function executeRemoteBackAction() {
   }
   if (!document.getElementById("profiles-modal")?.classList.contains("hidden")) {
     closeProfilesModal();
+    return true;
+  }
+  if (!document.getElementById("handoff-modal")?.classList.contains("hidden")) {
+    document.getElementById("close-handoff-modal")?.click();
+    return true;
+  }
+  if (!document.getElementById("vocab-modal")?.classList.contains("hidden")) {
+    document.getElementById("close-vocab-modal")?.click();
+    return true;
+  }
+  if (!document.getElementById("atv-bookmark-dialog")?.classList.contains("hidden")) {
+    document.getElementById("btn-close-bookmark-dialog")?.click();
+    return true;
+  }
+  if (!document.getElementById("bookmarks-modal")?.classList.contains("hidden")) {
+    document.getElementById("close-bookmarks-modal")?.click();
     return true;
   }
   if (!document.getElementById("tv-cast-modal")?.classList.contains("hidden")) {
@@ -375,11 +444,11 @@ export function executeRemoteBackAction() {
     return true;
   }
   if (!document.getElementById("notifications-popover")?.classList.contains("hidden")) {
-    document.getElementById("notifications-popover")?.classList.add("hidden");
+    closeFloatingPopovers();
     return true;
   }
   if (!document.getElementById("search-live-popover")?.classList.contains("hidden")) {
-    document.getElementById("search-live-popover")?.classList.add("hidden");
+    closeFloatingPopovers();
     return true;
   }
   return false;
@@ -389,7 +458,7 @@ export function _syncTvFocusAfterSurfaceChange() {
   if (!state.tvMode) return;
   const candidates = collectTvNavigableElements();
   if (candidates.length === 0) return;
-  const current = document.querySelector(".tv-focused");
+  const current = getActiveTvFocusedElement();
   if (!current || !candidates.includes(current)) {
     const preferred = getPreferredInitialTvFocus(candidates);
     if (preferred) setTvFocusedElement(preferred);
@@ -433,14 +502,20 @@ export function executeRemoteDpadCommand(rawDir) {
     [
       "kids-pin-modal",
       "confirm-modal",
+      "command-palette-modal",
+      "movie-roulette-modal",
       "onboarding-modal",
       "profiles-modal",
+      "handoff-modal",
+      "vocab-modal",
+      "bookmarks-modal",
       "tv-cast-modal",
       "downloads-modal",
       "stats-modal",
       "settings-modal",
       "person-modal",
       "quick-peek-modal",
+      "atv-bookmark-dialog",
       "player-gear-popover",
       "kinorium-status-popover",
       "kinorium-postwatch-overlay",
@@ -536,7 +611,7 @@ export function executeRemoteDpadCommand(rawDir) {
 
   if (dir === "ok" || dir === "enter" || dir === "space") {
     const candidates = collectTvNavigableElements();
-    let target = document.querySelector(".tv-focused");
+    let target = getActiveTvFocusedElement();
     if (!target || !candidates.includes(target)) {
       target = getPreferredInitialTvFocus(candidates);
     }
@@ -581,10 +656,11 @@ export function handleTvSpatialKeydown(e) {
     return true;
   }
   if (e.key === "Enter") {
-    const focused = document.querySelector(".tv-focused") || document.activeElement;
+    const focused = getActiveTvFocusedElement() || document.activeElement;
     if (focused && focused !== document.body) {
       e.preventDefault();
       focused.click();
+      setTimeout(_syncTvFocusAfterSurfaceChange, 90);
       return true;
     }
   }
@@ -602,23 +678,39 @@ export function startGamepadPollingLoop() {
   _gamepadLoopStarted = true;
 
   const tick = () => {
-    const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()).filter(Boolean) : [];
-    if (pads.length === 0) {
+    if (typeof document !== "undefined" && document.hidden) {
+      requestAnimationFrame(tick);
+      return;
+    }
+    const rawPads = navigator.getGamepads ? navigator.getGamepads() : null;
+    let gp = null;
+    if (rawPads) {
+      for (let i = 0; i < rawPads.length; i++) {
+        if (rawPads[i]) {
+          gp = rawPads[i];
+          break;
+        }
+      }
+    }
+    if (!gp) {
       _gamepadLoopStarted = false;
       return;
     }
-    const gp = pads[0];
     const now = Date.now();
-    const btns = (gp.buttons || []).map((b) => Boolean(b && (b.pressed || b.value > 0.55)));
-    const wasPressed = (idx) => Boolean(btns[idx] && !_prevGpButtons[idx]);
+    const rawBtns = gp.buttons || [];
+    const isDown = (idx) => {
+      const b = rawBtns[idx];
+      return Boolean(b && (b.pressed || b.value > 0.55));
+    };
+    const wasPressed = (idx) => Boolean(isDown(idx) && !_prevGpButtons[idx]);
 
     const axX = Number(gp.axes?.[0]) || 0;
     const axY = Number(gp.axes?.[1]) || 0;
     let dpadDir = "";
-    if (btns[14] || axX < -0.58) dpadDir = "left";
-    else if (btns[15] || axX > 0.58) dpadDir = "right";
-    else if (btns[12] || axY < -0.58) dpadDir = "up";
-    else if (btns[13] || axY > 0.58) dpadDir = "down";
+    if (isDown(14) || axX < -0.58) dpadDir = "left";
+    else if (isDown(15) || axX > 0.58) dpadDir = "right";
+    else if (isDown(12) || axY < -0.58) dpadDir = "up";
+    else if (isDown(13) || axY > 0.58) dpadDir = "down";
 
     if (dpadDir && now - _lastGamepadActionTs > 185) {
       _lastGamepadActionTs = now;
@@ -628,9 +720,10 @@ export function startGamepadPollingLoop() {
 
     // A (0): Select / Click
     if (wasPressed(0)) {
-      const target = document.querySelector(".tv-focused") || document.activeElement;
+      const target = getActiveTvFocusedElement() || document.activeElement;
       if (target && target !== document.body) {
         target.click();
+        setTimeout(_syncTvFocusAfterSurfaceChange, 90);
       } else if (state.isPlayerOpen) {
         toggleVideoPlayPause(true);
       }
@@ -661,6 +754,10 @@ export function startGamepadPollingLoop() {
         closeDownloadsModal();
       } else if (!document.getElementById("vocab-modal")?.classList.contains("hidden")) {
         document.getElementById("close-vocab-modal")?.click();
+      } else if (!document.getElementById("atv-bookmark-dialog")?.classList.contains("hidden")) {
+        document.getElementById("btn-close-bookmark-dialog")?.click();
+      } else if (!document.getElementById("bookmarks-modal")?.classList.contains("hidden")) {
+        document.getElementById("close-bookmarks-modal")?.click();
       } else if (!document.getElementById("stats-modal")?.classList.contains("hidden")) {
         document.getElementById("close-stats-modal")?.click();
       } else if (!document.getElementById("settings-modal")?.classList.contains("hidden")) {
@@ -690,10 +787,11 @@ export function startGamepadPollingLoop() {
       } else if (!document.getElementById("profile-switcher-popover")?.classList.contains("hidden")) {
         closeProfilePopover();
       } else if (!document.getElementById("notifications-popover")?.classList.contains("hidden")) {
-        document.getElementById("notifications-popover")?.classList.add("hidden");
+        closeFloatingPopovers();
       } else if (!document.getElementById("search-live-popover")?.classList.contains("hidden")) {
-        document.getElementById("search-live-popover")?.classList.add("hidden");
+        closeFloatingPopovers();
       }
+      setTimeout(_syncTvFocusAfterSurfaceChange, 70);
     }
     // X (2): Play / Pause in Player
     if (wasPressed(2) && state.isPlayerOpen) {
@@ -713,7 +811,10 @@ export function startGamepadPollingLoop() {
       seekEffectivePlayback(dur > 0 ? Math.min(dur, cur + 15) : cur + 15);
     }
 
-    _prevGpButtons = btns;
+    for (let i = 0; i < rawBtns.length; i++) {
+      _prevGpButtons[i] = isDown(i);
+    }
+    _prevGpButtons.length = rawBtns.length;
     requestAnimationFrame(tick);
   };
 

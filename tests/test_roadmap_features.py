@@ -168,7 +168,7 @@ class TestRoadmapFeatures(unittest.TestCase):
 
             # Verify Windows NVIDIA NVENC hardware encoder selection for legacy MPEG-2 / VC-1 video
             class _WinNvencRemuxEngine:
-                ffmpeg_path = "C:\\CineFlow\\backend\\bin\\ffmpeg.exe"
+                ffmpeg_path = "C:\\Velarium\\backend\\bin\\ffmpeg.exe"
                 _hw_caps = {"h264_nvenc": True, "aac_at": False}
 
                 @staticmethod
@@ -178,7 +178,7 @@ class TestRoadmapFeatures(unittest.TestCase):
             dm_win = OfflineDownloadManager(data_dir=tmpdir, remux_engine=_WinNvencRemuxEngine(), start_workers=False)
             win_cmd = dm_win.build_ffmpeg_download_command(
                 source_url="http://127.0.0.1:8090/stream/legacy.mkv",
-                output_path="C:\\CineFlow\\data\\downloads\\out.mp4",
+                output_path="C:\\Velarium\\data\\downloads\\out.mp4",
                 audio_index=1,
                 video_codec="mpeg2video",
                 audio_codec="ac3",
@@ -365,25 +365,35 @@ class TestRoadmapFeatures(unittest.TestCase):
             ):
                 self.assertTrue(os.path.isfile(os.path.join(stage_core, rel_req)), f"Missing staged file: {rel_req}")
             self.assertFalse(os.path.exists(os.path.join(stage_core, "data")))
-        win_setup_exe = os.path.join(BASE_DIR, "dist", "CineFlow-Setup-2.7.1-x64.exe")
-        if os.path.isfile(win_setup_exe):
-            self.assertGreater(os.path.getsize(win_setup_exe), 20 * 1024 * 1024)
+        for exe_cand in ("Velarium-Setup-2.7.11-x64.exe", "Velarium-Setup-2.7.10-x64.exe", "Velarium-Setup-2.7.9-x64.exe", "Velarium-Setup-2.7.8-x64.exe", "Velarium-Setup-2.7.7-x64.exe", "Velarium-Setup-2.7.5-x64.exe", "Velarium-Setup-2.7.4-x64.exe", "Velarium-Setup-2.7.2-x64.exe", "CineFlow-Setup-2.7.2-x64.exe"):
+            win_setup_exe = os.path.join(BASE_DIR, "dist", exe_cand)
+            if os.path.isfile(win_setup_exe):
+                self.assertGreater(os.path.getsize(win_setup_exe), 20 * 1024 * 1024)
 
         if sys.platform == "darwin":
             helper_bin = os.path.join(BASE_DIR, "backend", "bin", "kinorium_login_helper")
             self.assertTrue(os.path.isfile(helper_bin) and os.access(helper_bin, os.X_OK))
 
-            app_bundle = os.path.join(BASE_DIR, "dist", "CineFlow.app")
+            vel_bundle = os.path.join(BASE_DIR, "dist", "Velarium.app")
+            cf_bundle = os.path.join(BASE_DIR, "dist", "CineFlow.app")
+            if os.path.isdir(vel_bundle):
+                app_bundle = vel_bundle
+                exp_id = "app.velarium.cinema"
+                exp_exec = "Velarium"
+            else:
+                app_bundle = cf_bundle
+                exp_id = "app.cineflow.cinema"
+                exp_exec = "CineFlow"
             plist_path = os.path.join(app_bundle, "Contents", "Info.plist")
-            exec_path = os.path.join(app_bundle, "Contents", "MacOS", "CineFlow")
+            exec_path = os.path.join(app_bundle, "Contents", "MacOS", exp_exec)
             icon_path = os.path.join(app_bundle, "Contents", "Resources", "AppIcon.icns")
             self.assertTrue(os.path.isfile(plist_path))
             self.assertTrue(os.path.isfile(exec_path) and os.access(exec_path, os.X_OK))
             self.assertTrue(os.path.isfile(icon_path))
             with open(plist_path, "rb") as pf:
                 plist_data = plistlib.load(pf)
-            self.assertEqual(plist_data.get("CFBundleIdentifier"), "app.cineflow.cinema")
-            self.assertEqual(plist_data.get("CFBundleExecutable"), "CineFlow")
+            self.assertEqual(plist_data.get("CFBundleIdentifier"), exp_id)
+            self.assertEqual(plist_data.get("CFBundleExecutable"), exp_exec)
 
     def test_live_roadmap_http_endpoints_and_offline_range_streaming(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -391,7 +401,7 @@ class TestRoadmapFeatures(unittest.TestCase):
             did = "dl_test_offline_movie"
             item_dir = os.path.join(temp_dm.downloads_dir, did)
             os.makedirs(item_dir, exist_ok=True)
-            sample_mp4 = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isomCINEFLOW_OFFLINE_VIDEO_PAYLOAD"
+            sample_mp4 = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isomVELARIUM_OFFLINE_VIDEO_PAYLOAD"
             with open(os.path.join(item_dir, "video.mp4"), "wb") as vf:
                 vf.write(sample_mp4)
             with open(os.path.join(item_dir, "sub_0_ru.vtt"), "wb") as sf:
@@ -710,7 +720,7 @@ class TestRoadmapFeatures(unittest.TestCase):
                 ddir = os.path.join(dm.downloads_dir, did)
                 os.makedirs(ddir, exist_ok=True)
                 with open(os.path.join(ddir, "video.mp4"), "wb") as vf:
-                    vf.write(b"\x00\x00\x00\x18ftypmp42CINEFLOW")
+                    vf.write(b"\x00\x00\x00\x18ftypmp42VELARIUM")
                 with open(os.path.join(ddir, "sub_0_ru.vtt"), "wb") as sf:
                     sf.write(b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nSub\n")
                 dm._items[did] = {
@@ -1232,7 +1242,7 @@ class TestRoadmapFeatures(unittest.TestCase):
         self.assertIsInstance(server.backup_stream_engine._is_torrserver_alive_cached(), bool)
 
         for rel_path in (
-            ("windows", "launcher", "cineflow_launcher.c"),
+            ("windows", "launcher", "velarium_launcher.c"),
             ("windows", "desktop_webview2.py"),
             ("windows", "Start-Cinema-Windows.bat"),
         ):
@@ -1336,7 +1346,7 @@ class TestRoadmapFeatures(unittest.TestCase):
 
         # 2. Windows Chromium/Edge launcher flags include loopback WPAD bypass & extension disable
         for rel_file in (
-            os.path.join("windows", "launcher", "cineflow_launcher.c"),
+            os.path.join("windows", "launcher", "velarium_launcher.c"),
             os.path.join("windows", "desktop_webview2.py"),
             os.path.join("windows", "Start-Cinema-Windows.bat"),
         ):
@@ -1542,9 +1552,9 @@ class TestRoadmapFeatures(unittest.TestCase):
         with open(os.path.join(BASE_DIR, "public", "js", "subtitles.js"), "r", encoding="utf-8") as fh:
             sub_js = fh.read()
         self.assertIn("VOCAB_STORAGE_KEY", sub_js)
-        self.assertIn("cineflow_vocab_v1", sub_js)
+        self.assertIn("velarium_vocab_v1", sub_js)
         self.assertIn("exportVocabularyToAnkiTsv", sub_js)
-        self.assertIn("#tags:CineFlow vocabulary", sub_js)
+        self.assertIn("#tags:Velarium vocabulary", sub_js)
         self.assertIn("toggleWordInVocabulary", sub_js)
         self.assertIn("openVocabularyModal", sub_js)
 

@@ -1,5 +1,5 @@
 """
-CineFlow Modular Route Registry & Dispatcher
+Velarium Modular Route Registry & Dispatcher
 """
 
 from backend.routes.context import ServerContext
@@ -85,6 +85,8 @@ from backend.routes.streams import (
 from backend.routes.system import (
     handle_settings_get,
     handle_settings_post,
+    handle_stream_embed_close_post,
+    handle_stream_embed_open_post,
     handle_system_autostart_post,
     handle_system_lan_post,
     handle_system_status,
@@ -129,6 +131,8 @@ POST_ROUTES = {
     "/api/system/update/check": handle_system_update_check_post,
     "/api/system/update/download": handle_system_update_download_post,
     "/api/system/update/open": handle_system_update_open_post,
+    "/api/stream-embed/open": handle_stream_embed_open_post,
+    "/api/stream-embed/close": handle_stream_embed_close_post,
     "/api/profiles/verify-pin": handle_profiles_verify_pin,
     "/api/profiles/switch": handle_profiles_switch,
     "/api/profiles/save": handle_profiles_save,

@@ -6,14 +6,14 @@ import time
 import unittest
 
 from backend.downloads import OfflineDownloadManager
-from backend.storage_db import CineFlowStorageDB
+from backend.storage_db import VelariumStorageDB
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class TestOfflineDownloadResumption(unittest.TestCase):
     def setUp(self):
-        self.tmp_dir = tempfile.mkdtemp(prefix="cineflow_test_dl_resume_")
+        self.tmp_dir = tempfile.mkdtemp(prefix="velarium_test_dl_resume_")
         self.downloads_dir = os.path.join(self.tmp_dir, "downloads")
         os.makedirs(self.downloads_dir, exist_ok=True)
         from backend.storage_db import get_storage_db

@@ -20,6 +20,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 _STATIC_CONTENT_LOCK = threading.Lock()
 _STATIC_CONTENT_CACHE: Dict[str, Tuple[float, bytes, Optional[bytes], str]] = {}
+_INDEX_RAW_CACHE: Dict[str, Tuple[float, bytes]] = {}
 
 
 def get_static_file_etag(file_path: str, mtime: float, length: int) -> str:
@@ -46,11 +47,24 @@ def load_cached_static_file(
                     return gz_bytes, True
                 return raw_bytes, False
 
-    try:
-        with open(file_path, "rb") as f:
-            raw_bytes = f.read()
-    except OSError:
-        raw_bytes = b""
+    raw_bytes: Optional[bytes] = None
+    if is_index:
+        with _STATIC_CONTENT_LOCK:
+            raw_entry = _INDEX_RAW_CACHE.get(file_path)
+            if raw_entry is not None and raw_entry[0] == mtime:
+                raw_bytes = raw_entry[1]
+
+    if raw_bytes is None:
+        try:
+            with open(file_path, "rb") as f:
+                raw_bytes = f.read()
+        except OSError:
+            raw_bytes = b""
+        if is_index:
+            with _STATIC_CONTENT_LOCK:
+                if len(_INDEX_RAW_CACHE) > 16:
+                    _INDEX_RAW_CACHE.clear()
+                _INDEX_RAW_CACHE[file_path] = (mtime, raw_bytes)
 
     if is_index:
         if index_transformer is not None:
@@ -58,11 +72,25 @@ def load_cached_static_file(
                 raw_bytes = index_transformer(raw_bytes)
             except Exception:
                 pass
-        if can_gzip and len(raw_bytes) > 512:
+        with _STATIC_CONTENT_LOCK:
+            entry = _STATIC_CONTENT_CACHE.get(file_path)
+            if entry is not None and entry[0] == mtime and entry[1] == raw_bytes:
+                if can_gzip and entry[2] is not None:
+                    return entry[2], True
+                if not can_gzip:
+                    return raw_bytes, False
+        gz_bytes = None
+        if len(raw_bytes) > 512:
             try:
-                return gzip.compress(raw_bytes, compresslevel=5), True
+                gz_bytes = gzip.compress(raw_bytes, compresslevel=5)
             except Exception:
-                pass
+                gz_bytes = None
+        with _STATIC_CONTENT_LOCK:
+            if len(_STATIC_CONTENT_CACHE) > 300:
+                _STATIC_CONTENT_CACHE.clear()
+            _STATIC_CONTENT_CACHE[file_path] = (mtime, raw_bytes, gz_bytes, "")
+        if can_gzip and gz_bytes is not None:
+            return gz_bytes, True
         return raw_bytes, False
 
     gz_bytes = None
@@ -164,9 +192,6 @@ def serve_static_file(
         if "gzip" in accept_enc.lower():
             can_gzip = True
 
-    content, use_static_gzip = load_cached_static_file(
-        file_path, can_gzip=can_gzip, index_transformer=index_transformer
-    )
     is_versioned_asset = bool("v=" in parsed.query and not file_path.endswith(".html"))
     etag = lookup_static_etag(file_path)
     if_none_match = (handler.headers.get("If-None-Match") or "").strip()
@@ -184,6 +209,12 @@ def serve_static_file(
             except (BrokenPipeError, ConnectionResetError):
                 pass
             return
+
+    content, use_static_gzip = load_cached_static_file(
+        file_path, can_gzip=can_gzip, index_transformer=index_transformer
+    )
+    if not etag and not file_path.endswith(".html"):
+        etag = lookup_static_etag(file_path)
 
     try:
         handler.send_response(200)

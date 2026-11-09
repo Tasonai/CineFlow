@@ -72,6 +72,9 @@ html.is-stage-pseudo-fullscreen #stats-modal,
 html.is-stage-pseudo-fullscreen #downloads-modal,
 html.is-stage-pseudo-fullscreen #tv-cast-modal,
 html.is-stage-pseudo-fullscreen #profiles-modal,
+html.is-stage-pseudo-fullscreen #handoff-modal,
+html.is-stage-pseudo-fullscreen #vocab-modal,
+html.is-stage-pseudo-fullscreen #bookmarks-modal,
 html.is-stage-pseudo-fullscreen #movie-roulette-modal {
   z-index: 9994 !important;
 }
@@ -176,10 +179,14 @@ html.is-stage-pseudo-fullscreen #video-stage video,
   cursor: pointer;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
   transform: none;
-  transition: opacity 0.16s ease, transform 0.12s ease-out, left 0.24s var(--ease-apple), right 0.24s var(--ease-apple), bottom 0.24s var(--ease-apple);
+  transition: opacity 0.16s ease-out, transform 0.14s var(--ease-apple, cubic-bezier(0.22, 1, 0.36, 1));
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+#skip-outro-btn:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -203,12 +210,11 @@ html.is-stage-pseudo-fullscreen #video-stage video,
 @keyframes atvPreloadPulse {
   0%, 100% {
     transform: scale(1);
-    opacity: 0.9;
+    opacity: 0.88;
   }
   50% {
-    transform: scale(1.3);
+    transform: scale(1.26);
     opacity: 1;
-    box-shadow: 0 0 9px rgba(16, 185, 129, 0.95);
   }
 }
 
@@ -229,7 +235,6 @@ html.is-stage-pseudo-fullscreen #video-stage video,
 .atv-autoplay-card {
   position: relative;
   inset: auto;
-  transform: none !important;
   transition: opacity 0.16s ease;
 }
 
@@ -474,23 +479,6 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.8), 0 0 14px rgba(255, 255, 255, 0.55);
 }
 
-.atv-vc-hover-time {
-  position: absolute;
-  bottom: 20px;
-  transform: translateX(-50%);
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: rgba(24, 24, 28, 0.95);
-  border: none;
-  color: #f5f5f7;
-  font-size: 11px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  pointer-events: none;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
-}
-
 .atv-vc-bar {
   display: flex;
   align-items: center;
@@ -668,7 +656,11 @@ html.is-stage-fullscreen .atv-video-stage:not(:has(#video-endgame-stack > :not(.
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   cursor: pointer;
-  transition: color 0.14s ease, background 0.14s ease;
+  transition: color 0.14s ease-out, background 0.14s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+.atv-vc-time-btn:active {
+  transform: scale(0.97);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -736,16 +728,6 @@ html.is-stage-fullscreen .atv-video-stage #player-gear-popover {
   max-height: min(520px, calc(100dvh - 96px));
 }
 
-@media (max-width: 540px) {
-  #vc-btn-bookmark,
-  #vc-btn-offline-dl,
-  #vc-btn-remote,
-  #vc-btn-cast,
-  #vc-btn-pip {
-    display: none !important;
-  }
-}
-
 @media (max-width: 680px) {
   .atv-video-stage:not(:fullscreen):not(.is-pseudo-fullscreen) .atv-vc-popover {
     position: fixed;
@@ -758,11 +740,23 @@ html.is-stage-fullscreen .atv-video-stage #player-gear-popover {
     max-height: 68vh;
     max-height: 68dvh;
     z-index: var(--z-mobile-gear);
+    transform-origin: bottom center;
   }
   .atv-video-stage:not(:fullscreen):not(.is-pseudo-fullscreen) #player-gear-popover {
     max-height: min(520px, 72vh);
     max-height: min(520px, 72dvh);
     z-index: var(--z-mobile-gear);
+    transform-origin: bottom center;
+  }
+}
+
+@media (max-width: 540px) {
+  #vc-btn-bookmark,
+  #vc-btn-offline-dl,
+  #vc-btn-remote,
+  #vc-btn-cast,
+  #vc-btn-pip {
+    display: none !important;
   }
 }
 
@@ -841,7 +835,7 @@ html.is-stage-fullscreen .atv-video-stage #player-gear-popover {
   font-weight: 500;
   text-align: left;
   cursor: pointer;
-  transition: background 0.14s ease, color 0.14s ease;
+  transition: background 0.14s ease-out, color 0.14s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -853,7 +847,6 @@ html.is-stage-fullscreen .atv-video-stage #player-gear-popover {
 
 .atv-vc-pop-item:active {
   transform: scale(0.98);
-  transition: transform 0.08s ease-out;
 }
 
 .atv-vc-pop-item.active {
@@ -869,6 +862,7 @@ html.is-stage-fullscreen .atv-video-stage #player-gear-popover {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Compact custom controls inside Mini-Player & narrow screens */
@@ -960,6 +954,10 @@ html.is-ios-device .atv-vc-vol-slider {
   transition: transform 0.2s ease, background 0.18s ease, color 0.18s ease, opacity 0.2s ease;
 }
 
+.atv-scroll-top-btn:active {
+  transform: scale(0.96);
+}
+
 @media (hover: hover) and (pointer: fine) {
   .atv-scroll-top-btn:hover {
     background: #f5f5f7;
@@ -993,6 +991,7 @@ html.is-ios-device .atv-vc-vol-slider {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  contain: layout style;
 }
 
 .atv-person-topbar {
@@ -1054,6 +1053,7 @@ html.is-ios-device .atv-vc-vol-slider {
 
 .atv-person-photo-col img {
   width: 100%;
+  height: auto;
   aspect-ratio: 2 / 3;
   object-fit: cover;
   object-position: center 16%;
@@ -1109,6 +1109,7 @@ html.is-ios-device .atv-vc-vol-slider {
   background: transparent;
   font-size: 12.5px;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .atv-person-bio {
@@ -1121,6 +1122,7 @@ html.is-ios-device .atv-vc-vol-slider {
   -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  text-wrap: pretty;
 }
 
 .atv-person-stats-strip {
@@ -1161,7 +1163,6 @@ html.is-ios-device .atv-vc-vol-slider {
   height: 100%;
   border-radius: 999px;
   background: #f5f5f7;
-  transition: width 0.28s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1));
 }
 
 .atv-person-actions {
@@ -1197,6 +1198,7 @@ html.is-ios-device .atv-vc-vol-slider {
 .atv-person-role-tabs {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 2px;
   padding: 3px;
   border-radius: var(--radius-control);
@@ -1221,7 +1223,7 @@ html.is-ios-device .atv-vc-vol-slider {
   white-space: nowrap;
   flex-shrink: 0;
   cursor: pointer;
-  transition: background 0.16s ease, color 0.16s ease;
+  transition: background 0.16s ease-out, color 0.16s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1258,6 +1260,7 @@ html.is-ios-device .atv-vc-vol-slider {
 .atv-person-grid {
   grid-template-columns: repeat(auto-fill, minmax(154px, 1fr));
   gap: 20px 16px;
+  contain: layout style;
 }
 
 .atv-person-load-more-row {
@@ -1294,6 +1297,7 @@ html.is-ios-device .atv-vc-vol-slider {
    ========================================================================== */
 .atv-modal-overlay.pip-background-mode {
   pointer-events: none !important;
+  visibility: hidden !important;
   background: transparent !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
@@ -1308,6 +1312,10 @@ html.is-ios-device .atv-vc-vol-slider {
   padding: 0 !important;
   overflow: hidden !important;
   z-index: 0 !important;
+}
+
+.atv-modal-overlay.pip-background-mode #native-video {
+  visibility: visible !important;
 }
 
 .atv-pip-stage-notice {
@@ -1495,10 +1503,17 @@ html.is-ios-device .atv-vc-vol-slider {
   margin-left: 2px;
 }
 
-.atv-poster-item:focus-visible .atv-poster-play-center {
+.atv-poster-item:focus-visible .atv-poster-play-center,
+.atv-poster-item:focus-within .atv-poster-play-center,
+.atv-poster-play-center:focus-visible {
   opacity: 1;
   pointer-events: auto;
   transform: translate(-50%, -50%) scale(1);
+}
+
+.atv-poster-play-center:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-blue), 0 10px 26px rgba(0, 0, 0, 0.65);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1786,7 +1801,11 @@ html.is-ios-device .atv-vc-vol-slider {
   box-shadow: none;
   cursor: pointer;
   text-align: left;
-  transition: background 0.16s ease, color 0.16s ease;
+  transition: background 0.16s ease-out, color 0.16s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+.atv-video-error-studio-row:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1882,7 +1901,11 @@ html.is-ios-device .atv-vc-vol-slider {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: background 0.14s ease, color 0.14s ease;
+  transition: background 0.14s ease-out, color 0.14s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+.gear-speed-pill:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1924,7 +1947,7 @@ html.is-ios-device .atv-vc-vol-slider {
   position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 5px;
   text-align: left;
   padding: 10px 12px 12px;
@@ -1999,6 +2022,8 @@ html.is-ios-device .atv-vc-vol-slider {
   font-size: 11.5px;
   font-weight: 700;
   color: rgba(235, 235, 245, 0.9);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .atv-ep-card-meta {
@@ -2006,6 +2031,9 @@ html.is-ios-device .atv-vc-vol-slider {
   color: var(--text-tertiary);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .atv-ep-card-title {
@@ -2098,6 +2126,7 @@ html.is-ios-device .atv-vc-vol-slider {
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .atv-current-ep-code {
@@ -2134,7 +2163,11 @@ html.is-ios-device .atv-vc-vol-slider {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
+}
+
+.atv-ep-rate-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -2216,7 +2249,13 @@ html.is-ios-device .atv-vc-vol-slider {
 .atv-video-stage-wrap:has(.vc-popover-open),
 .atv-video-stage-wrap .atv-video-stage.vc-popover-open,
 .atv-video-stage.vc-popover-open {
-  z-index: 60 !important;
+  z-index: 60;
+}
+
+.atv-postwatch-scope ~ .postwatch-scope-btn,
+.postwatch-scope-btn:active:not(:disabled),
+.atv-ep-view-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .atv-cast-sidebar-block {
@@ -2226,8 +2265,8 @@ html.is-ios-device .atv-vc-vol-slider {
 }
 
 .atv-cast-card-skeleton {
-  width: 78px;
-  height: 114px;
+  width: 84px;
+  height: 122px;
   border-radius: var(--radius-sm);
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.085) 50%, rgba(255, 255, 255, 0.04) 100%);
   animation: atv-shimmer 1.5s infinite var(--ease-in-out-cubic, cubic-bezier(0.645, 0.045, 0.355, 1));
@@ -2235,11 +2274,11 @@ html.is-ios-device .atv-vc-vol-slider {
 }
 
 .atv-cast-sidebar-block .atv-cast-photo-row {
-  padding-bottom: 4px;
-  padding-right: 18px;
-  scroll-padding-right: 18px;
-  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent 100%);
-  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 28px), transparent 100%);
+  padding-bottom: 6px;
+  padding-inline: 2px 18px;
+  scroll-padding-inline: 2px 18px;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 22px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 22px), transparent 100%);
 }
 
 .atv-qp-friends-wrap,
@@ -2299,7 +2338,7 @@ html.is-ios-device .atv-vc-vol-slider {
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -2401,7 +2440,7 @@ html.fs-transitioning .atv-postwatch-overlay {
   font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -2423,7 +2462,8 @@ html.fs-transitioning .atv-postwatch-overlay {
   position: absolute;
   bottom: calc(100% + 7px);
   left: 0;
-  transform: none;
+  transform-origin: bottom left;
+  animation: atvVcPopoverIn 0.14s var(--ease-out-quart, cubic-bezier(0.22, 1, 0.36, 1));
   padding: 6px 10px;
   border-radius: 8px;
   background: #1c1c1e;
@@ -2465,7 +2505,7 @@ html.fs-transitioning .atv-postwatch-overlay {
   font-weight: 600;
   max-width: 260px;
   cursor: pointer;
-  transition: background 0.16s ease;
+  transition: background 0.16s ease-out, transform 0.12s var(--ease-out-cubic, cubic-bezier(0.215, 0.61, 0.355, 1));
 }
 
 .atv-modal-back-btn span {
@@ -2531,10 +2571,11 @@ html.fs-transitioning .atv-postwatch-overlay {
    ========================================================================== */
 .atv-preload-ready-dot {
   display: inline-block;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: #f5f5f7;
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.85);
   margin-left: 5px;
   vertical-align: middle;
 }
@@ -2591,6 +2632,7 @@ html.fs-transitioning .atv-postwatch-overlay {
   .atv-vc-btn,
   .atv-hero-dot,
   .atv-xray-close,
+  .atv-xray-nav-btn,
   .atv-qp-season-btn,
   .atv-filter-chip,
   .atv-remote-icon-btn {

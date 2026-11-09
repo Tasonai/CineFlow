@@ -2,28 +2,30 @@
 // 6. TV CAST & AIRPLAY / DLNA / REMOTE LINK
 // ============================================================================
 
-import { state } from "./state.js?v=20261105v5";
-import { displayTitle, t } from "./i18n.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
+import { displayTitle, t, translateStudioName } from "./i18n.js?v=20261108v19";
 import {
   closeCustomSelectMenu,
+  closeFloatingPopovers,
   escapeAttr,
   escapeHtml,
+  formatTime,
   iconSvg,
   rememberModalTriggerFocus,
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261105v5";
-import { resolvePreferredPlayTab } from "./catalog.js?v=20261105v5";
-import { openQuickPeekModal } from "./modals.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
+import { resolvePreferredPlayTab } from "./catalog.js?v=20261108v19";
+import { openQuickPeekModal } from "./modals.js?v=20261108v19";
 import {
   getEffectivePlaybackTiming,
   openPlayerModal,
-} from "./player.js?v=20261105v5";
-import { switchCastModalTab } from "./remote.js?v=20261105v5";
-import { toggleLanAccess } from "./settings.js?v=20261105v5";
-import { toggleTvMode } from "./features-tv-mode.js?v=20261105v5";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261105v5";
+} from "./player.js?v=20261108v19";
+import { switchCastModalTab } from "./remote.js?v=20261108v19";
+import { toggleLanAccess } from "./settings.js?v=20261108v19";
+import { toggleTvMode } from "./features-tv-mode.js?v=20261108v19";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261108v19";
 
 
 export function supportsWebkitAirPlay() {
@@ -41,8 +43,8 @@ export function triggerNativeAirPlayPicker() {
   }
   showToast(
     t(
-      "Системное меню AirPlay доступно в CineFlow.app и Safari на macOS — используйте QR-код или DLNA ниже",
-      "Native AirPlay picker is available in CineFlow.app and Safari on macOS — use QR code or DLNA below"
+      "Системное меню AirPlay доступно в Velarium.app и Safari на macOS — используйте QR-код или DLNA ниже",
+      "Native AirPlay picker is available in Velarium.app and Safari on macOS — use QR code or DLNA below"
     )
   );
   return false;
@@ -65,6 +67,7 @@ export async function openTvCastModal(eventOrTab = null, explicitTab = "", conte
       : explicitTab || state.remoteCastTab || "phone";
   const modal = document.getElementById("tv-cast-modal");
   if (!modal) return;
+  closeFloatingPopovers();
   exitBrowserFullscreenIfNeeded();
   const wasHidden = modal.classList.contains("hidden");
   if (wasHidden) {
@@ -82,7 +85,16 @@ export async function openTvCastModal(eventOrTab = null, explicitTab = "", conte
   await refreshTvDevices(false);
 }
 
+let _tvDevicesAbortController = null;
+let _handoffAbortController = null;
+
 export function closeTvCastModal() {
+  if (_tvDevicesAbortController) {
+    try {
+      _tvDevicesAbortController.abort();
+    } catch (_) {}
+    _tvDevicesAbortController = null;
+  }
   const modal = document.getElementById("tv-cast-modal");
   if (!modal || modal.classList.contains("hidden")) return;
   closeCustomSelectMenu({ restoreFocus: false });
@@ -92,6 +104,13 @@ export function closeTvCastModal() {
 }
 
 export async function refreshTvDevices(forceScan = false) {
+  if (_tvDevicesAbortController) {
+    try {
+      _tvDevicesAbortController.abort();
+    } catch (_) {}
+  }
+  const tvAbort = new AbortController();
+  _tvDevicesAbortController = tvAbort;
   renderTvCastModalUI(true);
   try {
     const qs = new URLSearchParams();
@@ -102,7 +121,7 @@ export async function refreshTvDevices(forceScan = false) {
     if (castItem?.id) {
       const it = castItem;
       qs.set("id", String(it.id));
-      qs.set("title", String(it.title || displayTitle(it) || "CineFlow"));
+      qs.set("title", String(it.title || displayTitle(it) || "Velarium"));
       if (it.orig_title) qs.set("orig_title", String(it.orig_title));
       if (it.year) qs.set("year", String(it.year));
       if (it.media_type) qs.set("media_type", String(it.media_type));
@@ -124,7 +143,9 @@ export async function refreshTvDevices(forceScan = false) {
         qs.set("episode", String(state.activeEpisode || 1));
       }
     }
-    const res = await fetch(`/api/tv/devices?${qs.toString()}`);
+    const res = await fetch(`/api/tv/devices?${qs.toString()}`, {
+      signal: tvAbort.signal,
+    });
     if (!res.ok) return;
     const data = await res.json();
     state.tvDevices = Array.isArray(data.devices) ? data.devices : [];
@@ -134,7 +155,8 @@ export async function refreshTvDevices(forceScan = false) {
     state.tvLanEnabled = Boolean(data.lan_enabled);
     state.tvIsLocalClient = data.is_local_client !== false;
     renderTvCastModalUI(false);
-  } catch (_) {
+  } catch (err) {
+    if (err && err.name === "AbortError") return;
     renderTvCastModalUI(false);
   }
 }
@@ -201,8 +223,8 @@ export function renderTvCastModalUI(scanning = false) {
     if (state.tvActiveCast && state.tvActiveCast.device_name) {
       activeBar.classList.remove("hidden");
       activeText.textContent = t(
-        `Активна передача на ${state.tvActiveCast.device_name}: «${state.tvActiveCast.title || "CineFlow"}»`,
-        `Casting to ${state.tvActiveCast.device_name}: "${state.tvActiveCast.title || "CineFlow"}"`
+        `Активна передача на ${state.tvActiveCast.device_name}: «${state.tvActiveCast.title || "Velarium"}»`,
+        `Casting to ${state.tvActiveCast.device_name}: "${state.tvActiveCast.title || "Velarium"}"`
       );
     } else {
       activeBar.classList.add("hidden");
@@ -373,7 +395,7 @@ export function parseInitialTvUrlParams() {
     const pairKey = (qs.get("k") || "").trim();
     if (pairKey) {
       try {
-        window.sessionStorage.setItem("cineflow_remote_key", pairKey);
+        window.sessionStorage.setItem("velarium_remote_key", pairKey);
       } catch (err) { window.logDebug?.("FeaturesCast", err); }
     }
     if (qs.get("tv") === "1") {
@@ -393,6 +415,7 @@ export function parseInitialTvUrlParams() {
           startSec: Math.max(0, parseFloat(qs.get("t") || "0") || 0),
           tab: (qs.get("tab") || "").trim(),
           studioId: (qs.get("tr") || "").trim(),
+          tr: (qs.get("tr") || "").trim(),
         };
       }
       const cleanUrl = window.location.pathname + (qs.get("tv") === "1" ? "?tv=1" : "");
@@ -442,6 +465,7 @@ export async function applyPendingTvDeepLinkIfReady() {
   }
 
   if (target) {
+    if (req.studioId && !req.tr) req.tr = req.studioId;
     if (req.tr) {
       state.pendingStudioId = String(req.tr);
     }
@@ -467,8 +491,11 @@ export async function openPlayerHandoffModal() {
   const modal = document.getElementById("handoff-modal");
   if (!modal) return;
 
+  closeFloatingPopovers();
   exitBrowserFullscreenIfNeeded();
-  rememberModalTriggerFocus("handoff-modal");
+  if (modal.classList.contains("hidden")) {
+    rememberModalTriggerFocus("handoff-modal");
+  }
 
   const item = state.activeItem;
   const video = document.getElementById("native-video");
@@ -512,6 +539,19 @@ export async function openPlayerHandoffModal() {
 
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
+  syncScrollTopButton();
+  setTimeout(() => {
+    const focusTarget = document.getElementById("btn-handoff-copy-url") || document.getElementById("close-handoff-modal");
+    focusTarget?.focus?.({ preventScroll: true });
+  }, 20);
+
+  if (_handoffAbortController) {
+    try {
+      _handoffAbortController.abort();
+    } catch (_) {}
+  }
+  const handoffAbort = new AbortController();
+  _handoffAbortController = handoffAbort;
 
   try {
     const params = new URLSearchParams({
@@ -527,7 +567,9 @@ export async function openPlayerHandoffModal() {
       tab: state.activeSourceTab || "hdrezka",
       tr: state.activeStudioId || "",
     });
-    const res = await fetch(`/api/handoff?${params.toString()}`);
+    const res = await fetch(`/api/handoff?${params.toString()}`, {
+      signal: handoffAbort.signal,
+    });
     const data = await res.json();
     if (res.ok && data?.ok) {
       if (qrFrame && data.qr_svg) {
@@ -544,6 +586,7 @@ export async function openPlayerHandoffModal() {
       }
     }
   } catch (err) {
+    if (err && err.name === "AbortError") return;
     if (qrFrame) {
       qrFrame.innerHTML = `<div class="atv-handoff-err">${escapeHtml(
         t("Ошибка подключения к серверу", "Server connection error")
@@ -553,10 +596,17 @@ export async function openPlayerHandoffModal() {
 }
 
 export function closePlayerHandoffModal() {
+  if (_handoffAbortController) {
+    try {
+      _handoffAbortController.abort();
+    } catch (_) {}
+    _handoffAbortController = null;
+  }
   const modal = document.getElementById("handoff-modal");
   if (!modal) return;
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
+  syncScrollTopButton();
   restoreModalTriggerFocus("handoff-modal");
 }
 

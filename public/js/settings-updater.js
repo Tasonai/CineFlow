@@ -1,4 +1,5 @@
 import {
+  BOOKMARKS_STORAGE_KEY,
   EPISODE_PROGRESS_STORAGE_KEY,
   PLAYER_PREFS_STORAGE_KEY,
   PREFERRED_STUDIOS_STORAGE_KEY,
@@ -9,30 +10,30 @@ import {
   profileStorageKey,
   profileStorageKeyFor,
   state,
-} from "./state.js?v=20261105v5";
-import { isEn, t } from "./i18n.js?v=20261105v5";
+} from "./state.js?v=20261108v19";
+import { isEn, t } from "./i18n.js?v=20261108v19";
 import {
   escapeHtml,
   getWatchHistoryList,
   invalidateLocalCaches,
   showToast,
-} from "./utils.js?v=20261105v5";
-import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261105v5";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261105v5";
-import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261105v5";
-import { loadCatalog, updateKinoriumUserBadge } from "./catalog.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
+import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261108v19";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261108v19";
+import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261108v19";
+import { loadCatalog, updateKinoriumUserBadge } from "./catalog.js?v=20261108v19";
 import {
   applyProfilesPayload,
   ensureKidsPinVerifiedForAdminAction,
   promptKidsPinModal,
   reloadProfileLocalPlayerPrefs,
-} from "./features.js?v=20261105v5";
+} from "./features.js?v=20261108v19";
 import {
   _adminPinPayload,
   applyAppLanguage,
   renderIntegrationsList,
   renderStremioAddonsList,
-} from "./settings.js?v=20261105v5";
+} from "./settings.js?v=20261108v19";
 
 export function updateBackupSummaryStat() {
   const el = document.getElementById("backup-summary-stat");
@@ -62,6 +63,14 @@ export function updateBackupSummaryStat() {
   ];
   if (studiosCount > 0) {
     parts.push(`${t("Озвучек", "Audio choices")}: ${studiosCount}`);
+  }
+  let bookmarksCount = 0;
+  try {
+    const rawBm = JSON.parse(localStorage.getItem(profileStorageKey(BOOKMARKS_STORAGE_KEY)) || "[]") || [];
+    bookmarksCount = Array.isArray(rawBm) ? rawBm.length : 0;
+  } catch (err) { window.logDebug?.("Settings", err); }
+  if (bookmarksCount > 0) {
+    parts.push(`${t("Закладок", "Bookmarks")}: ${bookmarksCount}`);
   }
   const summaryText = parts.join(" · ");
   if (dismissedCount > 0) {
@@ -121,6 +130,7 @@ function _readProfileLocalBundle(pid) {
     episode_progress: safeParse(EPISODE_PROGRESS_STORAGE_KEY, {}),
     watch_history: safeParse(WATCH_HISTORY_STORAGE_KEY, []),
     recent_searches: safeParse(RECENT_SEARCHES_STORAGE_KEY, []),
+    bookmarks: safeParse(BOOKMARKS_STORAGE_KEY, []),
   };
 }
 
@@ -144,6 +154,9 @@ function _writeProfileLocalBundle(pid, cs) {
     }
     if (Array.isArray(cs.recent_searches)) {
       localStorage.setItem(profileStorageKeyFor(RECENT_SEARCHES_STORAGE_KEY, pid), JSON.stringify(cs.recent_searches.slice(0, 8)));
+    }
+    if (Array.isArray(cs.bookmarks)) {
+      localStorage.setItem(profileStorageKeyFor(BOOKMARKS_STORAGE_KEY, pid), JSON.stringify(cs.bookmarks.slice(0, 500)));
     }
   } catch (err) { window.logDebug?.("Settings", err); }
 }
@@ -345,7 +358,9 @@ export function renderAppUpdaterUI(updaterObj = null) {
   }
   const repoEl = document.getElementById("cfg-update-repo");
   if (repoEl && document.activeElement !== repoEl) {
-    repoEl.value = String(sys.update_repo ?? upd.update_repo ?? "");
+    const rawCustomRepo = String(sys.update_repo || "").trim();
+    const isLegacyOrDefaultRepo = /^(tasonai\/velarium|tasonai\/cineflow)$/i.test(rawCustomRepo);
+    repoEl.value = isLegacyOrDefaultRepo ? "" : rawCustomRepo;
     repoEl.disabled = !isLocalHost;
   }
   const manifestEl = document.getElementById("cfg-update-manifest-url");
@@ -386,15 +401,15 @@ export function renderAppUpdaterUI(updaterObj = null) {
   if (sublineEl) {
     if (isChecking) {
       sublineEl.textContent = t(
-        "Связываемся с сервером релизов CineFlow...",
-        "Checking CineFlow release feed..."
+        "Связываемся с сервером релизов Velarium...",
+        "Checking Velarium release feed..."
       );
     } else if (dlState === "downloading") {
       const dlBytes = _formatUpdaterBytes(upd.downloaded_bytes);
       const totBytes = upd.total_bytes > 0 ? ` / ${_formatUpdaterBytes(upd.total_bytes)}` : "";
       sublineEl.textContent = t(
-        `Скачивание установщика CineFlow v${latestVer} (${dlBytes}${totBytes})...`,
-        `Downloading CineFlow v${latestVer} installer (${dlBytes}${totBytes})...`
+        `Скачивание установщика Velarium v${latestVer} (${dlBytes}${totBytes})...`,
+        `Downloading Velarium v${latestVer} installer (${dlBytes}${totBytes})...`
       );
     } else if (dlState === "ready" && dlPath) {
       sublineEl.textContent = t(
@@ -404,8 +419,8 @@ export function renderAppUpdaterUI(updaterObj = null) {
     } else if (isAvailable) {
       const sizeNote = upd.asset_size > 0 ? ` · ${_formatUpdaterBytes(upd.asset_size)}` : "";
       sublineEl.textContent = t(
-        `Доступна новая версия CineFlow v${latestVer} (у вас v${curVer})${sizeNote}`,
-        `A new version CineFlow v${latestVer} is available (current v${curVer})${sizeNote}`
+        `Доступна новая версия Velarium v${latestVer} (у вас v${curVer})${sizeNote}`,
+        `A new version Velarium v${latestVer} is available (current v${curVer})${sizeNote}`
       );
     } else if (upd.error) {
       const errCode = String(upd.error);
@@ -422,13 +437,13 @@ export function renderAppUpdaterUI(updaterObj = null) {
       }
     } else if (upd.last_checked_at) {
       sublineEl.textContent = t(
-        `Установлена актуальная версия CineFlow v${curVer}`,
-        `CineFlow v${curVer} is up to date`
+        `Установлена актуальная версия Velarium v${curVer}`,
+        `Velarium v${curVer} is up to date`
       );
     } else {
       sublineEl.textContent = t(
-        `Установлена версия CineFlow v${curVer}`,
-        `Installed version: CineFlow v${curVer}`
+        `Установлена версия Velarium v${curVer}`,
+        `Installed version: Velarium v${curVer}`
       );
     }
   }
@@ -565,8 +580,8 @@ export async function checkAppUpdates({ force = true, silent = false } = {}) {
       if (!silent) {
         showToast(
           t(
-            `Доступно обновление CineFlow v${upd.latest_version}!`,
-            `CineFlow v${upd.latest_version} is available!`
+            `Доступно обновление Velarium v${upd.latest_version}!`,
+            `Velarium v${upd.latest_version} is available!`
           )
         );
       }
@@ -635,14 +650,37 @@ export async function openDownloadedInstaller({ reveal = false } = {}) {
     showToast(
       isMac
         ? t(
-            "Установка обновления запущена — CineFlow сейчас автоматически перезапустится",
-            "Update installation started — CineFlow will automatically restart in a moment"
+            "Установка обновления запущена — Velarium сейчас автоматически перезапустится",
+            "Update installation started — Velarium will automatically restart in a moment"
           )
         : t(
-            "Установщик CineFlow запущен — следуйте инструкциям на экране",
-            "CineFlow Setup launched — follow the on-screen instructions"
+            "Установщик Velarium запущен — следуйте инструкциям на экране",
+            "Velarium Setup launched — follow the on-screen instructions"
           )
     );
+    if (isMac && !reveal) {
+      const prevVer = String(state.appVersion || "");
+      let checks = 0;
+      const reloadTimer = setInterval(async () => {
+        checks += 1;
+        if (checks > 24) {
+          clearInterval(reloadTimer);
+          return;
+        }
+        try {
+          const stRes = await fetch(`/api/system/status?_t=${Date.now()}`, { cache: "no-store" });
+          if (stRes.ok) {
+            const stJson = await stRes.json().catch(() => ({}));
+            if (stJson?.version && stJson.version !== prevVer) {
+              clearInterval(reloadTimer);
+              window.location.reload();
+            }
+          }
+        } catch (_) {
+          // Server is restarting; keep polling until new version responds
+        }
+      }, 900);
+    }
     return true;
   } catch (_) {
     showToast(t("Не удалось открыть установщик", "Failed to launch installer"));
@@ -664,6 +702,8 @@ export async function startAppUpdateDownload() {
     window.open(relPageUrl, "_blank", "noopener,noreferrer");
     return;
   }
+  const actionBtn = document.getElementById("about-update-action-btn");
+  if (actionBtn) actionBtn.disabled = true;
   try {
     const res = await fetch("/api/system/update/download", {
       method: "POST",
@@ -672,6 +712,7 @@ export async function startAppUpdateDownload() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.ok === false) {
+      if (actionBtn) actionBtn.disabled = false;
       showToast(data?.error || t("Не удалось начать загрузку обновления", "Could not start update download"));
       return;
     }
@@ -690,10 +731,19 @@ export async function startAppUpdateDownload() {
       return;
     }
     _stopUpdaterPolling();
+    let consecutiveFailCount = 0;
     state.updaterPollTimerId = setInterval(async () => {
       try {
         const sRes = await fetch("/api/system/update/status");
-        if (!sRes.ok) return;
+        if (!sRes.ok) {
+          consecutiveFailCount += 1;
+          if (consecutiveFailCount >= 6) {
+            _stopUpdaterPolling();
+            if (actionBtn) actionBtn.disabled = false;
+          }
+          return;
+        }
+        consecutiveFailCount = 0;
         const sData = await sRes.json().catch(() => ({}));
         const nextUpd = sData?.updater && typeof sData.updater === "object" ? sData.updater : sData;
         if (!nextUpd || typeof nextUpd !== "object") return;
@@ -714,10 +764,21 @@ export async function startAppUpdateDownload() {
               nextUpd.download_error || nextUpd.error || "failed"
             }`
           );
+        } else if (pollState !== "downloading" && pollState !== "starting" && pollState !== "checking") {
+          _stopUpdaterPolling();
+          if (actionBtn) actionBtn.disabled = false;
         }
-      } catch (err) { window.logDebug?.("Settings", err); }
+      } catch (err) {
+        consecutiveFailCount += 1;
+        if (consecutiveFailCount >= 6) {
+          _stopUpdaterPolling();
+          if (actionBtn) actionBtn.disabled = false;
+        }
+        window.logDebug?.("Settings", err);
+      }
     }, 750);
   } catch (_) {
+    if (actionBtn) actionBtn.disabled = false;
     showToast(t("Не удалось начать загрузку обновления", "Could not start update download"));
   }
 }
@@ -733,7 +794,7 @@ export async function handleExportBackup(btnEl) {
     const a = document.createElement("a");
     const dateStamp = new Date().toISOString().slice(0, 10);
     a.href = url;
-    a.download = `cineflow-backup-${dateStamp}.json`;
+    a.download = `velarium-backup-${dateStamp}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -756,13 +817,15 @@ export function openManualBackupPasteBox() {
     pasteBox.id = "backup-manual-paste-box";
     pasteBox.className = "atv-backup-paste-box";
     pasteBox.innerHTML = `
-      <div class="atv-backup-paste-label">${escapeHtml(
+      <label for="backup-manual-paste-textarea" class="atv-backup-paste-label">${escapeHtml(
         t(
-          "Вставьте JSON резервной копии CineFlow ниже и нажмите «Восстановить»:",
-          "Paste your CineFlow backup JSON below and click Restore:"
+          "Вставьте JSON резервной копии Velarium ниже и нажмите «Восстановить»:",
+          "Paste your Velarium backup JSON below and click Restore:"
         )
-      )}</div>
-      <textarea id="backup-manual-paste-textarea" class="atv-backup-paste-textarea" rows="4" placeholder="{ &quot;app&quot;: &quot;CineFlow&quot;, ... }"></textarea>
+      )}</label>
+      <textarea id="backup-manual-paste-textarea" class="atv-backup-paste-textarea" rows="4" aria-label="${escapeAttr(
+        t("JSON резервной копии Velarium", "Velarium backup JSON")
+      )}" spellcheck="false" placeholder="{ &quot;app&quot;: &quot;Velarium&quot;, ... }"></textarea>
       <div class="atv-backup-paste-actions">
         <button type="button" class="atv-btn-secondary atv-btn-xs" id="btn-cancel-backup-paste">${escapeHtml(
           t("Отмена", "Cancel")
@@ -793,8 +856,8 @@ export function openManualBackupPasteBox() {
       } catch (_) {
         showToast(
           t(
-            "Текст не является корректным JSON резервной копии CineFlow",
-            "Text is not a valid CineFlow backup JSON"
+            "Текст не является корректным JSON резервной копии Velarium",
+            "Text is not a valid Velarium backup JSON"
           )
         );
       }

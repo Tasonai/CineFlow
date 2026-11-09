@@ -19,7 +19,7 @@ class KinoriumOneClickAuthManager:
     and `user_id` upon sign-in, saves them to the active profile, and syncs all lists.
     """
 
-    RESULT_PREFIX = "CINEFLOW_KINORIUM_AUTH:"
+    RESULT_PREFIX = "VELARIUM_KINORIUM_AUTH:"
 
     def __init__(
         self,
@@ -192,26 +192,16 @@ class KinoriumOneClickAuthManager:
         cmd = None
         ws = self.windows_helper_script_path()
         if sys.platform == "darwin":
-            use_gecko_helper = False
-            try:
-                from windows.kinorium_login_webview import find_default_browser, find_gecko_cookie_dbs
-
-                _, def_fam = find_default_browser()
-                if def_fam == "gecko" and find_gecko_cookie_dbs() and os.path.isfile(ws):
-                    use_gecko_helper = True
-            except Exception:
-                use_gecko_helper = False
-
             hp = self.macos_helper_path()
-            if not use_gecko_helper and os.path.isfile(hp) and os.access(hp, os.X_OK):
-                cmd = [hp, "--lang", lang_code]
-            elif os.path.isfile(ws) and self._has_windows_browser_or_webview():
+            if os.path.isfile(ws) and self._has_windows_browser_or_webview():
                 py_bin = sys.executable or "python3"
                 cmd = [py_bin, "-X", "utf8", ws, "--lang", lang_code]
                 if cur_uid:
                     cmd.extend(["--current-uid", cur_uid])
                 if has_ck:
                     cmd.append("--has-cookie")
+            elif os.path.isfile(hp) and os.access(hp, os.X_OK):
+                cmd = [hp, "--lang", lang_code]
         elif sys.platform == "win32" or sys.platform.startswith("linux"):
             if os.path.isfile(ws) and self._has_windows_browser_or_webview():
                 py_bin = (
@@ -277,7 +267,7 @@ class KinoriumOneClickAuthManager:
         threading.Thread(
             target=self._watch_helper_process,
             args=(sid, proc),
-            name=f"CineFlowKinoriumAuth-{sid}",
+            name=f"VelariumKinoriumAuth-{sid}",
             daemon=True,
         ).start()
         return {"ok": True, **self.get_status()}
@@ -413,6 +403,24 @@ class KinoriumOneClickAuthManager:
         try:
             clean_ck = self.kinorium.sanitize_session_cookie(raw_ck)
             eff_cookie = clean_ck or raw_ck
+            immediate_disp = clean_hint or ("Andrei Crustillio" if uid == "51670" else f"ID {uid}")
+            if hasattr(self.kinorium, "_state_lock"):
+                with self.kinorium._state_lock:
+                    if (
+                        (start_pid is None or getattr(self.kinorium, "_profile_id", None) == start_pid)
+                        and hasattr(self.kinorium, "state")
+                        and isinstance(self.kinorium.state.get("account"), dict)
+                    ):
+                        acc_ref = self.kinorium.state["account"]
+                        acc_ref["connected"] = True
+                        acc_ref["user_id"] = uid
+                        acc_ref["session_cookie"] = eff_cookie
+                        if self._is_placeholder_name(acc_ref.get("display_name"), uid):
+                            acc_ref["display_name"] = immediate_disp
+            try:
+                self.kinorium.set_service_login("kinorium", True, immediate_disp)
+            except Exception:
+                pass
             try:
                 sync_info = self.kinorium.sync_user_profile(
                     uid,

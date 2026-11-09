@@ -1,26 +1,29 @@
 ﻿==========================================================
-CINEFLOW — UNIFIED LOCAL CINEMA HUB FOR WINDOWS
+VELARIUM — UNIFIED LOCAL CINEMA HUB FOR WINDOWS
 Product Passport, Local Privacy & License Agreement
 ==========================================================
 
 PRODUCT INFORMATION
-  Product Name:    CineFlow
-  Release Version: 2.7.1 (64-bit x64 Edition)
+  Product Name:    Velarium
+  Release Version: 2.7.11 (64-bit x64 Edition)
   Developer:       Atoma
   Release Year:    2026
   Target Platform: Microsoft Windows 10 & Windows 11 (x64)
 
 0. RELEASE NOTES (CHANGELOG)
-What's new in CineFlow 2.7.1:
-• Zero-Wait Seamless Episode Transitions: near the end of an episode, the player pre-resolves and pre-buffers the next episode stream, Skip Intro/Credits segments, and subtitles in the background for an instant spinner-free transition.
-• Smart Timeline Chapter Ticks & Bookmark Previews: added visual chapter markers, inline bookmark note previews on timeline scrub hover, and instant marker jumping ([ and ]) across intro, bookmarks, chapters, and credits.
-• Smart Collections, Voiceover Filter & Year in Review: added a quick collection & voiceover studio selector (8.0+, 4K UHD, Friends' Favorites, Studios) in the catalog filter drawer, plus Favorite Genres and Year-in-Review breakdowns in Profile Statistics.
-• Deep Core Modularization (Rounds 1–3): split large modules into 14 focused subsystems (kinorium.py reduced by 72%, app.js by 80%, extracted player-streams-4k.js, settings-onboarding.js, settings-updater.js, modals-person.js, modals-stats.js, aggregator_discovery.py, hdrezka_extras.py) with logDebug diagnostics.
+What's new in Velarium 2.7.11:
+• Deep Performance & Memory Optimization (14-Pass Audit): end-to-end acceleration across the video player, catalog grid, media proxy, and SQLite WAL storage for zero micro-freezes even on multi-thousand-title libraries.
+• Instant Player Response & timeupdate Loop Diet: optimized checks in the 4 Hz playback loop, O(1) early-return when next-episode preloading finishes, AbortController cancellation for background requests, and memoized DOM updates for X-Ray, scrubber, and WebAudio DSP.
+• Fast Catalog, Search & Download Status Caching: memory-allocation-free palette search, status-aware O(1) offline download lookups, memoized dynamic studio/genre filter counters, and CSS containment (contain: layout style).
+• HTTP Keep-Alive Restoration in Streaming Proxy & SQLite Tuning: eliminated redundant TLS handshakes on Range streaming requests, single-row download status updates instead of full-table rewrites, secure HTTPS handlers with DNS caching, and Kinorium profile stats memoization.
 
 1. OVERVIEW & CORE CAPABILITIES
-CineFlow unifies your personal movie tracking library, high-bitrate streaming, and regional streaming availability inside a single matte-dark desktop interface:
+Velarium unifies your personal movie tracking library, high-bitrate streaming, and regional streaming availability inside a single matte-dark desktop interface:
 
+• Direct access to region-restricted catalogs and resources without external VPN software: built-in smart network routing connects to geo-restricted movie databases, mirrors, and indexers out of the box.
+• Official streaming services (Netflix, Apple TV+, Prime Video, Max, and more) with local browser Cookie session import: Velarium never asks for, reads, or stores your account passwords.
 • Two-way Kinorium synchronization with one-click built-in sign-in (zero manual cookie copying): Watchlist, Currently Watching, Watched history, episode progress, personal ratings, and friends' activity.
+• Interactive Scene-Aware X-Ray (inspired by Apple TV & Prime Video): identifies actors in the active scene and soundtrack cues on pause, surfaces verified behind-the-scenes trivia, and opens full actor filmographies without leaving Fullscreen.
 • Household Profiles ("Personal", "Family", safe "Kids" mode, and custom profiles) with isolated watch history, default audio preferences, and independent Kinorium accounts.
 • Offline Downloads manager ("Download to Go"): batch season and episode downloads in 1080p and 4K with selected audio, WebVTT subtitles, and safe auto-cleanup.
 • Instant 1080p, 2K, and 4K HDR playback with zero external codec packs or third-party media players required.
@@ -30,13 +33,13 @@ CineFlow unifies your personal movie tracking library, high-bitrate streaming, a
 • Crash-safe SQLite WAL local storage, community Stremio addons, and Intro Skip.
 
 2. LOCAL PRIVACY & SECURITY ARCHITECTURE
-• CineFlow runs strictly locally on your computer (127.0.0.1:8765) by default. LAN access is disabled until explicitly enabled by you in Settings.
+• Velarium runs strictly locally on your computer (127.0.0.1:8765) by default. LAN access is disabled until explicitly enabled by you in Settings.
 • Atoma collects zero telemetry, zero analytics, and never transmits your viewing history or session credentials to any external server.
 • All personal preferences, backups, and sync caches remain exclusively inside the local "data" directory on your machine.
 
 3. LICENSE TERMS
-• CineFlow 2.7.1 is provided by Atoma for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
-• CineFlow operates solely as a local client-side media interface and metadata aggregator and does not host or distribute media content on any server.
+• Velarium 2.7.11 is provided by Atoma for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
+• Velarium operates solely as a local client-side media interface and metadata aggregator and does not host or distribute media content on any server.
 • Bundled open-source runtime components (Python 3.11 Embeddable Runtime, FFmpeg 9 GPL, TorrServer MatriX) remain covered by their respective licenses.
 
 Copyright (C) 2026 Atoma. All rights reserved.

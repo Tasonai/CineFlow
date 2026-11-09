@@ -142,6 +142,9 @@ def _wrap_cf_worker_relay_url(relay_url: str, inner_url: str) -> str:
     return f"{clean_relay.rstrip('/')}{sep}url={urllib.parse.quote(inner_url, safe='')}"
 
 
+_SHARED_DOH_EXECUTOR = ThreadPoolExecutor(max_workers=6)
+
+
 class DoHSplitNetworkClient:
     """
     Network client with:
@@ -175,7 +178,10 @@ class DoHSplitNetworkClient:
 
     def __init__(self):
         self.doh_cache: Dict[str, Tuple[str, float]] = {}
+        self._doh_inflight: Dict[str, threading.Event] = {}
         self._doh_lock = threading.Lock()
+        self._opener_cache: Dict[Tuple[str, str, bool, bool, bool], urllib.request.OpenerDirector] = {}
+        self._opener_lock = threading.Lock()
         self.country_code: str = "PL"
         self.doh_enabled: bool = True
         self.kinorium_domain_fallback: bool = True
@@ -186,6 +192,10 @@ class DoHSplitNetworkClient:
         self.ssl_ctx.check_hostname = False
         self.ssl_ctx.verify_mode = ssl.CERT_NONE
         self._doh_verify_ctx = ssl.create_default_context()
+        self._doh_direct_opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=self._doh_verify_ctx),
+            urllib.request.ProxyHandler({}),
+        )
         self.cookie_jar = _LockedCookieJar()
         self._anubis_lock = threading.Lock()
         self.default_ua = (
@@ -267,6 +277,19 @@ class DoHSplitNetworkClient:
                 # Negative entries ("") are cached briefly so blocked DoH endpoints
                 # never add ~7.5 s of timeouts to every single request.
                 return cached[0]
+            inflight_ev = self._doh_inflight.get(clean_host)
+            if inflight_ev is None:
+                inflight_ev = threading.Event()
+                self._doh_inflight[clean_host] = inflight_ev
+                is_leader = True
+            else:
+                is_leader = False
+
+        if not is_leader:
+            inflight_ev.wait(timeout=3.0)
+            with self._doh_lock:
+                cached = self.doh_cache.get(clean_host)
+                return cached[0] if (cached and cached[1] > time.time()) else ""
 
         endpoints = (
             f"https://1.1.1.1/dns-query?name={urllib.parse.quote(ascii_host)}&type=A",
@@ -275,7 +298,7 @@ class DoHSplitNetworkClient:
         )
         # DoH answers decide which IP we connect to, so the resolver endpoints themselves
         # are always verified (1.1.1.1 / 8.8.8.8 / 9.9.9.9 carry IP SANs in their certificates).
-        direct_opener = urllib.request.build_opener(
+        direct_opener = getattr(self, "_doh_direct_opener", None) or urllib.request.build_opener(
             urllib.request.HTTPSHandler(context=self._doh_verify_ctx),
             urllib.request.ProxyHandler({}),
         )
@@ -305,9 +328,9 @@ class DoHSplitNetworkClient:
             return None
 
         # Query resolvers in parallel so blocked endpoints (e.g. 1.1.1.1 in RU/BY) don't stall the request
-        pool = ThreadPoolExecutor(max_workers=len(endpoints))
+        futures = [_SHARED_DOH_EXECUTOR.submit(_query_doh_ep, ep) for ep in endpoints]
+        resolved_ok = False
         try:
-            futures = [pool.submit(_query_doh_ep, ep) for ep in endpoints]
             for f in as_completed(futures, timeout=2.8):
                 res = f.result()
                 if res is not None:
@@ -317,17 +340,25 @@ class DoHSplitNetworkClient:
                             for k_ev in list(self.doh_cache.keys())[:128]:
                                 self.doh_cache.pop(k_ev, None)
                         self.doh_cache[clean_host] = (cand_ip, now + ttl)
+                    resolved_ok = True
+                    for rem_f in futures:
+                        if rem_f is not f:
+                            rem_f.cancel()
                     return cand_ip
         except Exception:
             pass
         finally:
-            pool.shutdown(wait=False, cancel_futures=True)
+            for rem_f in futures:
+                rem_f.cancel()
+            with self._doh_lock:
+                if not resolved_ok and clean_host not in self.doh_cache:
+                    if len(self.doh_cache) > 512:
+                        for k_ev in list(self.doh_cache.keys())[:128]:
+                            self.doh_cache.pop(k_ev, None)
+                    self.doh_cache[clean_host] = ("", time.time() + 60)
+                self._doh_inflight.pop(clean_host, None)
+            inflight_ev.set()
 
-        with self._doh_lock:
-            if len(self.doh_cache) > 512:
-                for k_ev in list(self.doh_cache.keys())[:128]:
-                    self.doh_cache.pop(k_ev, None)
-            self.doh_cache[clean_host] = ("", time.time() + 60)
         return ""
 
     def _forget_doh_host(self, host: str) -> None:
@@ -402,6 +433,15 @@ class DoHSplitNetworkClient:
         verify_tls: bool = True,
     ):
         clean_proxy = (proxy_url or "").strip()
+        clean_relay = (cf_worker_relay or "").strip()
+        cacheable = cookie_jar is None and not pre_resolved_map
+        cache_key = (clean_proxy, clean_relay, bool(use_doh), bool(use_cookies), bool(verify_tls))
+        if cacheable and hasattr(self, "_opener_lock"):
+            with self._opener_lock:
+                cached_opener = self._opener_cache.get(cache_key)
+            if cached_opener is not None:
+                return cached_opener
+
         tls_ctx = self._doh_verify_ctx if verify_tls else self.ssl_ctx
         if not clean_proxy:
             https_handler: urllib.request.BaseHandler = _DoHHTTPSHandler(
@@ -418,7 +458,7 @@ class DoHSplitNetworkClient:
         handlers: List[urllib.request.BaseHandler] = [
             http_handler,
             https_handler,
-            _SafeRedirectHandler(cf_worker_relay=cf_worker_relay or ""),
+            _SafeRedirectHandler(cf_worker_relay=clean_relay),
         ]
         if cookie_jar is not None:
             handlers.append(urllib.request.HTTPCookieProcessor(cookie_jar))
@@ -431,7 +471,13 @@ class DoHSplitNetworkClient:
         else:
             # Explicitly disable macOS _scproxy SCDynamicStore lookup across threads when no proxy is used
             handlers.append(urllib.request.ProxyHandler({}))
-        return urllib.request.build_opener(*handlers)
+        opener = urllib.request.build_opener(*handlers)
+        if cacheable and hasattr(self, "_opener_lock"):
+            with self._opener_lock:
+                if len(self._opener_cache) > 64:
+                    self._opener_cache.clear()
+                self._opener_cache[cache_key] = opener
+        return opener
 
     @classmethod
     def build_geo_headers(cls, spoof_geo_country: str) -> Dict[str, str]:
@@ -448,6 +494,11 @@ class DoHSplitNetworkClient:
             "CF-IPCountry": cc_val,
         }
 
+    _ANUBIS_SCRIPT_RE = re.compile(
+        r'<script id="anubis_challenge" type="application/json">(.*?)</script>',
+        re.S,
+    )
+
     def _solve_anubis_challenge(
         self,
         html_body: str,
@@ -460,11 +511,7 @@ class DoHSplitNetworkClient:
         Detects and solves Techaro Anubis Proof-of-Work challenge (<script id="anubis_challenge">)
         used on HDRezka mirrors in ~1ms using SHA-256.
         """
-        m = re.search(
-            r'<script id="anubis_challenge" type="application/json">(.*?)</script>',
-            html_body,
-            re.S,
-        )
+        m = self._ANUBIS_SCRIPT_RE.search(html_body)
         if not m:
             return None
 
@@ -489,63 +536,63 @@ class DoHSplitNetworkClient:
             difficulty = max(1, min(5, int(raw_diff or 2)))
             prefix = "0" * difficulty
             rand_bytes = rand_data.encode("utf-8", errors="ignore")
+            base_hash = hashlib.sha256(rand_bytes)
 
-            with self._anubis_lock:
-                nonce = 0
-                digest = ""
-                found_pow = False
-                while nonce < 2_500_000:
-                    digest = hashlib.sha256(rand_bytes + str(nonce).encode("ascii")).hexdigest()
-                    if digest.startswith(prefix):
-                        found_pow = True
-                        break
-                    nonce += 1
-                if not found_pow:
-                    return None
+            nonce = 0
+            digest = ""
+            found_pow = False
+            while nonce < 2_500_000:
+                h = base_hash.copy()
+                h.update(str(nonce).encode("ascii"))
+                digest = h.hexdigest()
+                if digest.startswith(prefix):
+                    found_pow = True
+                    break
+                nonce += 1
+            if not found_pow:
+                return None
 
-                parsed_base = urllib.parse.urlparse(page_url)
-                if parsed_base.scheme not in ("http", "https") or not parsed_base.netloc:
-                    return None
-                origin = f"{parsed_base.scheme}://{parsed_base.netloc}"
-                pass_query_dict: Dict[str, str] = {
-                    "response": digest,
-                    "nonce": str(nonce),
-                    "redir": "/",
-                    "elapsedTime": "100",
-                }
-                if ch_id:
-                    pass_query_dict["id"] = ch_id
-                pass_params = urllib.parse.urlencode(pass_query_dict)
-                pass_url = f"{origin}/.within.website/x/cmd/anubis/api/pass-challenge?{pass_params}"
-                if "url=" in parsed_base.query:
-                    q_map = urllib.parse.parse_qs(parsed_base.query)
-                    inner_u = (q_map.get("url") or [""])[0]
-                    if inner_u.startswith(("http://", "https://")):
-                        p_in = urllib.parse.urlparse(inner_u)
-                        inner_origin = f"{p_in.scheme}://{p_in.netloc}"
-                        inner_pass = f"{inner_origin}/.within.website/x/cmd/anubis/api/pass-challenge?{pass_params}"
-                        pass_url = _wrap_cf_worker_relay_url(page_url, inner_pass)
-                pass_headers = dict(headers)
-                pass_headers["Referer"] = _sanitize_header_str(page_url)
-                req_pass = urllib.request.Request(pass_url, headers=pass_headers, method="GET")
+            parsed_base = urllib.parse.urlparse(page_url)
+            if parsed_base.scheme not in ("http", "https") or not parsed_base.netloc:
+                return None
+            origin = f"{parsed_base.scheme}://{parsed_base.netloc}"
+            pass_query_dict: Dict[str, str] = {
+                "response": digest,
+                "nonce": str(nonce),
+                "redir": "/",
+                "elapsedTime": "100",
+            }
+            if ch_id:
+                pass_query_dict["id"] = ch_id
+            pass_params = urllib.parse.urlencode(pass_query_dict)
+            pass_url = f"{origin}/.within.website/x/cmd/anubis/api/pass-challenge?{pass_params}"
+            if "url=" in parsed_base.query:
+                q_map = urllib.parse.parse_qs(parsed_base.query)
+                inner_u = (q_map.get("url") or [""])[0]
+                if inner_u.startswith(("http://", "https://")):
+                    p_in = urllib.parse.urlparse(inner_u)
+                    inner_origin = f"{p_in.scheme}://{p_in.netloc}"
+                    inner_pass = f"{inner_origin}/.within.website/x/cmd/anubis/api/pass-challenge?{pass_params}"
+                    pass_url = _wrap_cf_worker_relay_url(page_url, inner_pass)
+            pass_headers = dict(headers)
+            pass_headers["Referer"] = _sanitize_header_str(page_url)
+            req_pass = urllib.request.Request(pass_url, headers=pass_headers, method="GET")
+            try:
+                with opener.open(req_pass, timeout=8) as resp_pass:
+                    resp_pass.read(65536)
+            except urllib.error.HTTPError as he_pass:
                 try:
-                    with opener.open(req_pass, timeout=8) as resp_pass:
-                        resp_pass.read(65536)
-                except urllib.error.HTTPError as he_pass:
-                    try:
-                        he_pass.read(16384)
-                    finally:
-                        he_pass.close()
+                    he_pass.read(16384)
+                finally:
+                    he_pass.close()
 
             if skip_target_get:
-                self._last_anubis_raw_bytes = b""
                 return 200, "", page_url, b""
 
             req_target = urllib.request.Request(page_url, headers=headers, method="GET")
             with opener.open(req_target, timeout=8) as resp_target:
                 raw = resp_target.read(self.MAX_DECOMPRESSED_BYTES)
                 dec_bytes = self._decompress_bytes(raw, resp_target.headers.get("Content-Encoding", ""))
-                self._last_anubis_raw_bytes = dec_bytes
                 text = dec_bytes.decode("utf-8", errors="replace") if dec_bytes else ""
                 return resp_target.status, text, resp_target.geturl(), dec_bytes
         except Exception:
@@ -565,16 +612,17 @@ class DoHSplitNetworkClient:
         if 'id="anubis_challenge"' not in body:
             return None
         is_post = method.upper() == "POST"
-        solved = self._solve_anubis_challenge(
-            body, final_url, opener, merged_headers, skip_target_get=is_post
-        )
+        with self._anubis_lock:
+            solved = self._solve_anubis_challenge(
+                body, final_url, opener, merged_headers, skip_target_get=is_post
+            )
         if not solved:
             return None
         if len(solved) == 4:
             status2, body2, final_url2, raw_solved_bytes = solved
         else:
             status2, body2, final_url2 = solved
-            raw_solved_bytes = getattr(self, "_last_anubis_raw_bytes", None)
+            raw_solved_bytes = None
         if not isinstance(raw_solved_bytes, (bytes, bytearray)):
             raw_solved_bytes = body2.encode("utf-8", errors="replace")
         resp_headers: Dict[str, str] = {
@@ -605,6 +653,7 @@ class DoHSplitNetworkClient:
         merged_headers: Dict[str, str],
         opener: urllib.request.OpenerDirector,
         timeout: int,
+        decode_body: bool = True,
     ) -> Tuple[int, str, Dict[str, str]]:
         req = urllib.request.Request(target_url, data=data, headers=merged_headers, method=method)
         try:
@@ -612,20 +661,25 @@ class DoHSplitNetworkClient:
                 raw = resp.read(self.MAX_DECOMPRESSED_BYTES)
                 final_url = resp.geturl()
                 dec_bytes = self._decompress_bytes(raw, resp.headers.get("Content-Encoding", ""))
-                body = dec_bytes.decode("utf-8", errors="replace") if dec_bytes else ""
+                has_anubis_marker = bool(dec_bytes and b'id="anubis_challenge"' in dec_bytes[:65536])
+                if decode_body or has_anubis_marker:
+                    body = dec_bytes.decode("utf-8", errors="replace") if dec_bytes else ""
+                else:
+                    body = ""
                 resp_headers = dict(resp.headers)
                 resp_headers["_final_url"] = final_url
                 resp_headers["_raw_bytes"] = dec_bytes
 
-                recovered = self._try_recover_anubis(
-                    body, final_url, target_url, method, data, merged_headers, opener, timeout
-                )
-                if recovered is not None:
-                    rec_st, rec_body, rec_hdrs = recovered
-                    resp_headers.update(rec_hdrs)
-                    if "_raw_bytes" not in rec_hdrs:
-                        resp_headers["_raw_bytes"] = rec_body.encode("utf-8", errors="replace")
-                    return rec_st, rec_body, resp_headers
+                if has_anubis_marker:
+                    recovered = self._try_recover_anubis(
+                        body, final_url, target_url, method, data, merged_headers, opener, timeout
+                    )
+                    if recovered is not None:
+                        rec_st, rec_body, rec_hdrs = recovered
+                        resp_headers.update(rec_hdrs)
+                        if "_raw_bytes" not in rec_hdrs:
+                            resp_headers["_raw_bytes"] = rec_body.encode("utf-8", errors="replace")
+                        return rec_st, rec_body, resp_headers
 
                 return resp.status, body, resp_headers
         except urllib.error.HTTPError as he:
@@ -692,6 +746,7 @@ class DoHSplitNetworkClient:
             cf_worker_relay=cf_worker_relay,
             spoof_geo_country=spoof_geo_country,
             timeout=timeout,
+            decode_body=True,
         )
         clean_proxy = (proxy_url or "").strip().lower()
         relay_used = bool((cf_worker_relay or "").strip()) or ("workers.dev" in clean_proxy or "?url=" in clean_proxy)
@@ -722,6 +777,7 @@ class DoHSplitNetworkClient:
             cf_worker_relay=cf_worker_relay,
             spoof_geo_country=spoof_geo_country,
             timeout=timeout,
+            decode_body=False,
         )
         raw_bytes: bytes = b""
         if isinstance(rh, dict):
@@ -756,6 +812,7 @@ class DoHSplitNetworkClient:
         cf_worker_relay: Optional[str] = None,
         spoof_geo_country: str = "KZ",
         timeout: int = 8,
+        decode_body: bool = True,
     ) -> Tuple[int, str, Dict[str, str]]:
         clean_url = (url or "").strip()
         if not clean_url or _CTRL_CHAR_RE.search(clean_url):
@@ -855,7 +912,7 @@ class DoHSplitNetworkClient:
                 verify_tls=True,
             )
             try:
-                return self._execute_once(target_url, method, data, merged_headers, op_verified, timeout)
+                return self._execute_once(target_url, method, data, merged_headers, op_verified, timeout, decode_body=decode_body)
             except Exception as tls_exc:
                 if allow_unverified_tls_retry and self._is_tls_cert_error(tls_exc):
                     op_relaxed = self._build_opener(
@@ -865,7 +922,7 @@ class DoHSplitNetworkClient:
                         pre_resolved_map=resolved_map,
                         verify_tls=False,
                     )
-                    return self._execute_once(target_url, method, data, merged_headers, op_relaxed, timeout)
+                    return self._execute_once(target_url, method, data, merged_headers, op_relaxed, timeout, decode_body=decode_body)
                 raise
 
         try:

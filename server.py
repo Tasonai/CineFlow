@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CineFlow Unified Cinema Server
+Velarium Unified Cinema Server
 Ultra-compact entry point coordinating domain services, request dispatch,
 and server lifecycle.
 """
@@ -10,7 +10,10 @@ import sys
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
-from backend.app_factory import create_cineflow_services
+# Ensure sys.modules["server"] always resolves even when server.py is launched as __main__
+sys.modules.setdefault("server", sys.modules[__name__])
+
+from backend.app_factory import create_velarium_services
 from backend.autostart import (
     _build_windows_autostart_command,
     is_macos_autostart_enabled,
@@ -63,7 +66,7 @@ from backend.system_service import (
     sync_lan_listener as _backend_sync_lan_listener,
 )
 
-APP_VERSION = "2.7.1"
+APP_VERSION = "2.7.11"
 _PATHS = resolve_runtime_paths(__file__)
 BASE_DIR = _PATHS["base_dir"]
 PUBLIC_DIR = _PATHS["public_dir"]
@@ -78,12 +81,14 @@ def _ensure_safe_std_streams() -> None:
     ensure_safe_std_streams(DATA_DIR)
 
 
-_IS_DAEMON_LOG_MODE = ("--launchd" in sys.argv) and not bool(os.environ.get("CINEFLOW_VERBOSE_LOG"))
+_IS_DAEMON_LOG_MODE = ("--launchd" in sys.argv) and not bool(
+    os.environ.get("VELARIUM_VERBOSE_LOG") or os.environ.get("CINEFLOW_VERBOSE_LOG")
+)
 _safe_log = make_safe_logger(_IS_DAEMON_LOG_MODE)
 
 _ensure_safe_std_streams()
 
-SERVICES = create_cineflow_services(
+SERVICES = create_velarium_services(
     base_dir=BASE_DIR,
     data_dir=DATA_DIR,
     app_version=APP_VERSION,
@@ -220,6 +225,11 @@ _CONTEXT_ATTR_MAP = {
     "person_photo_cache": "PERSON_PHOTO_BYTES_CACHE",
     "person_photo_lock": "PERSON_PHOTO_LOCK",
     "last_bg_watching_sync": "LAST_BG_WATCHING_SYNC",
+    "base_dir": "BASE_DIR",
+    "public_dir": "PUBLIC_DIR",
+    "data_dir": "DATA_DIR",
+    "settings_path": "SETTINGS_PATH",
+    "bin_dir": "BIN_DIR",
 }
 
 
@@ -283,15 +293,17 @@ CinemaRequestHandler.set_dependencies(
 
 from backend.server_lifecycle import (
     CinemaThreadingHTTPServer,
-    is_port_already_serving_cineflow,
-    run_cineflow_server,
+    is_port_already_serving_velarium,
+    is_port_already_serving_velarium as _is_port_already_serving_velarium,
+    is_port_already_serving_velarium as _is_port_already_serving_cineflow,
+    run_velarium_server,
     start_background_watching_sync_daemon,
     start_lan_ip_watchdog_daemon,
 )
 
 
 def run_server(port: int = 8765) -> None:
-    run_cineflow_server(
+    run_velarium_server(
         port=port,
         server_runtime=SERVER_RUNTIME,
         app_prefs=APP_PREFS,
@@ -324,6 +336,6 @@ def run_server(port: int = 8765) -> None:
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8765"))
-    if "--launchd" in sys.argv and is_port_already_serving_cineflow(port, app_version=APP_VERSION):
+    if "--launchd" in sys.argv and is_port_already_serving_velarium(port, app_version=APP_VERSION):
         sys.exit(0)
     run_server(port)

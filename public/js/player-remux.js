@@ -1,34 +1,47 @@
-// CineFlow Player Remux & Stream Pipeline Subsystem
+// Velarium Player Remux & Stream Pipeline Subsystem
 // Handles FFmpeg live remux stream endpoints, audio offset shifts, probe timing, and dynamic audio track switching.
 
-import { state } from "./state.js?v=20261105v5";
-import { isEn } from "./i18n.js?v=20261105v5";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261105v5";
-import { syncCustomSelect } from "./utils.js?v=20261105v5";
-import { refreshRemuxSubtitleTracks } from "./subtitles.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
+import { isEn } from "./i18n.js?v=20261108v19";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261108v19";
+import { syncCustomSelect } from "./utils.js?v=20261108v19";
+import { refreshRemuxSubtitleTracks } from "./subtitles.js?v=20261108v19";
 
 export function estimateItemDurationSec(item) {
   if (!item) return 3000;
+  if (typeof item._cachedEstDurSec === "number" && item._cachedEstDurSec > 0) {
+    return item._cachedEstDurSec;
+  }
+  let res = 0;
   const numMin = Number(item.duration_min);
   if (Number.isFinite(numMin) && numMin >= 10 && numMin <= 600) {
-    return numMin * 60;
-  }
-  const lbl = String(item.duration_label || "").trim();
-  if (lbl) {
-    const hMatch = lbl.match(/(\d+)\s*(?:ч|час|h|hr)/i);
-    const mMatch = lbl.match(/(\d+)\s*(?:мин|min|m\b)/i);
-    if (hMatch || mMatch) {
-      const h = hMatch ? parseInt(hMatch[1], 10) || 0 : 0;
-      const m = mMatch ? parseInt(mMatch[1], 10) || 0 : 0;
-      const total = h * 3600 + m * 60;
-      if (total >= 600) return total;
+    res = numMin * 60;
+  } else {
+    const lbl = String(item.duration_label || "").trim();
+    if (lbl) {
+      const hMatch = lbl.match(/(\d+)\s*(?:ч|час|h|hr)/i);
+      const mMatch = lbl.match(/(\d+)\s*(?:мин|min|m\b)/i);
+      if (hMatch || mMatch) {
+        const h = hMatch ? parseInt(hMatch[1], 10) || 0 : 0;
+        const m = mMatch ? parseInt(mMatch[1], 10) || 0 : 0;
+        const total = h * 3600 + m * 60;
+        if (total >= 600) res = total;
+      }
+      if (!res) {
+        const pureMin = lbl.match(/^(\d{2,3})$/);
+        if (pureMin) {
+          res = (parseInt(pureMin[1], 10) || 48) * 60;
+        }
+      }
     }
-    const pureMin = lbl.match(/^(\d{2,3})$/);
-    if (pureMin) {
-      return (parseInt(pureMin[1], 10) || 48) * 60;
-    }
   }
-  return item.media_type === "series" ? 3000 : 7200;
+  if (!res) {
+    res = item.media_type === "series" ? 3000 : 7200;
+  }
+  try {
+    item._cachedEstDurSec = res;
+  } catch (_) {}
+  return res;
 }
 
 export function buildRemuxStreamEndpoint(meta, startSec = 0) {
@@ -87,16 +100,37 @@ export function syncAudioOffsetUI() {
   updatePlayerGearActiveDot();
 }
 
-export function scheduleRemuxFullDurationProbe(sessionId = state.playerSessionId, onSync = null) {
-  if (typeof document === "undefined") return;
+export function clearRemuxDurationPoll() {
   if (state.remuxDurationReprobeTimer) {
     clearTimeout(state.remuxDurationReprobeTimer);
     state.remuxDurationReprobeTimer = null;
   }
+  if (state.remuxDurationReprobeAbort) {
+    try {
+      state.remuxDurationReprobeAbort.abort();
+    } catch (_) {}
+    state.remuxDurationReprobeAbort = null;
+  }
+}
+
+export function scheduleRemuxFullDurationProbe(sessionId = state.playerSessionId, onSync = null) {
+  if (typeof document === "undefined") return;
+  clearRemuxDurationPoll();
   if (!state.remuxMeta?.active || !state.remuxMeta.rawSourceUrl || state.remuxMeta.duration > 10) {
     return;
   }
   const targetRawUrl = state.remuxMeta.rawSourceUrl;
+  const isLoopbackTorr = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(targetRawUrl);
+  if (
+    isLoopbackTorr &&
+    Array.isArray(state.remuxMeta.audioTracks) &&
+    state.remuxMeta.audioTracks.length > 0
+  ) {
+    // Never spawn a second concurrent ffprobe against a live loopback TorrServer stream mid-playback
+    // when tracks are already known, because ffprobe seeks to the MKV tail and starves the video pipe.
+    return;
+  }
+  const delayMs = isLoopbackTorr ? 6500 : 2600;
   state.remuxDurationReprobeTimer = setTimeout(async () => {
     state.remuxDurationReprobeTimer = null;
     if (
@@ -108,11 +142,15 @@ export function scheduleRemuxFullDurationProbe(sessionId = state.playerSessionId
     ) {
       return;
     }
+    const reprobeAbort = new AbortController();
+    state.remuxDurationReprobeAbort = reprobeAbort;
     try {
+      const fullParam = isLoopbackTorr ? "" : "&full=1";
       const res = await fetch(
-        `/api/remux-probe?src=${encodeURIComponent(targetRawUrl)}&full=1&lang=${encodeURIComponent(
+        `/api/remux-probe?src=${encodeURIComponent(targetRawUrl)}${fullParam}&lang=${encodeURIComponent(
           state.appLang || "ru"
-        )}`
+        )}`,
+        { signal: reprobeAbort.signal }
       );
       if (!res.ok) return;
       const probe = await res.json();
@@ -162,7 +200,7 @@ export function scheduleRemuxFullDurationProbe(sessionId = state.playerSessionId
         onSync();
       }
     } catch (err) { window.logDebug?.("PlayerRemux", err); }
-  }, 2600);
+  }, delayMs);
 }
 
 export function prepareRemuxAudioSwitch(newAudioIdx) {

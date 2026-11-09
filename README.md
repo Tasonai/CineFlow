@@ -1,4 +1,4 @@
-# 🎬 CineFlow — Единый Онлайн-Кинотеатр для Windows (Poland PL Edition)
+# 🎬 Velarium — Единый Онлайн-Кинотеатр для Windows (Poland PL Edition)
 
 Минималистичный агрегатор стриминговых сервисов для **Польши (`PL`)** с нативным плеером **HDRezka** (с обходом гео-блокировок), поддержкой **Netflix, Amazon Prime Video, Disney+, HBO Max, Player.pl**, функцией **Skip Intro**, безопасным для ЕС **4K-стримингом** и автоматической синхронизацией с **Kinorium**.
 
@@ -29,14 +29,14 @@
 ## 🚀 Как запустить
 
 ### На Windows 10 / 11:
-1. **Установка через официальный мастер установки (`CineFlow-Setup-2.6.6-x64.exe`, разработчик Atoma):**
-   Запустите готовый установщик `dist\CineFlow-Setup-2.6.6-x64.exe` — в начале установки выберите язык мастера установки (`Русский` или `English`), затем язык интерфейса самого приложения CineFlow и нужные компоненты (включая встроенную среду Python 3.11, TorrServer MatriX и FFmpeg 9).
+1. **Установка через официальный мастер установки (`Velarium-Setup-2.6.6-x64.exe`, разработчик Atoma):**
+   Запустите готовый установщик `dist\Velarium-Setup-2.6.6-x64.exe` — в начале установки выберите язык мастера установки (`Русский` или `English`), затем язык интерфейса самого приложения Velarium и нужные компоненты (включая встроенную среду Python 3.11, TorrServer MatriX и FFmpeg 9).
 2. **Быстрый запуск в режиме приложения (Edge WebView2 App Mode с поддержкой Widevine L1 DRM):**
-   Дважды кликните по `CineFlow.exe` или по файлу:
+   Дважды кликните по `Velarium.exe` или по файлу:
    ```
    windows\Start-Cinema-Windows.bat
    ```
-3. **Повторная сборка установщика `CineFlow-Setup-2.6.6-x64.exe` и лаунчера `CineFlow.exe`:**
+3. **Повторная сборка установщика `Velarium-Setup-2.6.6-x64.exe` и лаунчера `Velarium.exe`:**
    Запустите на Windows или macOS:
    ```bash
    python3 windows/build_windows_installer.py

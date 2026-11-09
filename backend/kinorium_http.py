@@ -371,9 +371,9 @@ def solve_kinorium_js_challenge(self: Any, body: str) -> str:
         if browser_exe:
             import tempfile as _tempfile
 
-            prof_dir = os.path.join(self.storage_dir, ".headless_js_profile")
-            os.makedirs(prof_dir, exist_ok=True)
             with _tempfile.TemporaryDirectory(prefix="cf_kin_js_") as td:
+                prof_dir = os.path.join(td, "prof")
+                os.makedirs(prof_dir, exist_ok=True)
                 html_file = os.path.join(td, "challenge.html")
                 wrapped_html = (
                     "<!doctype html><html><head><meta charset='utf-8'></head><body><script>"
@@ -477,10 +477,13 @@ def kinorium_http_request(
         with self._rate_limit_lock:
             now_rl = time.time()
             min_gap = 1.15 + ((hash(pq) & 0xFF) / 255.0) * 0.30
-            wait_s = min_gap - (now_rl - self._last_http_req_ts)
-            if wait_s > 0:
-                time.sleep(wait_s)
-            self._last_http_req_ts = time.time()
+            target_ts = max(now_rl, self._last_http_req_ts + min_gap)
+            wait_s = target_ts - now_rl
+            self._last_http_req_ts = target_ts
+        if wait_s > 0:
+            time.sleep(wait_s)
+            if self.is_ip_cooldown_active():
+                raise urllib.error.URLError("Kinorium IP cooldown active (HTTP 403 Forbidden)")
 
     doh_modes = [True] if use_proactive_doh else [False, True]
 

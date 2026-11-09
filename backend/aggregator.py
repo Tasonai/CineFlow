@@ -68,12 +68,43 @@ class UnifiedCinemaAggregator:
         self._premieres_cache_ts: float = 0.0
         self._premieres_cache_key: tuple = ()
         self._catalog_lock = threading.RLock()
+        self._search_pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=8,
+            thread_name_prefix="VelariumSearch",
+        )
+        self._en_prewarm_pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=3,
+            thread_name_prefix="VelariumEnPrewarm",
+        )
+        self._cw_bg_prewarm_inflight: bool = False
         self._catalog_cache: Dict[tuple, Dict[str, Any]] = {}
         self._person_raw_cache: Dict[str, Any] = {}
         self._provider_jw_cache = self.justwatch._provider_jw_cache
         self._provider_offers_cache = self.justwatch._provider_offers_cache
+        self._curated_by_id: Dict[str, Dict[str, Any]] = {}
+        self._curated_by_imdb: Dict[str, Dict[str, Any]] = {}
+        self._curated_by_rezka: Dict[str, Dict[str, Any]] = {}
+        self._curated_by_title_low: Dict[str, List[Dict[str, Any]]] = {}
+        for c_it in self.CURATED_CATALOG:
+            if not isinstance(c_it, dict):
+                continue
+            c_id = str(c_it.get("id") or "").strip()
+            if c_id:
+                self._curated_by_id[c_id] = c_it
+            c_imdb = str(c_it.get("imdb_id") or (c_id if c_id.startswith("tt") else "")).strip()
+            if c_imdb:
+                self._curated_by_imdb[c_imdb] = c_it
+            c_rezka = str(c_it.get("rezka_id") or "").strip()
+            if c_rezka:
+                self._curated_by_rezka[c_rezka] = c_it
+            for t_field in ("title", "orig_title"):
+                t_val = str(c_it.get(t_field) or "").strip().lower()
+                if t_val:
+                    lst = self._curated_by_title_low.setdefault(t_val, [])
+                    if c_it not in lst:
+                        lst.append(c_it)
         self._catalog_by_id: Dict[str, Dict[str, Any]] = {
-            str(it["id"]): dict(it) for it in self.CURATED_CATALOG if isinstance(it, dict) and it.get("id")
+            k: dict(v) for k, v in self._curated_by_id.items()
         }
 
     def _register_catalog_items(self, *item_lists: Any) -> None:
@@ -96,20 +127,14 @@ class UnifiedCinemaAggregator:
         if not updates:
             return
         with self._catalog_lock:
-            new_map = dict(self._catalog_by_id)
-            new_map.update(updates)
-            if len(new_map) > 3000:
-                seeded = {
-                    str(it["id"]): dict(it)
-                    for it in self.CURATED_CATALOG
-                    if isinstance(it, dict) and it.get("id")
-                }
-                tail_keys = list(new_map.keys())[-2000:]
+            self._catalog_by_id.update(updates)
+            if len(self._catalog_by_id) > 3000:
+                seeded = {k: dict(v) for k, v in self._curated_by_id.items()}
+                tail_keys = list(self._catalog_by_id.keys())[-2000:]
                 for k in tail_keys:
-                    seeded[k] = new_map[k]
+                    seeded[k] = self._catalog_by_id[k]
                 seeded.update(updates)
-                new_map = seeded
-            self._catalog_by_id = new_map
+                self._catalog_by_id = seeded
 
     @staticmethod
     def _safe_int(val: Any, default: int = 0) -> int:
@@ -138,8 +163,17 @@ class UnifiedCinemaAggregator:
         if lock is not None:
             with lock:
                 val = self.kinorium.state.get(key, default)
+                if isinstance(val, list):
+                    return [dict(x) if isinstance(x, dict) else x for x in val]
+                if isinstance(val, dict):
+                    return {k: (dict(v) if isinstance(v, dict) else v) for k, v in val.items()}
                 return copy.deepcopy(val)
-        return copy.deepcopy(self.kinorium.state.get(key, default))
+        val = self.kinorium.state.get(key, default)
+        if isinstance(val, list):
+            return [dict(x) if isinstance(x, dict) else x for x in val]
+        if isinstance(val, dict):
+            return {k: (dict(v) if isinstance(v, dict) else v) for k, v in val.items()}
+        return copy.deepcopy(val)
 
     def set_country(self, country_code: str) -> Dict[str, Any]:
         prof = get_country_profile(country_code)
@@ -199,8 +233,16 @@ class UnifiedCinemaAggregator:
 
     def enrich_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
         enriched = dict(item)
+        item_id_str = str(
+            enriched.get("id")
+            or (f"kin_{enriched['kinorium_id']}" if enriched.get("kinorium_id") else "")
+            or enriched.get("rezka_id")
+            or enriched.get("title")
+            or ""
+        )
+        enriched["id"] = item_id_str
         k_status = self.kinorium.get_item_status(
-            item["id"],
+            item_id_str,
             base_kinorium_rating=item.get("ratings", {}).get("kinorium", 8.0),
             title=item.get("title", ""),
             orig_title=item.get("orig_title", ""),
@@ -271,6 +313,7 @@ class UnifiedCinemaAggregator:
                 year=self._safe_int(enriched.get("year")),
                 media_type=str(enriched.get("media_type") or ""),
                 imdb_id=str(enriched.get("imdb_id") or ""),
+                include_episodes=False,
             )
             if cached_en and cached_en.get("ok"):
                 if cached_en.get("imdb_id") and not enriched.get("imdb_id"):
@@ -366,6 +409,7 @@ class UnifiedCinemaAggregator:
                 year=self._safe_int(it.get("year")),
                 media_type=str(it.get("media_type") or ""),
                 imdb_id=str(it.get("imdb_id") or ""),
+                include_episodes=False,
             )
             if cached_en is not None and not cached_en.get("ok"):
                 continue
@@ -453,28 +497,42 @@ class UnifiedCinemaAggregator:
                 target["actors_en"] = res["actors_en"]
             changed_any = True
 
-        with ThreadPoolExecutor(max_workers=min(8, len(to_resolve))) as pool:
-            futs = [pool.submit(_resolve_one, t) for t in to_resolve]
-            for f in futs:
-                try:
-                    f.result(timeout=4.5)
-                except Exception:
-                    pass
+        pool = getattr(self, "_en_prewarm_pool", None)
+        if pool is None:
+            pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="VelariumEnPrewarm")
+            self._en_prewarm_pool = pool
+        futs = [pool.submit(_resolve_one, t) for t in to_resolve]
+        for f in futs:
+            try:
+                f.result(timeout=4.5)
+            except Exception:
+                pass
         return changed_any
 
     def _match_curated_catalog_entry(self, it: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         it_id = str(it.get("id") or "").strip()
-        if it_id:
-            for c_it in self.CURATED_CATALOG:
-                if c_it.get("id") == it_id:
-                    return c_it
+        if it_id and it_id in self._curated_by_id:
+            return self._curated_by_id[it_id]
         it_imdb = str(it.get("imdb_id") or (it_id if it_id.startswith("tt") else "")).strip()
+        if it_imdb and it_imdb in self._curated_by_imdb:
+            return self._curated_by_imdb[it_imdb]
         it_rezka = str(
             it.get("rezka_id") or (it_id[6:] if it_id.startswith("rezka_") and it_id[6:].isdigit() else "")
         ).strip()
+        if it_rezka and it_rezka in self._curated_by_rezka:
+            return self._curated_by_rezka[it_rezka]
         it_title = str(it.get("title") or "").strip().lower()
         it_orig = str(it.get("orig_title") or "").strip().lower()
-        if not it_title and not it_orig and not it_imdb and not it_rezka:
+        if not it_title and not it_orig:
+            return None
+        cand_list: List[Dict[str, Any]] = []
+        if it_title and it_title in self._curated_by_title_low:
+            cand_list.extend(self._curated_by_title_low[it_title])
+        if it_orig and it_orig != it_title and it_orig in self._curated_by_title_low:
+            for c_cand in self._curated_by_title_low[it_orig]:
+                if c_cand not in cand_list:
+                    cand_list.append(c_cand)
+        if not cand_list:
             return None
         it_mt = str(it.get("media_type") or "").strip().lower()
         try:
@@ -482,24 +540,13 @@ class UnifiedCinemaAggregator:
         except (TypeError, ValueError):
             it_yr = 0
 
-        for c_it in self.CURATED_CATALOG:
+        for c_it in cand_list:
             c_id = str(c_it.get("id") or "").strip()
             c_imdb = str(c_it.get("imdb_id") or (c_id if c_id.startswith("tt") else "")).strip()
             c_rezka = str(c_it.get("rezka_id") or "").strip()
-            if it_imdb and c_imdb:
-                if it_imdb == c_imdb:
-                    return c_it
+            if it_imdb and c_imdb and it_imdb != c_imdb:
                 continue
-            if it_rezka and c_rezka:
-                if it_rezka == c_rezka:
-                    return c_it
-                continue
-            c_title = str(c_it.get("title") or "").strip().lower()
-            c_orig = str(c_it.get("orig_title") or "").strip().lower()
-            title_hit = (it_title and (it_title == c_title or it_title == c_orig)) or (
-                it_orig and (it_orig == c_orig or it_orig == c_title)
-            )
-            if not title_hit:
+            if it_rezka and c_rezka and it_rezka != c_rezka:
                 continue
             c_mt = str(c_it.get("media_type") or "").strip().lower()
             if it_mt and c_mt and it_mt != c_mt:
@@ -716,7 +763,8 @@ class UnifiedCinemaAggregator:
             int(time.time() // 120),
         )
         with self._catalog_lock:
-            cached_base = copy.deepcopy(self._catalog_cache.get(cache_key))
+            cached_entry = self._catalog_cache.get(cache_key)
+            cached_base = dict(cached_entry) if isinstance(cached_entry, dict) else None
         if cached_base is not None:
             cw_list = self._build_continue_watching_list(ui_lang=ui_lang)
             self._register_catalog_items(cw_list)
@@ -731,6 +779,8 @@ class UnifiedCinemaAggregator:
             premieres_all = self._get_online_premieres()
             premieres_count = len(premieres_all)
 
+        base_curated: Optional[List[Dict[str, Any]]] = None
+        watching_new_eps: Optional[List[Dict[str, Any]]] = None
         if kinorium_section == "premieres":
             items = list(premieres_all)
             if provider_filter and provider_filter not in ("all", "hdrezka", "backup4k"):
@@ -771,7 +821,7 @@ class UnifiedCinemaAggregator:
                 if kin_enabled
                 else []
             )
-            base_curated = [self.enrich_item(it) for it in self.CURATED_CATALOG]
+            base_curated = self._get_enriched_curated_catalog()
 
             merged: List[Dict[str, Any]] = []
             seen_ids: Dict[str, Dict[str, Any]] = {}
@@ -892,7 +942,7 @@ class UnifiedCinemaAggregator:
                 items = [it for it in items if it.get("media_type") == media_type_filter]
 
         bg_en_warm_tail: List[Dict[str, Any]] = []
-        cw_list = self._build_continue_watching_list(ui_lang=ui_lang)
+        cw_list = self._build_continue_watching_list(ui_lang=ui_lang, watching_new_eps=watching_new_eps)
         if ui_lang == "en":
             if cw_list:
                 self._prewarm_en_metadata_for_items(cw_list[:12], max_items=8)
@@ -916,7 +966,19 @@ class UnifiedCinemaAggregator:
                         prewarm_pool.append(cand_it)
                 self._prewarm_en_metadata_for_items(prewarm_pool, max_items=24)
                 if len(prewarm_pool) > 24 and self.en_meta is not None:
-                    bg_en_warm_tail = [copy.deepcopy(x) for x in prewarm_pool[24:60]]
+                    bg_en_warm_tail = [
+                        {
+                            "id": x.get("id", ""),
+                            "title": x.get("title", ""),
+                            "orig_title": x.get("orig_title", ""),
+                            "year": x.get("year", 0),
+                            "media_type": x.get("media_type", "movie"),
+                            "imdb_id": x.get("imdb_id", ""),
+                            "kinorium_id": x.get("kinorium_id", ""),
+                        }
+                        for x in prewarm_pool[24:60]
+                        if isinstance(x, dict)
+                    ]
         enabled_providers_meta = {
             k: v for k, v in self.PROVIDERS_META.items() if self.is_service_enabled(k)
         }
@@ -938,7 +1000,9 @@ class UnifiedCinemaAggregator:
             "kinorium_counts": self.kinorium.get_sections_counts(premieres_count=premieres_count),
             "continue_watching": cw_list[:24],
             "live_series_updates": live_series_updates,
-            "similar_pool": self._filter_items_list([self.enrich_item(it) for it in self.CURATED_CATALOG]),
+            "similar_pool": self._filter_items_list(
+                base_curated if base_curated is not None else self._get_enriched_curated_catalog()
+            ),
             "items": items,
         }
         if str(getattr(self.kinorium, "state_file", "")) == start_state_file:
@@ -946,17 +1010,39 @@ class UnifiedCinemaAggregator:
                 if len(self._catalog_cache) >= 24:
                     for k_ev in list(self._catalog_cache.keys())[:6]:
                         self._catalog_cache.pop(k_ev, None)
-                self._catalog_cache[cache_key] = copy.deepcopy(base_payload)
+                self._catalog_cache[cache_key] = dict(base_payload)
         if bg_en_warm_tail and self.en_meta is not None:
             def _bg_en_warm() -> None:
                 if self._prewarm_en_metadata_for_items(bg_en_warm_tail, max_items=36):
                     with self._catalog_lock:
                         self._catalog_cache.clear()
 
-            threading.Thread(target=_bg_en_warm, daemon=True).start()
+            try:
+                self._en_prewarm_pool.submit(_bg_en_warm)
+            except Exception:
+                pass
         return base_payload
 
-    def _build_continue_watching_list(self, ui_lang: str = "ru") -> List[Dict[str, Any]]:
+    def _get_enriched_curated_catalog(self) -> List[Dict[str, Any]]:
+        en_len = len(getattr(self.en_meta, "_cache", {}) or {}) if self.en_meta is not None else 0
+        cur_sig = (
+            self.country_code,
+            str(getattr(self.kinorium, "state_file", "")),
+            getattr(self.kinorium, "_state_version", 0),
+            en_len,
+        )
+        cached = getattr(self, "_cached_enriched_curated", None)
+        if cached and cached[0] == cur_sig:
+            return [dict(it) for it in cached[1]]
+        enriched = [self.enrich_item(it) for it in self.CURATED_CATALOG]
+        self._cached_enriched_curated = (cur_sig, enriched)
+        return [dict(it) for it in enriched]
+
+    def _build_continue_watching_list(
+        self,
+        ui_lang: str = "ru",
+        watching_new_eps: Optional[List[Dict[str, Any]]] = None,
+    ) -> List[Dict[str, Any]]:
         """
         Builds 'Новые серии и Продолжить просмотр' (continue_watching):
         - Only includes items that are NOT completely watched (`not watched` or `has_new_episode`)
@@ -969,13 +1055,45 @@ class UnifiedCinemaAggregator:
         ):
             return []
 
+        raw_cw_arr = self._kinorium_state_get("continue_watching", []) or []
+        raw_dismissed_arr = self._kinorium_state_get("cw_dismissed", []) or []
+        en_len = len(getattr(self.en_meta, "_cache", {}) or {}) if self.en_meta is not None else 0
+        cw_cache_sig = (
+            self.country_code,
+            ui_lang,
+            self.is_service_enabled("kinorium"),
+            self.is_service_enabled("hdrezka"),
+            self.is_service_enabled("backup4k"),
+            self.is_service_enabled("stremio"),
+            str(getattr(self.kinorium, "state_file", "")),
+            getattr(self.kinorium, "_state_version", 0),
+            en_len,
+            tuple(
+                (
+                    str(x.get("id") or ""),
+                    str(x.get("title") or ""),
+                    round(float(x.get("current_time") or 0.0), 1),
+                    round(float(x.get("progress") or 0.0), 3),
+                    int(x.get("season") or 1),
+                    int(x.get("episode") or 1),
+                    bool(x.get("is_new_episode")),
+                )
+                for x in raw_cw_arr
+                if isinstance(x, dict)
+            ),
+            tuple(str(d) for d in raw_dismissed_arr),
+        )
+        cached_cw = getattr(self, "_cached_cw_list", None)
+        if watching_new_eps is None and cached_cw and cached_cw[0] == cw_cache_sig:
+            return [dict(it) for it in cached_cw[1]]
+
         kin_enabled = self.is_service_enabled("kinorium")
         cw_list: List[Dict[str, Any]] = []
         cw_seen_titles = set()
         cw_seen_ids = set()
-        cw_dismissed = set(self._kinorium_state_get("cw_dismissed", []) or [])
+        cw_dismissed = set(raw_dismissed_arr)
 
-        for cw in self._kinorium_state_get("continue_watching", []) or []:
+        for cw in raw_cw_arr:
             if not isinstance(cw, dict):
                 continue
             cw_id = cw.get("id", "")
@@ -1097,8 +1215,15 @@ class UnifiedCinemaAggregator:
             else ("Stremio" if self.is_service_enabled("stremio") else "4K Remux")
         )
         if kin_enabled and has_any_stream_srv:
-            for w_ep_raw in self._enrich_from_curated(self.kinorium.get_watching_with_new_episodes()):
-                w_ep = self.enrich_item(w_ep_raw)
+            enriched_new_eps = (
+                watching_new_eps
+                if watching_new_eps is not None
+                else [
+                    self.enrich_item(w_ep_raw)
+                    for w_ep_raw in self._enrich_from_curated(self.kinorium.get_watching_with_new_episodes())
+                ]
+            )
+            for w_ep in enriched_new_eps:
                 t_raw = w_ep.get("title", "").strip()
                 t_low = t_raw.lower()
                 t_norm = self.kinorium._norm_title(t_raw) if hasattr(self.kinorium, "_norm_title") else t_low
@@ -1170,12 +1295,17 @@ class UnifiedCinemaAggregator:
                 if "kinorium.com/movie/" in str(it.get("backdrop") or "")
                 or str(it.get("backdrop") or "") == str(it.get("poster") or "")
             ]
-            if remaining_bg:
-                threading.Thread(
-                    target=self._prewarm_en_metadata_for_items,
-                    args=(remaining_bg, len(remaining_bg)),
-                    daemon=True,
-                ).start()
+            if remaining_bg and not self._cw_bg_prewarm_inflight:
+                self._cw_bg_prewarm_inflight = True
+
+                def _bg_warm_remaining_cw(items_batch: List[Dict[str, Any]]) -> None:
+                    try:
+                        self._prewarm_en_metadata_for_items(items_batch, len(items_batch))
+                    finally:
+                        self._cw_bg_prewarm_inflight = False
+
+                self._en_prewarm_pool.submit(_bg_warm_remaining_cw, remaining_bg)
+        self._cached_cw_list = (cw_cache_sig, [dict(it) for it in cw_list])
         return cw_list
 
     def unified_search(
@@ -1217,7 +1347,7 @@ class UnifiedCinemaAggregator:
             enabled_providers_meta = {
                 k: v for k, v in self.PROVIDERS_META.items() if self.is_service_enabled(k)
             }
-            sim_pool = self._filter_items_list([self.enrich_item(it) for it in self.CURATED_CATALOG])
+            sim_pool = self._filter_items_list(self._get_enriched_curated_catalog())
 
         if not is_suggest and kinorium_section == "premieres":
             q_low = q_clean.lower()
@@ -1366,7 +1496,25 @@ class UnifiedCinemaAggregator:
         is_genre_search = len(sig_tokens) == 1 and q_norm in known_genres
 
         merged_pool: List[Dict[str, Any]] = []
+        pool_idx_by_id: Dict[str, int] = {}
+        pool_idx_by_imdb: Dict[str, int] = {}
+        pool_idx_by_kin: Dict[str, int] = {}
+        pool_idx_by_rezka: Dict[str, int] = {}
         raw_person_candidates: List[Dict[str, Any]] = []
+
+        def _index_pool_item(idx: int, item_obj: Dict[str, Any]) -> None:
+            iid = str(item_obj.get("id") or "").strip()
+            if iid:
+                pool_idx_by_id[iid] = idx
+            imdb_v = str(item_obj.get("imdb_id") or (iid if iid.startswith("tt") else "")).strip()
+            if imdb_v:
+                pool_idx_by_imdb[imdb_v] = idx
+            kin_v = str(item_obj.get("kinorium_id") or (item_obj.get("kinorium") or {}).get("kinorium_id") or "").strip()
+            if kin_v:
+                pool_idx_by_kin[kin_v] = idx
+            rz_v = str(item_obj.get("rezka_id") or "").strip()
+            if rz_v:
+                pool_idx_by_rezka[rz_v] = idx
 
         def _add_or_merge_candidate(raw_cand: Dict[str, Any], allow_empty_providers: bool = False):
             filtered_cand = self._filter_item_by_enabled_services(
@@ -1374,11 +1522,29 @@ class UnifiedCinemaAggregator:
             )
             if filtered_cand is None:
                 return
+            cid = str(filtered_cand.get("id") or "").strip()
+            c_imdb = str(filtered_cand.get("imdb_id") or (cid if cid.startswith("tt") else "")).strip()
+            c_kin = str(filtered_cand.get("kinorium_id") or (filtered_cand.get("kinorium") or {}).get("kinorium_id") or "").strip()
+            c_rz = str(filtered_cand.get("rezka_id") or "").strip()
+            fast_idx = (
+                (pool_idx_by_id.get(cid) if cid else None)
+                or (pool_idx_by_imdb.get(c_imdb) if c_imdb else None)
+                or (pool_idx_by_kin.get(c_kin) if c_kin else None)
+                or (pool_idx_by_rezka.get(c_rz) if c_rz else None)
+            )
+            if fast_idx is not None and 0 <= fast_idx < len(merged_pool):
+                if self._is_same_work(merged_pool[fast_idx], filtered_cand):
+                    merged_pool[fast_idx] = self._merge_two_search_items(merged_pool[fast_idx], filtered_cand, sig_tokens)
+                    _index_pool_item(fast_idx, merged_pool[fast_idx])
+                    return
             for idx, existing in enumerate(merged_pool):
                 if self._is_same_work(existing, filtered_cand):
                     merged_pool[idx] = self._merge_two_search_items(existing, filtered_cand, sig_tokens)
+                    _index_pool_item(idx, merged_pool[idx])
                     return
+            new_idx = len(merged_pool)
             merged_pool.append(filtered_cand)
+            _index_pool_item(new_idx, filtered_cand)
 
         for item in self.CURATED_CATALOG:
             title_hay = " ".join(
@@ -1471,44 +1637,42 @@ class UnifiedCinemaAggregator:
         t_st = 2.0 if is_suggest else 5.5
 
         if active_search_tasks > 1:
-            from concurrent.futures import ThreadPoolExecutor
-
-            with ThreadPoolExecutor(max_workers=active_search_tasks) as search_pool:
-                fut_rz = search_pool.submit(self._search_hdrezka_live, q_clean) if want_rz else None
-                fut_kn = (
-                    search_pool.submit(self.kinorium.search_persons_and_movies, q_clean)
-                    if want_kn_search
-                    else None
-                )
-                fut_jw = search_pool.submit(self._search_justwatch_poland, q_clean) if want_jw else None
-                fut_st = (
-                    search_pool.submit(self.stremio.search_cinemeta, q_clean, media_type_filter)
-                    if want_st
-                    else None
-                )
-                if fut_rz is not None:
-                    try:
-                        rz_hits = fut_rz.result(timeout=t_rz) or []
-                    except Exception:
-                        rz_hits = []
-                if fut_kn is not None:
-                    try:
-                        kn_both = fut_kn.result(timeout=t_kn) or {}
-                        kn_persons = list(kn_both.get("persons") or [])
-                        if kin_enabled and not is_person_search:
-                            kn_hits = list(kn_both.get("movies") or [])
-                    except Exception:
-                        kn_hits = []
-                if fut_jw is not None:
-                    try:
-                        jw_hits = fut_jw.result(timeout=t_jw) or []
-                    except Exception:
-                        jw_hits = []
-                if fut_st is not None:
-                    try:
-                        st_hits = fut_st.result(timeout=t_st) or []
-                    except Exception:
-                        st_hits = []
+            search_pool = self._search_pool
+            fut_rz = search_pool.submit(self._search_hdrezka_live, q_clean) if want_rz else None
+            fut_kn = (
+                search_pool.submit(self.kinorium.search_persons_and_movies, q_clean)
+                if want_kn_search
+                else None
+            )
+            fut_jw = search_pool.submit(self._search_justwatch_poland, q_clean) if want_jw else None
+            fut_st = (
+                search_pool.submit(self.stremio.search_cinemeta, q_clean, media_type_filter)
+                if want_st
+                else None
+            )
+            if fut_rz is not None:
+                try:
+                    rz_hits = fut_rz.result(timeout=t_rz) or []
+                except Exception:
+                    rz_hits = []
+            if fut_kn is not None:
+                try:
+                    kn_both = fut_kn.result(timeout=t_kn) or {}
+                    kn_persons = list(kn_both.get("persons") or [])
+                    if kin_enabled and not is_person_search:
+                        kn_hits = list(kn_both.get("movies") or [])
+                except Exception:
+                    kn_hits = []
+            if fut_jw is not None:
+                try:
+                    jw_hits = fut_jw.result(timeout=t_jw) or []
+                except Exception:
+                    jw_hits = []
+            if fut_st is not None:
+                try:
+                    st_hits = fut_st.result(timeout=t_st) or []
+                except Exception:
+                    st_hits = []
         else:
             if want_rz:
                 rz_hits = self._search_hdrezka_live(q_clean)
@@ -1592,17 +1756,24 @@ class UnifiedCinemaAggregator:
                 sc += 10.0
             return sc
 
-        deduped_persons = [p for p in deduped_persons if _person_match_score(p) >= 50.0]
-        deduped_persons.sort(key=_person_match_score, reverse=True)
+        scored_persons = []
+        for p in deduped_persons:
+            sc_val = _person_match_score(p)
+            if sc_val >= 50.0:
+                p["_match_score"] = sc_val
+                scored_persons.append(p)
+        scored_persons.sort(key=lambda x: float(x.get("_match_score") or 0.0), reverse=True)
+        deduped_persons = scored_persons
 
         top_matched_person = deduped_persons[0] if deduped_persons else None
+        top_person_score = float(top_matched_person.get("_match_score") or 0.0) if top_matched_person is not None else 0.0
         is_strong_person_query = bool(
             is_person_search
             or (
                 top_matched_person is not None
                 and (
-                    _person_match_score(top_matched_person) >= 100.0
-                    or (len(sig_tokens) >= 2 and _person_match_score(top_matched_person) >= 80.0)
+                    top_person_score >= 100.0
+                    or (len(sig_tokens) >= 2 and top_person_score >= 80.0)
                 )
             )
         )
@@ -1679,7 +1850,21 @@ class UnifiedCinemaAggregator:
         for st_item in st_hits:
             _add_or_merge_candidate(self.enrich_item(st_item))
 
+        for idx_m, m_it in enumerate(merged_pool):
+            if m_it.get("_needs_reenrich"):
+                m_it.pop("_needs_reenrich", None)
+                enr_m = self.enrich_item(m_it)
+                for internal_k in ("_aliases", "_from_hdrezka", "_from_person_match"):
+                    if internal_k in m_it:
+                        enr_m[internal_k] = m_it[internal_k]
+                merged_pool[idx_m] = enr_m
+
         extra_for_similar: List[Dict[str, Any]] = []
+
+        def _fold_double(s: str) -> str:
+            return re.sub(r"([a-zа-я])\1+", r"\1", str(s or ""))
+
+        q_fold = _fold_double(q_norm)
 
         if is_strong_person_query or is_genre_search or not sig_tokens:
             relevant_items = list(merged_pool)
@@ -1688,17 +1873,25 @@ class UnifiedCinemaAggregator:
             partial_hits: List[Dict[str, Any]] = []
             person_hits: List[Dict[str, Any]] = [c for c in merged_pool if c.get("_from_person_match")]
             longest_tok = max(sig_tokens, key=len)
+            longest_fold = _fold_double(longest_tok)
 
             for cand in merged_pool:
                 aliases_set = self._extract_item_aliases(cand)
                 alias_words = {w for a in aliases_set for w in a.split()}
+                alias_words_fold = {_fold_double(w) for w in alias_words}
 
                 def _matches_tok(tok: str) -> bool:
+                    tok_f = _fold_double(tok)
                     return any(
                         w == tok
                         or (len(tok) >= 3 and w.startswith(tok))
                         or (len(tok) >= 5 and tok in w)
                         for w in alias_words
+                    ) or any(
+                        wf == tok_f
+                        or (len(tok_f) >= 3 and wf.startswith(tok_f))
+                        or (len(tok_f) >= 5 and tok_f in wf)
+                        for wf in alias_words_fold
                     )
 
                 matched_count = sum(1 for tok in sig_tokens if _matches_tok(tok))
@@ -1720,7 +1913,10 @@ class UnifiedCinemaAggregator:
                         for c in partial_hits
                         if len(longest_tok) >= 4
                         and any(
-                            w == longest_tok or w.startswith(longest_tok)
+                            w == longest_tok
+                            or w.startswith(longest_tok)
+                            or _fold_double(w) == longest_fold
+                            or _fold_double(w).startswith(longest_fold)
                             for a in self._extract_item_aliases(c)
                             for w in a.split()
                         )
@@ -1737,14 +1933,29 @@ class UnifiedCinemaAggregator:
 
         def _relevance_rank(cand: Dict[str, Any]) -> float:
             aliases_set = self._extract_item_aliases(cand)
+            aliases_fold_map = {_fold_double(a): a for a in aliases_set}
             sc = 0.0
-            if q_norm in aliases_set:
+            if q_norm in aliases_set or (q_fold and q_fold in aliases_fold_map):
                 sc += 140.0
             elif cand.get("_from_person_match"):
                 sc += 95.0
-            elif not is_strong_person_query and any(a.startswith(q_norm) for a in aliases_set):
-                sc += 80.0
-            elif not is_strong_person_query and any(q_norm in a for a in aliases_set):
+            elif not is_strong_person_query and (
+                any(a.startswith(q_norm) for a in aliases_set)
+                or (q_fold and any(af.startswith(q_fold) for af in aliases_fold_map))
+            ):
+                min_extra = min(
+                    [
+                        max(0, len(af.split()) - len(q_fold.split()))
+                        for af in aliases_fold_map
+                        if af.startswith(q_fold)
+                    ]
+                    or [1]
+                )
+                sc += max(45.0, 85.0 - min_extra * 8.0)
+            elif not is_strong_person_query and (
+                any(q_norm in a for a in aliases_set)
+                or (q_fold and any(q_fold in af for af in aliases_fold_map))
+            ):
                 sc += 50.0
             elif is_strong_person_query and any(q_norm in a for a in aliases_set):
                 sc += 20.0
@@ -1953,36 +2164,65 @@ class UnifiedCinemaAggregator:
             return ""
         return cls.GENRE_CANONICAL_MAP.get(gs.lower(), gs)
 
-    @staticmethod
-    def _extract_item_aliases(item: Dict[str, Any]) -> Set[str]:
+    _MOTIV_PREFIX_RE = re.compile(r"\b(?:фильм|сериал|кино)\s+по\s+мотивам(?:\s+сериала|\s+фильма)?\s+")
+    _MULTI_SPACE_RE = re.compile(r"\s+")
+    _CYRILLIC_LOWER_RE = re.compile(r"[а-яё]")
+    _ITEM_ALIASES_CACHE: Dict[Tuple[Any, ...], Set[str]] = {}
+    _ITEM_ALIASES_LOCK = threading.Lock()
+
+    @classmethod
+    def _extract_item_aliases(cls, item: Dict[str, Any]) -> Set[str]:
+        t_val = str(item.get("title") or "")
+        ot_val = str(item.get("orig_title") or "")
+        tpl_val = str(item.get("title_pl") or "")
+        raw_aliases = item.get("_aliases")
+        al_tuple = tuple(str(a or "") for a in raw_aliases) if isinstance(raw_aliases, (list, tuple, set)) and raw_aliases else ()
+        ks = item.get("kinorium")
+        w_info = ks.get("watched_info") if isinstance(ks, dict) else None
+        if isinstance(w_info, dict):
+            w_tuple = (
+                str(w_info.get("ru_title") or ""),
+                str(w_info.get("orig_title") or ""),
+                str(w_info.get("title") or ""),
+            )
+        else:
+            w_tuple = ("", "", "")
+        cache_key = (t_val, ot_val, tpl_val, al_tuple, w_tuple)
+        with cls._ITEM_ALIASES_LOCK:
+            cached = cls._ITEM_ALIASES_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
         aliases: Set[str] = set()
+        motiv_re = cls._MOTIV_PREFIX_RE
+        space_re = cls._MULTI_SPACE_RE
 
         def _push_variant(v: str):
             if not v:
                 return
             aliases.add(v)
-            stripped = re.sub(
-                r"\b(?:фильм|сериал|кино)\s+по\s+мотивам(?:\s+сериала|\s+фильма)?\s+",
-                "",
-                v,
-            ).strip()
-            stripped = re.sub(r"\s+", " ", stripped)
-            if stripped and stripped != v:
-                aliases.add(stripped)
+            if "мотивам" in v:
+                stripped = space_re.sub(" ", motiv_re.sub("", v).strip())
+                if stripped and stripped != v:
+                    aliases.add(stripped)
 
-        for field in ("title", "orig_title", "title_pl"):
-            for v in _title_variants(str(item.get(field) or "")):
-                _push_variant(v)
-        for raw_a in item.get("_aliases") or []:
-            for v in _title_variants(str(raw_a or "")):
-                _push_variant(v)
-        ks = item.get("kinorium")
-        if isinstance(ks, dict):
-            w_info = ks.get("watched_info")
-            if isinstance(w_info, dict):
-                for field in ("ru_title", "orig_title", "title"):
-                    for v in _title_variants(str(w_info.get(field) or "")):
-                        _push_variant(v)
+        for field_val in (t_val, ot_val, tpl_val):
+            if field_val:
+                for v in _title_variants(field_val):
+                    _push_variant(v)
+        for raw_a in al_tuple:
+            if raw_a:
+                for v in _title_variants(raw_a):
+                    _push_variant(v)
+        for w_val in w_tuple:
+            if w_val:
+                for v in _title_variants(w_val):
+                    _push_variant(v)
+
+        with cls._ITEM_ALIASES_LOCK:
+            if len(cls._ITEM_ALIASES_CACHE) >= 4096:
+                cls._ITEM_ALIASES_CACHE.clear()
+            cls._ITEM_ALIASES_CACHE[cache_key] = aliases
         return aliases
 
     @staticmethod
@@ -2043,8 +2283,9 @@ class UnifiedCinemaAggregator:
             return False
         aliases_a = cls._extract_item_aliases(a)
         aliases_b = cls._extract_item_aliases(b)
-        lat_a = {x for x in aliases_a if x and not re.search(r"[а-яё]", x)}
-        lat_b = {x for x in aliases_b if x and not re.search(r"[а-яё]", x)}
+        cyr_re = cls._CYRILLIC_LOWER_RE
+        lat_a = {x for x in aliases_a if x and not cyr_re.search(x)}
+        lat_b = {x for x in aliases_b if x and not cyr_re.search(x)}
         if lat_a and lat_b and not (lat_a & lat_b):
             return False
         return bool(aliases_a and aliases_b and (aliases_a & aliases_b))
@@ -2189,7 +2430,8 @@ class UnifiedCinemaAggregator:
         merged["_aliases"] = list(dict.fromkeys([str(a).strip() for a in raw_aliases if str(a or "").strip()]))
         merged["_from_hdrezka"] = bool(merged.get("_from_hdrezka") or inc.get("_from_hdrezka"))
         merged["_from_person_match"] = bool(merged.get("_from_person_match") or inc.get("_from_person_match"))
-        return self.enrich_item(merged)
+        merged["_needs_reenrich"] = True
+        return merged
 
     @staticmethod
     def _strip_internal_search_keys(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -2235,6 +2477,30 @@ class UnifiedCinemaAggregator:
             allow_network=allow_network,
             lang=lang,
             limit=limit,
+        )
+
+    def resolve_franchise_for_title(
+        self,
+        item_id: str = "",
+        rezka_id: str = "",
+        title: str = "",
+        orig_title: str = "",
+        year: int = 0,
+        media_type: str = "movie",
+        preloaded_parts: Optional[List[Dict[str, Any]]] = None,
+        lang: str = "ru",
+    ) -> Dict[str, Any]:
+        from .aggregator_discovery import resolve_franchise_for_title as _res_fr
+        return _res_fr(
+            self,
+            item_id=item_id,
+            rezka_id=rezka_id,
+            title=title,
+            orig_title=orig_title,
+            year=year,
+            media_type=media_type,
+            preloaded_parts=preloaded_parts,
+            lang=lang,
         )
 
     def _build_search_similar_items(

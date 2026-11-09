@@ -1,1 +1,1 @@
-# CineFlow automated test suite
+# Velarium automated test suite

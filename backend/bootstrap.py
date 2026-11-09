@@ -1,5 +1,5 @@
 """
-CineFlow Server Bootstrap Utilities
+Velarium Server Bootstrap Utilities
 Provides runtime paths resolution, safe standard stream redirection,
 safe non-blocking logging, numeric query parameter parsers, and binary directory setup.
 """
@@ -18,7 +18,11 @@ def resolve_runtime_paths(base_file: str) -> Dict[str, str]:
     """
     base_dir = os.path.dirname(os.path.abspath(base_file))
     public_dir = os.path.join(base_dir, "public")
-    data_dir = os.path.abspath(os.environ.get("CINEFLOW_DATA_DIR") or os.path.join(base_dir, "data"))
+    data_dir = os.path.abspath(
+        os.environ.get("VELARIUM_DATA_DIR")
+        or os.environ.get("CINEFLOW_DATA_DIR")
+        or os.path.join(base_dir, "data")
+    )
     settings_path = os.path.join(data_dir, "server_settings.json")
     bin_dir = os.path.join(base_dir, "backend", "bin")
     return {
@@ -49,7 +53,7 @@ def ensure_safe_std_streams(data_dir: str) -> None:
                 try:
                     os.makedirs(data_dir, exist_ok=True)
                     fallback_stream = open(
-                        os.path.join(data_dir, "cineflow.log"),
+                        os.path.join(data_dir, "velarium.log"),
                         "a",
                         encoding="utf-8",
                         errors="replace",

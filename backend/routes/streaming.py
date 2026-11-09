@@ -1,5 +1,5 @@
 """
-CineFlow Streaming, Media Proxy, Range Streaming and Remuxing Route Handlers.
+Velarium Streaming, Media Proxy, Range Streaming and Remuxing Route Handlers.
 Dispatches:
 - /api/proxy-stream (HLS and raw video proxy with edge failover)
 - /api/download-mp4 (Direct or remuxed MP4 file downloads)
@@ -11,6 +11,7 @@ Dispatches:
 - /api/downloads/poster/* (Offline poster image delivery)
 """
 
+import concurrent.futures
 import hashlib
 import http.client
 import ipaddress
@@ -29,20 +30,76 @@ import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
 from backend.downloads import parse_http_byte_range
+from backend.net_security import (
+    is_allowed_media_source_url as _net_is_allowed_media_source_url,
+    is_strictly_public_ip_obj as _net_is_strictly_public_ip_obj,
+)
 from backend.stremio import StremioAddonEngine
 from backend.subtitles import convert_any_subtitle_to_webvtt
+
+_REMUX_SUB_SRT_LOCK = threading.Lock()
+_REMUX_SUB_SRT_CACHE: Dict[Any, str] = {}
+_REMUX_TEMP_SUB_FILES: List[str] = []
+_REMUX_CLEANUP_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="VelariumRemuxReap",
+)
+_PROXY_PUMP_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=16,
+    thread_name_prefix="VelariumProxyPump",
+)
+
+
+def _terminate_and_reap_proc(proc: Any) -> None:
+    """Terminates and waits for a preempted FFmpeg subprocess on a background reaper thread."""
+    if proc is None:
+        return
+    try:
+        if proc.stdout:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+        if proc.poll() is None:
+            proc.terminate()
+            proc.wait(timeout=0.8)
+    except Exception:
+        try:
+            proc.kill()
+            proc.wait(timeout=0.5)
+        except Exception:
+            pass
+
+
+def _get_server_module() -> Any:
+    """Resolves the server module whether imported as 'server' or executed as '__main__'."""
+    srv = sys.modules.get("server")
+    if srv is not None:
+        return srv
+    main_mod = sys.modules.get("__main__")
+    if main_mod is not None and (hasattr(main_mod, "SERVER_CONTEXT") or hasattr(main_mod, "SERVICES")):
+        return main_mod
+    return None
 
 # Thread-safe media edge caches and locks
 MEDIA_EDGE_LOCK = threading.Lock()
 VOIDBOOST_EDGE_CACHE: Dict[str, Tuple[str, float]] = {}
 DEAD_MEDIA_EDGE_IPS: Dict[str, float] = {}
+_MEDIA_EDGE_DNS_CACHE: Dict[Tuple[str, int], Tuple[List[str], float]] = {}
+_MEDIA_UPSTREAM_POOL: Dict[Tuple[str, str, int], List[Tuple[http.client.HTTPConnection, float]]] = {}
 
 SUBTITLE_CACHE_LOCK = threading.Lock()
 SUBTITLE_RAW_CACHE: Dict[str, bytes] = {}
+_WEBVTT_CONVERTED_CACHE: Dict[Tuple[str, float], Tuple[float, bytes]] = {}
+_HLS_URI_ATTR_RE = re.compile(r'URI\s*=\s*(["\'])([^"\']+)\1', re.I)
+_RANGE_START_RE = re.compile(r"^bytes=(\d+)-")
+_RANGE_SINGLE_RE = re.compile(r"^bytes=(\d+)-(\d*)$")
+_HTTP_RANGE_RE = re.compile(r"bytes=(?:\d+-\d*|\d*-\d+)(?:,\s*(?:\d+-\d*|\d*-\d+))*")
 
 _ACTIVE_REMUX_PROCS_LOCK = threading.Lock()
 _ACTIVE_REMUX_PROCS: List[Any] = []
 _REMUX_GEN_SEQ: int = 0
+_LAST_TOUCH_STREAM_TS: float = 0.0
 
 _SAFE_MEDIA_CTYPE_PREFIXES = ("video/", "audio/")
 _SAFE_MEDIA_CTYPES = {
@@ -59,12 +116,17 @@ _SAFE_MEDIA_CTYPES = {
 
 _SHARED_VERIFIED_SSL_CTX = ssl.create_default_context()
 _SHARED_UNVERIFIED_SSL_CTX = ssl._create_unverified_context()
+_LOOPBACK_DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def touch_stream_activity() -> float:
-    """Updates last streaming activity timestamp on server module."""
+    """Updates last streaming activity timestamp on server module (throttled to 1.5s)."""
+    global _LAST_TOUCH_STREAM_TS
     now = time.time()
-    srv = sys.modules.get("server")
+    if now - _LAST_TOUCH_STREAM_TS < 1.5:
+        return now
+    _LAST_TOUCH_STREAM_TS = now
+    srv = _get_server_module()
     if srv:
         try:
             setattr(srv, "LAST_STREAM_ACTIVITY_TS", now)
@@ -124,7 +186,7 @@ def _unwrap_local_proxy_media_url(raw_url: str) -> str:
     u = str(raw_url or "").strip()
     if not u:
         return ""
-    srv = sys.modules.get("server")
+    srv = _get_server_module()
     server_runtime = getattr(srv, "SERVER_RUNTIME", {}) if srv else {}
     for _ in range(4):
         u_low = u.lower()
@@ -165,7 +227,7 @@ def _wrap_voidboost_stream_url(raw_url: str, absolute_loopback: bool = False) ->
         return u
     rel = f"/api/proxy-stream?url={urllib.parse.quote(u, safe='')}"
     if absolute_loopback:
-        srv = sys.modules.get("server")
+        srv = _get_server_module()
         server_runtime = getattr(srv, "SERVER_RUNTIME", {}) if srv else {}
         port = int(server_runtime.get("port") or 8765)
         return f"http://127.0.0.1:{port}{rel}"
@@ -186,30 +248,44 @@ def _configure_low_latency_socket(sock: Any, is_client_stream: bool = False) -> 
         pass
     try:
         cur_rcv = sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
-        if cur_rcv < 524288:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 524288)
+        if cur_rcv < 1048576:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1048576)
     except Exception:
         pass
+    if is_client_stream:
+        try:
+            cur_snd = sock.getsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF)
+            if cur_snd < 1048576:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1048576)
+        except Exception:
+            pass
 
 
 def _check_strictly_public_ip_obj(raw_ip: Any) -> bool:
-    srv = sys.modules.get("server")
+    srv = _get_server_module()
     chk_fn = getattr(srv, "_is_strictly_public_ip_obj", None)
     if chk_fn:
         return chk_fn(raw_ip)
-    try:
-        addr = raw_ip if isinstance(raw_ip, (ipaddress.IPv4Address, ipaddress.IPv6Address)) else ipaddress.ip_address(str(raw_ip).strip())
-        return addr.is_global and not addr.is_private and not addr.is_loopback
-    except Exception:
-        return False
+    return _net_is_strictly_public_ip_obj(raw_ip)
 
 
 def _check_allowed_media_source_url(raw_url: str, allow_torrserver_loopback: bool = True) -> bool:
-    srv = sys.modules.get("server")
+    srv = _get_server_module()
     chk_fn = getattr(srv, "_is_allowed_media_source_url", None)
     if chk_fn:
         return chk_fn(raw_url, allow_torrserver_loopback=allow_torrserver_loopback)
-    return False
+    b_engine = getattr(srv, "backup_stream_engine", None) if srv else None
+    torr_url = str(getattr(b_engine, "torrserver_url", None) or "http://127.0.0.1:8090")
+    s_runtime = getattr(srv, "SERVER_RUNTIME", {}) if srv else {}
+    own_p = int((s_runtime.get("port") if isinstance(s_runtime, dict) else None) or 8765)
+    net_c = getattr(srv, "net_client", None) if srv else None
+    return _net_is_allowed_media_source_url(
+        raw_url,
+        allow_torrserver_loopback=allow_torrserver_loopback,
+        torrserver_url=torr_url,
+        own_port=own_p,
+        net_client=net_c,
+    )
 
 
 def _is_usable_public_ip(ip_str: str) -> bool:
@@ -235,7 +311,7 @@ def _connect_media_http(
     except ValueError:
         pass
 
-    srv = sys.modules.get("server")
+    srv = _get_server_module()
     net_client = getattr(srv, "net_client", None)
 
     prefer_doh_first = bool(getattr(net_client, "doh_enabled", False)) and not is_ip_literal
@@ -247,6 +323,17 @@ def _connect_media_http(
         added: List[str] = []
         if is_ip_literal:
             return added
+        dns_key = (host.lower(), int(port))
+        now_dns = time.time()
+        with MEDIA_EDGE_LOCK:
+            cached_dns = _MEDIA_EDGE_DNS_CACHE.get(dns_key)
+            if cached_dns and cached_dns[1] > now_dns:
+                for ip_addr in cached_dns[0]:
+                    if ip_addr not in target_list:
+                        target_list.append(ip_addr)
+                        added.append(ip_addr)
+                return added
+        resolved_public: List[str] = []
         try:
             infos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
         except Exception:
@@ -258,9 +345,17 @@ def _connect_media_http(
                 infos = []
         for entry in infos:
             ip_addr = entry[4][0]
-            if _is_usable_public_ip(ip_addr) and ip_addr not in target_list:
-                target_list.append(ip_addr)
-                added.append(ip_addr)
+            if _is_usable_public_ip(ip_addr):
+                if ip_addr not in resolved_public:
+                    resolved_public.append(ip_addr)
+                if ip_addr not in target_list:
+                    target_list.append(ip_addr)
+                    added.append(ip_addr)
+        if resolved_public:
+            with MEDIA_EDGE_LOCK:
+                if len(_MEDIA_EDGE_DNS_CACHE) > 256:
+                    _MEDIA_EDGE_DNS_CACHE.clear()
+                _MEDIA_EDGE_DNS_CACHE[dns_key] = (resolved_public, now_dns + 120.0)
         return added
 
     os_dns_queried = is_ip_literal
@@ -287,9 +382,8 @@ def _connect_media_http(
         for k in expired:
             DEAD_MEDIA_EDGE_IPS.pop(k, None)
         if len(DEAD_MEDIA_EDGE_IPS) > 512:
-            oldest_ips = sorted(DEAD_MEDIA_EDGE_IPS.keys(), key=lambda k: DEAD_MEDIA_EDGE_IPS[k])[:128]
-            for ok in oldest_ips:
-                DEAD_MEDIA_EDGE_IPS.pop(ok, None)
+            for _ in range(min(128, len(DEAD_MEDIA_EDGE_IPS))):
+                DEAD_MEDIA_EDGE_IPS.pop(next(iter(DEAD_MEDIA_EDGE_IPS)), None)
         healthy_ips = [ip for ip in seen_ips if ip not in DEAD_MEDIA_EDGE_IPS]
         suspect_ips = [ip for ip in seen_ips if ip in DEAD_MEDIA_EDGE_IPS]
 
@@ -297,7 +391,9 @@ def _connect_media_http(
         doh_ip = net_client.resolve_doh_ipv4(host)
         if doh_ip and _is_usable_public_ip(doh_ip) and doh_ip not in seen_ips:
             seen_ips.append(doh_ip)
-            if doh_ip not in DEAD_MEDIA_EDGE_IPS:
+            with MEDIA_EDGE_LOCK:
+                is_dead_doh = doh_ip in DEAD_MEDIA_EDGE_IPS
+            if not is_dead_doh:
                 healthy_ips.insert(0, doh_ip)
             else:
                 suspect_ips.append(doh_ip)
@@ -381,9 +477,90 @@ def _connect_media_http(
 
 
 def _call_connect_media_http(*args, **kwargs) -> http.client.HTTPConnection:
-    srv = sys.modules.get("server")
+    srv = _get_server_module()
     conn_fn = getattr(srv, "_connect_media_http", _connect_media_http) if srv else _connect_media_http
     return conn_fn(*args, **kwargs)
+
+
+def _pop_pooled_media_conn(parsed_url: urllib.parse.ParseResult) -> Optional[http.client.HTTPConnection]:
+    srv = _get_server_module()
+    conn_fn = getattr(srv, "_connect_media_http", _connect_media_http) if srv else _connect_media_http
+    if conn_fn is not _connect_media_http:
+        return None
+    scheme = (parsed_url.scheme or "https").lower()
+    host = (parsed_url.hostname or "").strip().lower()
+    port = int(parsed_url.port or (443 if scheme == "https" else 80))
+    key = (scheme, host, port)
+    now = time.time()
+    chosen_conn: Optional[http.client.HTTPConnection] = None
+    expired_conns: List[http.client.HTTPConnection] = []
+    with MEDIA_EDGE_LOCK:
+        bucket = _MEDIA_UPSTREAM_POOL.get(key)
+        if bucket:
+            while bucket:
+                conn, ts = bucket.pop()
+                if now - ts <= 25.0 and getattr(conn, "sock", None) is not None:
+                    chosen_conn = conn
+                    break
+                expired_conns.append(conn)
+    for c_old in expired_conns:
+        try:
+            c_old.close()
+        except Exception:
+            pass
+    return chosen_conn
+
+
+def _release_or_close_media_conn(
+    conn: Optional[http.client.HTTPConnection],
+    resp: Optional[http.client.HTTPResponse] = None,
+    reusable: bool = False,
+) -> None:
+    if conn is None:
+        return
+    if reusable and getattr(conn, "sock", None) is not None:
+        try:
+            conn_hdr = (resp.getheader("Connection") or "").lower() if resp is not None else ""
+            if "close" not in conn_hdr and (resp is None or not getattr(resp, "will_close", False)):
+                if resp is not None and (
+                    getattr(resp, "length", None) in (0, None)
+                    or str(getattr(resp, "_method", "") or "").upper() == "HEAD"
+                ):
+                    try:
+                        resp.close()
+                    except Exception:
+                        pass
+                edge_u = str(getattr(conn, "_velarium_edge_url", "") or "")
+                p = urllib.parse.urlparse(edge_u) if edge_u else None
+                scheme = (p.scheme if p and p.scheme else ("https" if isinstance(conn, http.client.HTTPSConnection) else "http")).lower()
+                host = (p.hostname if p and p.hostname else getattr(conn, "host", "")).strip().lower()
+                port = int((p.port if p and p.port else getattr(conn, "port", 0)) or (443 if scheme == "https" else 80))
+                if host:
+                    key = (scheme, host, port)
+                    evicted_conns: List[http.client.HTTPConnection] = []
+                    pooled_ok = False
+                    with MEDIA_EDGE_LOCK:
+                        if key not in _MEDIA_UPSTREAM_POOL and len(_MEDIA_UPSTREAM_POOL) >= 24:
+                            oldest_key = next(iter(_MEDIA_UPSTREAM_POOL))
+                            for c_old, _ in _MEDIA_UPSTREAM_POOL.pop(oldest_key, []):
+                                evicted_conns.append(c_old)
+                        bucket = _MEDIA_UPSTREAM_POOL.setdefault(key, [])
+                        if len(bucket) < 3:
+                            bucket.append((conn, time.time()))
+                            pooled_ok = True
+                    for c_old in evicted_conns:
+                        try:
+                            c_old.close()
+                        except Exception:
+                            pass
+                    if pooled_ok:
+                        return
+        except Exception:
+            pass
+    try:
+        conn.close()
+    except Exception:
+        pass
 
 
 def _evict_voidboost_edge_and_mark_dead(base_url: str, edge_url: str = "") -> None:
@@ -393,20 +570,33 @@ def _evict_voidboost_edge_and_mark_dead(base_url: str, edge_url: str = "") -> No
     target_edge = edge_url or (evicted[0] if evicted and evicted[0] != clean_base else "")
     if target_edge and target_edge != clean_base:
         try:
-            ev_host = (urllib.parse.urlparse(target_edge).hostname or "").strip()
+            p_ev = urllib.parse.urlparse(target_edge)
+            ev_host = (p_ev.hostname or "").strip()
+            ev_port = int(p_ev.port or (443 if (p_ev.scheme or "https").lower() == "https" else 80))
             if ev_host:
                 try:
                     ipaddress.ip_address(ev_host)
                     ev_ips = [ev_host]
                 except ValueError:
-                    ev_ips = [
-                        e[4][0]
-                        for e in socket.getaddrinfo(ev_host, None, socket.AF_INET, socket.SOCK_STREAM)
-                    ]
+                    dns_k = (ev_host.lower(), ev_port)
+                    with MEDIA_EDGE_LOCK:
+                        cached_d = _MEDIA_EDGE_DNS_CACHE.pop(dns_k, None)
+                        if cached_d is None and ev_port != 443:
+                            cached_d = _MEDIA_EDGE_DNS_CACHE.pop((ev_host.lower(), 443), None)
+                    ev_ips = list(cached_d[0]) if cached_d else []
+                to_close: List[http.client.HTTPConnection] = []
                 with MEDIA_EDGE_LOCK:
                     exp_until = time.time() + 45.0
                     for ev_ip in ev_ips:
                         DEAD_MEDIA_EDGE_IPS[ev_ip] = exp_until
+                    for pk in [k for k in _MEDIA_UPSTREAM_POOL.keys() if k[1] == ev_host.lower()]:
+                        for c_old, _ in _MEDIA_UPSTREAM_POOL.pop(pk, []):
+                            to_close.append(c_old)
+                for c_old in to_close:
+                    try:
+                        c_old.close()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -416,6 +606,7 @@ def _open_resilient_media_upstream(
     range_header: str = "",
     method: str = "GET",
     evict_cached_edge: bool = False,
+    abort_event: Optional[threading.Event] = None,
 ) -> Tuple[http.client.HTTPConnection, http.client.HTTPResponse]:
     base_url = _unwrap_local_proxy_media_url(raw_url)
     if not _check_allowed_media_source_url(base_url, allow_torrserver_loopback=False):
@@ -431,6 +622,8 @@ def _open_resilient_media_upstream(
     last_exc: Optional[Exception] = None
 
     for attempt in range(3):
+        if abort_event is not None and abort_event.is_set():
+            break
         now = time.time()
         cur_url = base_url
         with MEDIA_EDGE_LOCK:
@@ -443,6 +636,8 @@ def _open_resilient_media_upstream(
         conn: Optional[http.client.HTTPConnection] = None
         try:
             for _hop in range(4):
+                if abort_event is not None and abort_event.is_set():
+                    break
                 if not _check_allowed_media_source_url(cur_url, allow_torrserver_loopback=False):
                     raise ValueError("Disallowed redirect media target")
                 p = urllib.parse.urlparse(cur_url)
@@ -452,23 +647,41 @@ def _open_resilient_media_upstream(
                 req_headers = {
                     "User-Agent": ua,
                     "Accept": "*/*",
-                    "Connection": "close",
+                    "Connection": "close" if is_router_hop else "keep-alive",
                 }
                 if range_header:
                     req_headers["Range"] = range_header
                 elif method == "HEAD" and is_router_hop:
                     req_headers["Range"] = "bytes=0-1"
 
-                conn = _call_connect_media_http(
-                    p,
-                    connect_timeout=4.5 if is_router_hop else 5.5,
-                    read_timeout=10.0,
-                )
                 req_target = p.path or "/"
                 if p.query:
                     req_target += f"?{p.query}"
-                conn.request(req_method, req_target, headers=req_headers)
-                resp = conn.getresponse()
+
+                resp = None
+                if not is_router_hop and not evict_cached_edge and attempt == 0:
+                    pooled_conn = _pop_pooled_media_conn(p)
+                    if pooled_conn is not None:
+                        try:
+                            pooled_conn.request(req_method, req_target, headers=req_headers)
+                            resp = pooled_conn.getresponse()
+                            conn = pooled_conn
+                        except Exception:
+                            try:
+                                pooled_conn.close()
+                            except Exception:
+                                pass
+                            conn = None
+                            resp = None
+
+                if resp is None:
+                    conn = _call_connect_media_http(
+                        p,
+                        connect_timeout=4.5 if is_router_hop else 5.5,
+                        read_timeout=25.0,
+                    )
+                    conn.request(req_method, req_target, headers=req_headers)
+                    resp = conn.getresponse()
 
                 if resp.status in (301, 302, 303, 307, 308):
                     loc = resp.getheader("Location") or ""
@@ -480,7 +693,20 @@ def _open_resilient_media_upstream(
                     continue
 
                 if resp.status in (200, 206):
-                    setattr(conn, "_cineflow_edge_url", cur_url)
+                    # Guard against broken CDN edges that ignore non-zero Range requests
+                    # and return 200 OK from byte 0 (which resets HTML5 <video> to 0:00).
+                    req_rng = req_headers.get("Range") or ""
+                    m_req_rng = _RANGE_START_RE.match(req_rng)
+                    req_start_byte = int(m_req_rng.group(1)) if m_req_rng else 0
+                    resp_ct = (resp.getheader("Content-Type") or "").lower()
+                    is_hls_resp = "mpegurl" in resp_ct or (p.path or "").lower().endswith(".m3u8") or ":hls:" in cur_url.lower()
+                    if req_start_byte > 0 and resp.status == 200 and not is_hls_resp:
+                        conn.close()
+                        conn = None
+                        _evict_voidboost_edge_and_mark_dead(base_url, cur_url)
+                        last_exc = RuntimeError(f"Upstream edge ignored Range {req_rng} and returned 200 OK")
+                        break
+                    setattr(conn, "_velarium_edge_url", cur_url)
                     if cur_url != base_url and _is_voidboost_cdn_host(host_low):
                         with MEDIA_EDGE_LOCK:
                             if len(VOIDBOOST_EDGE_CACHE) > 256:
@@ -514,11 +740,36 @@ def _rewrite_hls_manifest_for_proxy(raw_text: str, base_url: str) -> str:
         return raw_text
 
     verified_origins: Dict[Tuple[str, str], bool] = {}
+    uri_cache: Dict[str, str] = {}
+    base_parsed = urllib.parse.urlparse(base_url)
+    base_origin_key = (base_parsed.scheme.lower(), (base_parsed.netloc or "").lower())
+    base_origin_allowed: Optional[bool] = None
+    if base_origin_key[0] in ("http", "https") and base_origin_key[1] and "@" not in base_origin_key[1]:
+        base_origin_allowed = _check_allowed_media_source_url(base_url, allow_torrserver_loopback=False)
+        verified_origins[base_origin_key] = base_origin_allowed
+    base_no_q = base_url.split("?", 1)[0].split("#", 1)[0]
+    base_dir = (base_no_q.rsplit("/", 1)[0] + "/") if "/" in base_no_q[8:] else ""
+    quoted_base_dir = urllib.parse.quote(base_dir, safe="") if base_dir else ""
 
     def _proxy_target(target_u: str) -> str:
         t = str(target_u or "").strip()
         if not t or t.startswith("/api/proxy-stream"):
             return t
+        cached_rw = uri_cache.get(t)
+        if cached_rw is not None:
+            return cached_rw
+        if (
+            base_origin_allowed is True
+            and quoted_base_dir
+            and not t.startswith(("/", "http://", "https://", ".", "?", "#"))
+            and "/." not in t
+            and "://" not in t
+            and not any(ord(c) < 32 or c.isspace() for c in t)
+        ):
+            rw = f"/api/proxy-stream?url={quoted_base_dir}{urllib.parse.quote(t, safe='')}"
+            if len(uri_cache) < 4096:
+                uri_cache[t] = rw
+            return rw
         abs_u = urllib.parse.urljoin(base_url, t)
         if any(ord(c) < 32 or c.isspace() for c in abs_u):
             return abs_u
@@ -534,9 +785,10 @@ def _rewrite_hls_manifest_for_proxy(raw_text: str, base_url: str) -> str:
                 verified_origins[origin_key] = allowed
         else:
             allowed = _check_allowed_media_source_url(abs_u, allow_torrserver_loopback=False)
-        if allowed:
-            return f"/api/proxy-stream?url={urllib.parse.quote(abs_u, safe='')}"
-        return abs_u
+        rw = f"/api/proxy-stream?url={urllib.parse.quote(abs_u, safe='')}" if allowed else abs_u
+        if len(uri_cache) < 4096:
+            uri_cache[t] = rw
+        return rw
 
     def _replace_uri_attr(m: re.Match) -> str:
         quote_ch = m.group(1) or '"'
@@ -550,9 +802,9 @@ def _rewrite_hls_manifest_for_proxy(raw_text: str, base_url: str) -> str:
             out_lines.append(line)
             continue
         if s.startswith("#"):
-            if re.search(r'URI\s*=\s*["\']', s, re.I):
+            if "URI" in s.upper() and _HLS_URI_ATTR_RE.search(s):
                 out_lines.append(
-                    re.sub(r'URI\s*=\s*(["\'])([^"\']+)\1', _replace_uri_attr, line, flags=re.I)
+                    _HLS_URI_ATTR_RE.sub(_replace_uri_attr, line)
                 )
             else:
                 out_lines.append(line)
@@ -601,7 +853,7 @@ def serve_offline_video_file(
         handler.send_header("Content-Length", str(file_size))
 
     if download_filename:
-        ascii_fb = re.sub(r'[^a-zA-Z0-9._ -]+', "_", download_filename).strip() or "CineFlow.mp4"
+        ascii_fb = re.sub(r'[^a-zA-Z0-9._ -]+', "_", download_filename).strip() or "Velarium.mp4"
         utf8_enc = urllib.parse.quote(download_filename, safe="")
         handler.send_header(
             "Content-Disposition",
@@ -619,7 +871,7 @@ def serve_offline_video_file(
             vf.seek(start)
             remaining = chunk_len
             while remaining > 0:
-                buf = vf.read(min(131072, remaining))
+                buf = vf.read(min(262144, remaining))
                 if not buf:
                     break
                 touch_stream_activity()
@@ -645,23 +897,23 @@ def handle_proxy_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
         return True
     evict_edge = qs.get("_evict_edge", ["0"])[0].strip().lower() in ("1", "true", "yes")
     raw_range = (handler.headers.get("Range") or "").replace("\r", "").replace("\n", "").strip()
+    parsed_stream_url = urllib.parse.urlparse(clean_url)
+    parsed_stream_path_lower = (parsed_stream_url.path or "").lower()
     is_likely_hls_url = (
-        (urllib.parse.urlparse(clean_url).path or "").lower().endswith(".m3u8")
+        parsed_stream_path_lower.endswith(".m3u8")
         or ":hls:" in clean_url.lower()
     )
     range_hdr = (
         ""
         if is_likely_hls_url
-        else (
-            raw_range
-            if re.fullmatch(
-                r"bytes=(?:\d+-\d*|\d*-\d+)(?:,\s*(?:\d+-\d*|\d*-\d+))*",
-                raw_range,
-            )
-            else ""
-        )
+        else (raw_range if _HTTP_RANGE_RE.fullmatch(raw_range) else "")
     )
+    m_single_range = _RANGE_SINGLE_RE.match(range_hdr)
+    range_start = int(m_single_range.group(1)) if m_single_range else 0
+    range_end_str = m_single_range.group(2) if m_single_range else ""
     conn = None
+    upstream = None
+    conn_reusable = False
     headers_sent = False
     expected_len = -1
     bytes_forwarded = 0
@@ -689,6 +941,33 @@ def handle_proxy_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                 or is_likely_hls_url
             )
         )
+        if not is_hls_content and range_start > 0 and status_code == 200:
+            _evict_voidboost_edge_and_mark_dead(
+                clean_url,
+                str(getattr(conn, "_velarium_edge_url", "") or ""),
+            )
+            handler._send_json(
+                {"error": f"Upstream ignored non-zero Range ({range_hdr}) and returned 200 OK"},
+                status=502,
+            )
+            return True
+        if (
+            not head_only
+            and not is_hls_content
+            and range_start == 0
+            and not range_end_str
+            and ".mp4" in parsed_stream_path_lower
+            and 0 < expected_len < 300000
+        ):
+            _evict_voidboost_edge_and_mark_dead(
+                clean_url,
+                str(getattr(conn, "_velarium_edge_url", "") or ""),
+            )
+            handler._send_json(
+                {"error": f"Upstream returned suspiciously small MP4 stub ({expected_len} bytes)"},
+                status=502,
+            )
+            return True
         is_hls_manifest = not head_only and is_hls_content
         if head_only and is_hls_content:
             status_code = 200
@@ -705,7 +984,7 @@ def handle_proxy_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
             if len(raw_m3u8) > 2 * 1024 * 1024:
                 handler._send_json({"error": "HLS manifest exceeds 2 MB safety limit"}, status=502)
                 return True
-            edge_base = str(getattr(conn, "_cineflow_edge_url", "") or clean_url)
+            edge_base = str(getattr(conn, "_velarium_edge_url", "") or clean_url)
             rewritten_txt = _rewrite_hls_manifest_for_proxy(
                 raw_m3u8.decode("utf-8", errors="replace"),
                 edge_base,
@@ -734,31 +1013,187 @@ def handle_proxy_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
         handler.end_headers()
         headers_sent = True
 
-        if not head_only:
+        if head_only:
+            conn_reusable = True
+        else:
             touch_stream_activity()
             if rewritten_hls_bytes is not None:
                 handler.wfile.write(rewritten_hls_bytes)
                 bytes_forwarded = len(rewritten_hls_bytes)
-            else:
+                conn_reusable = True
+            elif expected_len > 0 and expected_len <= 262144:
                 read_fn = getattr(upstream, "read1", None) or upstream.read
-                while True:
-                    chunk = read_fn(65536)
+                while bytes_forwarded < expected_len:
+                    chunk = read_fn(min(131072, expected_len - bytes_forwarded))
                     if not chunk:
                         break
                     bytes_forwarded += len(chunk)
                     touch_stream_activity()
                     handler.wfile.write(chunk)
-                if expected_len > 0 and bytes_forwarded < expected_len:
+                if bytes_forwarded == expected_len:
+                    conn_reusable = True
+            else:
+                # 6 MB async RAM read-ahead ring buffer (24 x 256 KB) so VoidBoost CDN is drained
+                # continuously at full line speed even when WKWebView pauses between decode bursts.
+                proxy_queue: "queue.Queue[Optional[bytes]]" = queue.Queue(maxsize=24)
+                stop_proxy = threading.Event()
+                conn_box: List[Any] = [conn, upstream, False]  # [conn, upstream, pump_completed]
+
+                def _pump_proxy_upstream() -> None:
+                    resume_attempts = 0
+                    max_resume_attempts = 3 if (not is_hls_content and expected_len > 0) else 0
+                    pump_bytes_read = 0
+                    try:
+                        while not stop_proxy.is_set():
+                            cur_up = conn_box[1]
+                            read_fn = getattr(cur_up, "read1", None) or cur_up.read
+                            upstream_dropped = False
+                            try:
+                                while not stop_proxy.is_set():
+                                    if expected_len > 0 and pump_bytes_read >= expected_len:
+                                        conn_box[2] = True
+                                        break
+                                    to_read = 262144
+                                    if expected_len > 0:
+                                        to_read = min(262144, expected_len - pump_bytes_read)
+                                    chunk = read_fn(to_read)
+                                    if not chunk:
+                                        if expected_len > 0 and pump_bytes_read >= expected_len:
+                                            conn_box[2] = True
+                                        upstream_dropped = (expected_len > 0 and pump_bytes_read < expected_len)
+                                        break
+                                    pump_bytes_read += len(chunk)
+                                    if expected_len > 0 and pump_bytes_read >= expected_len:
+                                        conn_box[2] = True
+                                    while not stop_proxy.is_set():
+                                        try:
+                                            proxy_queue.put(chunk, timeout=0.8)
+                                            break
+                                        except queue.Full:
+                                            continue
+                            except Exception:
+                                upstream_dropped = (expected_len > 0 and pump_bytes_read < expected_len)
+
+                            if (
+                                stop_proxy.is_set()
+                                or not upstream_dropped
+                                or pump_bytes_read <= 0
+                                or resume_attempts >= max_resume_attempts
+                            ):
+                                break
+
+                            resume_attempts += 1
+                            _evict_voidboost_edge_and_mark_dead(
+                                clean_url,
+                                str(getattr(conn_box[0], "_velarium_edge_url", "") or ""),
+                            )
+                            try:
+                                if conn_box[0] is not None:
+                                    conn_box[0].close()
+                            except Exception:
+                                pass
+                            conn_box[0] = None
+                            next_start = range_start + pump_bytes_read
+                            if range_end_str:
+                                next_end = int(range_end_str)
+                            elif expected_len > 0:
+                                next_end = range_start + expected_len - 1
+                            else:
+                                next_end = -1
+                            if 0 <= next_end < next_start:
+                                break
+                            resume_range_hdr = (
+                                f"bytes={next_start}-{next_end}"
+                                if next_end >= next_start
+                                else f"bytes={next_start}-"
+                            )
+                            try:
+                                new_c, new_u = _open_resilient_media_upstream(
+                                    clean_url,
+                                    range_header=resume_range_hdr,
+                                    method="GET",
+                                    evict_cached_edge=(resume_attempts > 1),
+                                    abort_event=stop_proxy,
+                                )
+                                conn_box[0] = new_c
+                                conn_box[1] = new_u
+                                if new_u.status != 206:
+                                    break
+                            except Exception:
+                                break
+                    finally:
+                        if stop_proxy.is_set() and not conn_box[2]:
+                            try:
+                                if conn_box[0] is not None:
+                                    conn_box[0].close()
+                            except Exception:
+                                pass
+                        while not stop_proxy.is_set():
+                            try:
+                                proxy_queue.put(None, timeout=0.4)
+                                break
+                            except queue.Full:
+                                try:
+                                    proxy_queue.get_nowait()
+                                except Exception:
+                                    break
+
+                pump_future = _PROXY_PUMP_POOL.submit(_pump_proxy_upstream)
+                try:
+                    while True:
+                        try:
+                            out_chunk = proxy_queue.get(timeout=45.0)
+                        except queue.Empty:
+                            break
+                        if out_chunk is None:
+                            break
+                        bytes_forwarded += len(out_chunk)
+                        touch_stream_activity()
+                        handler.wfile.write(out_chunk)
+                finally:
+                    stop_proxy.set()
+                    if not conn_box[2]:
+                        try:
+                            if conn_box[0] is not None:
+                                conn_box[0].close()
+                        except Exception:
+                            pass
+                    while not proxy_queue.empty():
+                        try:
+                            proxy_queue.get_nowait()
+                        except Exception:
+                            break
+                    try:
+                        pump_future.result(timeout=0.3)
+                    except Exception:
+                        pass
+                    conn = conn_box[0]
+                    upstream = conn_box[1]
+                    if expected_len > 0 and bytes_forwarded == expected_len and conn_box[2]:
+                        conn_reusable = True
+                    elif pump_future.done():
+                        try:
+                            if conn is not None:
+                                conn.close()
+                        except Exception:
+                            pass
+                        conn = None
+                    else:
+                        conn = None
+
+                if not head_only and expected_len > 0 and bytes_forwarded < expected_len:
+                    handler.close_connection = True
                     _evict_voidboost_edge_and_mark_dead(
                         clean_url,
-                        str(getattr(conn, "_cineflow_edge_url", "") or ""),
+                        str(getattr(conn, "_velarium_edge_url", "") or "") if conn is not None else "",
                     )
     except (BrokenPipeError, ConnectionResetError):
-        pass
+        conn_reusable = False
     except Exception as err:
+        conn_reusable = False
         _evict_voidboost_edge_and_mark_dead(
             clean_url,
-            str(getattr(conn, "_cineflow_edge_url", "") or "") if conn is not None else "",
+            str(getattr(conn, "_velarium_edge_url", "") or "") if conn is not None else "",
         )
         if not headers_sent:
             try:
@@ -773,10 +1208,7 @@ def handle_proxy_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
         except Exception:
             pass
         if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            _release_or_close_media_conn(conn, upstream, reusable=conn_reusable)
     return True
 
 
@@ -792,7 +1224,7 @@ def handle_download_mp4(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
         return True
 
     stream_url = _unwrap_local_proxy_media_url(qs.get("url", [""])[0].strip())
-    filename = qs.get("filename", ["CineFlow_Video.mp4"])[0]
+    filename = qs.get("filename", ["Velarium_Video.mp4"])[0]
     profile_manager = ctx.profile_manager
     if profile_manager.is_kids_mode_active():
         raw_dl_title = qs.get("title", [""])[0].strip() or re.sub(r"\.mp4$", "", filename, flags=re.I).strip()
@@ -819,7 +1251,7 @@ def handle_download_mp4(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
         for c in filename
     ).strip("_ ")
     if not safe_ascii or safe_ascii.lower() == ".mp4":
-        safe_ascii = "CineFlow_Video.mp4"
+        safe_ascii = "Velarium_Video.mp4"
     elif not safe_ascii.lower().endswith(".mp4"):
         safe_ascii += ".mp4"
     utf8_quoted = urllib.parse.quote(filename if filename.lower().endswith(".mp4") else filename + ".mp4")
@@ -854,6 +1286,7 @@ def handle_download_mp4(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
         proc = None
         headers_sent = False
         dl_stop = threading.Event()
+        setattr(dl_stop, "_is_mp4_download", True)
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -893,7 +1326,7 @@ def handle_download_mp4(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                             except Exception:
                                 break
 
-            threading.Thread(target=_pump_mp4_dl, daemon=True).start()
+            threading.Thread(target=_pump_mp4_dl, daemon=True, name="VelariumMp4DlPump").start()
             try:
                 first_chunk = dl_q.get(timeout=26.0)
             except queue.Empty:
@@ -934,6 +1367,11 @@ def handle_download_mp4(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                     pass
         finally:
             dl_stop.set()
+            while not dl_q.empty():
+                try:
+                    dl_q.get_nowait()
+                except Exception:
+                    break
             if proc:
                 with _ACTIVE_REMUX_PROCS_LOCK:
                     _ACTIVE_REMUX_PROCS[:] = [
@@ -1012,11 +1450,17 @@ def handle_proxy_vtt(handler, qs: Dict[str, Any], parsed, ctx, head_only: bool =
 
     vtt_url = qs.get("url", [""])[0].strip()
     ss_offset = ctx.qs_float(qs, "ss", 0.0) + ctx.qs_float(qs, "offset", 0.0)
+    conv_cache_key = (vtt_url, round(ss_offset, 2))
+    now_vtt = time.time()
     vtt_body = "WEBVTT\n\n"
+    data_bytes: Optional[bytes] = None
     if _check_allowed_media_source_url(vtt_url, allow_torrserver_loopback=False):
         with SUBTITLE_CACHE_LOCK:
-            raw_cached = SUBTITLE_RAW_CACHE.get(vtt_url)
-        if not raw_cached:
+            conv_entry = _WEBVTT_CONVERTED_CACHE.get(conv_cache_key)
+            if conv_entry and (now_vtt - conv_entry[0]) < 1800.0:
+                data_bytes = conv_entry[1]
+            raw_cached = SUBTITLE_RAW_CACHE.get(vtt_url) if data_bytes is None else None
+        if data_bytes is None and not raw_cached:
             try:
                 open_safe = getattr(ctx, "open_safe_public_url", None)
                 if open_safe:
@@ -1033,7 +1477,7 @@ def handle_proxy_vtt(handler, qs: Dict[str, Any], parsed, ctx, head_only: bool =
                 raw_cached = None
                 err_msg_sub = str(url_err)
                 if not any(tok in err_msg_sub for tok in ("Disallowed", "Failed to verify peer IP")):
-                    srv = sys.modules.get("server")
+                    srv = _get_server_module()
                     net_client = getattr(srv, "net_client", None)
                     if net_client:
                         st, raw_bytes_fb, fb_hdrs = net_client.request_bytes(vtt_url, spoof_geo_country="DIRECT", timeout=6)
@@ -1046,9 +1490,16 @@ def handle_proxy_vtt(handler, qs: Dict[str, Any], parsed, ctx, head_only: bool =
                         for k_old in list(SUBTITLE_RAW_CACHE.keys())[:16]:
                             SUBTITLE_RAW_CACHE.pop(k_old, None)
                     SUBTITLE_RAW_CACHE[vtt_url] = raw_cached
-        if raw_cached:
+        if data_bytes is None and raw_cached:
             vtt_body = convert_any_subtitle_to_webvtt(raw_cached, offset_sec=ss_offset)
-    data_bytes = vtt_body.encode("utf-8")
+            data_bytes = vtt_body.encode("utf-8")
+            with SUBTITLE_CACHE_LOCK:
+                if len(_WEBVTT_CONVERTED_CACHE) >= 48:
+                    for k_old in list(_WEBVTT_CONVERTED_CACHE.keys())[:12]:
+                        _WEBVTT_CONVERTED_CACHE.pop(k_old, None)
+                _WEBVTT_CONVERTED_CACHE[conv_cache_key] = (now_vtt, data_bytes)
+    if data_bytes is None:
+        data_bytes = vtt_body.encode("utf-8")
     handler.send_response(200)
     handler.send_header("Content-Type", "text/vtt; charset=utf-8")
     handler.send_header("Content-Length", str(len(data_bytes)))
@@ -1089,7 +1540,16 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
     if burn_sub and sub_param:
         try:
             if os.path.isabs(sub_param) and os.path.isfile(sub_param):
-                temp_sub_path = sub_param
+                real_cand = os.path.realpath(sub_param)
+                allowed_roots = [os.path.realpath(tempfile.gettempdir())]
+                dl_root = getattr(ctx.download_manager, "downloads_dir", "")
+                if dl_root:
+                    allowed_roots.append(os.path.realpath(dl_root))
+                if any(
+                    real_cand.startswith(r + os.sep) and real_cand.lower().endswith((".srt", ".vtt", ".ass", ".ssa"))
+                    for r in allowed_roots
+                ):
+                    temp_sub_path = real_cand
             elif sub_param.startswith("/api/downloads/sub/"):
                 parts = sub_param.strip("/").split("/")
                 if len(parts) >= 4:
@@ -1097,36 +1557,97 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                     sub_fn = parts[4] if len(parts) > 4 else "sub.vtt"
                     dl_sub_file = ctx.download_manager.get_subtitle_file_path(dl_id, sub_fn)
                     if dl_sub_file and os.path.isfile(dl_sub_file):
-                        with open(dl_sub_file, "rb") as sf:
-                            s_bytes = sf.read(8 * 1024 * 1024)
-                        from backend.subtitles import decode_subtitle_bytes, convert_vtt_to_srt
-                        s_text = decode_subtitle_bytes(s_bytes)
-                        if "WEBVTT" in s_text[:128]:
-                            s_text = convert_vtt_to_srt(s_text)
-                        sub_hash = hashlib.sha256(s_bytes).hexdigest()[:12]
-                        tmp_f = os.path.join(tempfile.gettempdir(), f"cineflow_sub_{sub_hash}.srt")
-                        with open(tmp_f, "w", encoding="utf-8") as tf:
-                            tf.write(s_text)
-                        temp_sub_path = tmp_f
+                        try:
+                            sub_mtime = os.path.getmtime(dl_sub_file)
+                        except OSError:
+                            sub_mtime = 0.0
+                        with _REMUX_SUB_SRT_LOCK:
+                            cached_srt = _REMUX_SUB_SRT_CACHE.get((dl_sub_file, sub_mtime))
+                        if cached_srt and os.path.isfile(cached_srt) and os.path.getsize(cached_srt) > 0:
+                            temp_sub_path = cached_srt
+                        else:
+                            with open(dl_sub_file, "rb") as sf:
+                                s_bytes = sf.read(8 * 1024 * 1024)
+                            sub_hash = hashlib.sha256(s_bytes).hexdigest()[:12]
+                            tmp_f = os.path.join(tempfile.gettempdir(), f"velarium_sub_{sub_hash}.srt")
+                            if not (os.path.isfile(tmp_f) and os.path.getsize(tmp_f) > 0):
+                                from backend.subtitles import decode_subtitle_bytes, convert_vtt_to_srt
+                                s_text = decode_subtitle_bytes(s_bytes)
+                                if "WEBVTT" in s_text[:128]:
+                                    s_text = convert_vtt_to_srt(s_text)
+                                tmp_f_atomic = f"{tmp_f}.{os.getpid()}.{threading.get_ident()}.tmp"
+                                with open(tmp_f_atomic, "w", encoding="utf-8") as tf:
+                                    tf.write(s_text)
+                                os.replace(tmp_f_atomic, tmp_f)
+                            with _REMUX_SUB_SRT_LOCK:
+                                if len(_REMUX_SUB_SRT_CACHE) > 64:
+                                    evict_keys = list(_REMUX_SUB_SRT_CACHE.keys())[:16]
+                                    for ek in evict_keys:
+                                        old_srt = _REMUX_SUB_SRT_CACHE.pop(ek, None)
+                                        if old_srt and old_srt != tmp_f:
+                                            try:
+                                                os.unlink(old_srt)
+                                            except OSError:
+                                                pass
+                                _REMUX_SUB_SRT_CACHE[(dl_sub_file, sub_mtime)] = tmp_f
+                            temp_sub_path = tmp_f
             elif sub_param.startswith(("http://", "https://")) or sub_param.startswith("/api/proxy-vtt"):
                 real_sub_url = sub_param
                 if "/api/proxy-vtt" in real_sub_url:
                     parsed_sub = urllib.parse.urlparse(real_sub_url)
                     sub_qs = urllib.parse.parse_qs(parsed_sub.query)
                     real_sub_url = (sub_qs.get("url") or [real_sub_url])[0]
-                if _check_allowed_media_source_url(real_sub_url, allow_torrserver_loopback=True):
+                url_sub_hash = hashlib.sha256(real_sub_url.encode("utf-8")).hexdigest()[:12]
+                url_tmp_f = os.path.join(tempfile.gettempdir(), f"velarium_sub_{url_sub_hash}.srt")
+                if os.path.isfile(url_tmp_f) and os.path.getsize(url_tmp_f) > 64:
+                    temp_sub_path = url_tmp_f
+                elif _check_allowed_media_source_url(real_sub_url, allow_torrserver_loopback=True):
                     from backend.subtitles import decode_subtitle_bytes, convert_vtt_to_srt
-                    req_sub = urllib.request.Request(real_sub_url, headers={"User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(req_sub, timeout=4.0) as s_resp:
-                        s_bytes = s_resp.read(8 * 1024 * 1024)
-                    s_text = decode_subtitle_bytes(s_bytes)
-                    if "WEBVTT" in s_text[:128]:
-                        s_text = convert_vtt_to_srt(s_text)
-                    sub_hash = hashlib.sha256(s_bytes).hexdigest()[:12]
-                    tmp_f = os.path.join(tempfile.gettempdir(), f"cineflow_sub_{sub_hash}.srt")
-                    with open(tmp_f, "w", encoding="utf-8") as tf:
+                    with _REMUX_SUB_SRT_LOCK:
+                        cached_srt_txt = _REMUX_SUB_SRT_CACHE.get(("url_txt", real_sub_url))
+                    if isinstance(cached_srt_txt, str) and cached_srt_txt:
+                        s_text = cached_srt_txt
+                    else:
+                        parsed_real_sub = urllib.parse.urlparse(real_sub_url)
+                        sub_host = (parsed_real_sub.hostname or "").lower()
+                        if sub_host in ("127.0.0.1", "localhost", "::1"):
+                            req_sub = urllib.request.Request(real_sub_url, headers={"User-Agent": "Mozilla/5.0"})
+                            s_ctx = _LOOPBACK_DIRECT_OPENER.open(req_sub, timeout=4.0)
+                        else:
+                            s_ctx = ctx.open_safe_public_url(
+                                real_sub_url,
+                                headers={"User-Agent": "Mozilla/5.0"},
+                                timeout=4.0,
+                            )
+                        with s_ctx as s_resp:
+                            s_bytes = s_resp.read(8 * 1024 * 1024)
+                        s_text = decode_subtitle_bytes(s_bytes)
+                        if "WEBVTT" in s_text[:128]:
+                            s_text = convert_vtt_to_srt(s_text)
+                        with _REMUX_SUB_SRT_LOCK:
+                            if len(_REMUX_SUB_SRT_CACHE) > 64:
+                                for ek in list(_REMUX_SUB_SRT_CACHE.keys())[:16]:
+                                    _REMUX_SUB_SRT_CACHE.pop(ek, None)
+                            _REMUX_SUB_SRT_CACHE[("url_txt", real_sub_url)] = s_text
+                    url_tmp_atomic = f"{url_tmp_f}.{os.getpid()}.{threading.get_ident()}.tmp"
+                    with open(url_tmp_atomic, "w", encoding="utf-8") as tf:
                         tf.write(s_text)
-                    temp_sub_path = tmp_f
+                    os.replace(url_tmp_atomic, url_tmp_f)
+                    with _REMUX_SUB_SRT_LOCK:
+                        if url_tmp_f not in _REMUX_TEMP_SUB_FILES:
+                            _REMUX_TEMP_SUB_FILES.append(url_tmp_f)
+                        if len(_REMUX_TEMP_SUB_FILES) > 24:
+                            evict_subs = _REMUX_TEMP_SUB_FILES[:-24]
+                            del _REMUX_TEMP_SUB_FILES[:-24]
+                        else:
+                            evict_subs = []
+                    for old_sub_p in evict_subs:
+                        if old_sub_p != url_tmp_f:
+                            try:
+                                os.unlink(old_sub_p)
+                            except OSError:
+                                pass
+                    temp_sub_path = url_tmp_f
         except Exception:
             pass
 
@@ -1144,7 +1665,7 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
             vcodec_candidates.append("")
 
         first_chunk = None
-        chunk_queue: "queue.Queue[Optional[bytes]]" = queue.Queue(maxsize=16)
+        chunk_queue: Optional["queue.Queue[Optional[bytes]]"] = None
 
         for attempt_vcodec in vcodec_candidates:
             with _ACTIVE_REMUX_PROCS_LOCK:
@@ -1152,7 +1673,7 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                     break
             stop_reader.set()
             stop_reader = threading.Event()
-            chunk_queue = queue.Queue(maxsize=16)
+            chunk_queue = queue.Queue(maxsize=48)
             cmd = remux_engine.build_remux_command(
                 source_url=src_url,
                 audio_index=audio_idx,
@@ -1171,25 +1692,51 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                 if hasattr(remux_engine, "build_ffmpeg_env")
                 else None
             )
+            procs_to_terminate = []
             with _ACTIVE_REMUX_PROCS_LOCK:
                 if _REMUX_GEN_SEQ != my_remux_gen:
                     break
+                kept_dl_procs = []
                 for prev_p, prev_stop in list(_ACTIVE_REMUX_PROCS):
+                    if getattr(prev_stop, "_is_mp4_download", False):
+                        if prev_p.poll() is None and not prev_stop.is_set():
+                            kept_dl_procs.append((prev_p, prev_stop))
+                        continue
                     prev_stop.set()
-                    if prev_p.poll() is None:
-                        try:
-                            prev_p.terminate()
-                        except Exception:
-                            pass
-                _ACTIVE_REMUX_PROCS.clear()
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    bufsize=65536,
-                    env=ff_env_rmx,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
+                    procs_to_terminate.append(prev_p)
+                _ACTIVE_REMUX_PROCS[:] = kept_dl_procs
+
+            for prev_p in procs_to_terminate:
+                if prev_p.poll() is None:
+                    try:
+                        prev_p.terminate()
+                    except Exception:
+                        pass
+                if prev_p.stdout:
+                    try:
+                        prev_p.stdout.close()
+                    except Exception:
+                        pass
+                try:
+                    _REMUX_CLEANUP_POOL.submit(_terminate_and_reap_proc, prev_p)
+                except Exception:
+                    pass
+
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=65536,
+                env=ff_env_rmx,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            with _ACTIVE_REMUX_PROCS_LOCK:
+                if _REMUX_GEN_SEQ != my_remux_gen:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+                    break
                 _ACTIVE_REMUX_PROCS.append((proc, stop_reader))
             active_stdout = proc.stdout
             read_out = getattr(active_stdout, "read1", None) or (active_stdout.read if active_stdout else None)
@@ -1219,7 +1766,7 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                             except Exception:
                                 break
 
-            threading.Thread(target=_pump_ffmpeg_stdout, daemon=True).start()
+            threading.Thread(target=_pump_ffmpeg_stdout, daemon=True, name="VelariumFFmpegPump").start()
             first_chunk = None
             wait_deadline = time.time() + 32.0
             while time.time() < wait_deadline and not stop_reader.is_set():
@@ -1236,6 +1783,11 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
             stop_reader.set()
             with _ACTIVE_REMUX_PROCS_LOCK:
                 _ACTIVE_REMUX_PROCS[:] = [(p, s) for p, s in _ACTIVE_REMUX_PROCS if p is not proc]
+            if proc and proc.stdout:
+                try:
+                    proc.stdout.close()
+                except Exception:
+                    pass
             if proc and proc.poll() is None:
                 try:
                     proc.terminate()
@@ -1246,13 +1798,8 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                         proc.wait(timeout=0.8)
                     except Exception:
                         pass
-            if proc and proc.stdout:
-                try:
-                    proc.stdout.close()
-                except Exception:
-                    pass
             proc = None
-            if (time.time() - attempt_t0) > 8.0:
+            if (time.time() - attempt_t0) > 3.5:
                 break
 
         if not first_chunk:
@@ -1277,7 +1824,7 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
             except queue.Empty:
                 if proc and proc.poll() is not None and chunk_queue.empty():
                     break
-                if time.time() - local_last_chunk_ts > 30.0:
+                if time.time() - local_last_chunk_ts > 90.0:
                     break
                 continue
             if not chunk:
@@ -1295,9 +1842,19 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                 pass
     finally:
         stop_reader.set()
+        while not chunk_queue.empty():
+            try:
+                chunk_queue.get_nowait()
+            except Exception:
+                break
         if proc:
             with _ACTIVE_REMUX_PROCS_LOCK:
                 _ACTIVE_REMUX_PROCS[:] = [(p, s) for p, s in _ACTIVE_REMUX_PROCS if p is not proc]
+            if proc.stdout:
+                try:
+                    proc.stdout.close()
+                except Exception:
+                    pass
             if proc.poll() is None:
                 try:
                     proc.terminate()
@@ -1308,11 +1865,6 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                         proc.wait(timeout=0.6)
                     except Exception:
                         pass
-            if proc.stdout:
-                try:
-                    proc.stdout.close()
-                except Exception:
-                    pass
     return True
 
 
@@ -1368,7 +1920,7 @@ def handle_video_snapshot(handler, qs: Dict[str, Any], parsed, ctx, head_only: b
     handler.send_response(200)
     handler.send_header("Content-Type", "image/png")
     handler.send_header("Content-Length", str(len(png_bytes)))
-    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("Cache-Control", "private, max-age=300")
     handler.send_header("Access-Control-Allow-Origin", "*")
     handler.end_headers()
     handler.wfile.write(png_bytes)
@@ -1446,7 +1998,24 @@ def handle_downloads_poster(handler, qs: Dict[str, Any], parsed, ctx, head_only:
     if not ppath or not os.path.isfile(ppath):
         handler._send_json({"error": "Poster not found"}, status=404)
         return True
-    file_size = os.path.getsize(ppath)
+    try:
+        st = os.stat(ppath)
+        file_size = st.st_size
+        etag = f'"{int(st.st_mtime):x}-{file_size:x}"'
+    except OSError:
+        file_size = os.path.getsize(ppath)
+        etag = ""
+
+    if etag and hasattr(handler, "headers") and handler.headers is not None:
+        inm = (handler.headers.get("If-None-Match") or "").strip()
+        if inm and (etag in [x.strip() for x in inm.split(",")] or inm == "*"):
+            handler.send_response(304)
+            handler.send_header("ETag", etag)
+            handler.send_header("Cache-Control", "public, max-age=86400")
+            handler.send_header("Access-Control-Allow-Origin", "*")
+            handler.end_headers()
+            return True
+
     if head_only:
         try:
             with open(ppath, "rb") as pf:
@@ -1457,6 +2026,9 @@ def handle_downloads_poster(handler, qs: Dict[str, Any], parsed, ctx, head_only:
         handler.send_response(200)
         handler.send_header("Content-Type", p_ctype)
         handler.send_header("Content-Length", str(file_size))
+        if etag:
+            handler.send_header("ETag", etag)
+        handler.send_header("Cache-Control", "public, max-age=86400")
         handler.send_header("Access-Control-Allow-Origin", "*")
         handler.end_headers()
         return True
@@ -1474,6 +2046,8 @@ def handle_downloads_poster(handler, qs: Dict[str, Any], parsed, ctx, head_only:
     handler.send_response(200)
     handler.send_header("Content-Type", ctype)
     handler.send_header("Content-Length", str(len(img_bytes)))
+    if etag:
+        handler.send_header("ETag", etag)
     handler.send_header("Cache-Control", "public, max-age=86400")
     handler.send_header("Access-Control-Allow-Origin", "*")
     handler.end_headers()

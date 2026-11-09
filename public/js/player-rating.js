@@ -1,21 +1,21 @@
-import { state } from "./state.js?v=20261105v5";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261108v19";
 import {
   bindStarsHoverRange,
   clampFloatingPopover,
   closeFloatingPopovers,
   showToast,
   withKinoriumActionLock,
-} from "./utils.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
 import {
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261105v5";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261105v5";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261105v5";
-import { isStageFullscreen } from "./player-ui-controls.js?v=20261105v5";
-import { updateModalKinoriumHeader } from "./player-meta.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261108v19";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261108v19";
+import { isStageFullscreen } from "./player-ui-controls.js?v=20261108v19";
+import { updateModalKinoriumHeader } from "./player-meta.js?v=20261108v19";
 import {
   getEpisodeDisplayMeta,
   getEpisodeRatingEntry,
@@ -24,7 +24,7 @@ import {
   resolveSeriesCompletedFlag,
   toggleCurrentEpisodeWatched,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261105v5";
+} from "./player-seasons.js?v=20261108v19";
 
 export function syncPostwatchOverlayMount() {
   const overlay = document.getElementById("kinorium-postwatch-overlay");
@@ -196,6 +196,7 @@ export function openPostWatchRatingOverlay(
     state.postwatchScope = "movie";
   }
   renderPostWatchRatingState();
+  document.getElementById("xray-pause-shelf")?.classList.add("hidden");
   overlay.classList.remove("hidden");
   document.getElementById("video-stage")?.classList.add("has-postwatch-open");
   clampFloatingPopover(overlay);
@@ -580,9 +581,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
         state.postwatchAnchor === "header" &&
         state.postwatchScope === scope
       ) {
-        state.postwatchManual = false;
-        state.postwatchHovered = false;
-        postwatchOverlayEl.classList.add("hidden");
+        closePostWatchRatingOverlay();
         return;
       }
       openPostWatchRatingOverlay(scope, state.activeSeason, state.activeEpisode, true, "header");
@@ -610,9 +609,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
       state.postwatchAnchor === "epbar" &&
       state.postwatchScope === "episode"
     ) {
-      state.postwatchManual = false;
-      state.postwatchHovered = false;
-      postwatchOverlayEl.classList.add("hidden");
+      closePostWatchRatingOverlay();
       return;
     }
     openPostWatchRatingOverlay("episode", state.activeSeason, state.activeEpisode, true, "epbar");
@@ -798,9 +795,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
         patchCatalogItemKinoriumInPlace(itemRef, kStatus);
         pushDesktopRemoteStateNow();
         if (closeAfterSave) {
-          state.postwatchManual = false;
-          state.postwatchHovered = false;
-          document.getElementById("kinorium-postwatch-overlay")?.classList.add("hidden");
+          closePostWatchRatingOverlay();
         }
         const epKinSuffix = kStatus.remote_synced ? t(" в Kinorium", " on Kinorium") : "";
         if (kStatus.auto_completed_series) {
@@ -846,9 +841,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
         renderPostWatchRatingState();
       }
       if (closeAfterSave) {
-        state.postwatchManual = false;
-        state.postwatchHovered = false;
-        document.getElementById("kinorium-postwatch-overlay")?.classList.add("hidden");
+        closePostWatchRatingOverlay();
       }
       patchCatalogItemKinoriumInPlace(itemRef, kStatus);
       pushDesktopRemoteStateNow();

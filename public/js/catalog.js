@@ -3,7 +3,7 @@ import {
   PREFERRED_STUDIOS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261105v5";
+} from "./state.js?v=20261108v19";
 import {
   displayBackdrop,
   displayCountries,
@@ -18,7 +18,7 @@ import {
   translateGenre,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   attachHorizontalWheelScroll,
   copyTextToClipboard,
@@ -43,25 +43,25 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261105v5";
-import { getPlayerPrefs } from "./audio-dsp.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
+import { getPlayerPrefs } from "./audio-dsp.js?v=20261108v19";
 import {
   buildPersonPhotoCard,
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261105v5";
-import { openPlayerModal, renderModalProvidersSidebar, switchSourceTab } from "./player.js?v=20261105v5";
-import { confirmServiceLogin, openSettingsModal, triggerServiceLoginFlow } from "./settings.js?v=20261105v5";
-import { openTvCastModal, renderHeaderProfileSwitcher } from "./features.js?v=20261105v5";
-import { getOfflineCatalogItems, setOfflineMode } from "./features-downloads.js?v=20261105v5";
+} from "./modals.js?v=20261108v19";
+import { openPlayerModal, renderModalProvidersSidebar, switchSourceTab } from "./player.js?v=20261108v19";
+import { confirmServiceLogin, openSettingsModal, triggerServiceLoginFlow } from "./settings.js?v=20261108v19";
+import { openTvCastModal, renderHeaderProfileSwitcher } from "./features.js?v=20261108v19";
+import { getOfflineCatalogItems, setOfflineMode } from "./features-downloads.js?v=20261108v19";
 import {
   renderContinueWatching,
   parseItemDurationMinutes,
   renderCuratedShelves,
   renderCatalogShelves,
-} from "./catalog-shelves.js?v=20261105v5";
+} from "./catalog-shelves.js?v=20261108v19";
 import {
   buildPosterBadgesHtml,
   buildFallbackPosterSvg,
@@ -73,7 +73,7 @@ import {
   renderPosterCardsInto,
   cancelPendingCardBatch,
   appendPosterCardsProgressive,
-} from "./catalog-cards.js?v=20261105v5";
+} from "./catalog-cards.js?v=20261108v19";
 import {
   stopHeroAmbientTeaser,
   scheduleHeroAmbientTeaser,
@@ -83,13 +83,13 @@ import {
   renderHeroSlide,
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261105v5";
+} from "./catalog-hero.js?v=20261108v19";
 import {
   collectNewEpisodeNotifications,
   switchNotificationsTab,
   loadAndRenderReleaseCalendar,
   renderNotificationsBell,
-} from "./catalog-notifications.js?v=20261105v5";
+} from "./catalog-notifications.js?v=20261108v19";
 import {
   openMovieRouletteModal,
   closeMovieRouletteModal,
@@ -98,7 +98,7 @@ import {
   openCommandPalette,
   closeCommandPalette,
   initCommandPalette,
-} from "./catalog-discovery.js?v=20261105v5";
+} from "./catalog-discovery.js?v=20261108v19";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
@@ -111,9 +111,12 @@ import {
   sortCatalogItems,
   resetCatalogDrawerFiltersUI,
   initCatalogToolbarAndFilterBindings,
-} from "./catalog-filters.js?v=20261105v5";
+} from "./catalog-filters.js?v=20261108v19";
 import {
   isEpisodeWatched,
+  normalizeStudioBrand,
+  getItemStudioPreferenceKeys,
+  matchPreferredStudioInList,
   getPreferredStudioForItem,
   savePreferredStudioForItem,
   findSavedProgress,
@@ -129,7 +132,7 @@ import {
   getFriendsAverageScore,
   patchCatalogItemKinoriumInPlace,
   getPrimaryRating,
-} from "./catalog-media-resolver.js?v=20261105v5";
+} from "./catalog-media-resolver.js?v=20261108v19";
 
 export {
   renderContinueWatching,
@@ -176,6 +179,9 @@ export {
   resetCatalogDrawerFiltersUI,
   initCatalogToolbarAndFilterBindings,
   isEpisodeWatched,
+  normalizeStudioBrand,
+  getItemStudioPreferenceKeys,
+  matchPreferredStudioInList,
   getPreferredStudioForItem,
   savePreferredStudioForItem,
   findSavedProgress,
@@ -245,10 +251,15 @@ export function renderCatalogSkeletons(count = 12, forceShelves = false) {
   }
 }
 const _catalogEndpointCache = new Map();
-const WARM_CATALOG_STORAGE_KEY = "cineflow_warm_catalog_v1";
+const WARM_CATALOG_STORAGE_KEY = "velarium_warm_catalog_v1";
 
 export function clearCatalogFrontendCache() {
   _catalogEndpointCache.clear();
+  state.gridPages = {};
+  state.liveSeriesUpdates = {};
+  state.liveSeriesUpdatesVersion = (Number(state.liveSeriesUpdatesVersion) || 0) + 1;
+  state.calendarData = null;
+  state.calendarDataLang = "";
   try {
     const keysToRemove = [];
     for (let i = 0; i < sessionStorage.length; i++) {
@@ -266,6 +277,7 @@ function _applyCatalogResponsePayload(data, q = "") {
   state.providersMeta = data.providers_meta || state.providersMeta;
   state.integrations = data.integrations || state.integrations;
   state.catalogItems = data.items || [];
+  state.catalogIndexVersion = (Number(state.catalogIndexVersion) || 0) + 1;
   if (Array.isArray(data.kinorium_friends)) {
     state.kinoriumFriends = data.kinorium_friends;
   }
@@ -297,14 +309,14 @@ function _applyCatalogResponsePayload(data, q = "") {
       if (u.title) state.liveSeriesUpdates[u.title.trim().toLowerCase()] = u;
       if (u.orig_title) state.liveSeriesUpdates[u.orig_title.trim().toLowerCase()] = u;
     });
+    state.liveSeriesUpdatesVersion = (Number(state.liveSeriesUpdatesVersion) || 0) + 1;
   }
   applyEnabledServicesVisibility();
   updateFriendsFilterDropdown();
   updateDynamicCatalogFilters();
   renderLoginBannerIfNeeded();
-  renderHero();
   renderContinueWatching();
-  renderCatalogShelves();
+  renderCatalogShelves({ skipHero: false });
 }
 
 export async function loadCatalog(options = {}) {
@@ -339,14 +351,14 @@ export async function loadCatalog(options = {}) {
     state.catalogItems = filtered;
     renderHero();
     renderContinueWatching();
-    renderCatalogShelves();
+    renderCatalogShelves({ skipHero: true });
     return;
   }
 
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    setOfflineMode(true);
     const offlineItems = getOfflineCatalogItems();
     if (offlineItems.length > 0) {
+      setOfflineMode(true);
       const qNorm = q.toLowerCase();
       const filtered = qNorm
         ? offlineItems.filter(
@@ -358,7 +370,7 @@ export async function loadCatalog(options = {}) {
       state.catalogItems = filtered;
       renderHero();
       renderContinueWatching();
-      renderCatalogShelves();
+      renderCatalogShelves({ skipHero: true });
       return;
     }
   }
@@ -404,14 +416,23 @@ export async function loadCatalog(options = {}) {
       const oldestKey = _catalogEndpointCache.keys().next().value;
       if (oldestKey) _catalogEndpointCache.delete(oldestKey);
     }
-    if (!q && state.kinoriumSection === "all" && state.providerFilter === "all") {
-      try {
-        sessionStorage.setItem(`${WARM_CATALOG_STORAGE_KEY}_${activeProfId}`, JSON.stringify(data));
-      } catch (err) { window.logDebug?.("Catalog", err); }
+    setOfflineMode(false);
+    try {
+      _applyCatalogResponsePayload(data, q);
+    } catch (renderErr) {
+      console.error("Catalog render error:", renderErr);
     }
-    _applyCatalogResponsePayload(data, q);
-    if (typeof navigator !== "undefined" && navigator.onLine) {
-      setOfflineMode(false);
+    if (!q && state.kinoriumSection === "all" && state.providerFilter === "all") {
+      const saveWarmCache = () => {
+        try {
+          sessionStorage.setItem(`${WARM_CATALOG_STORAGE_KEY}_${activeProfId}`, JSON.stringify(data));
+        } catch (err) { window.logDebug?.("Catalog", err); }
+      };
+      if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(saveWarmCache, { timeout: 1000 });
+      } else {
+        setTimeout(saveWarmCache, 120);
+      }
     }
     if (!state.liveUpdatesCheckedOnce && isServiceEnabled("hdrezka") && isServiceEnabled("kinorium")) {
       state.liveUpdatesCheckedOnce = true;
@@ -429,7 +450,7 @@ export async function loadCatalog(options = {}) {
       }
       renderHero();
       renderContinueWatching();
-      renderCatalogShelves();
+      renderCatalogShelves({ skipHero: true });
     }
   }
 }
@@ -479,6 +500,9 @@ export async function checkLiveRezkaSeriesUpdates(showFeedback = false, forceRef
       if (u.title) state.liveSeriesUpdates[u.title.trim().toLowerCase()] = u;
       if (u.orig_title) state.liveSeriesUpdates[u.orig_title.trim().toLowerCase()] = u;
     });
+    if (Array.isArray(data.updates) && data.updates.length > 0) {
+      state.liveSeriesUpdatesVersion = (Number(state.liveSeriesUpdatesVersion) || 0) + 1;
+    }
     if (data.kinorium_counts) {
       state.kinoriumCounts = { ...state.kinoriumCounts, ...data.kinorium_counts };
       updateKinoriumSectionCounters();
@@ -489,7 +513,7 @@ export async function checkLiveRezkaSeriesUpdates(showFeedback = false, forceRef
         state.catalogDirty = true;
       } else {
         renderContinueWatching();
-        renderCatalogShelves();
+        renderCatalogShelves({ skipHero: Boolean(showFeedback) });
         if (showFeedback) {
           renderHero();
         }
@@ -547,11 +571,15 @@ export async function pollLiveKinoriumDigest() {
       if (u.title) state.liveSeriesUpdates[u.title.trim().toLowerCase()] = u;
       if (u.orig_title) state.liveSeriesUpdates[u.orig_title.trim().toLowerCase()] = u;
     });
+    if (Array.isArray(data.updates) && data.updates.length > 0) {
+      state.liveSeriesUpdatesVersion = (Number(state.liveSeriesUpdatesVersion) || 0) + 1;
+    }
     if (data.kinorium_counts) {
       state.kinoriumCounts = { ...state.kinoriumCounts, ...data.kinorium_counts };
       updateKinoriumSectionCounters();
     }
     if (changed) {
+      state.liveSeriesUpdatesVersion = (Number(state.liveSeriesUpdatesVersion) || 0) + 1;
       renderNotificationsBell();
       if (!state.isPlayerOpen) {
         renderContinueWatching();
@@ -581,19 +609,27 @@ export function updateFriendsFilterDropdown() {
     });
   });
   const sortedNames = Array.from(namesSet).sort((a, b) => a.localeCompare(b, isEn() ? "en" : "ru"));
-  const curVal = state.selectedFriend || "all";
-  sel.innerHTML = `<option value="all">${t("Друг: Все друзья", "Friend: All friends")}</option>`;
+  let curVal = state.selectedFriend || "all";
+  if (curVal !== "all" && !namesSet.has(curVal)) {
+    state.selectedFriend = "all";
+    curVal = "all";
+  }
+  const friendsSig = `${state.appLang || "ru"}|${curVal}|${sortedNames.join(",")}`;
+  if (sel._optionsSig === friendsSig) {
+    return;
+  }
+  sel._optionsSig = friendsSig;
+  sel.innerHTML = `<option value="all">${t("Все друзья", "All friends")}</option>`;
+  const frag = document.createDocumentFragment();
   sortedNames.forEach((name) => {
     const opt = document.createElement("option");
     opt.value = name;
     opt.textContent = name;
     if (name === curVal) opt.selected = true;
-    sel.appendChild(opt);
+    frag.appendChild(opt);
   });
-  if (curVal !== "all" && !namesSet.has(curVal)) {
-    state.selectedFriend = "all";
-    sel.value = "all";
-  }
+  sel.appendChild(frag);
+  sel.value = curVal;
 }
 export function updateKinoriumUserBadge() {
   const acc = state.kinoriumAccount || {};
@@ -605,22 +641,25 @@ export function updateKinoriumUserBadge() {
         ? displayName
         : `${displayName} · ID ${acc.user_id}`;
     } else {
-      statsBadge.textContent = t("Профиль не подключен", "Not connected");
+      statsBadge.textContent = t("Профиль не подключён", "Not connected");
     }
   }
 }
 export function updateKinoriumSectionCounters() {
   const c = state.kinoriumCounts || {};
-  const elPremieres = document.getElementById("kcount-premieres");
-  const elWatching = document.getElementById("kcount-watching");
-  const elWatchlist = document.getElementById("kcount-watchlist");
-  const elWatched = document.getElementById("kcount-watched");
-  const elNever = document.getElementById("kcount-never");
-  if (elPremieres) elPremieres.textContent = String(c.premieres || 0);
-  if (elWatching) elWatching.textContent = String(c.watching || 0);
-  if (elWatchlist) elWatchlist.textContent = String(c.watchlist || 0);
-  if (elWatched) elWatched.textContent = String(c.watched || 0);
-  if (elNever) elNever.textContent = String(c.never || 0);
+  const pairs = [
+    ["kcount-premieres", Number(c.premieres) || 0],
+    ["kcount-watching", Number(c.watching) || 0],
+    ["kcount-watchlist", Number(c.watchlist) || 0],
+    ["kcount-watched", Number(c.watched) || 0],
+    ["kcount-never", Number(c.never) || 0],
+  ];
+  pairs.forEach(([id, val]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = String(val);
+    el.classList.toggle("hidden", val <= 0);
+  });
 }
 // Show prompt when user selects a paid streaming service where they are not logged in yet
 // (HDRezka and 4K Remux work without login)
@@ -653,7 +692,7 @@ export function renderLoginBannerIfNeeded() {
         `Complete ${integ.name} sign-in in the opened browser tab`
       )
     : t(
-        `Вы еще не вошли в аккаунт ${integ.name}`,
+        `Вы ещё не вошли в аккаунт ${integ.name}`,
         `You are not signed in to ${integ.name}`
       );
   document.getElementById("login-banner-sub").textContent = isPending
@@ -694,6 +733,9 @@ export function isAnyOverlayModalOpen() {
     "movie-roulette-modal",
     "onboarding-modal",
     "profiles-modal",
+    "handoff-modal",
+    "vocab-modal",
+    "bookmarks-modal",
     "tv-cast-modal",
     "downloads-modal",
     "person-modal",

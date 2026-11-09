@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .profiles import ProfileManager
 from .remuxer import build_ffmpeg_env
@@ -191,17 +191,41 @@ def resolve_offline_episode_stream(
                         rmx_sess = fb_res.get("remux_session")
                         if rmx_sess:
                             rmx_meta = rmx_sess if isinstance(rmx_sess, dict) else fb_res
-                            raw_src_fb = str(rmx_meta.get("rawSourceUrl") or fb_res.get("rawSourceUrl") or "").strip()
+                            raw_src_fb = str(
+                                rmx_meta.get("rawSourceUrl")
+                                or rmx_meta.get("sourceUrl")
+                                or fb_res.get("rawSourceUrl")
+                                or fb_res.get("sourceUrl")
+                                or ""
+                            ).strip()
                             if raw_src_fb:
                                 fb_remux_info = {
                                     "raw_source_url": raw_src_fb,
                                     "is_remux_source": True,
                                     "audio_index": _safe_int(
-                                        rmx_meta.get("selected_audio_index", fb_res.get("selected_audio_index")),
+                                        rmx_meta.get(
+                                            "audioIndex",
+                                            rmx_meta.get(
+                                                "selected_audio_index",
+                                                fb_res.get("selected_audio_index", fb_res.get("audioIndex")),
+                                            ),
+                                        ),
                                         0,
                                     ),
-                                    "video_codec": str(rmx_meta.get("video_codec") or fb_res.get("video_codec") or ""),
-                                    "audio_codec": str(rmx_meta.get("audio_codec") or fb_res.get("audio_codec") or ""),
+                                    "video_codec": str(
+                                        rmx_meta.get("videoCodec")
+                                        or rmx_meta.get("video_codec")
+                                        or fb_res.get("video_codec")
+                                        or fb_res.get("videoCodec")
+                                        or ""
+                                    ),
+                                    "audio_codec": str(
+                                        rmx_meta.get("audioCodec")
+                                        or rmx_meta.get("audio_codec")
+                                        or fb_res.get("audio_codec")
+                                        or fb_res.get("audioCodec")
+                                        or ""
+                                    ),
                                     "channels": max(
                                         1,
                                         _safe_int(rmx_meta.get("channels", fb_res.get("channels")), 2),
@@ -217,6 +241,7 @@ def resolve_offline_episode_stream(
     if not subs_list and stremio_engine is not None and hasattr(stremio_engine, "get_subtitles_only"):
         try:
             ext_subs = stremio_engine.get_subtitles_only(
+                item_id=str(snapshot.get("item_id") or ""),
                 title=str(snapshot.get("title") or ""),
                 orig_title=str(snapshot.get("orig_title") or ""),
                 year=_safe_int(snapshot.get("year"), 0),
@@ -286,7 +311,7 @@ def resolve_offline_episode_stream(
 
 class OfflineDownloadManager:
     """
-    Background Offline Downloads Manager ('Скачать в дорогу') powered by CineFlow's bundled FFmpeg.
+    Background Offline Downloads Manager ('Скачать в дорогу') powered by Velarium's bundled FFmpeg.
     Saves 1080p / 4K movies & episodes with selected audio track + Russian/English WebVTT subtitles
     and cached poster art into `data/downloads/` for 100% offline playback.
     """
@@ -318,6 +343,7 @@ class OfflineDownloadManager:
         self._inflight_ids: set = set()
         self._queue: "queue.Queue[str]" = queue.Queue()
         self._shutdown = False
+        self._prefs_cache: Optional[Dict[str, Any]] = None
         self._items: Dict[str, Dict[str, Any]] = self._load_index()
         for did, it in sorted(
             self._items.items(),
@@ -330,20 +356,24 @@ class OfflineDownloadManager:
             for idx in range(self.MAX_CONCURRENT):
                 t = threading.Thread(
                     target=self._worker_loop,
-                    name=f"CineFlowDownloadWorker-{idx + 1}",
+                    name=f"VelariumDownloadWorker-{idx + 1}",
                     daemon=True,
                 )
                 t.start()
                 self._workers.append(t)
 
     def get_prefs(self) -> Dict[str, Any]:
+        if self._prefs_cache is not None:
+            return dict(self._prefs_cache)
         raw = self._db.get_kv("downloads", "prefs", None)
         if not isinstance(raw, dict):
             raw = {}
-        return {
+        prefs = {
             "auto_cleanup_watched": bool(raw.get("auto_cleanup_watched", False)),
             "auto_download_next": bool(raw.get("auto_download_next", False)),
         }
+        self._prefs_cache = dict(prefs)
+        return prefs
 
     def set_prefs(
         self,
@@ -355,6 +385,7 @@ class OfflineDownloadManager:
             cur["auto_cleanup_watched"] = bool(auto_cleanup_watched)
         if auto_download_next is not None:
             cur["auto_download_next"] = bool(auto_download_next)
+        self._prefs_cache = dict(cur)
         self._db.set_kv("downloads", "prefs", cur)
         return cur
 
@@ -377,32 +408,43 @@ class OfflineDownloadManager:
             except Exception:
                 raw_list = []
 
+        dirty = False
         for entry in raw_list or []:
             if not isinstance(entry, dict) or not entry.get("download_id"):
                 continue
             did = str(entry["download_id"])
             st = str(entry.get("status") or "failed")
             if st in ("downloading", "queued"):
+                if entry.get("status") != "queued":
+                    dirty = True
                 entry["status"] = "queued"
                 entry["error"] = ""
                 entry["speed_label"] = ""
-                if self.stream_resolver is not None:
+                if self.stream_resolver is not None and not entry.get("lazy_resolve"):
                     entry["lazy_resolve"] = True
+                    dirty = True
             if entry.get("status") == "completed":
                 vpath = os.path.join(self.downloads_dir, did, "video.mp4")
                 if not os.path.isfile(vpath):
                     entry["status"] = "failed"
                     entry["error"] = "Файл видео не найден на диске"
+                    dirty = True
                 else:
-                    entry["file_size"] = os.path.getsize(vpath)
-                    entry["downloaded_bytes"] = entry["file_size"]
-                    entry["progress_pct"] = 100.0
+                    cur_sz = os.path.getsize(vpath)
+                    if entry.get("file_size") != cur_sz or entry.get("progress_pct") != 100.0:
+                        entry["file_size"] = cur_sz
+                        entry["downloaded_bytes"] = cur_sz
+                        entry["progress_pct"] = 100.0
+                        dirty = True
             ppath = os.path.join(self.downloads_dir, did, "poster.jpg")
             if os.path.isfile(ppath) and os.path.getsize(ppath) > 256:
-                entry["has_local_poster"] = True
+                if not entry.get("has_local_poster"):
+                    entry["has_local_poster"] = True
+                    dirty = True
             items[did] = entry
 
-        self._save_index_locked(items)
+        if dirty:
+            self._save_index_locked(items)
         return items
 
     def _save_single_progress_locked(self, did: str) -> None:
@@ -414,12 +456,24 @@ class OfflineDownloadManager:
         except Exception:
             pass
 
-    def _save_index_locked(self, target_map: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
+    def _save_index_locked(
+        self,
+        target_map: Optional[Dict[str, Dict[str, Any]]] = None,
+        skip_db: bool = False,
+        changed_ids: Optional[Sequence[str]] = None,
+    ) -> None:
         mp = target_map if target_map is not None else self._items
-        try:
-            self._db.replace_all_downloads(mp)
-        except Exception:
-            pass
+        if not skip_db:
+            try:
+                if changed_ids:
+                    for cid in changed_ids:
+                        rec = mp.get(cid)
+                        if isinstance(rec, dict):
+                            self._db.upsert_download(cid, rec)
+                else:
+                    self._db.replace_all_downloads(mp)
+            except Exception:
+                pass
         ordered = sorted(mp.values(), key=lambda x: float(x.get("created_at") or 0.0), reverse=True)
         tmp = f"{self.index_path}.tmp.{threading.get_ident()}"
         try:
@@ -605,6 +659,7 @@ class OfflineDownloadManager:
         lazy_resolve: bool = False,
         max_season_episode: int = 0,
         lang: str = "ru",
+        _defer_save: bool = False,
     ) -> Dict[str, Any]:
         is_en = str(lang or "ru").strip().lower().startswith("en")
         clean_stream = str(stream_url or "").strip()
@@ -620,6 +675,32 @@ class OfflineDownloadManager:
                 port_val = int(self.local_port_getter() if callable(self.local_port_getter) else 8765)
             except Exception:
                 port_val = 8765
+            if "/api/remux-stream" in clean_stream:
+                try:
+                    parsed_rmx = urllib.parse.urlparse(clean_stream)
+                    rmx_host = (parsed_rmx.hostname or "").strip().lower().strip("[]")
+                    if parsed_rmx.path == "/api/remux-stream" and rmx_host in ("", "127.0.0.1", "localhost", "::1"):
+                        qs_rmx = urllib.parse.parse_qs(parsed_rmx.query)
+                        src_inner = (qs_rmx.get("src") or [""])[0].strip()
+                        if src_inner:
+                            clean_stream = src_inner
+                            is_remux_source = True
+                            if qs_rmx.get("audio"):
+                                try:
+                                    audio_index = max(0, int(qs_rmx["audio"][0]))
+                                except Exception:
+                                    pass
+                            if qs_rmx.get("vcodec") and not video_codec:
+                                video_codec = str(qs_rmx["vcodec"][0] or "").strip()
+                            if qs_rmx.get("acodec") and not audio_codec:
+                                audio_codec = str(qs_rmx["acodec"][0] or "").strip()
+                            if qs_rmx.get("ch"):
+                                try:
+                                    channels = max(1, int(qs_rmx["ch"][0]))
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
             if clean_stream.startswith(("/api/proxy-stream", "/api/remux-stream")):
                 clean_stream = f"http://127.0.0.1:{port_val}{clean_stream}"
             if not self._is_safe_stream_url(clean_stream, local_port=port_val):
@@ -728,7 +809,8 @@ class OfflineDownloadManager:
                 "completed_at": 0.0,
             }
             self._items[did] = entry
-            self._save_index_locked()
+            if not _defer_save:
+                self._save_index_locked(changed_ids=[did])
 
         self._queue.put(did)
         return self._format_entry_for_client(entry, lang=lang)
@@ -826,8 +908,11 @@ class OfflineDownloadManager:
                 lazy_resolve=not bool(ep_u.strip()),
                 max_season_episode=eff_max_ep,
                 lang=lang,
+                _defer_save=True,
             )
             queued_items.append(rec)
+        with self._lock:
+            self._save_index_locked(changed_ids=[r.get("download_id") for r in queued_items if r.get("download_id")])
 
         return {
             "ok": True,
@@ -850,7 +935,7 @@ class OfflineDownloadManager:
                         self._items[did]["status"] = "failed"
                         self._items[did]["error"] = str(exc)
                         self._items[did]["speed_label"] = ""
-                        self._save_index_locked()
+                        self._save_index_locked(changed_ids=[did])
             finally:
                 self._queue.task_done()
 
@@ -916,25 +1001,8 @@ class OfflineDownloadManager:
                 ):
                     return True
                 return False
-            try:
-                ip_obj = ipaddress.ip_address(host)
-                if OfflineDownloadManager._is_disallowed_ip(ip_obj):
-                    return False
-            except ValueError:
-                if "." not in host:
-                    return False
-                try:
-                    import socket
-                    addr_info = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-                    for _, _, _, _, sockaddr in addr_info:
-                        cand_obj = ipaddress.ip_address(sockaddr[0])
-                        if OfflineDownloadManager._is_disallowed_ip(cand_obj):
-                            return False
-                except (socket.gaierror, socket.herror, TimeoutError, OSError):
-                    pass
-                except Exception:
-                    return False
-            return True
+            from backend.net_security import is_allowed_media_source_url
+            return bool(is_allowed_media_source_url(u))
         except Exception:
             return False
 
@@ -955,50 +1023,45 @@ class OfflineDownloadManager:
             port = parsed.port or (443 if parsed.scheme == "https" else 80)
             if host in ("127.0.0.1", "localhost", "::1"):
                 return bool(local_port and int(local_port) > 0 and port == int(local_port) and (parsed.path or "").startswith("/api/person-photo"))
-            try:
-                ip_obj = ipaddress.ip_address(host)
-                if OfflineDownloadManager._is_disallowed_ip(ip_obj):
-                    return False
-            except ValueError:
-                if "." not in host:
-                    return False
-                try:
-                    import socket
-                    addr_info = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-                    for _, _, _, _, sockaddr in addr_info:
-                        cand_obj = ipaddress.ip_address(sockaddr[0])
-                        if OfflineDownloadManager._is_disallowed_ip(cand_obj):
-                            return False
-                except (socket.gaierror, socket.herror, TimeoutError, OSError):
-                    pass
-                except Exception:
-                    return False
-            return True
+            from backend.net_security import is_allowed_media_source_url
+            return bool(is_allowed_media_source_url(u))
         except Exception:
             return False
+
+    _cached_aux_opener: Any = None
+    _cached_aux_opener_lock = threading.Lock()
+
+    @classmethod
+    def _get_aux_opener(cls):
+        with cls._cached_aux_opener_lock:
+            if cls._cached_aux_opener is not None:
+                return cls._cached_aux_opener
+
+            class _SafeRedirect(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, headers, newurl):
+                    resolved_url = urllib.parse.urljoin(req.full_url, str(newurl or ""))
+                    if not OfflineDownloadManager._is_safe_aux_url(resolved_url, local_port=0):
+                        if fp is not None:
+                            try:
+                                fp.close()
+                            except Exception:
+                                pass
+                        raise urllib.error.URLError("Disallowed redirect target")
+                    return super().redirect_request(req, fp, code, msg, headers, resolved_url)
+
+            cls._cached_aux_opener = urllib.request.build_opener(
+                _SafeRedirect(),
+                urllib.request.HTTPSHandler(context=_SHARED_SSL_CTX),
+                urllib.request.ProxyHandler({}),
+            )
+            return cls._cached_aux_opener
 
     @classmethod
     def _open_safe_aux_url(cls, url: str, timeout: float = 8.0, local_port: int = 8765):
         if not cls._is_safe_aux_url(url, local_port=local_port):
             raise ValueError("Disallowed auxiliary asset URL")
 
-        class _SafeRedirect(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, headers, newurl):
-                resolved_url = urllib.parse.urljoin(req.full_url, str(newurl or ""))
-                if not OfflineDownloadManager._is_safe_aux_url(resolved_url, local_port=0):
-                    if fp is not None:
-                        try:
-                            fp.close()
-                        except Exception:
-                            pass
-                    raise urllib.error.URLError("Disallowed redirect target")
-                return super().redirect_request(req, fp, code, msg, headers, resolved_url)
-
-        opener = urllib.request.build_opener(
-            _SafeRedirect(),
-            urllib.request.HTTPSHandler(context=_SHARED_SSL_CTX),
-            urllib.request.ProxyHandler({}),
-        )
+        opener = cls._get_aux_opener()
         req = urllib.request.Request(
             url,
             headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
@@ -1058,7 +1121,7 @@ class OfflineDownloadManager:
                                     and did not in self._cancelled_ids
                                 ):
                                     cur_it["has_local_poster"] = True
-                                    self._save_index_locked()
+                                    self._save_index_locked(changed_ids=[did])
             except Exception:
                 pass
 
@@ -1264,7 +1327,7 @@ class OfflineDownloadManager:
                 cur_it = self._items.get(did)
                 if cur_it and str(cur_it.get("_run_id") or "") == run_id and did not in self._cancelled_ids:
                     cur_it["local_subtitles"] = saved_subs
-                    self._save_index_locked()
+                    self._save_index_locked(changed_ids=[did])
 
     def _probe_duration_if_needed(self, source_url: str, current_dur: float) -> float:
         if current_dur > 30.0:
@@ -1309,7 +1372,7 @@ class OfflineDownloadManager:
             entry["status"] = "downloading"
             entry["started_at"] = started_ts
             entry["error"] = ""
-            self._save_index_locked()
+            self._save_index_locked(changed_ids=[did])
             snapshot = dict(entry)
 
         item_dir = os.path.join(self.downloads_dir, did)
@@ -1340,7 +1403,7 @@ class OfflineDownloadManager:
                         cur_it["error"] = str(
                             resolved.get("error") or "Не удалось получить видеопоток серии"
                         )
-                        self._save_index_locked()
+                        self._save_index_locked(changed_ids=[did])
                 return
             src_url = resolved_url
             snapshot["stream_url"] = resolved_url
@@ -1387,7 +1450,7 @@ class OfflineDownloadManager:
                     ):
                         if upd_k in snapshot:
                             cur_it[upd_k] = snapshot[upd_k]
-                    self._save_index_locked()
+                    self._save_index_locked(changed_ids=[did])
 
         if src_url.startswith(("/api/proxy-stream", "/api/remux-stream")):
             src_url = f"http://127.0.0.1:{port_val}{src_url}"
@@ -1403,7 +1466,7 @@ class OfflineDownloadManager:
                         if not src_url
                         else "Недопустимая ссылка на видеопоток для загрузки"
                     )
-                    self._save_index_locked()
+                    self._save_index_locked(changed_ids=[did])
             return
 
         try:
@@ -1417,7 +1480,7 @@ class OfflineDownloadManager:
                     cur_it["status"] = "failed"
                     cur_it["speed_label"] = ""
                     cur_it["error"] = "Недостаточно свободного места на диске"
-                    self._save_index_locked()
+                    self._save_index_locked(changed_ids=[did])
             return
 
         # Fetch poster + subtitles in parallel while FFmpeg remuxes the video
@@ -1499,17 +1562,19 @@ class OfflineDownloadManager:
                     if did in self._cancelled_ids:
                         aborted_early = True
                         break
-                    with self._lock:
-                        cur_check = self._items.get(did)
-                        if not cur_check or str(cur_check.get("_run_id") or "") != my_run_id:
-                            aborted_early = True
-                            break
                     line = raw_line.strip()
                     if "=" not in line:
                         continue
                     k, v = line.split("=", 1)
                     k = k.strip()
+                    if k not in ("out_time_us", "out_time_ms", "total_size", "speed", "progress"):
+                        continue
                     v = v.strip()
+                    with self._lock:
+                        cur_check = self._items.get(did)
+                        if not cur_check or str(cur_check.get("_run_id") or "") != my_run_id:
+                            aborted_early = True
+                            break
                     v_num = v.lstrip("-")
                     if k in ("out_time_us", "out_time_ms") and v_num.isascii() and v_num.isdigit():
                         out_time_sec = max(0.0, int(v) / 1_000_000.0)
@@ -1642,7 +1707,8 @@ class OfflineDownloadManager:
                 elif str(cur_it.get("_run_id") or "") == my_run_id:
                     cur_it["status"] = "cancelled"
                     cur_it["speed_label"] = ""
-                    self._save_index_locked()
+                    self._save_single_progress_locked(did)
+                    self._save_index_locked(skip_db=True)
             if deleted_from_index:
                 shutil.rmtree(item_dir, ignore_errors=True)
             return
@@ -1668,7 +1734,8 @@ class OfflineDownloadManager:
                     it["speed_label"] = ""
                     it["eta_sec"] = 0
                     it["completed_at"] = time.time()
-                    self._save_index_locked()
+                    self._save_single_progress_locked(did)
+                    self._save_index_locked(skip_db=True)
         else:
             try:
                 if os.path.isfile(part_path):
@@ -1685,7 +1752,8 @@ class OfflineDownloadManager:
                         if premature_eof
                         else (err_tail or "Не удалось сохранить видеопоток")
                     )
-                    self._save_index_locked()
+                    self._save_single_progress_locked(did)
+                    self._save_index_locked(skip_db=True)
 
     _SAFE_DID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_\-]{0,159}$")
 
@@ -1716,17 +1784,25 @@ class OfflineDownloadManager:
                 or (entry and entry.get("status") in ("queued", "downloading"))
             )
             if is_active:
+                if len(self._cancelled_ids) >= 512:
+                    self._cancelled_ids.clear()
                 self._cancelled_ids.add(did)
             if entry and entry.get("status") in ("queued", "downloading"):
                 entry["status"] = "cancelled"
                 entry["speed_label"] = ""
-                self._save_index_locked()
+                self._save_single_progress_locked(did)
+                self._save_index_locked(skip_db=True)
         for active_p in (proc, aux_proc):
             if active_p and active_p.poll() is None:
                 try:
                     active_p.terminate()
+                    active_p.wait(timeout=1.5)
                 except Exception:
-                    pass
+                    try:
+                        active_p.kill()
+                        active_p.wait(timeout=0.5)
+                    except Exception:
+                        pass
         part_p = os.path.join(self.downloads_dir, did, "video.mp4.part")
         if os.path.isfile(part_p):
             try:
@@ -1767,12 +1843,13 @@ class OfflineDownloadManager:
             return False
         self.cancel_download(did, force_mark_cancelled=True)
         with self._lock:
+            self._cancelled_ids.discard(did)
             existed = self._items.pop(did, None) is not None
             try:
                 self._db.delete_download_record(did)
             except Exception:
                 pass
-            self._save_index_locked()
+            self._save_index_locked(skip_db=True)
         folder = os.path.join(self.downloads_dir, did)
         if os.path.isdir(folder):
             shutil.rmtree(folder, ignore_errors=True)
@@ -1887,8 +1964,8 @@ class OfflineDownloadManager:
         did = str(download_id or "").strip()
         with self._lock:
             entry = self._items.get(did) or {}
-        raw_title = str(entry.get("orig_title") or entry.get("title") or "CineFlow_Video").strip()
-        clean_title = re.sub(r'[\\/:*?"<>|\r\n]+', "", raw_title).strip()[:64] or "CineFlow_Video"
+        raw_title = str(entry.get("orig_title") or entry.get("title") or "Velarium_Video").strip()
+        clean_title = re.sub(r'[\\/:*?"<>|\r\n]+', "", raw_title).strip()[:64] or "Velarium_Video"
         is_series = entry.get("media_type") == "series"
         ep_tag = (
             f" S{int(entry.get('season') or 1):02d}E{int(entry.get('episode') or 1):02d}"
@@ -2077,7 +2154,7 @@ class OfflineDownloadManager:
                     with self._lock:
                         if did in self._items:
                             self._items[did]["pending_cleanup"] = True
-                            self._save_index_locked()
+                            self._save_index_locked(changed_ids=[did])
                             deferred_ids.append(did)
                 else:
                     if self.delete_download(did):
@@ -2151,40 +2228,41 @@ class OfflineDownloadManager:
         active_profile_id: str = "",
         lang: str = "ru",
     ) -> Dict[str, Any]:
+        prefs = self.get_prefs()
         with self._lock:
-            ordered = sorted(
-                self._items.values(),
-                key=lambda x: float(x.get("created_at") or 0.0),
-                reverse=True,
-            )
-            if kids_mode:
-                ordered = [
-                    it
-                    for it in ordered
-                    if self._is_entry_kids_safe(it, active_profile_id=active_profile_id)
-                ]
-            if profile_id and profile_id != "all":
-                ordered = [it for it in ordered if it.get("profile_id", "main") in (profile_id, "main", "")]
-            formatted = [self._format_entry_for_client(it, lang=lang) for it in ordered]
-            total_bytes = sum(
-                int(it.get("file_size") or it.get("downloaded_bytes") or 0)
+            items_snapshot = [dict(it) for it in self._items.values()]
+        ordered = sorted(
+            items_snapshot,
+            key=lambda x: float(x.get("created_at") or 0.0),
+            reverse=True,
+        )
+        if kids_mode:
+            ordered = [
+                it
                 for it in ordered
-                if it.get("status") in ("completed", "downloading")
-            )
-            active_count = sum(
-                1 for it in ordered if it.get("status") in ("queued", "downloading")
-            )
-            completed_count = sum(1 for it in ordered if it.get("status") == "completed")
-            prefs = self.get_prefs()
-            return {
-                "ok": True,
-                "downloads_dir": self.downloads_dir,
-                "active_count": active_count,
-                "completed_count": completed_count,
-                "total_disk_bytes": total_bytes,
-                "prefs": prefs,
-                "items": formatted,
-            }
+                if self._is_entry_kids_safe(it, active_profile_id=active_profile_id)
+            ]
+        if profile_id and profile_id != "all":
+            ordered = [it for it in ordered if it.get("profile_id", "main") in (profile_id, "main", "")]
+        formatted = [self._format_entry_for_client(it, lang=lang) for it in ordered]
+        total_bytes = sum(
+            int(it.get("file_size") or it.get("downloaded_bytes") or 0)
+            for it in ordered
+            if it.get("status") in ("completed", "downloading")
+        )
+        active_count = sum(
+            1 for it in ordered if it.get("status") in ("queued", "downloading")
+        )
+        completed_count = sum(1 for it in ordered if it.get("status") == "completed")
+        return {
+            "ok": True,
+            "downloads_dir": self.downloads_dir,
+            "active_count": active_count,
+            "completed_count": completed_count,
+            "total_disk_bytes": total_bytes,
+            "prefs": prefs,
+            "items": formatted,
+        }
 
     def shutdown(self) -> None:
         self._shutdown = True

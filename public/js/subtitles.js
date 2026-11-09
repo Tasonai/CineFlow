@@ -1,19 +1,30 @@
-import { profileStorageKey, state } from "./state.js?v=20261105v5";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261105v5";
+import { profileStorageKey, state } from "./state.js?v=20261108v19";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261108v19";
 import {
   clampStagePopover,
   escapeAttr,
   escapeHtml,
   iconSvg,
+  rememberModalTriggerFocus,
+  restoreModalTriggerFocus,
   showToast,
   showVideoOsd,
-} from "./utils.js?v=20261105v5";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261105v5";
+  syncScrollTopButton,
+} from "./utils.js?v=20261108v19";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261108v19";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261108v19";
 import {
+  clearAutoplayNextTimer,
+  clearRemuxDurationPoll,
+  clearSeamlessEpisodeBridge,
+  clearVideoStallWatchdog,
   closeAllVcPopovers,
   getEffectivePlaybackTiming,
+  hideXRayPauseShelf,
+  renderTimelineBookmarks,
   syncCustomControlPopovers,
-} from "./player.js?v=20261105v5";
+  syncVcPopoverOpenClass,
+} from "./player.js?v=20261108v19";
 
 export function formatSubtitleOffsetLabel(sec = state.subtitleOffsetSec) {
   const num = Math.round((Number(sec) || 0) * 100) / 100;
@@ -136,21 +147,29 @@ function parseAssTimeSec(raw) {
 
 function cleanCuePayloadText(rawCueBody) {
   if (!rawCueBody) return "";
-  return String(rawCueBody)
-    .replace(/\\N/g, "\n")
-    .replace(/\\n/g, "\n")
-    .replace(/\\h/g, " ")
-    .replace(/\{\\[^}]*\}/g, "")
-    .replace(/\{[^}]*\\[a-zA-Z][^}]*\}/g, "")
-    .replace(/<\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3}>/g, "")
-    .replace(/<\/?(?:v|c|b|i|u|font|ruby|rt)\b[^>]*>/gi, "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
+  let text = String(rawCueBody);
+  if (text.includes("\\")) {
+    text = text.replace(/\\N/g, "\n").replace(/\\n/g, "\n").replace(/\\h/g, " ");
+  }
+  if (text.includes("{")) {
+    text = text.replace(/\{\\[^}]*\}/g, "").replace(/\{[^}]*\\[a-zA-Z][^}]*\}/g, "");
+  }
+  if (text.includes("<")) {
+    text = text
+      .replace(/<\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3}>/g, "")
+      .replace(/<\/?(?:v|c|b|i|u|font|ruby|rt)\b[^>]*>/gi, "")
+      .replace(/<[^>]+>/g, "");
+  }
+  if (text.includes("&")) {
+    text = text
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'");
+  }
+  return text
     .split("\n")
     .map((ln) => ln.trim())
     .filter(Boolean)
@@ -250,23 +269,34 @@ export function parseSubtitleCues(rawText) {
   return cues;
 }
 
+const _sessionParsedSubCache = new Map();
+const _SESSION_PARSED_SUB_CACHE_MAX = 6;
+
 export function clearCustomSubtitleOverlay(keepLoadedCache = false) {
+  if (state.subFetchAbortController) {
+    try {
+      state.subFetchAbortController.abort();
+    } catch (err) { window.logDebug?.("Subtitles", err); }
+    state.subFetchAbortController = null;
+  }
+  if (state.subWindowAbortController) {
+    try {
+      state.subWindowAbortController.abort();
+    } catch (err) { window.logDebug?.("Subtitles", err); }
+    state.subWindowAbortController = null;
+  }
+  state.subWindowAdvancing = false;
   if (!keepLoadedCache) {
-    if (state.subFetchAbortController) {
-      try {
-        state.subFetchAbortController.abort();
-      } catch (err) { window.logDebug?.("Subtitles", err); }
-      state.subFetchAbortController = null;
-    }
+    closeSubtitleDictPopover(false);
     state.subFetchReqId = (state.subFetchReqId || 0) + 1;
     state.activeSubCues = [];
     state.activeSubTrackMeta = null;
     state.loadedSubUrl = "";
-    state.subWindowAdvancing = false;
+    _sessionParsedSubCache.clear();
   }
   state.lastRenderedSubCueText = "";
   if (typeof document === "undefined") return;
-  const overlay = document.getElementById("atv-subtitle-overlay");
+  const overlay = getSubOverlayEl();
   if (overlay) {
     overlay.innerHTML = "";
     overlay.classList.add("hidden");
@@ -289,8 +319,25 @@ function advanceWindowedSubtitleIfNeeded(subMeta, curSec) {
 
   const nextStart = Math.max(0, Math.floor(curSec - 4));
   if (Math.abs(nextStart - winStart) < 15) return;
+  const nowAdvMs = Date.now();
+  if (
+    subMeta._lastAdvanceAttemptTs &&
+    subMeta._lastAdvanceAttemptTarget === nextStart &&
+    nowAdvMs - subMeta._lastAdvanceAttemptTs < 8000
+  ) {
+    return;
+  }
+  subMeta._lastAdvanceAttemptTs = nowAdvMs;
+  subMeta._lastAdvanceAttemptTarget = nextStart;
 
   state.subWindowAdvancing = true;
+  if (state.subWindowAbortController) {
+    try {
+      state.subWindowAbortController.abort();
+    } catch (_) {}
+  }
+  const winAbort = new AbortController();
+  state.subWindowAbortController = winAbort;
   const qs = new URLSearchParams({
     src: subMeta.rawSourceUrl,
     si: String(subMeta.streamIndex),
@@ -299,14 +346,33 @@ function advanceWindowedSubtitleIfNeeded(subMeta, curSec) {
   });
   const nextUrl = `/api/remux-subtitle?${qs.toString()}`;
   const reqToken = state.subFetchReqId;
-  fetch(nextUrl)
-    .then((r) => (r.ok ? r.text() : ""))
+  fetch(nextUrl, { signal: winAbort.signal })
+    .then((r) => (r.ok ? r.text() : null))
     .then((txt) => {
-      if (!state.isPlayerOpen || state.subFetchReqId !== reqToken || state.activeSubTrackMeta !== subMeta) return;
-      const parsed = parseSubtitleCues(txt);
+      if (winAbort.signal.aborted || !state.isPlayerOpen || state.subFetchReqId !== reqToken || state.activeSubTrackMeta !== subMeta) return;
+      if (txt === null) return;
       subMeta.windowStartSec = nextStart;
       subMeta.url = nextUrl;
       state.loadedSubUrl = nextUrl;
+      const prevCues = Array.isArray(state.activeSubCues) ? state.activeSubCues : [];
+      const prevTokenizedMap = new Map();
+      for (let i = 0; i < prevCues.length; i++) {
+        const pc = prevCues[i];
+        if (pc && pc._tokenizedHtml) {
+          prevTokenizedMap.set(`${pc.start.toFixed(2)}|${pc.end.toFixed(2)}|${pc.text}`, pc);
+        }
+      }
+      const parsed = parseSubtitleCues(txt);
+      if (prevTokenizedMap.size > 0) {
+        for (let i = 0; i < parsed.length; i++) {
+          const nc = parsed[i];
+          const prevMatch = prevTokenizedMap.get(`${nc.start.toFixed(2)}|${nc.end.toFixed(2)}|${nc.text}`);
+          if (prevMatch) {
+            nc._tokenizedHtml = prevMatch._tokenizedHtml;
+            nc._contextAttr = prevMatch._contextAttr;
+          }
+        }
+      }
       state.activeSubCues = parsed;
       const vEl = typeof document !== "undefined" ? document.getElementById("native-video") : null;
       if (vEl && Boolean(vEl.webkitDisplayingFullscreen)) {
@@ -317,17 +383,23 @@ function advanceWindowedSubtitleIfNeeded(subMeta, curSec) {
     })
     .catch(() => {})
     .finally(() => {
+      if (state.subWindowAbortController === winAbort) {
+        state.subWindowAbortController = null;
+      }
       state.subWindowAdvancing = false;
     });
 }
 
 const _subDictClientCache = new Map();
 
+const _SUB_WORD_SPLIT_RE = /([A-Za-zА-Яа-яЁёІіЇїЄєҐґ0-9''’-]{2,})/g;
+const _SUB_HAS_LETTER_RE = /[A-Za-zА-Яа-яЁёІіЇїЄєҐґ]/;
+
 function renderInteractiveSubtitleLineHtml(line) {
-  const parts = String(line || "").split(/([A-Za-zА-Яа-яЁёІіЇїЄєҐґ0-9''’-]{2,})/g);
+  const parts = String(line || "").split(_SUB_WORD_SPLIT_RE);
   return parts
-    .map((part) => {
-      if (/^[A-Za-zА-Яа-яЁёІіЇїЄєҐґ0-9''’-]{2,}$/.test(part) && /[A-Za-zА-Яа-яЁёІіЇїЄєҐґ]/.test(part)) {
+    .map((part, idx) => {
+      if (idx % 2 === 1 && _SUB_HAS_LETTER_RE.test(part)) {
         return `<span class="atv-sub-word" role="button" tabindex="0" data-word="${escapeAttr(part)}">${escapeHtml(part)}</span>`;
       }
       return escapeHtml(part);
@@ -335,22 +407,46 @@ function renderInteractiveSubtitleLineHtml(line) {
     .join("");
 }
 
+let _dictAbortController = null;
+let _activeDictWordEl = null;
+
 export function closeSubtitleDictPopover(resumePlayback = true) {
+  if (_dictAbortController) {
+    try {
+      _dictAbortController.abort();
+    } catch (_) {}
+    _dictAbortController = null;
+  }
+  if (!state.subDictOpen && !_activeDictWordEl && !state.pausedBySubWord) {
+    return;
+  }
   if (typeof document === "undefined") return;
   const pop = document.getElementById("atv-sub-dict-popover");
   if (pop) {
     pop.classList.add("hidden");
   }
-  document.querySelectorAll("#atv-subtitle-overlay .atv-sub-word.is-active-word").forEach((el) => {
-    el.classList.remove("is-active-word");
-  });
+  if (_activeDictWordEl) {
+    _activeDictWordEl.classList.remove("is-active-word");
+    _activeDictWordEl = null;
+  } else {
+    document.querySelectorAll("#atv-subtitle-overlay .atv-sub-word.is-active-word").forEach((el) => {
+      el.classList.remove("is-active-word");
+    });
+  }
   state.subDictOpen = false;
   state.activeSubDictWord = "";
   state.activeSubDictEntry = null;
+  syncVcPopoverOpenClass();
   if (resumePlayback && state.pausedBySubWord) {
     state.pausedBySubWord = false;
     const video = document.getElementById("native-video");
-    if (video && video.paused && state.isPlayerOpen) {
+    if (
+      video &&
+      video.paused &&
+      state.isPlayerOpen &&
+      state.activeSourceTab !== "trailer" &&
+      !state.officialEmbedActive
+    ) {
       video.play().catch(() => {});
     }
   } else if (!resumePlayback) {
@@ -375,11 +471,14 @@ export async function openSubtitleDictPopover(rawWord, contextText = "", wordEl 
     state.pausedBySubWord = true;
   }
 
-  document.querySelectorAll("#atv-subtitle-overlay .atv-sub-word.is-active-word").forEach((el) => {
-    el.classList.remove("is-active-word");
-  });
+  if (_activeDictWordEl && _activeDictWordEl !== wordEl) {
+    _activeDictWordEl.classList.remove("is-active-word");
+  }
   if (wordEl) {
     wordEl.classList.add("is-active-word");
+    _activeDictWordEl = wordEl;
+  } else {
+    _activeDictWordEl = null;
   }
 
   const isCyrillic = /[А-Яа-яЁёІіЇїЄєҐґ]/.test(cleanWord);
@@ -396,18 +495,43 @@ export async function openSubtitleDictPopover(rawWord, contextText = "", wordEl 
   }
   pop.classList.remove("hidden");
   state.subDictOpen = true;
+  state.activeSubDictWord = cleanWord;
+  state.activeSubDictEntry = {
+    word: cleanWord,
+    translation: "",
+    alternatives: [],
+    context: String(contextText || "").trim(),
+    context_translation: "",
+    title: displayTitle(state.activeItem),
+  };
+  syncSubDictBadge();
+  hideXRayPauseShelf();
+  syncVcPopoverOpenClass();
 
+  if (_dictAbortController) {
+    try {
+      _dictAbortController.abort();
+    } catch (_) {}
+    _dictAbortController = null;
+  }
   const sessionSnap = state.playerSessionId;
   const cacheKey = `${cleanWord.toLowerCase()}|${targetLang}|${String(contextText || "").slice(0, 120)}`;
   let result = _subDictClientCache.get(cacheKey);
   if (!result) {
+    const dictAbort = new AbortController();
+    _dictAbortController = dictAbort;
     try {
       const qs = new URLSearchParams({
         word: cleanWord,
         context: String(contextText || "").replace(/\s+/g, " ").trim().slice(0, 220),
         target_lang: targetLang,
       });
-      const res = await fetch(`/api/subtitles/translate?${qs.toString()}`);
+      const res = await fetch(`/api/subtitles/translate?${qs.toString()}`, {
+        signal: dictAbort.signal,
+      });
+      if (_dictAbortController === dictAbort) {
+        _dictAbortController = null;
+      }
       if (res.ok) {
         result = await res.json();
         if (result && result.ok) {
@@ -418,7 +542,10 @@ export async function openSubtitleDictPopover(rawWord, contextText = "", wordEl 
           _subDictClientCache.set(cacheKey, result);
         }
       }
-    } catch (err) { window.logDebug?.("Subtitles", err); }
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+      window.logDebug?.("Subtitles", err);
+    }
   }
 
   if (
@@ -461,11 +588,27 @@ export async function openSubtitleDictPopover(rawWord, contextText = "", wordEl 
   syncSubDictBadge();
 }
 
-export const VOCAB_STORAGE_KEY = "cineflow_vocab_v1";
+export const VOCAB_STORAGE_KEY = "velarium_vocab_v1";
+
+let _vocabCacheList = null;
+let _vocabCacheKey = "";
+let _vocabSavedWordsSet = null;
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (ev) => {
+    if (!ev || !ev.key || ev.key.includes(VOCAB_STORAGE_KEY)) {
+      _vocabCacheList = null;
+      _vocabCacheKey = "";
+      _vocabSavedWordsSet = null;
+    }
+  });
+}
 
 export function getSavedVocabulary() {
   try {
     const key = profileStorageKey(VOCAB_STORAGE_KEY);
+    if (_vocabCacheList && _vocabCacheKey === key) {
+      return _vocabCacheList.slice();
+    }
     let raw = typeof localStorage !== "undefined" ? localStorage.getItem(key) : null;
     if (raw === null && (!state.activeProfileId || state.activeProfileId === "main")) {
       const legacyRaw = typeof localStorage !== "undefined" ? localStorage.getItem(VOCAB_STORAGE_KEY) : null;
@@ -477,7 +620,13 @@ export function getSavedVocabulary() {
       }
     }
     const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    const list = Array.isArray(parsed) ? parsed : [];
+    _vocabCacheKey = key;
+    _vocabCacheList = list;
+    _vocabSavedWordsSet = new Set(
+      list.map((item) => String(item?.word || "").trim().toLowerCase())
+    );
+    return list.slice();
   } catch (_) {
     return [];
   }
@@ -485,18 +634,24 @@ export function getSavedVocabulary() {
 
 export function saveVocabularyList(list) {
   try {
+    const safeList = Array.isArray(list) ? list : [];
+    const key = profileStorageKey(VOCAB_STORAGE_KEY);
+    _vocabCacheKey = key;
+    _vocabCacheList = safeList.slice();
+    _vocabSavedWordsSet = new Set(
+      safeList.map((item) => String(item?.word || "").trim().toLowerCase())
+    );
     if (typeof localStorage !== "undefined") {
-      const key = profileStorageKey(VOCAB_STORAGE_KEY);
-      localStorage.setItem(key, JSON.stringify(list || []));
+      localStorage.setItem(key, JSON.stringify(safeList));
     }
   } catch (err) { window.logDebug?.("Subtitles", err); }
 }
 
 export function isWordSavedInVocabulary(word) {
   if (!word) return false;
-  const list = getSavedVocabulary();
+  getSavedVocabulary();
   const low = String(word).trim().toLowerCase();
-  return list.some((item) => String(item.word || "").trim().toLowerCase() === low);
+  return Boolean(_vocabSavedWordsSet && _vocabSavedWordsSet.has(low));
 }
 
 export function toggleWordInVocabulary(wordObj) {
@@ -570,7 +725,7 @@ export function exportVocabularyToAnkiTsv() {
   const rows = [
     ["#separator:tab"],
     ["#html:true"],
-    ["#tags:CineFlow vocabulary"],
+    ["#tags:Velarium vocabulary"],
   ];
   list.forEach((item) => {
     const w = String(item.word || "").replace(/\t/g, " ");
@@ -589,7 +744,7 @@ export function exportVocabularyToAnkiTsv() {
   const blob = new Blob(["\ufeff" + tsvContent], { type: "text/tab-separated-values;charset=utf-8" });
   const d = new Date();
   const dateStr = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-  const filename = `CineFlow-Vocabulary-${dateStr}.tsv`;
+  const filename = `Velarium-Vocabulary-${dateStr}.tsv`;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -610,8 +765,11 @@ export function openVocabularyModal() {
   if (typeof document === "undefined") return;
   const modal = document.getElementById("vocab-modal");
   if (!modal) return;
+  exitBrowserFullscreenIfNeeded();
+  rememberModalTriggerFocus("vocab-modal");
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
+  syncScrollTopButton();
   renderVocabularyModal();
   const input = document.getElementById("vocab-search-input");
   if (input) {
@@ -626,6 +784,15 @@ export function closeVocabularyModal() {
   if (!modal) return;
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
+  syncScrollTopButton();
+  restoreModalTriggerFocus("vocab-modal");
+  if (state.pausedByVocabModal) {
+    state.pausedByVocabModal = false;
+    const videoEl = document.getElementById("native-video");
+    if (videoEl && state.isPlayerOpen && videoEl.paused && !state.officialEmbedActive) {
+      videoEl.play().catch((err) => window.logDebug?.("Subtitles", err));
+    }
+  }
 }
 
 export function renderVocabularyModal(query = "") {
@@ -681,7 +848,9 @@ export function renderVocabularyModal(query = "") {
             ${ctx ? `<div class="atv-vocab-item-ctx">«${ctx}»</div>` : ""}
             ${tit ? `<div class="atv-vocab-item-meta">${tit}</div>` : ""}
           </div>
-          <button type="button" class="atv-vocab-del-btn" title="${escapeAttr(
+          <button type="button" class="atv-vocab-del-btn" aria-label="${escapeAttr(
+            t("Удалить из словаря", "Remove from vocabulary")
+          )}" title="${escapeAttr(
             t("Удалить из словаря", "Remove from vocabulary")
           )}" data-del-id="${item.id}">
             <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -699,25 +868,63 @@ export function renderVocabularyModal(query = "") {
   });
 }
 
+export function revokeLocalVideoBlobUrl(
+  video = typeof document !== "undefined" ? document.getElementById("native-video") : null
+) {
+  if (video && video._cfLocalBlobUrl) {
+    try {
+      URL.revokeObjectURL(video._cfLocalBlobUrl);
+    } catch (err) {
+      window.logDebug?.("Subtitles", err);
+    }
+    video._cfLocalBlobUrl = null;
+  }
+}
+
+function _findFirstActiveCueIndex(cues, lookupSec) {
+  let lo = 0;
+  let hi = cues.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((Number(cues[mid].end) || 0) + 0.06 < lookupSec) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return Math.max(0, lo - 4);
+}
+
+let _subOverlayEl = null;
+function getSubOverlayEl() {
+  if (!_subOverlayEl || !_subOverlayEl.isConnected) {
+    _subOverlayEl = typeof document !== "undefined" ? document.getElementById("atv-subtitle-overlay") : null;
+  }
+  return _subOverlayEl;
+}
+
 export function updateCustomSubtitleOverlay(
   video = typeof document !== "undefined" ? document.getElementById("native-video") : null
 ) {
   if (typeof document === "undefined") return;
-  const overlay = document.getElementById("atv-subtitle-overlay");
-  if (!overlay) return;
-  if (
+  const isSubsInactive =
     !video ||
     !state.isPlayerOpen ||
     state.activeSourceTab === "trailer" ||
     state.activeSubtitleIndex < 0 ||
     !Array.isArray(state.activeSubCues) ||
-    state.activeSubCues.length === 0
-  ) {
-    if (state.lastRenderedSubCueText !== "") {
-      state.lastRenderedSubCueText = "";
-      overlay.innerHTML = "";
-      overlay.classList.add("hidden");
-    }
+    state.activeSubCues.length === 0;
+
+  if (isSubsInactive && state.lastRenderedSubCueText === "") {
+    return;
+  }
+
+  const overlay = getSubOverlayEl();
+  if (!overlay) return;
+  if (isSubsInactive) {
+    state.lastRenderedSubCueText = "";
+    overlay.innerHTML = "";
+    overlay.classList.add("hidden");
     return;
   }
 
@@ -727,35 +934,69 @@ export function updateCustomSubtitleOverlay(
   if (trackMeta?.isWindowedEmbedded) {
     cueLookupSec =
       cur - (Number(trackMeta.windowStartSec) || 0) - (Number(state.subtitleOffsetSec) || 0);
-    advanceWindowedSubtitleIfNeeded(trackMeta, cur);
+    const nowWinMs = performance.now();
+    if (
+      nowWinMs - (trackMeta._lastWinCheckMs || 0) >= 400 ||
+      Math.abs(cur - (trackMeta._lastWinCheckCur || 0)) > 1.5
+    ) {
+      trackMeta._lastWinCheckMs = nowWinMs;
+      trackMeta._lastWinCheckCur = cur;
+      advanceWindowedSubtitleIfNeeded(trackMeta, cur);
+    }
   }
 
   const cues = state.activeSubCues;
-  const activeLines = [];
-  for (let i = 0; i < cues.length; i++) {
+  let firstCue = null;
+  let extraCues = null;
+  const startIdx = cues.length > 16 ? _findFirstActiveCueIndex(cues, cueLookupSec) : 0;
+  for (let i = startIdx; i < cues.length; i++) {
     const c = cues[i];
     if (c.start > cueLookupSec + 0.08) break;
     if (cueLookupSec >= c.start - 0.06 && cueLookupSec <= c.end + 0.06) {
-      activeLines.push(c.text);
+      if (!firstCue) {
+        firstCue = c;
+      } else {
+        if (!extraCues) extraCues = [firstCue];
+        extraCues.push(c);
+      }
     }
   }
-  const combined = activeLines.join("\n").trim();
+  const combined = !firstCue
+    ? ""
+    : !extraCues
+    ? String(firstCue.text || "").trim()
+    : extraCues.map((c) => c.text).join("\n").trim();
   if (combined === state.lastRenderedSubCueText) return;
   state.lastRenderedSubCueText = combined;
 
   if (!combined) {
     overlay.innerHTML = "";
-    overlay.classList.add("hidden");
+    if (!overlay.classList.contains("hidden")) overlay.classList.add("hidden");
     return;
   }
-  const htmlLines = combined
-    .split("\n")
-    .map((ln) => renderInteractiveSubtitleLineHtml(ln))
+  const activeCues = extraCues || [firstCue];
+  const htmlLines = activeCues
+    .map((c) => {
+      if (typeof c._tokenizedHtml !== "string") {
+        c._tokenizedHtml = String(c.text || "")
+          .split("\n")
+          .map((ln) => renderInteractiveSubtitleLineHtml(ln))
+          .join("<br/>");
+      }
+      return c._tokenizedHtml;
+    })
     .join("<br/>");
-  overlay.innerHTML = `<span class="atv-subtitle-cue-line" data-cue-context="${escapeAttr(
-    combined.replace(/\n+/g, " ")
-  )}">${htmlLines}</span>`;
-  overlay.classList.remove("hidden");
+  let contextAttr = "";
+  if (activeCues.length === 1 && firstCue) {
+    if (typeof firstCue._contextAttr !== "string") {
+      firstCue._contextAttr = escapeAttr(String(firstCue.text || "").replace(/\n+/g, " "));
+    }
+    contextAttr = firstCue._contextAttr;
+  } else {
+    contextAttr = escapeAttr(combined.replace(/\n+/g, " "));
+  }
+  overlay.innerHTML = `<span class="atv-subtitle-cue-line" data-cue-context="${contextAttr}">${htmlLines}</span>`;
+  if (overlay.classList.contains("hidden")) overlay.classList.remove("hidden");
 }
 
 export function syncIosFullscreenNativeSubtitles(videoEl = null) {
@@ -799,7 +1040,7 @@ export function syncIosFullscreenNativeSubtitles(videoEl = null) {
   let targetTrack = null;
   if (video.textTracks) {
     for (let i = 0; i < video.textTracks.length; i++) {
-      if (video.textTracks[i].label === "CineFlow Native FS") {
+      if (video.textTracks[i].label === "Velarium Native FS") {
         targetTrack = video.textTracks[i];
       } else {
         try {
@@ -809,7 +1050,7 @@ export function syncIosFullscreenNativeSubtitles(videoEl = null) {
     }
   }
   if (!targetTrack && typeof video.addTextTrack === "function") {
-    targetTrack = video.addTextTrack("subtitles", "CineFlow Native FS", "en");
+    targetTrack = video.addTextTrack("subtitles", "Velarium Native FS", "en");
   }
   if (!targetTrack) return;
 
@@ -856,12 +1097,30 @@ export function activateSelectedSubtitleTrack() {
     } catch (err) { window.logDebug?.("Subtitles", err); }
     state.subFetchAbortController = null;
   }
+  if (state.subWindowAbortController) {
+    try {
+      state.subWindowAbortController.abort();
+    } catch (err) { window.logDebug?.("Subtitles", err); }
+    state.subWindowAbortController = null;
+  }
   state.subFetchReqId = (state.subFetchReqId || 0) + 1;
   state.subWindowAdvancing = false;
   if (!sub || (!sub.url && !Array.isArray(sub.inlineCues)) || !state.isPlayerOpen) {
     clearCustomSubtitleOverlay(false);
     syncIosFullscreenNativeSubtitles(video);
     return;
+  }
+
+  if (sub.url && String(sub.url).startsWith("/api/remux-subtitle") && !sub.isWindowedEmbedded) {
+    try {
+      const qIdx = String(sub.url).indexOf("?");
+      const qs = new URLSearchParams(qIdx >= 0 ? String(sub.url).slice(qIdx + 1) : "");
+      sub.isWindowedEmbedded = true;
+      sub.rawSourceUrl = qs.get("src") || state.remuxMeta?.rawSourceUrl || "";
+      sub.streamIndex = Number(qs.get("si")) || 0;
+      sub.windowStartSec = Number(qs.get("ss")) || 0;
+      sub.windowDurSec = Number(qs.get("dur")) || 420;
+    } catch (err) { window.logDebug?.("Subtitles", err); }
   }
 
   if (Array.isArray(sub.inlineCues) && sub.inlineCues.length > 0) {
@@ -882,11 +1141,17 @@ export function activateSelectedSubtitleTrack() {
       ? sub.url
       : `/api/proxy-vtt?url=${encodeURIComponent(sub.url)}`;
 
+  const cachedCues = _sessionParsedSubCache.get(fetchUrl);
   if (
-    state.loadedSubUrl === fetchUrl &&
-    Array.isArray(state.activeSubCues) &&
-    state.activeSubCues.length > 0
+    (state.loadedSubUrl === fetchUrl &&
+      Array.isArray(state.activeSubCues) &&
+      state.activeSubCues.length > 0) ||
+    (Array.isArray(cachedCues) && cachedCues.length > 0)
   ) {
+    if (cachedCues && state.loadedSubUrl !== fetchUrl) {
+      state.loadedSubUrl = fetchUrl;
+      state.activeSubCues = cachedCues;
+    }
     state.activeSubTrackMeta = sub;
     if (video?.webkitDisplayingFullscreen) {
       syncIosFullscreenNativeSubtitles(video);
@@ -896,17 +1161,24 @@ export function activateSelectedSubtitleTrack() {
     return;
   }
 
-  const subAbort = new AbortController();
-  state.subFetchAbortController = subAbort;
   const reqId = state.subFetchReqId;
   state.activeSubTrackMeta = sub;
   clearCustomSubtitleOverlay(true);
+  const subAbort = new AbortController();
+  state.subFetchAbortController = subAbort;
 
   fetch(fetchUrl, { signal: subAbort.signal })
     .then((r) => (r.ok ? r.text() : ""))
     .then((rawVtt) => {
       if (!state.isPlayerOpen || reqId !== state.subFetchReqId) return;
       const parsedCues = parseSubtitleCues(rawVtt);
+      if (parsedCues.length > 0) {
+        if (_sessionParsedSubCache.size >= _SESSION_PARSED_SUB_CACHE_MAX) {
+          const oldestKey = _sessionParsedSubCache.keys().next().value;
+          if (oldestKey !== undefined) _sessionParsedSubCache.delete(oldestKey);
+        }
+        _sessionParsedSubCache.set(fetchUrl, parsedCues);
+      }
       state.loadedSubUrl = fetchUrl;
       state.activeSubCues = parsedCues;
       state.activeSubTrackMeta = sub;
@@ -958,7 +1230,10 @@ export function buildRemuxSubtitlesList(meta, offsetSec = 0) {
     });
   }
   if (Array.isArray(meta.subtitleTracks)) {
-    const winDurSec = 420;
+    const isLoopbackP2p = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(
+      String(meta.rawSourceUrl || "")
+    );
+    const winDurSec = isLoopbackP2p ? 120 : 420;
     meta.subtitleTracks.forEach((st) => {
       const qs = new URLSearchParams({
         src: meta.rawSourceUrl,
@@ -971,6 +1246,7 @@ export function buildRemuxSubtitlesList(meta, offsetSec = 0) {
         url: `/api/remux-subtitle?${qs.toString()}`,
         direct_vtt: true,
         isWindowedEmbedded: true,
+        isP2pWindowedEmbedded: isLoopbackP2p,
         rawSourceUrl: meta.rawSourceUrl,
         streamIndex: st.stream_index,
         windowStartSec: ssVal,
@@ -1215,11 +1491,21 @@ export function renderVcSubtitlesPopover(subsWrap, subsLbl, subsPop, subsSel, bi
   const subsList = state.subtitles || [];
   const activeSub = state.activeSubtitleIndex >= 0 ? subsList[state.activeSubtitleIndex] : null;
   subsLbl.textContent = activeSub ? activeSub.lang || t("Включены", "On") : t("Субтитры", "Subtitles");
+  if (subsPop.classList.contains("hidden")) {
+    return;
+  }
 
   const subOpts = Array.from(subsSel.options || []);
+  const subsPopSig = `${state.activeSubtitleIndex}|${state.subtitleOffsetSec || 0}|${Boolean(state.subOnlineSearching)}|${subOpts.map((o) => `${o.value}:${o.textContent}`).join("||")}|${state.appLang || "ru"}`;
+  if (subsPop.dataset.renderSig === subsPopSig && subsPop.childElementCount > 0) {
+    return;
+  }
+  subsPop.dataset.renderSig = subsPopSig;
   const showSubSearch = subOpts.length >= 10;
   const subSearchHtml = showSubSearch
-    ? `<div class="atv-vc-pop-search-wrap"><input type="text" class="atv-vc-pop-search" placeholder="${escapeAttr(
+    ? `<div class="atv-vc-pop-search-wrap"><input type="text" class="atv-vc-pop-search" aria-label="${escapeAttr(
+        t("Поиск субтитров", "Filter subtitles")
+      )}" placeholder="${escapeAttr(
         t("Поиск субтитров...", "Filter subtitles...")
       )}" autocomplete="off" spellcheck="false" /></div>`
     : "";
@@ -1417,6 +1703,9 @@ export function bindSubtitleFileAndDropListeners() {
     btnOpenVocab.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
+      const wasPausedByWord = Boolean(state.pausedBySubWord);
+      closeSubtitleDictPopover(false);
+      state.pausedByVocabModal = wasPausedByWord;
       openVocabularyModal();
     });
   }
@@ -1489,12 +1778,12 @@ export function bindSubtitleFileAndDropListeners() {
         e.stopPropagation();
         const video = document.getElementById("native-video");
         if (video) {
-          if (video._cfLocalBlobUrl) {
-            try {
-              URL.revokeObjectURL(video._cfLocalBlobUrl);
-            } catch (err) { window.logDebug?.("Subtitles", err); }
-            video._cfLocalBlobUrl = null;
-          }
+          revokeLocalVideoBlobUrl(video);
+          clearVideoStallWatchdog();
+          clearSeamlessEpisodeBridge(true);
+          clearRemuxDurationPoll();
+          clearAutoplayNextTimer();
+          hideXRayPauseShelf();
           const cleanName = videoFile.name.replace(/\.[^/.]+$/, "");
           const objUrl = URL.createObjectURL(videoFile);
           video._cfLocalBlobUrl = objUrl;
@@ -1527,12 +1816,18 @@ export function bindSubtitleFileAndDropListeners() {
             audioTracks: [],
             subtitleTracks: [],
           };
+          state.subtitles = [];
+          state.activeSubtitleIndex = -1;
+          clearCustomSubtitleOverlay(false);
+          populateSubtitlesSelector([]);
+          syncCustomControlPopovers();
           state.activeItem = {
             id: `local_${Date.now()}`,
             title: cleanName,
             media_type: "movie",
             year: new Date().getFullYear(),
           };
+          renderTimelineBookmarks();
           state.currentStreamUrl = objUrl;
           video.src = objUrl;
           video.play().catch(() => {});

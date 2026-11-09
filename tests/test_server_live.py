@@ -10,6 +10,9 @@ from server import CinemaRequestHandler, CinemaThreadingHTTPServer
 class TestLiveHttpServerEndpoints(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        import server
+        cls._orig_premieres = server.aggregator._get_online_premieres
+        server.aggregator._get_online_premieres = lambda: []
         cls.httpd = CinemaThreadingHTTPServer(("127.0.0.1", 0), CinemaRequestHandler)
         cls.port = cls.httpd.server_address[1]
         cls.base_url = f"http://127.0.0.1:{cls.port}"
@@ -20,6 +23,8 @@ class TestLiveHttpServerEndpoints(unittest.TestCase):
     def tearDownClass(cls):
         cls.httpd.shutdown()
         cls.httpd.server_close()
+        import server
+        server.aggregator._get_online_premieres = cls._orig_premieres
 
     def _req(self, path: str, method: str = "GET"):
         r = urllib.request.Request(self.base_url + path, method=method)
@@ -71,7 +76,7 @@ class TestLiveHttpServerEndpoints(unittest.TestCase):
         self.assertEqual(st_m, 200)
         self.assertIn("manifest+json", ct_m)
         manifest = json.loads(body_m)
-        self.assertEqual(manifest.get("short_name"), "CineFlow")
+        self.assertEqual(manifest.get("short_name"), "Velarium")
 
     def test_missing_static_assets_return_404(self):
         st_get, _, _ = self._req("/css/nonexistent-style.css", "GET")
@@ -83,7 +88,7 @@ class TestLiveHttpServerEndpoints(unittest.TestCase):
         st_sys, _, body_sys = self._req("/api/system/status")
         self.assertEqual(st_sys, 200)
         sys_data = json.loads(body_sys)
-        self.assertEqual(sys_data.get("app"), "cineflow")
+        self.assertEqual(sys_data.get("app"), "velarium")
         self.assertIn("hw_accel", sys_data)
 
         for lang in ("ru", "en"):

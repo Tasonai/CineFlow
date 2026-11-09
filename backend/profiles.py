@@ -125,6 +125,36 @@ _KIDS_BLOCKED_TITLE_KEYWORDS = (
     "sausage party",
 )
 
+_KIDS_AGE_R_RE = re.compile(r"(?<![a-z0-9])r(?![a-z0-9])")
+_KIDS_SAFE_AGE_RE = re.compile(
+    r"(?<![a-z0-9\-])(?:0\+|6\+|12\+|g|pg|tv-y|tv-y7|tv-g)(?![a-z0-9\-])"
+)
+_KIDS_BLOCKED_TITLE_SHORT_SET = {
+    "семь",
+    "пила",
+    "saw",
+    "рипли",
+    "ripley",
+    "сегун",
+    "shogun",
+    "аркейн",
+    "arcane",
+    "неуязвимый",
+    "invincible",
+}
+_KIDS_BLOCKED_TITLE_SHORT_RE = re.compile(
+    r"(?<![а-яa-z0-9])(?:пила|saw|рипли|ripley|сегун|shogun|аркейн|arcane|неуязвимый|invincible)(?![а-яa-z0-9])"
+)
+_KIDS_BLOCKED_SEVEN_RE = re.compile(r"(?<![а-яa-z0-9])семь(?![а-яa-z0-9])")
+_KIDS_BLOCKED_TITLE_SUBSTR_KEYWORDS = tuple(
+    k for k in _KIDS_BLOCKED_TITLE_KEYWORDS if k.strip() not in _KIDS_BLOCKED_TITLE_SHORT_SET
+)
+_KIDS_BLOCKED_GENRE_WORD_RE = re.compile(r"\b(?:war|crime|gore|adult)\b")
+_KIDS_BLOCKED_GENRE_SUBSTR_KEYWORDS = tuple(
+    g for g in _KIDS_BLOCKED_GENRE_KEYWORDS if g not in ("war", "crime", "gore", "adult")
+)
+_PLACEHOLDER_USER_ID_RE = re.compile(r"^(?:user|id)[_\-\s]*\d+$")
+
 
 def _is_placeholder_kinorium_name(val: Any, uid: str = "") -> bool:
     s = str(val or "").strip()
@@ -137,7 +167,7 @@ def _is_placeholder_kinorium_name(val: Any, uid: str = "") -> bool:
         return True
     if low.startswith(("http://", "https://", "user/")) or "kinorium.com" in low:
         return True
-    if re.match(r"^(?:user|id)[_\-\s]*\d+$", low):
+    if _PLACEHOLDER_USER_ID_RE.match(low):
         return True
     return False
 
@@ -157,7 +187,7 @@ _AUDIO_PREF_VALUES = ("auto", "ru_dub", "original")
 
 class ProfileManager:
     """
-    Multi-profile manager for CineFlow ('Личный', 'Семейный', 'Детский', plus custom profiles).
+    Multi-profile manager for Velarium ('Личный', 'Семейный', 'Детский', plus custom profiles).
     Guarantees 100% backward compatibility with the primary root `data/kinorium_state.json`
     for the `'main'` profile while isolating secondary profiles in `data/profiles/<id>/`.
     """
@@ -562,6 +592,20 @@ class ProfileManager:
             else:
                 pid = self._sanitize_profile_id(profile_id)
                 self._pin_attempts.pop(pid, None)
+            self._save_pin_attempts_locked()
+
+    def _record_pin_failure(self, profile_id: Optional[str] = None) -> None:
+        with self._lock:
+            pid = self._sanitize_profile_id(profile_id or self._state.get("active_profile_id") or "main") or "main"
+            now = time.time()
+            failures, _ = self._pin_attempts.get(pid, (0, 0.0))
+            failures += 1
+            if failures >= self.PIN_MAX_ATTEMPTS and failures % self.PIN_MAX_ATTEMPTS == 0:
+                tier = failures // self.PIN_MAX_ATTEMPTS - 1
+                lock_secs = min(3600.0, self.PIN_LOCKOUT_SECONDS * (2 ** tier))
+                self._pin_attempts[pid] = (failures, now + lock_secs)
+            else:
+                self._pin_attempts[pid] = (failures, 0.0)
             self._save_pin_attempts_locked()
 
     def verify_active_kids_pin(self, pin: str, profile_id: Optional[str] = None) -> bool:
@@ -977,7 +1021,7 @@ class ProfileManager:
                 or "nc-17" in age_str
                 or "tv-ma" in age_str
                 or "tv-14" in age_str
-                or re.search(r"(?<![a-z0-9])r(?![a-z0-9])", age_str)
+                or _KIDS_AGE_R_RE.search(age_str)
             ):
                 return False
 
@@ -986,37 +1030,27 @@ class ProfileManager:
             .lower()
             .replace("ё", "е")
         )
-        for bad_t in _KIDS_BLOCKED_TITLE_KEYWORDS:
-            bad_clean = bad_t.strip()
-            if bad_clean in (
-                "семь",
-                "пила",
-                "saw",
-                "рипли",
-                "ripley",
-                "сегун",
-                "shogun",
-                "аркейн",
-                "arcane",
-                "неуязвимый",
-                "invincible",
-            ):
-                if bad_clean == "семь" and ("гномов" in title_blob or "чудес" in title_blob):
-                    continue
-                if re.search(rf"(?<![а-яa-z0-9]){re.escape(bad_clean)}(?![а-яa-z0-9])", title_blob):
-                    return False
-            elif bad_t in title_blob:
+        if _KIDS_BLOCKED_TITLE_SHORT_RE.search(title_blob):
+            return False
+        if (
+            "семь" in title_blob
+            and "гномов" not in title_blob
+            and "чудес" not in title_blob
+            and _KIDS_BLOCKED_SEVEN_RE.search(title_blob)
+        ):
+            return False
+        for bad_t in _KIDS_BLOCKED_TITLE_SUBSTR_KEYWORDS:
+            if bad_t in title_blob:
                 return False
 
         raw_genres = list(item.get("genres") or []) + list(item.get("genres_en") or [])
         info_hint = str(item.get("info") or item.get("category") or "").strip()
         genre_blob = " | ".join(str(g or "").lower().replace("ё", "е") for g in raw_genres)
         combined_genre_info = f"{genre_blob} | {info_hint.lower().replace('ё', 'е')}".strip(" |")
-        for bad_g in _KIDS_BLOCKED_GENRE_KEYWORDS:
-            if bad_g in ("war", "crime", "gore", "adult"):
-                if re.search(rf"\b{re.escape(bad_g)}\b", combined_genre_info):
-                    return False
-            elif bad_g in combined_genre_info:
+        if _KIDS_BLOCKED_GENRE_WORD_RE.search(combined_genre_info):
+            return False
+        for bad_g in _KIDS_BLOCKED_GENRE_SUBSTR_KEYWORDS:
+            if bad_g in combined_genre_info:
                 return False
 
         desc_low = (
@@ -1049,10 +1083,7 @@ class ProfileManager:
             if any(ok_g in genre_blob for ok_g in _KIDS_SAFE_GENRE_KEYWORDS):
                 # Secondary genres (comedy/adventure/fantasy without family/animation/kids)
                 # pass unless marked with adult Drama/Sci-Fi-only maturity signals
-                if age_str and re.search(
-                    r"(?<![a-z0-9\-])(?:0\+|6\+|12\+|g|pg|tv-y|tv-y7|tv-g)(?![a-z0-9\-])",
-                    age_str,
-                ):
+                if age_str and _KIDS_SAFE_AGE_RE.search(age_str):
                     return True
                 if not any(m in combined_genre_info for m in ("драма", "drama", "мелодрам", "romance", "детектив", "mystery")):
                     return True
@@ -1090,10 +1121,12 @@ class ProfileManager:
         for list_key in ("items", "continue_watching", "similar_pool", "similar_items", "hero_items"):
             raw_list = out.get(list_key)
             if isinstance(raw_list, list):
+                filtered_list: List[Dict[str, Any]] = []
                 for it in raw_list:
                     if not isinstance(it, dict):
                         continue
                     if cls.is_item_kids_safe(it):
+                        filtered_list.append(it)
                         if it.get("id"):
                             allowed_ids.add(str(it["id"]).strip())
                         if it.get("kinorium_id"):
@@ -1113,17 +1146,9 @@ class ProfileManager:
                             tv = str(it.get(tk) or "").strip().lower()
                             if tv:
                                 rejected_titles.add(tv)
-        if isinstance(out.get("items"), list):
-            out["items"] = cls.filter_items_for_kids(out["items"])
-            out["total"] = len(out["items"])
-        if isinstance(out.get("continue_watching"), list):
-            out["continue_watching"] = cls.filter_items_for_kids(out["continue_watching"])
-        if isinstance(out.get("similar_pool"), list):
-            out["similar_pool"] = cls.filter_items_for_kids(out["similar_pool"])
-        if isinstance(out.get("similar_items"), list):
-            out["similar_items"] = cls.filter_items_for_kids(out["similar_items"])
-        if isinstance(out.get("hero_items"), list):
-            out["hero_items"] = cls.filter_items_for_kids(out["hero_items"])
+                out[list_key] = filtered_list
+                if list_key == "items":
+                    out["total"] = len(filtered_list)
         if isinstance(out.get("live_series_updates"), list):
             safe_updates = []
             for u in out["live_series_updates"]:

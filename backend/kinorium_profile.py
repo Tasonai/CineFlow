@@ -21,11 +21,24 @@ class _StatusListResult(dict):
 def _store_similar_for_kid(self, eff_kid: str, items: List[Dict[str, Any]]) -> None:
     if not eff_kid or not eff_kid.isdigit():
         return
+    entry_obj = {
+        "updated_at": round(time.time(), 1),
+        "items": items,
+    }
     with self._similar_lock:
-        self._similar_by_kid[eff_kid] = {
-            "updated_at": round(time.time(), 1),
-            "items": items,
-        }
+        if len(self._similar_by_kid) >= 1000 and eff_kid not in self._similar_by_kid:
+            try:
+                self._similar_by_kid.pop(next(iter(self._similar_by_kid)))
+            except StopIteration:
+                pass
+        self._similar_by_kid[eff_kid] = entry_obj
+    db_inst = getattr(self, "_db", None)
+    if db_inst is not None:
+        try:
+            db_inst.set_cache_entry("similar_by_kid", eff_kid, entry_obj)
+            return
+        except Exception:
+            pass
     self._save_similar_disk_cache()
 
 
@@ -117,11 +130,19 @@ def fetch_movie_page_extras(
         if self._profile_id == start_pid:
             with self._state_lock:
                 if self._profile_id == start_pid:
-                    self.state.setdefault("critics_by_kid", {})[eff_kid] = int(pct) if pct is not None else -1
+                    crit_store = self.state.setdefault("critics_by_kid", {})
+                    if len(crit_store) > 4000:
+                        for old_ck in list(crit_store.keys())[:-4000]:
+                            crit_store.pop(old_ck, None)
+                    crit_store[eff_kid] = int(pct) if pct is not None else -1
+                    desc_store = self.state.setdefault("descriptions_by_kid", {})
+                    if len(desc_store) > 2000:
+                        for old_dk in list(desc_store.keys())[:-2000]:
+                            desc_store.pop(old_dk, None)
                     if desc_extracted:
-                        self.state.setdefault("descriptions_by_kid", {})[eff_kid] = desc_extracted
-                    elif eff_kid not in self.state.setdefault("descriptions_by_kid", {}):
-                        self.state["descriptions_by_kid"][eff_kid] = ""
+                        desc_store[eff_kid] = desc_extracted
+                    elif eff_kid not in desc_store:
+                        desc_store[eff_kid] = ""
             self._save_state(immediate=False, bump_version=False)
             self._store_similar_for_kid(eff_kid, sim_raw)
         return {
@@ -482,7 +503,7 @@ def _verify_recent_watchlist_online_availability(
     items in 'Буду смотреть', hiding unreleased or theatrical-only titles that do not yet
     have online streams.
     """
-    from .hdrezka import HDRezkaClient
+    from .hdrezka import HDRezkaClient, _RejectedMeta
 
     prev_wl = self.state.get("remote_watchlist_items") or {}
     rc = getattr(self, "_rezka_client", None) or HDRezkaClient(self.net)
@@ -521,6 +542,10 @@ def _verify_recent_watchlist_online_availability(
                 yr,
                 mtype,
             )
+            if not meta and not isinstance(meta, _RejectedMeta):
+                # Transient network / mirror failure: keep released items visible and retry next sync
+                v["available_online"] = yr <= cur_yr
+                return
             r_url = meta.get("rezka_url") or ""
             year_ok = (
                 (str(yr) in r_url)
@@ -549,7 +574,7 @@ def _verify_recent_watchlist_online_availability(
                 v["available_online"] = False
             v["rezka_checked"] = True
         except Exception:
-            v["available_online"] = yr <= 2025
+            v["available_online"] = yr <= cur_yr
 
     if to_check:
         with ThreadPoolExecutor(max_workers=8) as pool:
@@ -1249,33 +1274,43 @@ def _count_dismissed_cw_items_locked(self) -> int:
 def get_account_summary(self) -> Dict[str, Any]:
     with self._state_lock:
         acc = dict(self.state.get("account") or {})
+        uid = str(acc.get("user_id") or "").strip()
+        disp_raw = str(acc.get("display_name") or "").strip()
+        conn_raw = bool(acc.get("connected"))
+        cur_ver = getattr(self, "_state_version", 0)
+        cache_key = (cur_ver, uid, disp_raw, conn_raw, acc.get("last_synced"), acc.get("watched_count"))
+        if getattr(self, "_cached_account_summary_key", None) == cache_key and hasattr(self, "_cached_account_summary"):
+            return dict(self._cached_account_summary)
+
         cw_dismissed_cnt = self._count_dismissed_cw_items_locked()
-    uid = str(acc.get("user_id") or "").strip()
-    connected = bool(acc.get("connected") and uid)
-    avatar_url = str(acc.get("avatar_url") or "").strip()
-    if avatar_url and "/user/180/" in avatar_url:
-        avatar_url = avatar_url.replace("/user/180/", "/user/200/")
-    if connected and uid.isdigit():
-        avatar_url = f"/api/kinorium/avatar?uid={uid}"
-    disp = str(acc.get("display_name") or "Не подключен").strip()
-    is_placeholder_name = _is_placeholder_display_name(disp, uid)
-    if connected and uid == "51670" and is_placeholder_name:
-        disp = "Andrei Crustillio"
-    elif connected and is_placeholder_name:
-        disp = "Kinorium"
-    elif not connected and is_placeholder_name:
-        disp = "Не подключен"
-    return {
-        "connected": bool(acc.get("connected")),
-        "user_id": uid,
-        "display_name": disp,
-        "avatar_url": avatar_url if connected else "",
-        "profile_url": str(acc.get("profile_url") or "https://en.kinorium.com/"),
-        "watched_count": int(acc.get("watched_count") or 0),
-        "last_synced": str(acc.get("last_synced") or ""),
-        "has_session_cookie": bool((acc.get("session_cookie") or "").strip()),
-        "cw_dismissed_count": cw_dismissed_cnt,
-    }
+        connected = bool(conn_raw and uid)
+        avatar_url = str(acc.get("avatar_url") or "").strip()
+        if avatar_url and "/user/180/" in avatar_url:
+            avatar_url = avatar_url.replace("/user/180/", "/user/200/")
+        if connected and uid.isdigit():
+            avatar_url = f"/api/kinorium/avatar?uid={uid}"
+        disp = disp_raw or "Не подключен"
+        is_placeholder_name = _is_placeholder_display_name(disp, uid)
+        if connected and uid == "51670" and is_placeholder_name:
+            disp = "Andrei Crustillio"
+        elif connected and is_placeholder_name:
+            disp = "Kinorium"
+        elif not connected and is_placeholder_name:
+            disp = "Не подключен"
+        res = {
+            "connected": bool(acc.get("connected")),
+            "user_id": uid,
+            "display_name": disp,
+            "avatar_url": avatar_url if connected else "",
+            "profile_url": str(acc.get("profile_url") or "https://en.kinorium.com/"),
+            "watched_count": int(acc.get("watched_count") or 0),
+            "last_synced": str(acc.get("last_synced") or ""),
+            "has_session_cookie": bool((acc.get("session_cookie") or "").strip()),
+            "cw_dismissed_count": cw_dismissed_cnt,
+        }
+        self._cached_account_summary = res
+        self._cached_account_summary_key = cache_key
+        return dict(res)
 
 
 def export_backup_state(self, redact_secrets: bool = False) -> Dict[str, Any]:

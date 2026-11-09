@@ -2,14 +2,15 @@ import {
   NOTIF_DESKTOP_ALERTED_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261105v5";
+} from "./state.js?v=20261108v19";
 import {
   displayPoster,
   displayTitle,
+  hasCyrillicText,
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -18,21 +19,35 @@ import {
   getSeenNotificationsSet,
   iconSvg,
   matchCatalogItemSafe,
+  pluralRu,
   saveSeenNotificationsSet,
-} from "./utils.js?v=20261105v5";
-import { openQuickPeekModal } from "./modals.js?v=20261105v5";
-import { openPlayerModal } from "./player.js?v=20261105v5";
-import { openSettingsModal } from "./settings.js?v=20261105v5";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
+import { openQuickPeekModal } from "./modals.js?v=20261108v19";
+import { openPlayerModal } from "./player.js?v=20261108v19";
+import { openSettingsModal } from "./settings.js?v=20261108v19";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261108v19";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261105v5";
+} from "./catalog-media-resolver.js?v=20261108v19";
+
+let _notifCacheEpoch = "";
+let _notifCacheItems = [];
 
 export function collectNewEpisodeNotifications() {
   if (!isServiceEnabled("kinorium") || (!isServiceEnabled("hdrezka") && !isServiceEnabled("stremio"))) {
     return [];
+  }
+  const cwArr = state.continueWatching || [];
+  let cwSig = `${cwArr.length}`;
+  for (let i = 0; i < cwArr.length; i++) {
+    const c = cwArr[i];
+    if (c) cwSig += `|${c.id || ""}:${c.season || 0}:${c.episode || 0}:${Math.floor(Number(c.current_time || 0))}`;
+  }
+  const epoch = `${state.catalogIndexVersion || 0}|${state.liveSeriesUpdatesVersion || 0}|${state.appLang || "ru"}|${cwSig}`;
+  if (epoch === _notifCacheEpoch) {
+    return _notifCacheItems;
   }
   const out = [];
   const seenTitles = new Set();
@@ -63,15 +78,20 @@ export function collectNewEpisodeNotifications() {
     });
   };
 
-  (state.continueWatching || []).forEach(appendIfSeriesNotif);
+  cwArr.forEach(appendIfSeriesNotif);
   (state.catalogItems || []).forEach((it) => {
     if (it.media_type === "series" && it.kinorium?.has_new_episode) {
       appendIfSeriesNotif(it);
     }
   });
 
+  _notifCacheEpoch = epoch;
+  _notifCacheItems = out;
   return out;
 }
+
+let _alertedSetCache = null;
+let _alertedSetCacheKey = "";
 
 function maybeSendDesktopEpisodeAlerts(notifs = []) {
   if (typeof window === "undefined" || typeof localStorage === "undefined") return;
@@ -79,27 +99,32 @@ function maybeSendDesktopEpisodeAlerts(notifs = []) {
     (n) => n && n.is_new_episode && n.notifKey
   );
   const storageKey = profileStorageKey(NOTIF_DESKTOP_ALERTED_STORAGE_KEY);
-  let alertedArr = null;
-  try {
-    const raw = localStorage.getItem(storageKey);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) alertedArr = parsed;
-    }
-  } catch (err) { window.logDebug?.("CatalogNotifications", err); }
-
-  // First boot for this profile: record baseline without spamming existing items
-  if (alertedArr === null) {
+  let alertedSet = _alertedSetCacheKey === storageKey ? _alertedSetCache : null;
+  if (!alertedSet) {
+    let alertedArr = null;
     try {
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify(newOnes.map((n) => String(n.notifKey)).slice(-200))
-      );
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) alertedArr = parsed;
+      }
     } catch (err) { window.logDebug?.("CatalogNotifications", err); }
-    return;
+
+    // First boot for this profile: record baseline without spamming existing items
+    if (alertedArr === null) {
+      const initialKeys = newOnes.map((n) => String(n.notifKey)).slice(-200);
+      _alertedSetCache = new Set(initialKeys);
+      _alertedSetCacheKey = storageKey;
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(initialKeys));
+      } catch (err) { window.logDebug?.("CatalogNotifications", err); }
+      return;
+    }
+    alertedSet = new Set(alertedArr.map(String));
+    _alertedSetCache = alertedSet;
+    _alertedSetCacheKey = storageKey;
   }
 
-  const alertedSet = new Set(alertedArr.map(String));
   const freshToAlert = newOnes.filter((n) => !alertedSet.has(String(n.notifKey)));
   if (freshToAlert.length === 0) return;
 
@@ -109,14 +134,14 @@ function maybeSendDesktopEpisodeAlerts(notifs = []) {
   } catch (err) { window.logDebug?.("CatalogNotifications", err); }
 
   freshToAlert.slice(0, 3).forEach((n) => {
-    const titleStr = displayTitle(n) || n.title || "CineFlow";
+    const titleStr = displayTitle(n) || n.title || "Velarium";
     const epStr = n.episode_verified
       ? t(`Сезон ${n.season}, Серия ${n.episode}`, `Season ${n.season}, Episode ${n.episode}`)
       : t("Вышла новая серия", "New episode available");
     const stStr = translateStudioName(n.studio || "HDRezka");
     const bodyStr = `${epStr} · ${stStr}`;
 
-    const nativeHandler = window.webkit?.messageHandlers?.cineflowNative;
+    const nativeHandler = window.webkit?.messageHandlers?.velariumNative;
     if (nativeHandler && typeof nativeHandler.postMessage === "function") {
       try {
         nativeHandler.postMessage({
@@ -136,7 +161,7 @@ function maybeSendDesktopEpisodeAlerts(notifs = []) {
         const webNotif = new Notification(titleStr, {
           body: bodyStr,
           icon: n.poster || "/favicon.svg",
-          tag: `cineflow-${n.notifKey}`,
+          tag: `velarium-${n.notifKey}`,
         });
         webNotif.onclick = () => {
           try {
@@ -238,32 +263,56 @@ export function switchNotificationsTab(tabKey = "updates") {
   }
 }
 
+let _calendarInFlightPromise = null;
+let _calendarInFlightLang = "";
+
 export async function loadAndRenderReleaseCalendar(forceRefresh = false) {
   const calEl = document.getElementById("notifications-calendar-list");
   if (!calEl) return;
 
-  if (!forceRefresh && state.calendarData && Array.isArray(state.calendarData.upcoming)) {
+  const curLang = state.appLang || "ru";
+  if (
+    !forceRefresh &&
+    state.calendarData &&
+    state.calendarDataLang === curLang &&
+    Array.isArray(state.calendarData.upcoming)
+  ) {
     renderReleaseCalendarDOM(state.calendarData);
     return;
   }
 
-  if (state.calendarLoading) return;
-  state.calendarLoading = true;
   calEl.innerHTML = `<div class="atv-notif-empty">${escapeHtml(
     t("Загрузка расписания серий...", "Loading episode schedule...")
   )}</div>`;
 
   try {
-    const qs = new URLSearchParams({
-      lang: state.appLang || "ru",
-      days_past: "14",
-      days_ahead: "45",
-      ...(forceRefresh ? { force: "1" } : {}),
-    });
-    const res = await fetch(`/api/calendar?${qs.toString()}`);
-    const data = await res.json();
-    if (res.ok && data?.ok) {
-      state.calendarData = data;
+    if (!_calendarInFlightPromise || _calendarInFlightLang !== curLang || forceRefresh) {
+      _calendarInFlightLang = curLang;
+      state.calendarLoading = true;
+      const qs = new URLSearchParams({
+        lang: curLang,
+        days_past: "14",
+        days_ahead: "45",
+        ...(forceRefresh ? { force: "1" } : {}),
+      });
+      _calendarInFlightPromise = fetch(`/api/calendar?${qs.toString()}`)
+        .then(async (res) => {
+          const data = await res.json().catch(() => null);
+          if (res.ok && data?.ok) {
+            state.calendarData = data;
+            state.calendarDataLang = curLang;
+            return data;
+          }
+          return null;
+        })
+        .catch(() => null)
+        .finally(() => {
+          state.calendarLoading = false;
+          _calendarInFlightPromise = null;
+        });
+    }
+    const data = await _calendarInFlightPromise;
+    if (data && data.ok) {
       renderReleaseCalendarDOM(data);
     } else {
       calEl.innerHTML = `<div class="atv-notif-empty">${escapeHtml(
@@ -274,8 +323,6 @@ export async function loadAndRenderReleaseCalendar(forceRefresh = false) {
     calEl.innerHTML = `<div class="atv-notif-empty">${escapeHtml(
       t("Не удалось загрузить календарь релизов.", "Could not load release calendar.")
     )}</div>`;
-  } finally {
-    state.calendarLoading = false;
   }
 }
 
@@ -297,12 +344,13 @@ function renderReleaseCalendarDOM(calData) {
   }
 
   calEl.innerHTML = "";
+  const calFrag = document.createDocumentFragment();
   const appendSection = (headingText, eventsList, isUpcomingSection) => {
     if (!eventsList.length) return;
     const secHead = document.createElement("div");
     secHead.className = "atv-cal-section-head";
     secHead.textContent = headingText;
-    calEl.appendChild(secHead);
+    calFrag.appendChild(secHead);
 
     eventsList.slice(0, 24).forEach((ev) => {
       const row = document.createElement("div");
@@ -314,7 +362,9 @@ function renderReleaseCalendarDOM(calData) {
         ? ev.orig_title || ev.title || "Series"
         : ev.ru_title || ev.title || ev.orig_title || "Сериал";
       const epCode = `S${String(ev.season || 1).padStart(2, "0")}E${String(ev.episode || 1).padStart(2, "0")}`;
-      const epLine = ev.episode_title ? `${epCode} · ${ev.episode_title}` : epCode;
+      const rawEvEpTitle = String(ev.episode_title || "").trim();
+      const locEvEpTitle = isEn() && hasCyrillicText(rawEvEpTitle) ? "" : rawEvEpEpTitleFixed(rawEvEpTitle);
+      const epLine = locEvEpTitle ? `${epCode} · ${locEvEpTitle}` : epCode;
       const dateLabel = _formatCalendarAirDate(ev.air_date, todayIso);
 
       let statusChip = "";
@@ -362,12 +412,17 @@ function renderReleaseCalendarDOM(calData) {
           row.click();
         }
       };
-      calEl.appendChild(row);
+      calFrag.appendChild(row);
     });
   };
 
+  function rawEvEpEpTitleFixed(val) {
+    return val;
+  }
+
   appendSection(t("Скоро выходят", "Upcoming Episodes"), upcoming, true);
   appendSection(t("Недавно вышедшие", "Recently Aired"), recent, false);
+  calEl.appendChild(calFrag);
 }
 
 export async function renderReleaseCalendarShelf(forceRefresh = false) {
@@ -388,21 +443,35 @@ export async function renderReleaseCalendarShelf(forceRefresh = false) {
 
   attachHorizontalWheelScroll(row);
 
-  if (!state.calendarData || forceRefresh) {
+  const curLang = state.appLang || "ru";
+  if (!state.calendarData || state.calendarDataLang !== curLang || forceRefresh) {
     try {
-      const qs = new URLSearchParams({
-        lang: state.appLang || "ru",
-        days_past: "7",
-        days_ahead: "45",
-        ...(forceRefresh ? { force: "1" } : {}),
-      });
-      const res = await fetch(`/api/calendar?${qs.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.ok) {
-          state.calendarData = data;
-        }
+      if (!_calendarInFlightPromise || _calendarInFlightLang !== curLang || forceRefresh) {
+        _calendarInFlightLang = curLang;
+        state.calendarLoading = true;
+        const qs = new URLSearchParams({
+          lang: curLang,
+          days_past: "14",
+          days_ahead: "45",
+          ...(forceRefresh ? { force: "1" } : {}),
+        });
+        _calendarInFlightPromise = fetch(`/api/calendar?${qs.toString()}`)
+          .then(async (res) => {
+            const data = await res.json().catch(() => null);
+            if (res.ok && data?.ok) {
+              state.calendarData = data;
+              state.calendarDataLang = curLang;
+              return data;
+            }
+            return null;
+          })
+          .catch(() => null)
+          .finally(() => {
+            state.calendarLoading = false;
+            _calendarInFlightPromise = null;
+          });
       }
+      await _calendarInFlightPromise;
     } catch (err) { window.logDebug?.("CatalogNotifications", err); }
   }
 
@@ -417,13 +486,54 @@ export async function renderReleaseCalendarShelf(forceRefresh = false) {
     return;
   }
 
-  shelf.classList.remove("hidden");
-  if (countEl) {
-    countEl.textContent = String(visibleEvents.length);
+  // Group upcoming episodes by series so that each show appears exactly ONCE on the shelf
+  const groupedSeries = [];
+  const seriesMap = new Map();
+
+  visibleEvents.forEach((ev) => {
+    const key = String(
+      ev.kinorium_id || ev.id || ev.imdb_id || ev.orig_title || ev.ru_title || ev.title || ""
+    ).trim();
+    if (!key) return;
+    if (!seriesMap.has(key)) {
+      const entry = {
+        key,
+        firstEvent: ev,
+        episodes: [ev],
+      };
+      seriesMap.set(key, entry);
+      groupedSeries.push(entry);
+    } else {
+      seriesMap.get(key).episodes.push(ev);
+    }
+  });
+
+  if (groupedSeries.length === 0) {
+    shelf.classList.add("hidden");
+    row._lastCalShelfSig = "";
+    return;
   }
 
+  shelf.classList.remove("hidden");
+  if (countEl) {
+    countEl.textContent = String(groupedSeries.length);
+  }
+
+  const calSig = `${state.appLang || "ru"}|${groupedSeries
+    .slice(0, 16)
+    .map((g) => `${g.firstEvent?.title || ""}:${g.firstEvent?.air_date || ""}:${g.episodes.length}`)
+    .join(",")}`;
+  if (row._lastCalShelfSig === calSig && row.children.length > 0) {
+    return;
+  }
+  row._lastCalShelfSig = calSig;
   row.innerHTML = "";
-  visibleEvents.slice(0, 24).forEach((ev) => {
+  const shelfFrag = document.createDocumentFragment();
+  groupedSeries.slice(0, 16).forEach((entry) => {
+    const ev = entry.firstEvent;
+    const episodes = entry.episodes;
+    const episodesCount = episodes.length;
+
     const card = document.createElement("div");
     card.className = "atv-cal-shelf-card";
     card.tabIndex = 0;
@@ -434,21 +544,36 @@ export async function renderReleaseCalendarShelf(forceRefresh = false) {
       : ev.ru_title || ev.title || ev.orig_title || "Сериал";
     const sNum = Number(ev.season) || 1;
     const eNum = Number(ev.episode) || 1;
-    const epCode = `S${String(sNum).padStart(2, "0")} · E${String(eNum).padStart(2, "0")}`;
     const dateLabel = _formatCalendarAirDate(ev.air_date, todayIso);
 
     const isToday = Boolean(ev.is_today || ev.air_date === todayIso);
     const badgeCls = isToday ? "atv-cal-badge is-today" : "atv-cal-badge";
 
+    let epCode = "";
+    let epSub = "";
+
+    if (episodesCount > 1) {
+      epCode = isEn()
+        ? `Season ${sNum} · ${episodesCount} upcoming eps`
+        : `Сезон ${sNum} · ${episodesCount} ${pluralRu(episodesCount, "новая серия", "новые серии", "новых серий")}`;
+      epSub = isEn()
+        ? `From ${dateLabel} (${ev.episode_title || "Episode " + eNum})`
+        : `С ${dateLabel} (${ev.episode_title || "Серия " + eNum})`;
+    } else {
+      epCode = `S${String(sNum).padStart(2, "0")} · E${String(eNum).padStart(2, "0")}`;
+      epSub = ev.episode_title ? ev.episode_title : dateLabel;
+    }
+
     card.innerHTML = `
       <div class="atv-cal-poster-wrap">
         <img class="atv-cal-poster" src="${escapeAttr(ev.poster || "")}" alt="${escapeAttr(evTitle)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" />
         <div class="${badgeCls}">${escapeHtml(dateLabel)}</div>
+        ${episodesCount > 1 ? `<div class="atv-cal-count-badge">+${episodesCount} ${isEn() ? "eps" : "сер."}</div>` : ""}
       </div>
       <div class="atv-cal-meta">
         <div class="atv-cal-title" title="${escapeAttr(evTitle)}">${escapeHtml(evTitle)}</div>
         <div class="atv-cal-ep-code">${escapeHtml(epCode)}</div>
-        ${ev.episode_title ? `<div class="atv-cal-ep-name" title="${escapeAttr(ev.episode_title)}">${escapeHtml(ev.episode_title)}</div>` : ""}
+        ${epSub ? `<div class="atv-cal-ep-name" title="${escapeAttr(epSub)}">${escapeHtml(epSub)}</div>` : ""}
       </div>
     `;
 
@@ -478,8 +603,9 @@ export async function renderReleaseCalendarShelf(forceRefresh = false) {
       }
     };
 
-    row.appendChild(card);
+    shelfFrag.appendChild(card);
   });
+  row.appendChild(shelfFrag);
 }
 
 export function renderNotificationsBell() {
@@ -499,7 +625,25 @@ export function renderNotificationsBell() {
   badgeEl.textContent = String(unreadCount);
   badgeEl.classList.toggle("hidden", unreadCount === 0);
 
+  const notifSig = `${state.appLang || "ru"}|${unreadCount}|${hasAppUpdate ? upd.latest_version : ""}|${upd?.download_state || ""}|${notifs.map((n) => `${n.notifKey}:${seenSet.has(n.notifKey) ? 1 : 0}`).join(",")}`;
+  if (listEl._lastNotifSig === notifSig && listEl.children.length > 0) {
+    return;
+  }
+  listEl._lastNotifSig = notifSig;
   listEl.innerHTML = "";
+  if (notifs.length === 0 && !hasAppUpdate) {
+    listEl.innerHTML = `
+      <div class="atv-notif-empty">
+        ${t(
+          "Все просмотренные сериалы из раздела «Смотрю» актуальны — новых непросмотренных серий пока нет.",
+          "All series in your Watching list are up to date — no new episodes right now."
+        )}
+      </div>
+    `;
+    return;
+  }
+
+  const bellFrag = document.createDocumentFragment();
   if (hasAppUpdate) {
     const updRow = document.createElement("div");
     updRow.className = `atv-notif-item atv-notif-update-row${isUpdUnread ? " unread" : ""}`;
@@ -513,7 +657,7 @@ export function renderNotificationsBell() {
     updRow.innerHTML = `
       <div class="atv-notif-info">
         <div class="atv-notif-title">${escapeHtml(
-          t(`Доступно обновление CineFlow v${upd.latest_version}`, `CineFlow v${upd.latest_version} Update Available`)
+          t(`Доступно обновление Velarium v${upd.latest_version}`, `Velarium v${upd.latest_version} Update Available`)
         )}</div>
         <div class="atv-notif-ep atv-inline-icon-label">${iconSvg("bolt", 11)}<span>v${verLabel}</span></div>
         <div class="atv-notif-sub">${escapeHtml(readyLabel)}</div>
@@ -536,18 +680,7 @@ export function renderNotificationsBell() {
         updRow.click();
       }
     };
-    listEl.appendChild(updRow);
-  }
-  if (notifs.length === 0 && !hasAppUpdate) {
-    listEl.innerHTML = `
-      <div class="atv-notif-empty">
-        ${t(
-          "Все просмотренные сериалы из раздела «Смотрю» актуальны — новых непросмотренных серий пока нет.",
-          "All series in your Watching list are up to date — no new episodes right now."
-        )}
-      </div>
-    `;
-    return;
+    bellFrag.appendChild(updRow);
   }
 
   notifs.forEach((n) => {
@@ -615,6 +748,7 @@ export function renderNotificationsBell() {
         row.click();
       }
     };
-    listEl.appendChild(row);
+    bellFrag.appendChild(row);
   });
+  listEl.appendChild(bellFrag);
 }

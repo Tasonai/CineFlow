@@ -1,10 +1,12 @@
-import { state } from "./state.js?v=20261105v5";
-import { t, displayTitle } from "./i18n.js?v=20261105v5";
-import { supportsNativePiP, syncScrollTopButton, iconSvg } from "./utils.js?v=20261105v5";
-import { isVideoInPiP, startAmbilightLoop } from "./audio-dsp.js?v=20261105v5";
-import { closeAllVcPopovers } from "./player-ui-controls.js?v=20261105v5";
-import { loadCatalog } from "./catalog.js?v=20261105v5";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
+import { t, displayTitle } from "./i18n.js?v=20261108v19";
+import { supportsNativePiP, syncScrollTopButton, iconSvg } from "./utils.js?v=20261108v19";
+import { isVideoInPiP, startAmbilightLoop } from "./audio-dsp.js?v=20261108v19";
+import { closeAllVcPopovers } from "./player-ui-controls.js?v=20261108v19";
+import { loadCatalog } from "./catalog.js?v=20261108v19";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261108v19";
+import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261108v19";
+import { closeOfficialEmbeddedStream } from "./player-streams.js?v=20261108v19";
 
 export function syncPipDockUI() {
   const video = document.getElementById("native-video");
@@ -63,11 +65,16 @@ export function setPipBackgroundMode(active) {
     if (state.isMiniPlayer) {
       setMiniPlayerMode(false);
     }
-    closeAllVcPopovers();
     document.getElementById("player-gear-popover")?.classList.add("hidden");
-    document.getElementById("btn-player-gear")?.classList.remove("active");
+    const gearBtn = document.getElementById("btn-player-gear");
+    gearBtn?.classList.remove("active");
+    gearBtn?.setAttribute("aria-expanded", "false");
+    closeAllVcPopovers();
+    hideXRayPauseShelf();
+    closeBookmarkNoteDialog(false);
     document.getElementById("kinorium-status-popover")?.classList.add("hidden");
     document.getElementById("kinorium-postwatch-overlay")?.classList.add("hidden");
+    document.getElementById("video-stage")?.classList.remove("has-postwatch-open");
     if (modal) {
       modal.classList.remove("hidden");
       modal.classList.add("pip-background-mode");
@@ -84,7 +91,7 @@ export function setPipBackgroundMode(active) {
     }
     if (state.isPlayerOpen && !state.hasPlayerHistoryEntry) {
       try {
-        window.history.pushState({ cineflowPlayerModal: true }, "");
+        window.history.pushState({ velariumPlayerModal: true }, "");
         state.hasPlayerHistoryEntry = true;
       } catch (err) { window.logDebug?.("PlayerPipDock", err); }
     }
@@ -160,6 +167,9 @@ export function setMiniPlayerMode(isMini) {
   const nextMini = Boolean(isMini);
   const video = document.getElementById("native-video");
   if (nextMini) {
+    if (state.officialEmbedActive) {
+      closeOfficialEmbeddedStream();
+    }
     if (state.isPseudoFullscreen || document.documentElement?.classList.contains("is-stage-pseudo-fullscreen")) {
       state.isPseudoFullscreen = false;
       document.documentElement.classList.remove("is-stage-fullscreen", "is-stage-pseudo-fullscreen");
@@ -194,11 +204,16 @@ export function setMiniPlayerMode(isMini) {
   }
   syncScrollTopButton();
   if (state.isMiniPlayer) {
-    closeAllVcPopovers();
     document.getElementById("player-gear-popover")?.classList.add("hidden");
-    document.getElementById("btn-player-gear")?.classList.remove("active");
+    const gearBtn = document.getElementById("btn-player-gear");
+    gearBtn?.classList.remove("active");
+    gearBtn?.setAttribute("aria-expanded", "false");
+    closeAllVcPopovers();
+    hideXRayPauseShelf();
+    closeBookmarkNoteDialog(false);
     document.getElementById("kinorium-status-popover")?.classList.add("hidden");
     document.getElementById("kinorium-postwatch-overlay")?.classList.add("hidden");
+    document.getElementById("video-stage")?.classList.remove("has-postwatch-open");
     updateMiniPlayerTitle();
     const playPauseBtn = document.getElementById("btn-mini-play-pause");
     if (playPauseBtn) {

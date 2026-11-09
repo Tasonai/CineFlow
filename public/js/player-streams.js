@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
 import {
   displayBackdrop,
   displayDescription,
@@ -11,7 +11,7 @@ import {
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261105v5";
+} from "./i18n.js?v=20261108v19";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -27,7 +27,7 @@ import {
   showVideoOsd,
   supportsNativePiP,
   syncCustomSelect,
-} from "./utils.js?v=20261105v5";
+} from "./utils.js?v=20261108v19";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
@@ -37,48 +37,52 @@ import {
   savePlayerPrefs,
   startAmbilightLoop,
   stopAmbilightLoop,
-} from "./audio-dsp.js?v=20261105v5";
+} from "./audio-dsp.js?v=20261108v19";
 import {
   getDefaultPlayableSourceTab,
   getPreferredStudioForItem,
   isEpisodeWatched,
   isServiceEnabled,
   loadCatalog,
+  matchPreferredStudioInList,
   savePreferredStudioForItem,
-} from "./catalog.js?v=20261105v5";
-import { renderModalCastSection } from "./modals.js?v=20261105v5";
+} from "./catalog.js?v=20261108v19";
+import { renderModalCastSection } from "./modals.js?v=20261108v19";
 import {
   activateSelectedSubtitleTrack,
   buildRemuxSubtitlesList,
   clearCustomSubtitleOverlay,
+  closeSubtitleDictPopover,
   mergeCustomExternalSubtitles,
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
-} from "./subtitles.js?v=20261105v5";
+  revokeLocalVideoBlobUrl,
+} from "./subtitles.js?v=20261108v19";
 import {
   clearVideoStallWatchdog,
   getVideoForwardBufferSec,
-} from "./player-watchdog.js?v=20261105v5";
+} from "./player-watchdog.js?v=20261108v19";
 import {
   buildRemuxStreamEndpoint,
+  clearRemuxDurationPoll,
   formatAudioOffsetLabel,
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261105v5";
+} from "./player-remux.js?v=20261108v19";
 import {
   closeAllVcPopovers,
   isStageFullscreen,
   syncCustomVideoControlsUI,
   syncVcPopoverOpenClass,
   toggleStageFullscreen,
-} from "./player-ui-controls.js?v=20261105v5";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261105v5";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261105v5";
+} from "./player-ui-controls.js?v=20261108v19";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261108v19";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261108v19";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261105v5";
+} from "./player-seasons.js?v=20261108v19";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -86,16 +90,17 @@ import {
   renderModalGenresAndSubheader,
   renderModalProvidersSidebar,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261105v5";
+} from "./player-meta.js?v=20261108v19";
 import {
   getDetectedCreditsStartSec,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261105v5";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261105v5";
+} from "./player-intro-credits.js?v=20261108v19";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261108v19";
+import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261108v19";
 import {
   playVideoUrl,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261105v5";
+} from "./player.js?v=20261108v19";
 
 export function isHdRezkaStreamDeadOrExpired(video) {
   if (!video || state.activeSourceTab !== "hdrezka" || state.remuxMeta?.active) {
@@ -110,6 +115,12 @@ export function isHdRezkaStreamDeadOrExpired(video) {
   }
   if (video.networkState === 3) {
     return true;
+  }
+  if (video.ended) {
+    const { cur, dur } = getEffectivePlaybackTiming(video);
+    if (dur > 60 && cur / dur < 0.90) {
+      return true;
+    }
   }
   const ageMs = state.streamMintedAt > 0 ? Date.now() - state.streamMintedAt : 0;
   if (video.readyState === 0 && ageMs > 12 * 60 * 1000) {
@@ -251,6 +262,10 @@ export function syncDownloadButtonVisibility() {
 
 export function abortActiveVideoListeners() {
   clearVideoStallWatchdog();
+  if (state.audioOffsetReloadTimerId) {
+    clearTimeout(state.audioOffsetReloadTimerId);
+    state.audioOffsetReloadTimerId = null;
+  }
   state.videoLoadToken = (state.videoLoadToken || 0) + 1;
   if (state.videoLoadAbort) {
     try {
@@ -259,6 +274,129 @@ export function abortActiveVideoListeners() {
     state.videoLoadAbort = null;
   }
 }
+let _officialEmbedRectListenerBound = false;
+let _officialEmbedDesktopActive = false;
+let _officialEmbedRectRafPending = false;
+let _lastOfficialEmbedRectSig = "";
+
+function _postVelariumNative(payload) {
+  try {
+    if (window.webkit?.messageHandlers?.velariumNative?.postMessage) {
+      window.webkit.messageHandlers.velariumNative.postMessage(payload);
+      return true;
+    }
+  } catch (err) {
+    window.logDebug?.("PlayerStreams", err);
+  }
+  return false;
+}
+
+function _measureOfficialEmbedViewportRect() {
+  const vpEl = document.getElementById("official-embed-viewport") || document.getElementById("video-stage");
+  if (!vpEl || !state.isPlayerOpen || !state.officialEmbedActive) {
+    return { x: 0, y: 0, width: 0, height: 0, vw: window.innerWidth || 1280, vh: window.innerHeight || 720, hidden: true };
+  }
+  const r = vpEl.getBoundingClientRect();
+  const hidden = r.width < 80 || r.height < 60 || vpEl.closest(".hidden") !== null;
+  const chromeTopOffset = Math.max(0, (window.outerHeight || 0) - (window.innerHeight || 0));
+  return {
+    x: Math.round(r.left),
+    y: Math.round(r.top),
+    width: Math.round(r.width),
+    height: Math.round(r.height),
+    vw: Math.max(1, window.innerWidth || 1280),
+    vh: Math.max(1, window.innerHeight || 720),
+    screenX: Math.round((window.screenX || 0) + r.left),
+    screenY: Math.round((window.screenY || 0) + r.top + chromeTopOffset),
+    hidden,
+  };
+}
+
+export function syncOfficialEmbeddedStreamRect() {
+  if (!state.officialEmbedActive) return;
+  if (window.__VELARIUM_MACOS_APP__) {
+    const rect = _measureOfficialEmbedViewportRect();
+    const rectSig = `${rect.x},${rect.y},${rect.width},${rect.height},${rect.vw},${rect.vh},${rect.screenX || 0},${rect.screenY || 0},${rect.hidden ? 1 : 0}`;
+    if (rectSig === _lastOfficialEmbedRectSig) return;
+    _lastOfficialEmbedRectSig = rectSig;
+    _postVelariumNative({
+      action: "syncEmbeddedStreamRect",
+      rect,
+    });
+  }
+}
+
+function _ensureOfficialEmbedRectListeners() {
+  if (_officialEmbedRectListenerBound || typeof window === "undefined") return;
+  _officialEmbedRectListenerBound = true;
+  const onLayoutChange = () => {
+    if (!state.officialEmbedActive || _officialEmbedRectRafPending) return;
+    _officialEmbedRectRafPending = true;
+    requestAnimationFrame(() => {
+      _officialEmbedRectRafPending = false;
+      if (state.officialEmbedActive) {
+        syncOfficialEmbeddedStreamRect();
+      }
+    });
+  };
+  window.addEventListener("resize", onLayoutChange, { passive: true });
+  window.addEventListener("scroll", onLayoutChange, { passive: true, capture: true });
+}
+
+export async function openOfficialEmbeddedStream(targetUrl) {
+  const cleanUrl = String(targetUrl || "").trim();
+  if (!cleanUrl) return;
+  state.officialEmbedActive = true;
+  _ensureOfficialEmbedRectListeners();
+  const rect = _measureOfficialEmbedViewportRect();
+  if (window.__VELARIUM_MACOS_APP__) {
+    _postVelariumNative({
+      action: "openEmbeddedStream",
+      url: cleanUrl,
+      rect,
+    });
+    setTimeout(() => syncOfficialEmbeddedStreamRect(), 120);
+    return;
+  }
+  try {
+    const res = await fetch("/api/stream-embed/open", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: cleanUrl, rect, lang: state.appLang }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data && data.ok) {
+      _officialEmbedDesktopActive = true;
+      return;
+    }
+  } catch (err) {
+    window.logDebug?.("PlayerStreams", err);
+  }
+}
+
+export function closeOfficialEmbeddedStream() {
+  const wasActive = Boolean(state.officialEmbedActive || _officialEmbedDesktopActive);
+  state.officialEmbedActive = false;
+  if (window.__VELARIUM_MACOS_APP__) {
+    _postVelariumNative({ action: "closeEmbeddedStream" });
+  }
+  if (_officialEmbedDesktopActive) {
+    _officialEmbedDesktopActive = false;
+    fetch("/api/stream-embed/close", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    }).catch(() => {});
+  }
+  if (wasActive && state.activeSourceTab !== "trailer") {
+    const trailerStage = document.getElementById("trailer-stage-box");
+    if (trailerStage) {
+      trailerStage.innerHTML = "";
+      trailerStage.classList.add("hidden");
+    }
+  }
+}
+
 export async function switchSourceTab(tabName, resumeTime = null, options = {}) {
   if (tabName === "official") {
     tabName = getDefaultPlayableSourceTab();
@@ -274,6 +412,7 @@ export async function switchSourceTab(tabName, resumeTime = null, options = {}) 
     }
   }
   const isOfficialServiceTab = OFFICIAL_STREAMING_SERVICES.has(tabName);
+  const wantOfficialEmbed = Boolean(isOfficialServiceTab && options?.embedMode);
   const video = document.getElementById("native-video");
   let effectiveResumeTime = 0;
   const effTiming = getEffectivePlaybackTiming(video);
@@ -301,6 +440,85 @@ export async function switchSourceTab(tabName, resumeTime = null, options = {}) 
         effectiveResumeTime = localMovieProg.current_time;
       }
     }
+  }
+
+  // Hybrid Mode: when an official service is selected without embedMode, play natively inside Velarium's player
+  // while keeping the official service active in the top bar & Hybrid Control Panel!
+  if (isOfficialServiceTab && !wantOfficialEmbed) {
+    const prevTab = state.activeSourceTab;
+    closeOfficialEmbeddedStream();
+    state.activeOfficialService = tabName;
+    const rawFallback = getDefaultPlayableSourceTab();
+    const internalTab = ["hdrezka", "stremio", "backup4k", "offline"].includes(prevTab)
+      ? prevTab
+      : ["hdrezka", "stremio", "backup4k", "offline"].includes(rawFallback)
+      ? rawFallback
+      : "hdrezka";
+    state.activeSourceTab = internalTab;
+
+    document.querySelectorAll(".source-tab").forEach((btn) => {
+      const isSelected = btn.dataset.tab === tabName;
+      btn.classList.toggle("active", isSelected);
+      btn.setAttribute("aria-selected", isSelected ? "true" : "false");
+    });
+
+    document.getElementById("player-gear-popover")?.classList.add("hidden");
+    document.getElementById("btn-player-gear")?.classList.remove("active");
+    closeAllVcPopovers();
+    syncVcPopoverOpenClass();
+    document.getElementById("rezka-controls-bar")?.classList.toggle("hidden", internalTab !== "hdrezka");
+    document.getElementById("stremio-streams-panel")?.classList.toggle("hidden", internalTab !== "stremio");
+    document.getElementById("backup-releases-panel")?.classList.toggle("hidden", internalTab !== "backup4k");
+    document.getElementById("trailer-panel")?.classList.add("hidden");
+    const trailerStage = document.getElementById("trailer-stage-box");
+    if (trailerStage) {
+      trailerStage.innerHTML = "";
+      trailerStage.classList.add("hidden");
+    }
+    syncDownloadButtonVisibility();
+    document.getElementById("atv-custom-controls")?.classList.remove("hidden");
+    syncCustomControlPopovers();
+    const showEps = state.activeItem?.media_type === "series";
+    document.getElementById("episodes-bottom-panel")?.classList.toggle("hidden", !showEps);
+    document.getElementById("current-episode-bar")?.classList.toggle("hidden", !showEps);
+
+    if (state.activeItem) {
+      renderModalProvidersSidebar(state.activeItem);
+    }
+
+    startAmbilightLoop();
+    await loadOfficialServiceTab(tabName, { ...options, embedMode: false });
+
+    const alreadyPlayingOrLoadingInternal =
+      prevTab === internalTab &&
+      Boolean(
+        state.currentStreamUrl ||
+          state.streamAbortController ||
+          state.backup4kAbortController ||
+          state.stremioResolveAbortController ||
+          (video && video.getAttribute("src"))
+      );
+
+    if (!alreadyPlayingOrLoadingInternal) {
+      if (internalTab === "hdrezka") {
+        await loadHDRezkaStream(effectiveResumeTime);
+      } else if (internalTab === "offline") {
+        await loadOfflineStreamForActiveTitle(effectiveResumeTime);
+      } else if (internalTab === "stremio") {
+        await loadStremioStreams(effectiveResumeTime);
+      } else if (internalTab === "backup4k") {
+        await loadBackup4KReleases(effectiveResumeTime);
+      }
+    }
+    return;
+  }
+
+  if (!isOfficialServiceTab) {
+    state.activeOfficialService = "";
+    closeOfficialEmbeddedStream();
+    document.getElementById("official-stream-panel")?.classList.add("hidden");
+  } else {
+    state.activeOfficialService = tabName;
   }
 
   const prevTab = state.activeSourceTab;
@@ -334,6 +552,9 @@ export async function switchSourceTab(tabName, resumeTime = null, options = {}) 
   document.getElementById("player-gear-popover")?.classList.add("hidden");
   document.getElementById("btn-player-gear")?.classList.remove("active");
   document.getElementById("video-error-state")?.classList.add("hidden");
+  hideXRayPauseShelf();
+  closeBookmarkNoteDialog(false);
+  closeSubtitleDictPopover(false);
   closeAllVcPopovers();
   syncVcPopoverOpenClass();
   document.getElementById("rezka-controls-bar")?.classList.add("hidden");
@@ -363,18 +584,27 @@ export async function switchSourceTab(tabName, resumeTime = null, options = {}) 
   // Stop previous video/HLS stream cleanly when switching source tabs so background audio never leaks
   // and detach old error listeners BEFORE clearing src so MEDIA_ERR_SRC_NOT_SUPPORTED never flashes!
   if (prevTab !== tabName || tabName !== "hdrezka") {
+    state.currentStreamUrl = "";
     state.remuxMeta = null;
     state.activeStremioStreamKey = "";
     state.active4kReleaseKey = "";
     state.active4kReleaseUrl = "";
     state.active4kRelease = null;
     abortActiveVideoListeners();
+    clearRemuxDurationPoll();
+    state._preloadFailedKey = "";
+    state._preloadFailedAt = 0;
+    state._lastPreloadDoneKey = "";
     [
       "streamAbortController",
       "backup4kAbortController",
       "stremioResolveAbortController",
       "remuxProbeAbortController",
+      "skipIntroAbortController",
       "trailerAbortController",
+      "preloadAbortController",
+      "xrayAbortController",
+      "providerLinkAbortController",
     ].forEach((ctrlKey) => {
       if (state[ctrlKey]) {
         try {
@@ -430,7 +660,7 @@ export async function switchSourceTab(tabName, resumeTime = null, options = {}) 
   } else if (tabName === "trailer") {
     await loadTrailerTab();
   } else if (isOfficialServiceTab) {
-    await loadOfficialServiceTab(tabName, options);
+    await loadOfficialServiceTab(tabName, { ...options, embedMode: true });
   }
 }
 
@@ -454,8 +684,10 @@ function _isDirectOfficialOfferUrl(urlStr) {
 export async function loadOfficialServiceTab(serviceId, options = {}) {
   const item = state.activeItem;
   const trailerStage = document.getElementById("trailer-stage-box");
+  const hybridPanel = document.getElementById("official-stream-panel");
   if (!item || !trailerStage) return;
   const sessionId = state.playerSessionId;
+  const isEmbedMode = Boolean(options?.embedMode);
 
   const srvNames = {
     appletv: "Apple TV+",
@@ -471,8 +703,12 @@ export async function loadOfficialServiceTab(serviceId, options = {}) {
     srvNames[serviceId] ||
     serviceId;
 
-  const renderStage = (resolvedUrl, isDirect, qualityText = "", isResolving = false) => {
-    if (!state.isPlayerOpen || state.playerSessionId !== sessionId || state.activeSourceTab !== serviceId) {
+  const renderHybridAndStage = (resolvedUrl, isDirect, qualityText = "", isResolving = false) => {
+    if (
+      !state.isPlayerOpen ||
+      state.playerSessionId !== sessionId ||
+      (state.activeOfficialService !== serviceId && state.activeSourceTab !== serviceId)
+    ) {
       return;
     }
     const bgUrl = displayBackdrop(item) || displayPoster(item) || "";
@@ -484,79 +720,161 @@ export async function loadOfficialServiceTab(serviceId, options = {}) {
       ? qualityText
         ? `${serviceName} · ${qualityText}`
         : t(`Доступно в подписке ${serviceName}`, `Available on ${serviceName}`)
-      : t(`Переход в каталог ${serviceName}`, `Open in ${serviceName} catalog`);
-    const fallbackInternalTab = getDefaultPlayableSourceTab();
+      : t(`Каталог ${serviceName}`, `${serviceName} catalog`);
+    const fallbackInternalTab = ["hdrezka", "stremio", "backup4k"].includes(state.activeSourceTab)
+      ? state.activeSourceTab
+      : getDefaultPlayableSourceTab();
     const fallbackTabNames = {
       hdrezka: "HDRezka",
       stremio: "Stremio",
       backup4k: "4K",
     };
     const internalLabel = fallbackTabNames[fallbackInternalTab] || "HDRezka";
+    const embedActive = Boolean(state.officialEmbedActive || state.activeSourceTab === serviceId);
+
+    if (hybridPanel) {
+      hybridPanel.classList.remove("hidden");
+      hybridPanel.innerHTML = `
+        <div class="atv-official-hybrid-bar">
+          <div class="atv-official-hybrid-left">
+            <span class="atv-official-srv-pill">${escapeHtml(serviceName)}</span>
+            <span class="atv-official-status-pill${isDirect ? " is-direct" : ""}">${escapeHtml(statusBadgeText)}</span>
+            <span class="atv-official-hybrid-note">${escapeHtml(
+              embedActive
+                ? t(
+                    `Открыт официальный веб-плеер ${serviceName} прямо в рамке плеера`,
+                    `Official ${serviceName} web player is active inside the stage`
+                  )
+                : t(
+                    `Воспроизведение идёт во встроенном плеере Velarium (${internalLabel}) со всеми озвучками и субтитрами`,
+                    `Playing in Velarium's built-in player (${internalLabel}) with all audio tracks and subtitles`
+                  )
+            )}</span>
+          </div>
+          <div class="atv-official-hybrid-right">
+            <div class="atv-official-mode-switch" role="group" aria-label="${escapeAttr(t("Режим воспроизведения стриминга", "Streaming playback mode"))}">
+              <button type="button" class="atv-official-mode-btn${!embedActive ? " active" : ""}" id="btn-official-mode-native">
+                ${iconSvg("play", 11)}
+                <span>${escapeHtml(t("Встроенный плеер Velarium", "Velarium Native Player"))}</span>
+              </button>
+              <button type="button" class="atv-official-mode-btn${embedActive ? " active" : ""}" id="btn-official-mode-embed">
+                <span>${escapeHtml(t("Официальный веб-плеер в рамке", "Official Web Player in Frame"))}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById("btn-official-mode-native")?.addEventListener("click", () => {
+        if (state.officialEmbedActive || state.activeSourceTab === serviceId) {
+          switchSourceTab(serviceId, null, { embedMode: false, fromUserClick: true });
+        }
+      });
+      document.getElementById("btn-official-mode-embed")?.addEventListener("click", () => {
+        if (!state.officialEmbedActive || state.activeSourceTab !== serviceId) {
+          switchSourceTab(serviceId, null, { embedMode: true, fromUserClick: true });
+        }
+      });
+    }
+
+    if (!embedActive) {
+      return;
+    }
 
     trailerStage.classList.remove("hidden");
     trailerStage.innerHTML = `
-      <div class="atv-official-stage" style="${bgUrl ? `--official-bg: url('${escapeAttr(bgUrl)}')` : ""}">
+      <div class="atv-official-stage is-embed-mode" style="${bgUrl ? `--official-bg: url('${escapeAttr(bgUrl)}')` : ""}">
         <div class="atv-official-stage-backdrop"></div>
-        <div class="atv-official-stage-card">
-          <div class="atv-official-stage-badges">
+        <div class="atv-official-embed-topbar">
+          <div class="atv-official-embed-topbar-left">
             <span class="atv-official-srv-pill">${escapeHtml(serviceName)}</span>
             <span class="atv-official-status-pill${isDirect ? " is-direct" : ""}">${escapeHtml(statusBadgeText)}</span>
           </div>
-          <h3 class="atv-official-stage-title">${escapeHtml(titleStr)}</h3>
-          ${subStr ? `<div class="atv-official-stage-sub">${escapeHtml(subStr)}</div>` : ""}
-          <p class="atv-official-stage-desc">${escapeHtml(
-            isDirect
-              ? t(
-                  `Тайтл найден в каталоге ${serviceName}. Нажмите кнопку ниже, чтобы запустить воспроизведение в официальном плеере ${serviceName}.`,
-                  `This title is available on ${serviceName}. Click below to start playback in the official ${serviceName} player.`
-                )
-              : t(
-                  `Откройте ${serviceName} для просмотра или выберите встроенный поток (${internalLabel}) в верхней панели плеера.`,
-                  `Open ${serviceName} to watch, or switch to the built-in stream (${internalLabel}) in the top bar.`
-                )
-          )}</p>
-          <div class="atv-official-stage-actions">
-            <button type="button" class="atv-btn-primary atv-official-watch-btn" id="btn-official-stage-watch">
-              ${iconSvg("play", 14)}
-              <span>${escapeHtml(t(`Смотреть на ${serviceName}`, `Watch on ${serviceName}`))}</span>
-              ${iconSvg("external", 12)}
-            </button>
+          <div class="atv-official-embed-topbar-right">
             ${
-              fallbackInternalTab !== "trailer"
-                ? `<button type="button" class="atv-btn-secondary atv-official-internal-btn" id="btn-official-stage-internal">
-                    <span>${escapeHtml(
-                      t(`Встроенный плеер (${internalLabel})`, `Built-in player (${internalLabel})`)
-                    )}</span>
-                  </button>`
+              window.__VELARIUM_MACOS_APP__
+                ? `<button type="button" class="atv-ep-nav-btn" id="btn-official-embed-back" title="${escapeAttr(t("Назад", "Back"))}">←</button>
+                   <button type="button" class="atv-ep-nav-btn" id="btn-official-embed-reload" title="${escapeAttr(t("Обновить", "Reload"))}">↻</button>`
                 : ""
             }
+            <button type="button" class="atv-ep-nav-btn" id="btn-official-stage-internal">
+              <span>${escapeHtml(
+                t(`Вернуться в плеер Velarium (${internalLabel})`, `Back to Velarium player (${internalLabel})`)
+              )}</span>
+            </button>
+          </div>
+        </div>
+        <div class="atv-official-embed-viewport" id="official-embed-viewport">
+          <div class="atv-official-stage-card">
+            <div class="atv-official-stage-badges">
+              <span class="atv-official-srv-pill">${escapeHtml(serviceName)}</span>
+              <span class="atv-official-status-pill${isDirect ? " is-direct" : ""}">${escapeHtml(statusBadgeText)}</span>
+            </div>
+            <h3 class="atv-official-stage-title">${escapeHtml(titleStr)}</h3>
+            ${subStr ? `<div class="atv-official-stage-sub">${escapeHtml(subStr)}</div>` : ""}
+            <p class="atv-official-stage-desc">${escapeHtml(
+              window.__VELARIUM_MACOS_APP__
+                ? t(
+                    `Загружаем официальный веб-плеер ${serviceName} прямо внутри окна плеера Velarium...`,
+                    `Loading the official ${serviceName} web player directly inside the Velarium stage...`
+                  )
+                : t(
+                    `Официальный веб-плеер ${serviceName} запущен в режиме встроенной рамки поверх сцены плеера.`,
+                    `The official ${serviceName} web player is docked over the player stage.`
+                  )
+            )}</p>
+            <div class="atv-official-stage-actions">
+              <button type="button" class="atv-btn-primary atv-official-watch-btn" id="btn-official-stage-watch">
+                ${iconSvg("play", 14)}
+                <span>${escapeHtml(t(`Перезапустить плеер ${serviceName} в рамке`, `Reload ${serviceName} player in frame`))}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
     `;
 
+    document.getElementById("btn-official-embed-back")?.addEventListener("click", () => {
+      _postVelariumNative({ action: "backEmbeddedStream" });
+    });
+    document.getElementById("btn-official-embed-reload")?.addEventListener("click", () => {
+      _postVelariumNative({ action: "reloadEmbeddedStream" });
+    });
     const watchBtn = document.getElementById("btn-official-stage-watch");
     if (watchBtn) {
       watchBtn.onclick = () => {
         const finalTarget = getOfficialServiceTargetUrl(serviceId, item);
-        window.open(finalTarget, "_blank", "noopener,noreferrer,width=1280,height=760");
+        openOfficialEmbeddedStream(finalTarget);
       };
     }
     const internalBtn = document.getElementById("btn-official-stage-internal");
     if (internalBtn) {
       internalBtn.onclick = () => {
-        switchSourceTab(fallbackInternalTab);
+        switchSourceTab(serviceId, null, { embedMode: false, fromUserClick: true });
       };
     }
+
+    const finalTargetUrl = resolvedUrl || getOfficialServiceTargetUrl(serviceId, item);
+    openOfficialEmbeddedStream(finalTargetUrl);
   };
 
   const existingOffer = (item.providers || []).find((p) => p && p.id === serviceId && p.available);
   const initialUrl = getOfficialServiceTargetUrl(serviceId, item);
   const alreadyDirect = Boolean(existingOffer && _isDirectOfficialOfferUrl(existingOffer.url));
 
-  renderStage(initialUrl, alreadyDirect, existingOffer?.quality || "", !alreadyDirect);
+  if (isEmbedMode) {
+    state.officialEmbedActive = true;
+  }
+  renderHybridAndStage(initialUrl, alreadyDirect, existingOffer?.quality || "", !alreadyDirect);
 
   if (!alreadyDirect) {
+    if (state.providerLinkAbortController) {
+      try {
+        state.providerLinkAbortController.abort();
+      } catch (_) {}
+    }
+    const providerAbort = new AbortController();
+    state.providerLinkAbortController = providerAbort;
     try {
       const params = new URLSearchParams({
         service: serviceId,
@@ -565,7 +883,9 @@ export async function loadOfficialServiceTab(serviceId, options = {}) {
         year: String(item.year || ""),
         media_type: item.media_type || "",
       });
-      const res = await fetch(`/api/provider-link?${params.toString()}`);
+      const res = await fetch(`/api/provider-link?${params.toString()}`, {
+        signal: providerAbort.signal,
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (!state.isPlayerOpen || state.playerSessionId !== sessionId) return;
@@ -573,26 +893,42 @@ export async function loadOfficialServiceTab(serviceId, options = {}) {
         _mergeItemProviders(item, data.providers);
         renderModalProvidersSidebar(item);
       }
-      if (state.activeSourceTab === serviceId) {
+      if (state.activeOfficialService === serviceId || state.activeSourceTab === serviceId) {
         const updatedOffer = (item.providers || []).find((p) => p && p.id === serviceId && p.available);
         const nextUrl = data.url || getOfficialServiceTargetUrl(serviceId, item);
         const isNowDirect = Boolean(data.direct_offer || (updatedOffer && _isDirectOfficialOfferUrl(updatedOffer.url)));
-        renderStage(nextUrl, isNowDirect, data.quality || updatedOffer?.quality || "", false);
+        renderHybridAndStage(nextUrl, isNowDirect, data.quality || updatedOffer?.quality || "", false);
       }
     } catch (_) {
-      if (state.isPlayerOpen && state.playerSessionId === sessionId && state.activeSourceTab === serviceId) {
-        renderStage(initialUrl, alreadyDirect, existingOffer?.quality || "", false);
+      if (
+        state.isPlayerOpen &&
+        state.playerSessionId === sessionId &&
+        (state.activeOfficialService === serviceId || state.activeSourceTab === serviceId)
+      ) {
+        renderHybridAndStage(initialUrl, alreadyDirect, existingOffer?.quality || "", false);
       }
     }
   }
 }
 export function resetVideoElementForStreamChange() {
+  hideXRayPauseShelf();
+  closeBookmarkNoteDialog(false);
+  closeSubtitleDictPopover(false);
   const video = document.getElementById("native-video");
-  if (state.videoListenerAbortController) {
+  abortActiveVideoListeners();
+  if (state.remuxDurationReprobeTimer) {
+    clearTimeout(state.remuxDurationReprobeTimer);
+    state.remuxDurationReprobeTimer = null;
+  }
+  if (state.audioOffsetReloadTimerId) {
+    clearTimeout(state.audioOffsetReloadTimerId);
+    state.audioOffsetReloadTimerId = null;
+  }
+  if (state.preloadAbortController) {
     try {
-      state.videoListenerAbortController.abort();
+      state.preloadAbortController.abort();
     } catch (err) { window.logDebug?.("PlayerStreams", err); }
-    state.videoListenerAbortController = null;
+    state.preloadAbortController = null;
   }
   if (state.remuxProbeAbortController) {
     try {
@@ -631,6 +967,7 @@ export function resetVideoElementForStreamChange() {
       video.pause();
     } catch (err) { window.logDebug?.("PlayerStreams", err); }
     video.querySelectorAll("track").forEach((tr) => tr.remove());
+    revokeLocalVideoBlobUrl(video);
     if (!isVideoInPiP(video)) {
       video.removeAttribute("src");
       try {
@@ -639,6 +976,12 @@ export function resetVideoElementForStreamChange() {
     }
   }
   clearCustomSubtitleOverlay(true);
+  const skipOutroEl = document.getElementById("skip-outro-btn");
+  if (skipOutroEl) {
+    skipOutroEl.classList.remove("is-preloaded");
+    skipOutroEl.removeAttribute("title");
+    skipOutroEl.querySelector(".atv-preload-ready-dot")?.remove();
+  }
   syncDownloadButtonVisibility();
 }
 
@@ -858,6 +1201,7 @@ export function switchHdRezkaStudio(studioId, rawStudioName = "") {
     if (opt) {
       opt.selected = true;
       studioSel.value = String(studioId);
+      syncCustomSelect(studioSel);
       if (opt.dataset.isOriginal !== "1") {
         state.lastNonOriginalStudioId = String(studioId);
       }
@@ -1047,6 +1391,18 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
   ) {
     return;
   }
+  const item = state.activeItem;
+  const sourceTab = state.activeSourceTab;
+  const preloadStudioOrTab =
+    sourceTab === "hdrezka"
+      ? state.activeStudioId || "auto"
+      : sourceTab === "stremio"
+      ? "stremio"
+      : `${sourceTab}:${state.active4kReleaseKey || state.preferred4kReleaseKey || "auto"}`;
+  const curEpDoneKey = `${item.id || item.title || ""}:s${state.activeSeason}:e${state.activeEpisode}:${preloadStudioOrTab}`;
+  if (state._lastPreloadDoneKey === curEpDoneKey) {
+    return;
+  }
   const creditsStartSec = getDetectedCreditsStartSec(durSec) || 0;
   const creditsActive = Boolean(creditsStartSec && curSec >= creditsStartSec - 5);
   const remain = durSec - curSec;
@@ -1054,30 +1410,39 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
   const shouldPreload = creditsActive || ratio >= 0.82 || remain <= 150;
   if (!shouldPreload) return;
 
-  const activeVid = document.getElementById("native-video");
-  if (activeVid && activeVid.readyState < 3 && getVideoForwardBufferSec(activeVid) < 6) return;
-
   const nextCoords = getNextEpisodeCoords();
-  if (!nextCoords) return;
+  if (!nextCoords) {
+    state._lastPreloadDoneKey = curEpDoneKey;
+    return;
+  }
 
-  const item = state.activeItem;
-  const sourceTab = state.activeSourceTab;
-  const preloadStudioOrTab =
-    sourceTab === "hdrezka"
-      ? state.activeStudioId || "auto"
-      : `${sourceTab}:${state.active4kReleaseKey || state.preferred4kReleaseKey || "auto"}`;
   const preloadKey = buildNextEpisodePreloadKey(
     item,
     nextCoords.season,
     nextCoords.episode,
     preloadStudioOrTab
   );
+  if (state.preloadedNextEpisode && state.preloadedNextEpisode.key === preloadKey) {
+    state._lastPreloadDoneKey = curEpDoneKey;
+    return;
+  }
   if (
     state.preloadingNextKey === preloadKey ||
-    (state.preloadedNextEpisode && state.preloadedNextEpisode.key === preloadKey)
+    (state._preloadFailedKey === preloadKey && Date.now() - (state._preloadFailedAt || 0) < 60000)
   ) {
     return;
   }
+
+  const activeVid = document.getElementById("native-video");
+  if (activeVid && activeVid.readyState < 3 && getVideoForwardBufferSec(activeVid) < 6) return;
+  const sessionId = state.playerSessionId;
+  if (state.preloadAbortController) {
+    try {
+      state.preloadAbortController.abort();
+    } catch (_) {}
+  }
+  const preloadAbort = new AbortController();
+  state.preloadAbortController = preloadAbort;
   state.preloadingNextKey = preloadKey;
   try {
     if (sourceTab === "hdrezka") {
@@ -1098,9 +1463,12 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
         lang: state.appLang || "ru",
         prefer_original: !state.activeStudioId && !savedPrefForNext && wantOrigNext ? "1" : "0",
       });
-      const res = await fetch(`/api/hdrezka/streams?${params.toString()}`);
+      const res = await fetch(`/api/hdrezka/streams?${params.toString()}`, {
+        signal: preloadAbort.signal,
+      });
       if (!res.ok) return;
       const data = await res.json();
+      if (!state.isPlayerOpen || state.playerSessionId !== sessionId) return;
       const prefs = getPlayerPrefs();
       const qKey = pickBestQualityKey(
         data.qualities || {},
@@ -1135,6 +1503,7 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
           const tres = await fetch("/api/backup-streams/resolve", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: preloadAbort.signal,
             body: JSON.stringify({
               id: item.id || "",
               title: item.title || "",
@@ -1155,7 +1524,7 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
             const warmUrl = tjson.stream_url.includes("&play")
               ? tjson.stream_url.replace("&play", "&preload")
               : `${tjson.stream_url}&preload`;
-            fetch(warmUrl, { method: "HEAD" }).catch(() => {});
+            fetch(warmUrl, { method: "HEAD", signal: preloadAbort.signal }).catch(() => {});
             state.preloadedNextEpisode = {
               key: preloadKey,
               tab: "backup4k",
@@ -1173,6 +1542,7 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
           const dres = await fetch("/api/debrid/resolve", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: preloadAbort.signal,
             body: JSON.stringify({
               id: item.id || "",
               title: item.title || "",
@@ -1187,7 +1557,7 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
           });
           const djson = await dres.json();
           if (djson && djson.ok && djson.stream_url) {
-            fetch(djson.stream_url, { method: "HEAD" }).catch(() => {});
+            fetch(djson.stream_url, { method: "HEAD", signal: preloadAbort.signal }).catch(() => {});
             state.preloadedNextEpisode = {
               key: preloadKey,
               tab: "backup4k",
@@ -1216,13 +1586,19 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
           episode: String(nextCoords.episode),
           lang: state.appLang || "ru",
         });
-        const res = await fetch(`/api/backup-streams?${params.toString()}`);
+        const res = await fetch(`/api/backup-streams?${params.toString()}`, {
+          signal: preloadAbort.signal,
+        });
         if (!res.ok) return;
         const data = await res.json();
-        if (!data || data.ok === false) return;
+        if (!data || data.ok === false || !state.isPlayerOpen || state.playerSessionId !== sessionId) return;
         const nextCacheKey = `${item?.id || ""}:s${nextCoords.season}e${nextCoords.episode}:${state.appLang || "ru"}`;
         if (!state.backup4kReleasesCache) state.backup4kReleasesCache = {};
         if (Array.isArray(data?.releases)) {
+          const b4kKeys = Object.keys(state.backup4kReleasesCache);
+          if (b4kKeys.length >= 60) {
+            delete state.backup4kReleasesCache[b4kKeys[0]];
+          }
           state.backup4kReleasesCache[nextCacheKey] = { ts: Date.now(), data };
         }
         const releases = data.releases || [];
@@ -1241,6 +1617,7 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
             const tres = await fetch("/api/backup-streams/resolve", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
+              signal: preloadAbort.signal,
               body: JSON.stringify({
                 id: item.id || "",
                 title: item.title || "",
@@ -1263,7 +1640,7 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
               const warmUrl = tjson.stream_url.includes("&play")
                 ? tjson.stream_url.replace("&play", "&preload")
                 : `${tjson.stream_url}&preload`;
-              fetch(warmUrl, { method: "HEAD" }).catch(() => {});
+              fetch(warmUrl, { method: "HEAD", signal: preloadAbort.signal }).catch(() => {});
             }
           }
           if (warmStreamUrl) {
@@ -1294,10 +1671,12 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
         episode: String(nextCoords.episode),
         lang: state.appLang || "ru",
       });
-      const res = await fetch(`/api/stremio/streams?${params.toString()}`);
+      const res = await fetch(`/api/stremio/streams?${params.toString()}`, {
+        signal: preloadAbort.signal,
+      });
       if (!res.ok) return;
       const data = await res.json();
-      if (!data || data.ok === false) return;
+      if (!data || data.ok === false || !state.isPlayerOpen || state.playerSessionId !== sessionId) return;
       state.preloadedNextEpisode = {
         key: preloadKey,
         tab: "stremio",
@@ -1306,11 +1685,12 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
       };
       const firstStream = (data.streams || [])[0];
       if (firstStream?.url && !firstStream.url.startsWith("magnet:")) {
-        fetch(firstStream.url, { method: "HEAD" }).catch(() => {});
+        fetch(firstStream.url, { method: "HEAD", signal: preloadAbort.signal }).catch(() => {});
       }
     }
 
     if (state.preloadedNextEpisode) {
+      state._lastPreloadDoneKey = curEpDoneKey;
       if (state.preloadedNextEpisode.streamUrl) {
         warmUpStreamBuffer(state.preloadedNextEpisode.streamUrl);
       }
@@ -1321,9 +1701,10 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
           season: String(nextCoords.season),
           episode: String(nextCoords.episode),
         });
-        fetch(`/api/skip-intro?${skipParams.toString()}`)
+        fetch(`/api/skip-intro?${skipParams.toString()}`, { signal: preloadAbort.signal })
           .then((r) => (r.ok ? r.json() : null))
           .then((skipData) => {
+            if (preloadAbort.signal.aborted || !state.isPlayerOpen || state.playerSessionId !== sessionId) return;
             if (state.preloadedNextEpisode && state.preloadedNextEpisode.key === preloadKey) {
               state.preloadedNextEpisode.skipIntroSegments = skipData;
               state.preloadedSkipSegments = skipData;
@@ -1340,9 +1721,10 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
           season: String(nextCoords.season),
           episode: String(nextCoords.episode),
         });
-        fetch(`/api/subtitles/list?${subParams.toString()}`)
+        fetch(`/api/subtitles/list?${subParams.toString()}`, { signal: preloadAbort.signal })
           .then((r) => (r.ok ? r.json() : null))
           .then((subData) => {
+            if (preloadAbort.signal.aborted || !state.isPlayerOpen || state.playerSessionId !== sessionId) return;
             if (state.preloadedNextEpisode && state.preloadedNextEpisode.key === preloadKey) {
               state.preloadedNextEpisode.subtitles = subData?.subtitles || [];
               state.preloadedNextSubtitles = subData?.subtitles || [];
@@ -1372,6 +1754,13 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
     if (state.preloadingNextKey === preloadKey) {
       state.preloadingNextKey = "";
     }
+    if (
+      (!state.preloadedNextEpisode || state.preloadedNextEpisode.key !== preloadKey) &&
+      !preloadAbort.signal.aborted
+    ) {
+      state._preloadFailedKey = preloadKey;
+      state._preloadFailedAt = Date.now();
+    }
   }
 }
 export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
@@ -1382,6 +1771,7 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
   const loader = document.getElementById("video-loader");
   const loaderText = document.getElementById("video-loader-text");
   hideVideoStreamError();
+  clearRemuxDurationPoll();
   state.remuxMeta = null;
 
   const skipOutroEl = document.getElementById("skip-outro-btn");
@@ -1486,6 +1876,18 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
 
     if (data.rezka_id) item.rezka_id = data.rezka_id;
     if (data.rezka_url) item.rezka_url = data.rezka_url;
+    if (data.orig_title && (!item.orig_title || hasCyrillicText(item.orig_title))) {
+      item.orig_title = data.orig_title;
+    }
+    if (data.year && (!item.year || Number(item.year) <= 0)) {
+      item.year = data.year;
+    }
+    if (data.imdb_id && !item.imdb_id) {
+      item.imdb_id = data.imdb_id;
+    }
+    if (data.kinopoisk_id && !item.kinopoisk_id) {
+      item.kinopoisk_id = data.kinopoisk_id;
+    }
 
     if (isEn()) {
       if (data.description && data.description.length > 15 && !hasCyrillicText(data.description)) {
@@ -1576,6 +1978,12 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
           state.liveSeriesUpdates[`kin_${item.kinorium.kinorium_id}`] = liveEntry;
         }
         if (item.title) state.liveSeriesUpdates[item.title.trim().toLowerCase()] = liveEntry;
+        const liveUpdateKeys = Object.keys(state.liveSeriesUpdates);
+        if (liveUpdateKeys.length > 90) {
+          for (let kIdx = 0; kIdx < liveUpdateKeys.length - 90; kIdx++) {
+            delete state.liveSeriesUpdates[liveUpdateKeys[kIdx]];
+          }
+        }
       }
     } else {
       const bottomEpsPanel = document.getElementById("episodes-bottom-panel");
@@ -1607,16 +2015,7 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
     const savedPref = getPreferredStudioForItem(item);
     let matchedPrefStudio = null;
     if (savedPref && studiosList.length > 1) {
-      matchedPrefStudio =
-        studiosList.find((st) => String(st.id) === String(savedPref.id)) ||
-        studiosList.find(
-          (st) =>
-            savedPref.name &&
-            String(st.name || "")
-              .trim()
-              .toLowerCase() === String(savedPref.name).trim().toLowerCase()
-        ) ||
-        null;
+      matchedPrefStudio = matchPreferredStudioInList(studiosList, savedPref);
     }
 
     // If user had a saved studio by name whose ID differed from the initial request, reload once with that studio ID
@@ -1628,7 +2027,7 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
     ) {
       state.activeStudioId = String(matchedPrefStudio.id);
       state.activeStudioName = matchedPrefStudio.name;
-      return await loadHDRezkaStream(resumeTime);
+      return await loadHDRezkaStream(resumeTime, options);
     }
 
     if (data.studio_auto_switched_from && data.selected_studio?.name) {
@@ -1684,21 +2083,24 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
       Number(data.minted_at) > 0 ? Number(data.minted_at) * 1000 : Date.now();
     state.usedBackupUrls = new Set();
 
-    if (rSess && rSess.rawSourceUrl) {
-      state.probeCreditsStartSec = Number(rSess.creditsStartSec) || 0;
+    const rSessRawUrl = rSess?.rawSourceUrl || rSess?.sourceUrl || rSess?.raw_source_url || "";
+    if (rSess && rSessRawUrl) {
+      state.probeCreditsStartSec = Number(rSess.creditsStartSec ?? rSess.credits_start_sec) || 0;
       state.remuxMeta = {
         active: true,
-        rawSourceUrl: rSess.rawSourceUrl,
+        rawSourceUrl: rSessRawUrl,
         duration: Number(rSess.duration) || 0,
-        creditsStartSec: Number(rSess.creditsStartSec) || 0,
+        creditsStartSec: Number(rSess.creditsStartSec ?? rSess.credits_start_sec) || 0,
         offsetSec: Math.max(0, Number(resumeTime) || 0),
-        audioIndex: Number(rSess.audioIndex) || 0,
-        videoCodec: rSess.videoCodec || "",
-        audioCodec: rSess.audioCodec || "",
+        audioIndex: Number(rSess.audioIndex ?? rSess.selected_audio_index) || 0,
+        videoCodec: rSess.videoCodec || rSess.video_codec || "",
+        audioCodec: rSess.audioCodec || rSess.audio_codec || "",
         channels: Number(rSess.channels) || 2,
-        audioTracks: rSess.audioTracks || [],
-        subtitleTracks: rSess.subtitleTracks || [],
-        externalSubtitles: Array.isArray(data.subtitles) ? data.subtitles : [],
+        audioTracks: rSess.audioTracks || rSess.audio_tracks || [],
+        subtitleTracks: rSess.subtitleTracks || rSess.subtitle_tracks || [],
+        externalSubtitles: Array.isArray(data.subtitles)
+          ? data.subtitles.filter((s) => s && s.url && !String(s.url).includes("/api/remux-subtitle"))
+          : [],
       };
       const remuxUrl = buildRemuxStreamEndpoint(state.remuxMeta, state.remuxMeta.offsetSec);
       const qLabel = data.default_quality || "1080p";
@@ -1714,6 +2116,13 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
       prefs.preferredQuality,
       data.default_quality
     );
+    state.abrTargetQuality = chosenQualKey;
+    state.abrCurrentQuality = chosenQualKey;
+    state.abrSwitching = false;
+    state.abrStableTicks = 0;
+    state.abrLowBufferTicks = 0;
+    state.abrLastForwardBufferSec = 0;
+    state.abrDownshiftedQualities = new Set();
     const qualSel = document.getElementById("select-quality");
     qualSel.innerHTML = "";
     Object.keys(state.qualities).forEach((qKey) => {
@@ -1723,6 +2132,7 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
       if (qKey === chosenQualKey) opt.selected = true;
       qualSel.appendChild(opt);
     });
+    syncCustomSelect(qualSel);
 
     if (state.remuxMeta?.active) {
       state.subtitles = buildRemuxSubtitlesList(state.remuxMeta, state.remuxMeta.offsetSec);
@@ -1906,7 +2316,7 @@ import {
   resetAudioOffset,
   seekEffectivePlayback,
   switchRemuxAudioTrack,
-} from "./player-streams-4k.js?v=20261105v5";
+} from "./player-streams-4k.js?v=20261108v19";
 export {
   adjustAudioOffset,
   loadBackup4KReleases,
@@ -1952,6 +2362,11 @@ function appendProxyEdgeEvictParams(urlStr) {
 }
 export function _tryRecoverHdRezkaPlayback(resumeAt, sessionId, currentUrl, options = {}) {
   if (!state.isPlayerOpen || sessionId !== state.playerSessionId) return false;
+  resumeAt = Math.max(
+    Number(resumeAt) || 0,
+    Number(state.lastPlaybackMediaTime) > 2 ? Number(state.lastPlaybackMediaTime) : 0,
+    Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0
+  );
   const loader = document.getElementById("video-loader");
   const loaderTextEl = document.getElementById("video-loader-text");
   if (!(state.usedBackupUrls instanceof Set)) {
@@ -1985,10 +2400,41 @@ export function _tryRecoverHdRezkaPlayback(resumeAt, sessionId, currentUrl, opti
     return true;
   }
 
-  // Stage 0: Switch direct external MP4 stream to local proxy-stream
+  // Stage 0: Switch direct external MP4 stream to local proxy-stream (or remux-stream for local TorrServer)
+  const isLoopbackMediaUrl = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\//i.test(
+    String(currentUrl || "")
+  );
   if (
     !options.proxyRetried &&
     !options.keepRemuxMeta &&
+    isLoopbackMediaUrl &&
+    state.remuxAvailable
+  ) {
+    state.remuxMeta = {
+      active: true,
+      rawSourceUrl: currentUrl,
+      duration: 0,
+      offsetSec: Math.max(0, Number(resumeAt) || 0),
+      audioIndex: 0,
+      videoCodec: "",
+      channels: 2,
+      audioTracks: [],
+      subtitleTracks: [],
+      externalSubtitles: [],
+    };
+    const remuxFallbackUrl = buildRemuxStreamEndpoint(state.remuxMeta, state.remuxMeta.offsetSec);
+    loader?.classList.remove("hidden");
+    playVideoUrl(remuxFallbackUrl, 0, sessionId, {
+      ...options,
+      keepRemuxMeta: true,
+      proxyRetried: true,
+    });
+    return true;
+  }
+  if (
+    !options.proxyRetried &&
+    !options.keepRemuxMeta &&
+    !isLoopbackMediaUrl &&
     /^https?:\/\//i.test(String(currentUrl || "")) &&
     !String(currentUrl || "").includes(".m3u8")
   ) {
@@ -2087,7 +2533,10 @@ export function _tryRecoverHdRezkaPlayback(resumeAt, sessionId, currentUrl, opti
     const lowerTag = lowerQ ? `qual:${lowerQ}` : "";
     if (lowerQ && state.qualities?.[lowerQ] && !state.usedBackupUrls.has(lowerTag)) {
       state.usedBackupUrls.add(lowerTag);
-      if (qualSel) qualSel.value = lowerQ;
+      if (qualSel) {
+        qualSel.value = lowerQ;
+        syncCustomSelect(qualSel);
+      }
       syncCustomControlPopovers();
       const rawLowerUrl = state.qualities[lowerQ];
       const nextLowerUrl = String(rawLowerUrl).startsWith("/api/proxy-stream")
@@ -2131,6 +2580,31 @@ export function _tryRecoverHdRezkaPlayback(resumeAt, sessionId, currentUrl, opti
           )
         );
         state._launchStremioStreamCandidate(nextCand.st, nextCand.stKey, resumeAt);
+        return true;
+      }
+    }
+  }
+
+  if (
+    state.activeSourceTab === "backup4k" &&
+    state.active4kReleaseKey &&
+    typeof state._launchBackup4kCandidate === "function" &&
+    Array.isArray(state._backup4kCandidates)
+  ) {
+    if (!state.failed4kKeys) state.failed4kKeys = new Set();
+    state.failed4kKeys.add(state.active4kReleaseKey);
+    if (state.failed4kKeys.size <= 2) {
+      const nextCand = state._backup4kCandidates.find(
+        (c) => c.playable && !state.failed4kKeys.has(c.relKey)
+      );
+      if (nextCand) {
+        showToast(
+          t(
+            "Раздача не отвечает — автоматический переход к следующей 4K-раздаче...",
+            "Release unresponsive — switching to the next 4K release..."
+          )
+        );
+        state._launchBackup4kCandidate(nextCand.rel, nextCand.relKey, resumeAt);
         return true;
       }
     }

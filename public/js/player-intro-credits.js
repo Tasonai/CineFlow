@@ -1,22 +1,33 @@
-import { state } from "./state.js?v=20261105v5";
-import { t } from "./i18n.js?v=20261105v5";
-import { formatTime } from "./utils.js?v=20261105v5";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261105v5";
+import { state } from "./state.js?v=20261108v19";
+import { t } from "./i18n.js?v=20261108v19";
+import { formatTime } from "./utils.js?v=20261108v19";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261108v19";
 
 export function getDetectedCreditsStartSec(dur) {
   if (!dur || dur < 120) return null;
-  const minValidSec = dur * 0.70;
-  const maxValidSec = dur - 1;
+  const isSeries = state.activeItem?.media_type === "series";
+  const maxValidSec = dur - 2;
   const candidates = [];
   const outroSec =
     Number(state.skipSegments?.outro?.start) ||
     Number(state.skipSegments?.outro?.start_sec) ||
     0;
-  if (outroSec >= minValidSec && outroSec < maxValidSec) {
+  const outroEndSec =
+    Number(state.skipSegments?.outro?.end) ||
+    Number(state.skipSegments?.outro?.end_sec) ||
+    0;
+  const externalDurationMatches = !(outroEndSec > 0 && Math.abs(dur - outroEndSec) > 60);
+  const minExternalSec = isSeries
+    ? Math.max(dur * 0.93, dur - 120)
+    : Math.max(dur * 0.88, dur - 420);
+  if (externalDurationMatches && outroSec >= minExternalSec && outroSec < maxValidSec) {
     candidates.push(outroSec);
   }
   const probeSec = Number(state.probeCreditsStartSec || state.remuxMeta?.creditsStartSec) || 0;
-  if (probeSec >= minValidSec && probeSec < maxValidSec) {
+  const minProbeSec = isSeries
+    ? Math.max(dur * 0.85, dur - 300)
+    : Math.max(dur * 0.80, dur - 600);
+  if (probeSec >= minProbeSec && probeSec < maxValidSec) {
     candidates.push(probeSec);
   }
   if (candidates.length === 0) return null;
@@ -26,13 +37,24 @@ export function getDetectedCreditsStartSec(dur) {
 export function renderTimelineChapterMarkers(dur) {
   const container = document.getElementById("vc-chapters");
   if (!container || !dur || dur < 60) {
-    if (container) container.innerHTML = "";
+    if (container && container.innerHTML !== "") {
+      container.innerHTML = "";
+      container._lastChaptersSig = "";
+    }
     return;
   }
-  let html = "";
   const introStart = Number(state.skipSegments?.intro?.start) || Number(state.skipSegments?.intro?.start_sec) || 0;
   const introEnd = Number(state.skipSegments?.intro?.end) || Number(state.skipSegments?.intro?.end_sec) || 0;
   const creditsStart = getDetectedCreditsStartSec(dur) || 0;
+  const extraChapters = Array.isArray(state.remuxMeta?.chapters)
+    ? state.remuxMeta.chapters
+    : Array.isArray(state.skipSegments?.chapters)
+    ? state.skipSegments.chapters
+    : [];
+  const sig = `${Math.round(dur)}|${introStart.toFixed(1)}|${introEnd.toFixed(1)}|${creditsStart.toFixed(1)}|${extraChapters.length}|${state.appLang || "ru"}`;
+  if (container._lastChaptersSig === sig) return;
+  container._lastChaptersSig = sig;
+  let html = "";
 
   if (introEnd > 0 && introEnd < dur) {
     const leftPct = Math.max(0, (introStart / dur) * 100).toFixed(2);
@@ -44,11 +66,6 @@ export function renderTimelineChapterMarkers(dur) {
     const widthPct = Math.max(0.6, 100 - Number(leftPct)).toFixed(2);
     html += `<div class="atv-vc-chapter-segment is-credits" style="left:${leftPct}%; width:${widthPct}%" title="${t("Титры", "Credits")}"></div>`;
   }
-  const extraChapters = Array.isArray(state.remuxMeta?.chapters)
-    ? state.remuxMeta.chapters
-    : Array.isArray(state.skipSegments?.chapters)
-    ? state.skipSegments.chapters
-    : [];
   extraChapters.forEach((ch) => {
     const chSec = Number(ch?.start ?? ch?.time ?? ch?.start_sec) || 0;
     if (chSec > 2 && chSec < dur - 2) {

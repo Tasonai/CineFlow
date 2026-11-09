@@ -112,6 +112,9 @@ def handle_debrid_resolve_post(handler: Any, qs: Dict[str, Any], parsed: Any, bo
     media_type = str(body.get("media_type") or "movie")
     season = max(1, ctx.safe_int(body.get("season"), 1))
     episode = max(1, ctx.safe_int(body.get("episode"), 1))
+    year = ctx.safe_int(body.get("year"), 0)
+    title = str(body.get("title") or "")
+    orig_title = str(body.get("orig_title") or "")
     provider = body.get("provider")
     handler._send_json(
         ctx.backup_stream_engine.resolve_debrid_magnet(
@@ -121,6 +124,9 @@ def handle_debrid_resolve_post(handler: Any, qs: Dict[str, Any], parsed: Any, bo
             episode=episode,
             provider=provider,
             lang=req_lang,
+            year=year,
+            title=title,
+            orig_title=orig_title,
         )
     )
     return True
@@ -150,6 +156,9 @@ def handle_backup_streams_resolve_post(handler: Any, qs: Dict[str, Any], parsed:
     media_type = str(body.get("media_type") or "movie")
     season = max(1, ctx.safe_int(body.get("season"), 1))
     episode = max(1, ctx.safe_int(body.get("episode"), 1))
+    year = ctx.safe_int(body.get("year"), 0)
+    title = str(body.get("title") or "")
+    orig_title = str(body.get("orig_title") or "")
     raw_fidx = body.get("file_index")
     file_index = ctx.safe_int(raw_fidx, 0) if raw_fidx is not None else 0
     filename_hint = str(body.get("filename_hint") or "").strip()
@@ -162,6 +171,9 @@ def handle_backup_streams_resolve_post(handler: Any, qs: Dict[str, Any], parsed:
             file_index=file_index if file_index > 0 else None,
             filename_hint=filename_hint,
             lang=req_lang,
+            year=year,
+            title=title,
+            orig_title=orig_title,
         )
     )
     return True

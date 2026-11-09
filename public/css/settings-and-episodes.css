@@ -539,6 +539,7 @@
   background: transparent;
   border: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  contain: layout style;
 }
 
 .integration-row.is-disabled {
@@ -742,8 +743,8 @@
 }
 
 .kin-switcher-input {
-  flex: 1;
-  min-width: 200px;
+  flex: 1 1 160px;
+  min-width: 0;
   padding: 7px 11px;
   border-radius: 8px;
   background: var(--bg-control);
@@ -756,6 +757,10 @@
 
 .kin-switcher-input:focus {
   background: var(--bg-control-hover);
+}
+
+.kin-switcher-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-blue);
 }
 
 .kin-switcher-input::placeholder {
@@ -961,7 +966,10 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  overflow-wrap: anywhere;
+  text-wrap: balance;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
 }
 
 .atv-autoplay-text {
@@ -982,8 +990,13 @@
   height: 100%;
   width: 100%;
   background: #f5f5f7;
-  transform-origin: left;
-  transition: width 1s linear;
+  transform-origin: left center;
+  transform: scaleX(1);
+  transition: transform 1s linear;
+}
+
+#autoplay-next-card:not(.hidden) .atv-autoplay-fill {
+  will-change: transform;
 }
 
 .atv-autoplay-actions {
@@ -1084,6 +1097,7 @@
   background: transparent;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   cursor: pointer;
+  contain: layout style;
   transition: background 0.15s ease;
 }
 
@@ -1141,6 +1155,7 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  contain: layout style;
   transition: opacity 0.15s ease;
 }
 
@@ -1360,6 +1375,7 @@
   border: none;
   cursor: pointer;
   transition: background 0.15s ease, transform 0.15s ease;
+  contain: layout style;
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -1622,7 +1638,7 @@
   gap: 6px;
 }
 
-#player-gear-popover .is-modified {
+#player-gear-popover .is-modified:not(.atv-gear-toggle-row) {
   box-shadow: inset 0 0 0 1px rgba(245, 245, 247, 0.26);
   border-radius: 9px;
 }
@@ -1708,13 +1724,21 @@
   border: none;
 }
 
-.atv-gear-grid {
+.atv-gear-grid,
+.atv-gear-selects-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
 }
 
-.atv-gear-grid .atv-select-group {
+.atv-gear-details-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.atv-gear-grid .atv-select-group,
+.atv-gear-selects-grid .atv-select-group {
   justify-content: space-between;
   width: 100%;
   min-width: 0;
@@ -1722,15 +1746,19 @@
   padding: 4px 10px;
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
 }
 
-.atv-gear-grid .atv-select-group > span {
+.atv-gear-grid .atv-select-group > span,
+.atv-gear-selects-grid .atv-select-group > span {
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .atv-gear-grid .atv-select-group select,
-.atv-gear-grid .atv-select-group .atv-cselect-btn {
+.atv-gear-grid .atv-select-group .atv-cselect-btn,
+.atv-gear-selects-grid .atv-select-group select,
+.atv-gear-selects-grid .atv-select-group .atv-cselect-btn {
   min-width: 0;
   max-width: 152px;
   overflow: hidden;
@@ -1740,6 +1768,78 @@
 .atv-gear-section {
   padding-top: 1px;
   border: none;
+}
+
+.atv-gear-details {
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: none;
+  padding: 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.atv-gear-details > summary {
+  padding: 8px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(245, 245, 247, 0.88);
+}
+
+.atv-gear-details[open] {
+  padding-bottom: 10px;
+}
+
+.atv-ep-batch-dropdown {
+  position: relative;
+  margin-left: auto;
+}
+
+.atv-ep-batch-summary {
+  list-style: none;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.atv-ep-batch-summary::-webkit-details-marker {
+  display: none;
+}
+
+.atv-ep-batch-summary::after {
+  content: "▾";
+  font-size: 11px;
+  opacity: 0.72;
+}
+
+.atv-ep-batch-dropdown[open] > .atv-ep-batch-summary {
+  background: var(--bg-control-hover);
+  color: #ffffff;
+}
+
+.atv-ep-batch-dropdown > .atv-ep-batch-group {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 32;
+  min-width: 220px;
+  padding: 6px;
+  border-radius: 10px;
+  background: #1c1c1e;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.atv-ep-batch-dropdown > .atv-ep-batch-group .atv-ep-nav-btn {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
 }
 
 .atv-gear-toggle-list,
@@ -1789,18 +1889,82 @@
   }
 }
 
-.atv-gear-tools-row {
+.atv-gear-devices-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.atv-gear-action-card {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 9px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .atv-gear-action-card:hover {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+
+  .atv-gear-action-card:hover .atv-ico {
+    color: var(--text-primary);
+  }
+}
+
+.atv-gear-action-card:active {
+  transform: scale(0.98);
+}
+
+.atv-gear-action-card .atv-ico {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.atv-gear-action-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.atv-gear-action-card-text strong {
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-gear-action-card-text span {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.atv-gear-tools-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 
 .atv-gear-tools-row .atv-ep-nav-btn {
-  flex: 1 1 auto;
+  width: 100%;
   justify-content: center;
-  padding: 5px 9px;
-  font-size: 11.5px;
+  padding: 5px 8px;
+  font-size: 11px;
 }
 
 .atv-gear-hotkeys {
@@ -1907,6 +2071,9 @@
   font-weight: 600;
   color: #f5f5f7;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .atv-current-ep-sub {
@@ -1937,22 +2104,26 @@
 }
 
 /* Video Crop / Aspect Ratio Modes */
-#native-video.crop-contain {
+#native-video.crop-contain,
+#abr-frame-bridge.crop-contain {
   object-fit: contain;
   transform: none;
 }
 
-#native-video.crop-cover {
+#native-video.crop-cover,
+#abr-frame-bridge.crop-cover {
   object-fit: cover;
   transform: none;
 }
 
-#native-video.crop-zoom115 {
+#native-video.crop-zoom115,
+#abr-frame-bridge.crop-zoom115 {
   object-fit: contain;
   transform: scale(1.15);
 }
 
-#native-video.crop-fill {
+#native-video.crop-fill,
+#abr-frame-bridge.crop-fill {
   object-fit: fill;
   transform: none;
 }
