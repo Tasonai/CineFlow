@@ -2,7 +2,7 @@
 // Manages "Continue Watching", "Curated Collections" (Friends' picks, In your taste,
 // Short movies tonight, Top Kinorium/IMDb), and separated/unified catalog shelves.
 
-import { state } from "./state.js?v=20261109v1";
+import { state } from "./state.js?v=20261109v2";
 import {
   displayBackdrop,
   displayPoster,
@@ -11,7 +11,7 @@ import {
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261109v1";
+} from "./i18n.js?v=20261109v2";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -23,36 +23,36 @@ import {
   matchCatalogItemSafe,
   showToast,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261109v1";
+} from "./utils.js?v=20261109v2";
 import {
   buildPersonPhotoCard,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261109v1";
+} from "./modals.js?v=20261109v2";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
   renderPosterCardsInto,
-} from "./catalog-cards.js?v=20261109v1";
+} from "./catalog-cards.js?v=20261109v2";
 import {
   filterCatalogItemsByGenreAndYear,
   sortCatalogItems,
-} from "./catalog-filters.js?v=20261109v1";
+} from "./catalog-filters.js?v=20261109v2";
 import {
   formatRemainingTime,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261109v1";
-import { renderHero } from "./catalog-hero.js?v=20261109v1";
-import { renderNotificationsBell, renderReleaseCalendarShelf } from "./catalog-notifications.js?v=20261109v1";
+} from "./catalog-media-resolver.js?v=20261109v2";
+import { renderHero } from "./catalog-hero.js?v=20261109v2";
+import { renderNotificationsBell, renderReleaseCalendarShelf } from "./catalog-notifications.js?v=20261109v2";
 import {
   clearCatalogFrontendCache,
   loadCatalog,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261109v1";
-import { getOfflineCatalogItems } from "./features-downloads.js?v=20261109v1";
+} from "./catalog.js?v=20261109v2";
+import { getOfflineCatalogItems } from "./features-downloads.js?v=20261109v2";
 
 export function renderContinueWatching() {
   renderNotificationsBell();

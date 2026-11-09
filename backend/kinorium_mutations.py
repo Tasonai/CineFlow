@@ -563,6 +563,7 @@ def get_profile_stats(self) -> Dict[str, Any]:
         friends_list_snap = list(self.state.get("friends") or [])
         watched_episodes_map = dict(self.state.get("watched_episodes") or {})
         watched_local_map = dict(self.state.get("watched") or {})
+        scrobbles_map = dict(self.state.get("scrobbles") or {})
 
     watched_movies = 0
     watched_series = 0
@@ -804,12 +805,131 @@ def get_profile_stats(self) -> Dict[str, Any]:
         )
 
     day_counts: Dict[str, int] = {}
+    month_buckets: Dict[str, Dict[str, Any]] = {}
+    now_lt = time.localtime()
+    cur_yr = now_lt.tm_year
+    cur_mo = now_lt.tm_mon
+    for m_off in range(11, -1, -1):
+        y_val = cur_yr
+        m_val = cur_mo - m_off
+        while m_val <= 0:
+            m_val += 12
+            y_val -= 1
+        m_key = f"{y_val:04d}-{m_val:02d}"
+        month_buckets[m_key] = {
+            "month_key": m_key,
+            "year": y_val,
+            "month": m_val,
+            "titles": 0,
+            "episodes": 0,
+            "hours": 0.0,
+        }
+
     for w_val in watched_local_map.values():
         if isinstance(w_val, dict) and w_val.get("watched_at"):
-            day_prefix = str(w_val.get("watched_at") or "")[:10]
+            w_at = str(w_val.get("watched_at") or "")
+            day_prefix = w_at[:10]
             if len(day_prefix) == 10:
                 day_counts[day_prefix] = day_counts.get(day_prefix, 0) + 1
+            m_prefix = w_at[:7]
+            if m_prefix in month_buckets:
+                month_buckets[m_prefix]["titles"] += 1
+                month_buckets[m_prefix]["hours"] = round(month_buckets[m_prefix]["hours"] + 1.8, 1)
+
+    for sc_val in scrobbles_map.values():
+        if isinstance(sc_val, dict) and sc_val.get("updated_at"):
+            try:
+                sc_ts = float(sc_val.get("updated_at") or 0)
+                if sc_ts > 0:
+                    sc_lt = time.localtime(sc_ts)
+                    m_prefix = f"{sc_lt.tm_year:04d}-{sc_lt.tm_mon:02d}"
+                    day_prefix = f"{sc_lt.tm_year:04d}-{sc_lt.tm_mon:02d}-{sc_lt.tm_mday:02d}"
+                    day_counts.setdefault(day_prefix, 1)
+                    if m_prefix in month_buckets:
+                        if sc_val.get("media_type") == "series":
+                            month_buckets[m_prefix]["episodes"] += 1
+                            month_buckets[m_prefix]["hours"] = round(month_buckets[m_prefix]["hours"] + 0.75, 1)
+                        else:
+                            month_buckets[m_prefix]["titles"] += 1
+                            month_buckets[m_prefix]["hours"] = round(month_buckets[m_prefix]["hours"] + 1.5, 1)
+            except Exception:
+                pass
+
+    monthly_activity_out = list(month_buckets.values())
     longest_marathon = max(day_counts.values()) if day_counts else (max(2, min(10, watched_series * 2)) if watched_series > 0 else (1 if watched_movies > 0 else 0))
+
+    best_streak_days = 1 if (day_counts or total_watched > 0) else 0
+    if len(day_counts) >= 2:
+        try:
+            import datetime as _dt
+            sorted_days = sorted(_dt.date.fromisoformat(d) for d in day_counts.keys() if len(d) == 10)
+            cur_st = 1
+            for idx_d in range(1, len(sorted_days)):
+                if (sorted_days[idx_d] - sorted_days[idx_d - 1]).days == 1:
+                    cur_st += 1
+                    if cur_st > best_streak_days:
+                        best_streak_days = cur_st
+                elif (sorted_days[idx_d] - sorted_days[idx_d - 1]).days > 1:
+                    cur_st = 1
+        except Exception:
+            pass
+
+    most_binged_series: Optional[Dict[str, Any]] = None
+    best_ep_cnt = 0
+    for s_key, ep_seasons in watched_episodes_map.items():
+        if not isinstance(ep_seasons, dict):
+            continue
+        ep_cnt = 0
+        seasons_cnt = 0
+        for ep_list in ep_seasons.values():
+            if isinstance(ep_list, list) and len(ep_list) > 0:
+                seasons_cnt += 1
+                ep_cnt += len(ep_list)
+        if ep_cnt > best_ep_cnt:
+            best_ep_cnt = ep_cnt
+            raw_kid = str(s_key).replace("kin_", "")
+            s_entry = watched_dict.get(raw_kid) or watching_dict.get(raw_kid) or {}
+            s_title = (
+                s_entry.get("ru_title")
+                or s_entry.get("title")
+                or s_entry.get("orig_title")
+                or str(s_key)
+            )
+            most_binged_series = {
+                "id": f"kin_{raw_kid}" if raw_kid.isdigit() else str(s_key),
+                "kinorium_id": raw_kid if raw_kid.isdigit() else "",
+                "title": s_title,
+                "orig_title": s_entry.get("orig_title") or "",
+                "poster": s_entry.get("poster")
+                or (f"https://ru-images.kinorium.com/movie/600/{raw_kid}.jpg" if raw_kid.isdigit() else ""),
+                "episodes_count": ep_cnt,
+                "seasons_count": max(1, seasons_cnt),
+                "estimated_hours": round(ep_cnt * 0.75, 1),
+            }
+    if most_binged_series is None and watched_series > 0:
+        for kid, entry in watched_dict.items():
+            if isinstance(entry, dict) and entry.get("media_type") == "series":
+                most_binged_series = {
+                    "id": f"kin_{kid}" if str(kid).isdigit() else str(kid),
+                    "kinorium_id": str(kid) if str(kid).isdigit() else "",
+                    "title": entry.get("ru_title") or entry.get("orig_title") or "",
+                    "orig_title": entry.get("orig_title") or "",
+                    "poster": entry.get("poster")
+                    or (f"https://ru-images.kinorium.com/movie/600/{kid}.jpg" if str(kid).isdigit() else ""),
+                    "episodes_count": max(8, watched_episodes_count // max(1, watched_series)),
+                    "seasons_count": 1,
+                    "estimated_hours": round(max(8, watched_episodes_count // max(1, watched_series)) * 0.75, 1),
+                }
+                break
+
+    series_records = {
+        "most_binged_series": most_binged_series,
+        "watched_series_count": watched_series,
+        "watching_series_count": len(watching_dict),
+        "watched_episodes_count": watched_episodes_count,
+        "longest_marathon_episodes": longest_marathon,
+        "best_streak_days": best_streak_days,
+    }
 
     avg_u = round(sum(user_scores) / len(user_scores), 2) if user_scores else 0.0
     if watched_series > watched_movies and watched_series >= 3:
@@ -850,6 +970,8 @@ def get_profile_stats(self) -> Dict[str, Any]:
         "top_directors": top_directors_out,
         "top_actors": top_actors_out,
         "yearly_summary": yearly_summary_out,
+        "monthly_activity": monthly_activity_out,
+        "series_records": series_records,
         "friends_comparison": friends_out[:8],
         "top_favorites": favorites[:12],
         "cinema_wrap": {
@@ -858,7 +980,9 @@ def get_profile_stats(self) -> Dict[str, Any]:
             "top_genre": top_genre_name,
             "favorite_decade": fav_decade,
             "longest_marathon_episodes": longest_marathon,
+            "best_streak_days": best_streak_days,
             "watched_episodes_count": watched_episodes_count,
+            "most_binged_series": most_binged_series,
         },
     }
     self._cached_profile_stats = (stats_cache_key, copy.deepcopy(result))

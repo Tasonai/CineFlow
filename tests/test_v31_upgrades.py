@@ -3792,6 +3792,37 @@ Dialogue: 0,0:00:10.50,0:00:14.20,Default,,0,0,0,,{\\an8\\pos(192,20)}Приве
         self.assertIn("curated-because-liked", cs_js)
         self.assertIn("curated-favorite-directors", cs_js)
 
+    def test_velarium_wrapped_digest_and_responsive_ui_polish(self):
+        """Verify Velarium Wrapped monthly activity, series binge records, period tabs, and responsive UI polish."""
+        with open(os.path.join(ROOT_DIR, "backend", "kinorium_mutations.py"), "r", encoding="utf-8") as f:
+            km_src = f.read()
+        self.assertIn('"monthly_activity": monthly_activity_out', km_src)
+        self.assertIn('"series_records": series_records', km_src)
+        self.assertIn('"most_binged_series": most_binged_series', km_src)
+        self.assertIn('"best_streak_days": best_streak_days', km_src)
+
+        with open(os.path.join(ROOT_DIR, "public", "js", "modals-stats.js"), "r", encoding="utf-8") as f:
+            ms_src = f.read()
+        self.assertNotIn("getWatchHistory()", ms_src)
+        self.assertIn("getWatchHistoryList()", ms_src)
+        self.assertIn('export function computeClientWatchWrapAnalytics(st = {}, period = state.statsWrapPeriod || "all")', ms_src)
+        self.assertIn('id="wrap-period-tabs"', ms_src)
+        self.assertIn('id="wrap-monthly-chart"', ms_src)
+        self.assertIn('id="wrap-series-records"', ms_src)
+        self.assertIn('id="wrap-most-binged-card"', ms_src)
+        self.assertIn("data-filter-genre=", ms_src)
+        self.assertIn("atv-wrap-person-rank", ms_src)
+
+        with open(os.path.join(ROOT_DIR, "public", "css", "base-and-hero.css"), "r", encoding="utf-8") as f:
+            bh_css = f.read()
+        self.assertIn(".atv-wrap-period-tabs", bh_css)
+        self.assertIn(".atv-wrap-monthly-chart", bh_css)
+        self.assertIn(".atv-wrap-series-record-card", bh_css)
+        self.assertIn(".atv-hist-row.is-clickable-genre", bh_css)
+        self.assertIn("@media (max-width: 1024px)", bh_css)
+        self.assertIn("@media (max-width: 768px)", bh_css)
+        self.assertIn("@media (max-width: 480px)", bh_css)
+
 
 if __name__ == "__main__":
     unittest.main()
