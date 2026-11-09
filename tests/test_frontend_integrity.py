@@ -111,7 +111,7 @@ class TestFrontendIntegrity(unittest.TestCase):
         self.assertIn("Atoma", html)
         self.assertIn("2026", html)
         self.assertIn("Windows", html)
-        self.assertIn("2.7.11", html)
+        self.assertIn("2.7.12", html)
 
         for svg_rel in ("favicon.svg", os.path.join("icons", "icon.svg")):
             with open(os.path.join(PUBLIC_DIR, svg_rel), "r", encoding="utf-8") as f:

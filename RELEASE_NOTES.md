@@ -1,13 +1,13 @@
-**Что нового в Velarium 2.7.11:**
-• **Глубокая оптимизация производительности и памяти (14 раундов аудита)**: сквозное ускорение видеоплеера, каталога, сетевого медиа-прокси, локального хранилища SQLite WAL и фоновых задач для абсолютно плавного отклика без микро-фризов даже на огромных библиотеках.
-• **Мгновенный отклик плеера и разгрузка горячего цикла `timeupdate`**: оптимизация проверок в 4 Гц цикле воспроизведения, O(1) ранний выход при завершении предзагрузки серий, сброс отложенных сетевых запросов через `AbortController` и мемоизация DOM-структур X-Ray, таймлайна и WebAudio DSP.
-• **Быстрый каталог, поиск и кеширование офлайн-статусов**: оптимизированный поиск по командной палитре без аллокаций памяти, статус-зависимая O(1) индексация загруженных тайтлов, мемоизация динамических фильтров студий/жанров и CSS-изоляция модальных окон (`contain: layout style`).
-• **Восстановление HTTP Keep-Alive в стриминг-прокси и оптимизация SQLite**: устранение повторных TLS-рукопожатий при частых Range-запросах медиапотока, точечный `upsert` изменённых загрузок в БД вместо перезаписи всей таблицы, безопасные HTTPS-хэндлеры с кешированием DNS и мемоизация статистики профиля Кинориума.
+**Что нового в Velarium 2.7.12:**
+• **Годовой и месячный дайджест просмотров («Velarium Wrapped»)**: интерактивная сводка в окне статистики с графиком часов просмотра по месяцам, переключением периодов («Весь период», «Этот год», «Этот месяц»), рекордами сериалов и любимыми режиссёрами, актёрами и жанрами.
+• **Флагманские улучшения видеоплеера**: парящая двухстрочная карточка предпросмотра времени и глав над таймлайном, всплывающее меню выбора сезонов и серий прямо поверх видео, интерактивный перевод слов в субтитрах по клику и надёжная пауза по клавише `Space` в полноэкранном режиме.
+• **Плавный скролл каталога и точная индикация сети**: бесшовная вертикальная прокрутка колесом мыши и трекпадом поверх карточек и полок, мгновенное снятие плашки офлайн-режима при активном соединении и плавная смена постеров главного баннера.
+• **Нативное окно Windows и сборка установщиков**: исправлена работа кнопок управления окном (свернуть, развернуть, закрыть) в заголовке Windows WebView2 и синхронизирована облачная CI-сборка установщика.
 
 <!-- EN -->
 
-**What's new in Velarium 2.7.11:**
-• **Deep Performance & Memory Optimization (14-Pass Audit)**: end-to-end acceleration across the video player, catalog grid, media proxy, and SQLite WAL storage for zero micro-freezes even on multi-thousand-title libraries.
-• **Instant Player Response & `timeupdate` Loop Diet**: optimized checks in the 4 Hz playback loop, O(1) early-return when next-episode preloading finishes, `AbortController` cancellation for background requests, and memoized DOM updates for X-Ray, scrubber, and WebAudio DSP.
-• **Fast Catalog, Search & Download Status Caching**: memory-allocation-free palette search, status-aware O(1) offline download lookups, memoized dynamic studio/genre filter counters, and CSS containment (`contain: layout style`).
-• **HTTP Keep-Alive Restoration in Streaming Proxy & SQLite Tuning**: eliminated redundant TLS handshakes on Range streaming requests, single-row download status updates instead of full-table rewrites, secure HTTPS handlers with DNS caching, and Kinorium profile stats memoization.
+**What's new in Velarium 2.7.12:**
+• **Yearly & Monthly Watch Digest ("Velarium Wrapped")**: interactive summary in the Statistics modal featuring a 12-month watch-time chart, period filters ("All Time", "This Year", "This Month"), series marathon records, and favorite directors, actors, and genres.
+• **Flagship Video Player Upgrades**: floating two-line timeline scrubber preview card with chapter badges, in-stage seasons and episodes switcher popover, click-to-translate interactive subtitle words, and reliable `Space` key play/pause in fullscreen mode.
+• **Smooth Catalog Scrolling & Accurate Network Status**: seamless vertical mouse-wheel and trackpad scrolling over title cards and shelves, automatic offline banner dismissal when network connectivity is active, and smooth hero banner transitions.
+• **Native Windows Title Bar & Installer Polish**: fixed minimize, maximize, and close caption button clicks in the Windows WebView2 host window and updated the automated CI installer workflow.

@@ -5,17 +5,17 @@ Product Passport, Local Privacy & License Agreement
 
 PRODUCT INFORMATION
   Product Name:    Velarium
-  Release Version: 2.7.11 (64-bit x64 Edition)
+  Release Version: 2.7.12 (64-bit x64 Edition)
   Developer:       Atoma
   Release Year:    2026
   Target Platform: Microsoft Windows 10 & Windows 11 (x64)
 
 0. RELEASE NOTES (CHANGELOG)
-What's new in Velarium 2.7.11:
-• Deep Performance & Memory Optimization (14-Pass Audit): end-to-end acceleration across the video player, catalog grid, media proxy, and SQLite WAL storage for zero micro-freezes even on multi-thousand-title libraries.
-• Instant Player Response & timeupdate Loop Diet: optimized checks in the 4 Hz playback loop, O(1) early-return when next-episode preloading finishes, AbortController cancellation for background requests, and memoized DOM updates for X-Ray, scrubber, and WebAudio DSP.
-• Fast Catalog, Search & Download Status Caching: memory-allocation-free palette search, status-aware O(1) offline download lookups, memoized dynamic studio/genre filter counters, and CSS containment (contain: layout style).
-• HTTP Keep-Alive Restoration in Streaming Proxy & SQLite Tuning: eliminated redundant TLS handshakes on Range streaming requests, single-row download status updates instead of full-table rewrites, secure HTTPS handlers with DNS caching, and Kinorium profile stats memoization.
+What's new in Velarium 2.7.12:
+• Yearly & Monthly Watch Digest ("Velarium Wrapped"): interactive summary in the Statistics modal featuring a 12-month watch-time chart, period filters ("All Time", "This Year", "This Month"), series marathon records, and favorite directors, actors, and genres.
+• Flagship Video Player Upgrades: floating two-line timeline scrubber preview card with chapter badges, in-stage seasons and episodes switcher popover, click-to-translate interactive subtitle words, and reliable Space key play/pause in fullscreen mode.
+• Smooth Catalog Scrolling & Accurate Network Status: seamless vertical mouse-wheel and trackpad scrolling over title cards and shelves, automatic offline banner dismissal when network connectivity is active, and smooth hero banner transitions.
+• Native Windows Title Bar & Installer Polish: fixed minimize, maximize, and close caption button clicks in the Windows WebView2 host window and updated the automated CI installer workflow.
 
 1. OVERVIEW & CORE CAPABILITIES
 Velarium unifies your personal movie tracking library, high-bitrate streaming, and regional streaming availability inside a single matte-dark desktop interface:
@@ -38,7 +38,7 @@ Velarium unifies your personal movie tracking library, high-bitrate streaming, a
 • All personal preferences, backups, and sync caches remain exclusively inside the local "data" directory on your machine.
 
 3. LICENSE TERMS
-• Velarium 2.7.11 is provided by Atoma for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
+• Velarium 2.7.12 is provided by Atoma for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
 • Velarium operates solely as a local client-side media interface and metadata aggregator and does not host or distribute media content on any server.
 • Bundled open-source runtime components (Python 3.11 Embeddable Runtime, FFmpeg 9 GPL, TorrServer MatriX) remain covered by their respective licenses.
 

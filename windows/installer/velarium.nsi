@@ -1,15 +1,15 @@
 ; ============================================================================
-; Velarium 2.7.11 — Official Windows x64 Installer Script (NSIS 3 Modern UI 2)
+; Velarium 2.7.12 — Official Windows x64 Installer Script (NSIS 3 Modern UI 2)
 ; Developer / Publisher: Atoma
 ; ============================================================================
 
 Unicode True
 
 !ifndef APP_VERSION
-  !define APP_VERSION "2.7.11"
+  !define APP_VERSION "2.7.12"
 !endif
 !ifndef APP_VERSION_QUAD
-  !define APP_VERSION_QUAD "2.7.11.0"
+  !define APP_VERSION_QUAD "2.7.12.0"
 !endif
 !define APP_NAME "Velarium"
 !define APP_PUBLISHER "Atoma"
