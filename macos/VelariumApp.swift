@@ -1000,7 +1000,7 @@ final class VelariumAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
     func windowDidExitFullScreen(_ notification: Notification) {
         webView?.evaluateJavaScript(
-            "(function(){ try { const st = document.getElementById('video-stage'); if (st) st.classList.remove('is-stage-pseudo-fullscreen'); document.body.classList.remove('is-stage-pseudo-fullscreen-body'); window.dispatchEvent(new Event('resize')); } catch(_){} })();",
+            "(function(){ try { const st = document.getElementById('video-stage'); if (st) st.classList.remove('is-stage-pseudo-fullscreen', 'is-pseudo-fullscreen'); document.documentElement.classList.remove('is-stage-pseudo-fullscreen', 'is-stage-fullscreen', 'vc-fs-cursor-none'); document.body.classList.remove('is-stage-pseudo-fullscreen-body'); window.dispatchEvent(new Event('resize')); } catch(_){} })();",
             completionHandler: nil
         )
     }

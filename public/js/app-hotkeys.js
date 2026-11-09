@@ -4,8 +4,8 @@
  * Mini-Player/PiP keyboard shortcuts, and full Player playback/audio/subtitle/crop/Ambilight hotkeys.
  */
 
-import { state } from "./state.js?v=20261109v5";
-import { t } from "./i18n.js?v=20261109v5";
+import { state } from "./state.js?v=20261109v6";
+import { t } from "./i18n.js?v=20261109v6";
 import {
   closeConfirmModal,
   closeCustomSelectMenu,
@@ -15,7 +15,7 @@ import {
   showVideoOsd,
   trapModalTabKey,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261109v5";
+} from "./utils.js?v=20261109v6";
 import {
   applyAudioBoostToVideo,
   applyVideoCropToVideo,
@@ -26,19 +26,19 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261109v5";
+} from "./audio-dsp.js?v=20261109v6";
 import {
   closeCardContextMenu,
   closeCommandPalette,
   closeMovieRouletteModal,
   openCommandPalette,
-} from "./catalog.js?v=20261109v5";
+} from "./catalog.js?v=20261109v6";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261109v5";
-import { jumpToAdjacentTimelineMarker } from "./player-ui-controls.js?v=20261109v5";
+} from "./modals.js?v=20261109v6";
+import { jumpToAdjacentTimelineMarker } from "./player-ui-controls.js?v=20261109v6";
 import {
   captureVideoScreenshot,
   clearAutoplayNextTimer,
@@ -63,15 +63,15 @@ import {
   toggleVideoPlayPause,
   toggleXRayPauseShelf,
   wakeVideoControls,
-} from "./player.js?v=20261109v5";
-import { closeSubtitleDictPopover, closeVocabularyModal } from "./subtitles.js?v=20261109v5";
+} from "./player.js?v=20261109v6";
+import { closeSubtitleDictPopover, closeVocabularyModal } from "./subtitles.js?v=20261109v6";
 import {
   closeBookmarkNoteDialog,
   closeBookmarksModal,
   scrollActiveXRayList,
   switchXRayTab,
-} from "./player-bookmarks.js?v=20261109v5";
-import { closeOnboardingModal } from "./settings.js?v=20261109v5";
+} from "./player-bookmarks.js?v=20261109v6";
+import { closeOnboardingModal } from "./settings.js?v=20261109v6";
 import {
   closeDownloadsModal,
   closeKidsPinModal,
@@ -80,7 +80,7 @@ import {
   closeProfilesModal,
   closeTvCastModal,
   handleTvSpatialKeydown,
-} from "./features.js?v=20261109v5";
+} from "./features.js?v=20261109v6";
 
 export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
   window.addEventListener("focus", () => {
@@ -97,24 +97,15 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
     }
   });
 
-  window.addEventListener("keydown", (e) => {
-    if (
-      !state.isAppWindowActive &&
-      !document.hidden &&
-      document.visibilityState === "visible" &&
-      (typeof document.hasFocus !== "function" || document.hasFocus())
-    ) {
-      state.isAppWindowActive = true;
-    }
-    if (
-      !e.isTrusted ||
-      !state.isAppWindowActive ||
-      (typeof document.hasFocus === "function" && !document.hasFocus()) ||
-      document.hidden ||
-      document.visibilityState !== "visible"
-    ) {
-      return;
-    }
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.isTrusted && !document.hidden && document.visibilityState === "visible") {
+        state.isAppWindowActive = true;
+      }
+      if (!e.isTrusted || document.hidden || document.visibilityState !== "visible") {
+        return;
+      }
     if (trapModalTabKey(e)) {
       return;
     }
@@ -526,6 +517,9 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
       keyLow === "л"
     ) {
       e.preventDefault();
+      if (e.code === "Space" || e.key === " ") {
+        e.stopPropagation();
+      }
       if (isStageTransportControl && typeof e.target?.blur === "function") {
         try {
           e.target.blur();
@@ -667,5 +661,31 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
         e.preventDefault();
       }
     }
-  });
+    },
+    true
+  );
+
+  window.addEventListener(
+    "keyup",
+    (e) => {
+      if (!state.isPlayerOpen || (e.code !== "Space" && e.key !== " ")) return;
+      const tag = e.target?.tagName || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) {
+        return;
+      }
+      const isOverlayActionBtn = Boolean(
+        e.target?.closest?.(
+          ".atv-vc-popover, .atv-gear-popover, #xray-pause-shelf, #atv-sub-dict-popover, #autoplay-next-card, #player-next-ep-toast, #skip-intro-btn, #skip-credits-btn"
+        )
+      );
+      if (
+        !isOverlayActionBtn &&
+        (isStageFullscreen() || Boolean(e.target?.closest?.("#atv-custom-controls, #video-stage")))
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    true
+  );
 }

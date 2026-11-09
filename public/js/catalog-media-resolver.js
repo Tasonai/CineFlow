@@ -2,8 +2,8 @@ import {
   PREFERRED_STUDIOS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261109v5";
-import { isEn, t } from "./i18n.js?v=20261109v5";
+} from "./state.js?v=20261109v6";
+import { isEn, t } from "./i18n.js?v=20261109v6";
 import {
   escapeHtml,
   findOfflineDownloadForTitle,
@@ -14,21 +14,21 @@ import {
   iconSvg,
   pluralRu,
   syncCustomSelect,
-} from "./utils.js?v=20261109v5";
-import { getPlayerPrefs } from "./audio-dsp.js?v=20261109v5";
+} from "./utils.js?v=20261109v6";
+import { getPlayerPrefs } from "./audio-dsp.js?v=20261109v6";
 import {
   renderModalProvidersSidebar,
   switchSourceTab,
-} from "./player.js?v=20261109v5";
-import { renderHero } from "./catalog-hero.js?v=20261109v5";
+} from "./player.js?v=20261109v6";
+import { renderHero } from "./catalog-hero.js?v=20261109v6";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261109v5";
+} from "./catalog-shelves.js?v=20261109v6";
 import {
   clearCatalogFrontendCache,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261109v5";
+} from "./catalog.js?v=20261109v6";
 
 const paidOfficialSet = new Set(["appletv", "netflix", "prime", "disney", "max", "playerpl"]);
 

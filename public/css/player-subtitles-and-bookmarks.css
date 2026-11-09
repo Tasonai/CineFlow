@@ -1109,6 +1109,12 @@ html.is-tv-mode .type-pill {
    3. Interactive Click-to-Translate Subtitle Words (.atv-sub-word, .atv-sub-dict-popover)
    ========================================================================== */
 .atv-vc-hover-time {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  transform: translateX(-50%);
+  z-index: 30;
+  pointer-events: none;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1119,6 +1125,10 @@ html.is-tv-mode .type-pill {
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.72);
   white-space: nowrap;
+}
+
+.atv-vc-hover-time.hidden {
+  display: none !important;
 }
 
 .atv-vc-hover-chapter {
