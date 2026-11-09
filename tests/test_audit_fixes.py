@@ -818,6 +818,11 @@ class TestAuditFixes(unittest.TestCase):
         self.assertIn('!insertmacro MUI_LANGUAGE "Russian"', nsi_txt)
         self.assertIn('!insertmacro MUI_LANGUAGE "English"', nsi_txt)
 
+        win_builder = self._read_text(os.path.join(root, "windows", "build_windows_installer.py"))
+        self.assertIn('"windows", "makensis.exe"', win_builder)
+        self.assertIn('os.environ.setdefault("NSISDIR"', win_builder)
+        self.assertIn('os.environ.get("GITHUB_ACTIONS"', win_builder)
+
         dist_launcher = os.path.join(root, "dist", "Velarium.exe")
         if os.path.isfile(dist_launcher):
             import struct

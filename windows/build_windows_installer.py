@@ -529,16 +529,25 @@ def ensure_zig_compiler() -> Optional[str]:
 
 
 def ensure_makensis() -> str:
-    sys_nsis = shutil.which("makensis") or shutil.which("makensis.exe")
-    if sys_nsis:
-        return sys_nsis
     if os.name == "nt":
+        sys_nsis = shutil.which("makensis.exe") or shutil.which("makensis")
+        if sys_nsis and sys_nsis.lower().endswith((".exe", ".cmd", ".bat")):
+            return sys_nsis
         for p in (r"C:\Program Files (x86)\NSIS\makensis.exe", r"C:\Program Files\NSIS\makensis.exe"):
             if os.path.isfile(p):
                 return p
+    else:
+        sys_nsis = shutil.which("makensis") or shutil.which("makensis.exe")
+        if sys_nsis:
+            return sys_nsis
 
+    bundled_win_exe = os.path.join(TOOLCHAIN_DIR, "nsis", "nsis-bundle", "windows", "makensis.exe")
     bundled_wrapper = os.path.join(TOOLCHAIN_DIR, "nsis", "nsis-bundle", "makensis")
-    if os.path.isfile(bundled_wrapper) and os.access(bundled_wrapper, os.X_OK):
+    if os.name == "nt":
+        if os.path.isfile(bundled_win_exe):
+            os.environ.setdefault("NSISDIR", os.path.dirname(bundled_win_exe))
+            return bundled_win_exe
+    elif os.path.isfile(bundled_wrapper) and os.access(bundled_wrapper, os.X_OK):
         return bundled_wrapper
 
     archive = _download_if_missing(
@@ -550,6 +559,9 @@ def ensure_makensis() -> str:
     os.makedirs(nsis_dest, exist_ok=True)
     with tarfile.open(archive, "r:gz") as tf:
         tf.extractall(nsis_dest)
+    if os.name == "nt" and os.path.isfile(bundled_win_exe):
+        os.environ.setdefault("NSISDIR", os.path.dirname(bundled_win_exe))
+        return bundled_win_exe
     if os.path.isfile(bundled_wrapper):
         os.chmod(bundled_wrapper, 0o755)
         return bundled_wrapper
@@ -805,6 +817,14 @@ def main() -> int:
     size_mb = os.path.getsize(installer_path) / (1024 * 1024)
     print(f"[build] SUCCESS: {installer_path} ({size_mb:.1f} MB)")
     write_update_manifest_files(installer_path, APP_VERSION)
+
+    if os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+        legacy_ci_installer = os.path.join(DIST_DIR, "CineFlow-Setup-2.6.6-x64.exe")
+        legacy_ci_launcher = os.path.join(DIST_DIR, "CineFlow.exe")
+        if os.path.isfile(installer_path):
+            shutil.copy2(installer_path, legacy_ci_installer)
+        if os.path.isfile(launcher_out):
+            shutil.copy2(launcher_out, legacy_ci_launcher)
     return 0
 
 
