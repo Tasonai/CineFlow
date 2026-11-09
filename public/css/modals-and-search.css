@@ -1929,7 +1929,10 @@ html.is-stage-fullscreen .atv-video-stage .atv-subtitle-cue-line {
   align-items: flex-start;
   gap: 10px;
   overflow-x: auto;
-  padding: 2px 4px 8px;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  padding: 6px 4px 10px;
   scroll-padding-inline: 4px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;

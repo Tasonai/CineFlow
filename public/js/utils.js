@@ -5,9 +5,9 @@ import {
   WATCH_HISTORY_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261109v2";
-import { isEn, t } from "./i18n.js?v=20261109v2";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261109v2";
+} from "./state.js?v=20261109v3";
+import { isEn, t } from "./i18n.js?v=20261109v3";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261109v3";
 
 export function escapeAttr(val) {
   return String(val ?? "")
@@ -917,25 +917,55 @@ export function supportsNativePiP() {
 }
 const _CHEVRON_STRIP_IDS = new Set([
   "continue-watching-grid",
+  "release-calendar-row",
   "search-persons-row",
   "meta-cast-list",
+  "meta-similar-list",
 ]);
+
+function _resolveVerticalScrollContainer(el) {
+  let cur = el ? el.parentElement : null;
+  while (cur && cur !== document.body && cur !== document.documentElement) {
+    const st = window.getComputedStyle(cur);
+    const oy = st ? st.overflowY : "";
+    if ((oy === "auto" || oy === "scroll" || oy === "overlay") && cur.scrollHeight > cur.clientHeight + 2) {
+      return cur;
+    }
+    cur = cur.parentElement;
+  }
+  return document.scrollingElement || document.documentElement;
+}
 
 export function attachHorizontalWheelScroll(el, options = {}) {
   if (!el) return;
   if (!el._cfWheelBound) {
     el._cfWheelBound = true;
+    const captureVertical = Boolean(options.captureVerticalWheel);
     el.addEventListener(
       "wheel",
       (e) => {
         if (el.classList.contains("ep-grid-mode")) return;
-        if (el.scrollWidth <= el.clientWidth + 2) return;
-        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        const absY = Math.abs(e.deltaY);
+        const absX = Math.abs(e.deltaX);
+        if (absY <= absX) return;
+
+        if (e.shiftKey || captureVertical) {
+          if (el.scrollWidth <= el.clientWidth + 2) return;
           e.preventDefault();
-          if (Math.abs(e.deltaY) >= 40) {
+          if (absY >= 40) {
             el.scrollBy({ left: e.deltaY, behavior: "smooth" });
           } else {
             el.scrollLeft += e.deltaY;
+          }
+          return;
+        }
+
+        if ((absX > 0 || el.scrollHeight > el.clientHeight) && absY > absX * 1.2) {
+          const vScroller = _resolveVerticalScrollContainer(el);
+          if (vScroller && vScroller !== el) {
+            e.preventDefault();
+            const mult = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight || 600 : 1;
+            vScroller.scrollTop += e.deltaY * mult;
           }
         }
       },
@@ -943,7 +973,11 @@ export function attachHorizontalWheelScroll(el, options = {}) {
     );
   }
 
-  const wantChevrons = Boolean(options.showChevrons || (el.id && _CHEVRON_STRIP_IDS.has(el.id)));
+  const wantChevrons = Boolean(
+    options.showChevrons ||
+      el.classList.contains("atv-curated-row") ||
+      (el.id && _CHEVRON_STRIP_IDS.has(el.id))
+  );
   if (wantChevrons && !el._cfChevronsMounted && el.parentElement) {
     el._cfChevronsMounted = true;
     const host = el.parentElement;

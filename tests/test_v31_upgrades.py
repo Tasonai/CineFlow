@@ -3823,6 +3823,17 @@ Dialogue: 0,0:00:10.50,0:00:14.20,Default,,0,0,0,,{\\an8\\pos(192,20)}Приве
         self.assertIn("@media (max-width: 768px)", bh_css)
         self.assertIn("@media (max-width: 480px)", bh_css)
 
+        with open(os.path.join(ROOT_DIR, "public", "js", "utils.js"), "r", encoding="utf-8") as f:
+            utils_js = f.read()
+        self.assertIn("function _resolveVerticalScrollContainer(el)", utils_js)
+        self.assertIn("const captureVertical = Boolean(options.captureVerticalWheel);", utils_js)
+        self.assertIn('el.classList.contains("atv-curated-row")', utils_js)
+
+        with open(os.path.join(ROOT_DIR, "public", "css", "catalog-and-player-layout.css"), "r", encoding="utf-8") as f:
+            cpl_css = f.read()
+        self.assertIn("overscroll-behavior-x: contain;", cpl_css)
+        self.assertIn("overflow: clip;", cpl_css)
+
 
 if __name__ == "__main__":
     unittest.main()

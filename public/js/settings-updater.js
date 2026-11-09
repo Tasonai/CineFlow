@@ -10,30 +10,30 @@ import {
   profileStorageKey,
   profileStorageKeyFor,
   state,
-} from "./state.js?v=20261109v2";
-import { isEn, t } from "./i18n.js?v=20261109v2";
+} from "./state.js?v=20261109v3";
+import { isEn, t } from "./i18n.js?v=20261109v3";
 import {
   escapeHtml,
   getWatchHistoryList,
   invalidateLocalCaches,
   showToast,
-} from "./utils.js?v=20261109v2";
-import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261109v2";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261109v2";
-import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261109v2";
-import { loadCatalog, updateKinoriumUserBadge } from "./catalog.js?v=20261109v2";
+} from "./utils.js?v=20261109v3";
+import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261109v3";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261109v3";
+import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261109v3";
+import { loadCatalog, updateKinoriumUserBadge } from "./catalog.js?v=20261109v3";
 import {
   applyProfilesPayload,
   ensureKidsPinVerifiedForAdminAction,
   promptKidsPinModal,
   reloadProfileLocalPlayerPrefs,
-} from "./features.js?v=20261109v2";
+} from "./features.js?v=20261109v3";
 import {
   _adminPinPayload,
   applyAppLanguage,
   renderIntegrationsList,
   renderStremioAddonsList,
-} from "./settings.js?v=20261109v2";
+} from "./settings.js?v=20261109v3";
 
 export function updateBackupSummaryStat() {
   const el = document.getElementById("backup-summary-stat");

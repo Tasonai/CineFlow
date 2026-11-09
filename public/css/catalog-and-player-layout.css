@@ -3,7 +3,10 @@
   display: flex;
   gap: 20px;
   overflow-x: auto;
-  padding: 6px 4px 14px;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  padding: 10px 4px 16px;
   scroll-snap-type: x mandatory;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
@@ -16,6 +19,7 @@
   aspect-ratio: 16 / 9;
   border-radius: var(--radius-card);
   overflow: hidden;
+  overflow: clip;
   background: var(--bg-elevated);
   border: none;
   cursor: pointer;
@@ -190,6 +194,7 @@
   border: none;
   flex-wrap: nowrap;
   overflow-x: auto;
+  overflow-y: hidden;
   max-width: 100%;
   min-width: 0;
   scrollbar-width: none;
@@ -307,8 +312,7 @@
   gap: 10px;
   min-width: 0;
   contain: layout style;
-  content-visibility: auto;
-  contain-intrinsic-size: 180px 310px;
+  content-visibility: visible;
   outline: none;
 }
 
@@ -336,6 +340,7 @@
   aspect-ratio: 2 / 3;
   border-radius: var(--radius-card);
   overflow: hidden;
+  overflow: clip;
   background: var(--bg-elevated);
   border: none;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
@@ -2083,7 +2088,9 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   gap: 16px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 4px 2px 10px;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  padding: 10px 4px 14px;
   scroll-snap-type: x proximity;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
@@ -2429,6 +2436,7 @@ html:not(.is-stage-fullscreen):not(.is-stage-pseudo-fullscreen) .atv-video-stage
   align-items: center;
   gap: 8px;
   overflow-x: auto;
+  overflow-y: hidden;
   padding: 2px 0 8px;
   scrollbar-width: none;
 }
