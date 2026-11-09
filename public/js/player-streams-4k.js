@@ -1,11 +1,11 @@
-import { state } from "./state.js?v=20261109v3";
+import { state } from "./state.js?v=20261109v4";
 import {
   displayTitle,
   isEn,
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261109v3";
+} from "./i18n.js?v=20261109v4";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -16,41 +16,41 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261109v3";
+} from "./utils.js?v=20261109v4";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
   pickPreferredSubtitleIndex,
-} from "./audio-dsp.js?v=20261109v3";
+} from "./audio-dsp.js?v=20261109v4";
 import {
   buildRemuxSubtitlesList,
   mergeCustomExternalSubtitles,
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
-} from "./subtitles.js?v=20261109v3";
+} from "./subtitles.js?v=20261109v4";
 import {
   buildRemuxStreamEndpoint,
   formatAudioOffsetLabel,
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261109v3";
+} from "./player-remux.js?v=20261109v4";
 import {
   syncCustomControlPopovers,
   syncCustomVideoControlsUI,
-} from "./player-ui-controls.js?v=20261109v3";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261109v3";
+} from "./player-ui-controls.js?v=20261109v4";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261109v4";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261109v3";
-import { playVideoUrl } from "./player.js?v=20261109v3";
+} from "./player-seasons.js?v=20261109v4";
+import { playVideoUrl } from "./player.js?v=20261109v4";
 import {
   buildNextEpisodePreloadKey,
   hideVideoStreamError,
   isHdRezkaStreamDeadOrExpired,
   loadHDRezkaStream,
-} from "./player-streams.js?v=20261109v3";
+} from "./player-streams.js?v=20261109v4";
 
 function _applyLiveAudioOffsetToCurrentStream() {
   if (state.audioOffsetReloadTimerId) {

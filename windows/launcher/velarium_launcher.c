@@ -705,15 +705,38 @@ static void compute_adaptive_window_bounds(int *out_w, int *out_h, int *out_x, i
  * ============================================================================ */
 
 static HWND g_main_hwnd = NULL;
+static HWND g_webview_host_hwnd = NULL;
 static ICoreWebView2Controller *g_controller = NULL;
 static ICoreWebView2 *g_webview = NULL;
 static int g_webview_init_failed = 0;
 static int g_is_fullscreen = 0;
 static int g_is_stream_window = 0;
+static WPARAM g_nc_pressed_ht = 0;
 static LONG_PTR g_saved_style = 0;
 static LONG_PTR g_saved_ex_style = 0;
 static WINDOWPLACEMENT g_saved_placement = { sizeof(WINDOWPLACEMENT) };
 static wchar_t g_target_url[2048] = VELARIUM_URL;
+
+typedef BOOL (WINAPI *PFN_DwmDefWindowProc)(HWND, UINT, WPARAM, LPARAM, LRESULT *);
+static PFN_DwmDefWindowProc g_pDwmDefWindowProc = NULL;
+static int g_dwm_proc_resolved = 0;
+
+static BOOL call_dwm_def_window_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT *plResult) {
+    if (!g_dwm_proc_resolved) {
+        g_dwm_proc_resolved = 1;
+        HMODULE hDwm = GetModuleHandleW(L"dwmapi.dll");
+        if (!hDwm) {
+            hDwm = LoadLibraryW(L"dwmapi.dll");
+        }
+        if (hDwm) {
+            g_pDwmDefWindowProc = (PFN_DwmDefWindowProc)GetProcAddress(hDwm, "DwmDefWindowProc");
+        }
+    }
+    if (g_pDwmDefWindowProc) {
+        return g_pDwmDefWindowProc(hwnd, msg, wParam, lParam, plResult);
+    }
+    return FALSE;
+}
 
 static void apply_dark_titlebar(HWND hwnd) {
     HMODULE hDwm = LoadLibraryW(L"dwmapi.dll");
@@ -736,12 +759,18 @@ static void apply_dark_titlebar(HWND hwnd) {
 }
 
 static void sync_webview_bounds(HWND hwnd) {
-    if (!g_controller || !hwnd) {
+    if (!hwnd) {
         return;
     }
     RECT rc;
     if (GetClientRect(hwnd, &rc)) {
-        g_controller->lpVtbl->put_Bounds(g_controller, rc);
+        if (g_webview_host_hwnd && IsWindow(g_webview_host_hwnd)) {
+            MoveWindow(g_webview_host_hwnd, 0, 0, rc.right - rc.left, rc.bottom - rc.top, TRUE);
+        }
+        if (g_controller) {
+            RECT host_rc = { 0, 0, rc.right - rc.left, rc.bottom - rc.top };
+            g_controller->lpVtbl->put_Bounds(g_controller, host_rc);
+        }
     }
 }
 
@@ -792,15 +821,12 @@ static void set_native_fullscreen(HWND hwnd, int enable) {
 /* COM Event Handlers (Static Singletons) */
 
 static HRESULT STDMETHODCALLTYPE Unknown_QueryInterface_Stub(void *This, REFIID riid, void **ppvObject) {
+    (void)riid;
     if (!ppvObject) {
         return E_POINTER;
     }
-    if (riid && memcmp(riid, &IID_IUnknown_Local, sizeof(IID)) == 0) {
-        *ppvObject = This;
-        return S_OK;
-    }
-    *ppvObject = NULL;
-    return E_NOINTERFACE;
+    *ppvObject = This;
+    return S_OK;
 }
 
 static ULONG STDMETHODCALLTYPE Unknown_AddRef_Stub(void *This) {
@@ -1054,7 +1080,11 @@ static HRESULT STDMETHODCALLTYPE EnvironmentCompleted_Invoke(
         }
         return S_OK;
     }
-    HRESULT hr = env->lpVtbl->CreateCoreWebView2Controller(env, g_main_hwnd, &g_controller_completed_handler);
+    HWND host_hwnd = (g_webview_host_hwnd && IsWindow(g_webview_host_hwnd)) ? g_webview_host_hwnd : g_main_hwnd;
+    HRESULT hr = env->lpVtbl->CreateCoreWebView2Controller(env, host_hwnd, &g_controller_completed_handler);
+    if (FAILED(hr) && host_hwnd != g_main_hwnd) {
+        hr = env->lpVtbl->CreateCoreWebView2Controller(env, g_main_hwnd, &g_controller_completed_handler);
+    }
     if (FAILED(hr)) {
         g_webview_init_failed = 1;
         PostMessageW(g_main_hwnd, WM_CLOSE, 0, 0);
@@ -1127,7 +1157,39 @@ static HMODULE load_webview2_loader_dll(const wchar_t *app_dir) {
 }
 
 static LRESULT CALLBACK VelariumWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    LRESULT dwm_result = 0;
+    if (call_dwm_def_window_proc(hwnd, msg, wParam, lParam, &dwm_result)) {
+        return dwm_result;
+    }
+
     switch (msg) {
+        case WM_NCLBUTTONDOWN:
+            if (wParam == HTMINBUTTON || wParam == HTMAXBUTTON || wParam == HTCLOSE) {
+                g_nc_pressed_ht = wParam;
+            } else {
+                g_nc_pressed_ht = 0;
+            }
+            break;
+
+        case WM_NCLBUTTONUP:
+            if (wParam == HTMINBUTTON || wParam == HTMAXBUTTON || wParam == HTCLOSE) {
+                g_nc_pressed_ht = 0;
+                if (wParam == HTMINBUTTON) {
+                    PostMessageW(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, lParam);
+                    return 0;
+                }
+                if (wParam == HTMAXBUTTON) {
+                    PostMessageW(hwnd, WM_SYSCOMMAND, IsZoomed(hwnd) ? SC_RESTORE : SC_MAXIMIZE, lParam);
+                    return 0;
+                }
+                if (wParam == HTCLOSE) {
+                    PostMessageW(hwnd, WM_SYSCOMMAND, SC_CLOSE, lParam);
+                    return 0;
+                }
+            }
+            g_nc_pressed_ht = 0;
+            break;
+
         case WM_SIZE:
             sync_webview_bounds(hwnd);
             return 0;
@@ -1192,6 +1254,7 @@ static LRESULT CALLBACK VelariumWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                 g_webview->lpVtbl->Release(g_webview);
                 g_webview = NULL;
             }
+            g_webview_host_hwnd = NULL;
             g_main_hwnd = NULL;
             PostQuitMessage(0);
             return 0;
@@ -1289,6 +1352,22 @@ static int run_native_webview2_window(
     }
 
     g_main_hwnd = hwnd;
+    RECT init_rc = { 0, 0, win_w, win_h };
+    GetClientRect(hwnd, &init_rc);
+    g_webview_host_hwnd = CreateWindowExW(
+        0,
+        L"STATIC",
+        L"",
+        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+        0,
+        0,
+        init_rc.right - init_rc.left,
+        init_rc.bottom - init_rc.top,
+        hwnd,
+        NULL,
+        hInstance,
+        NULL
+    );
     apply_dark_titlebar(hwnd);
     ShowWindow(hwnd, SW_SHOWNORMAL);
     UpdateWindow(hwnd);

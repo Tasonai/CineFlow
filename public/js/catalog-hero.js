@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261109v3";
+import { state } from "./state.js?v=20261109v4";
 import {
   displayBackdrop,
   displayCountries,
@@ -8,26 +8,26 @@ import {
   isEn,
   t,
   translateGenre,
-} from "./i18n.js?v=20261109v3";
+} from "./i18n.js?v=20261109v4";
 import {
   cssUrl,
   escapeHtml,
   iconSvg,
   setAmbientColor,
-} from "./utils.js?v=20261109v3";
-import { openQuickPeekModal } from "./modals.js?v=20261109v3";
-import { openPlayerModal } from "./player.js?v=20261109v3";
+} from "./utils.js?v=20261109v4";
+import { openQuickPeekModal } from "./modals.js?v=20261109v4";
+import { openPlayerModal } from "./player.js?v=20261109v4";
 import {
   _hashItemKey,
   filterCatalogItemsByGenreAndYear,
   seededShuffle,
-} from "./catalog-filters.js?v=20261109v3";
+} from "./catalog-filters.js?v=20261109v4";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261109v3";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261109v3";
+} from "./catalog-media-resolver.js?v=20261109v4";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261109v4";
 
 const LAST_HERO_ID_STORAGE_KEY = "velarium_last_hero_id";
 let _heroRecordedThisLaunch = false;
@@ -504,17 +504,27 @@ export function renderHeroSlide(idx, smooth = false) {
     clearTimeout(state.heroSlideFadeTimer);
     state.heroSlideFadeTimer = null;
   }
+  const slideSigNow = `${featured.id || ""}|${state.appLang || "ru"}|${featured.kinorium?.in_watchlist ? 1 : 0}|${featured.kinorium?.watched ? 1 : 0}|${featured.kinorium?.watching ? 1 : 0}|${featured.kinorium?.user_rating || 0}`;
+  state._lastHeroSlideSig = slideSigNow;
+
   if (smooth) {
     heroSection.classList.add("hero-fading");
     state.heroSlideFadeTimer = setTimeout(() => {
       state.heroSlideFadeTimer = null;
-      applyContent();
-      requestAnimationFrame(() => heroSection.classList.remove("hero-fading"));
+      try {
+        applyContent();
+      } finally {
+        heroSection.classList.remove("hero-fading");
+      }
       scheduleHeroAmbientTeaser(featured);
-    }, 150);
+    }, 140);
   } else {
     heroSection.classList.remove("hero-fading");
-    applyContent();
+    try {
+      applyContent();
+    } finally {
+      heroSection.classList.remove("hero-fading");
+    }
     scheduleHeroAmbientTeaser(featured);
   }
 }
@@ -525,6 +535,7 @@ export function renderHero(preFilteredItems = null) {
 
   if (state.searchQuery.trim() || state.kinoriumSection !== "all" || state.catalogItems.length === 0) {
     heroSection.classList.add("hidden");
+    heroSection.classList.remove("hero-fading");
     stopHeroAutoTimer();
     return;
   }
@@ -573,7 +584,9 @@ export function renderHero(preFilteredItems = null) {
     const slideSig = curHero
       ? `${curHero.id || ""}|${state.appLang || "ru"}|${curHero.kinorium?.in_watchlist ? 1 : 0}|${curHero.kinorium?.watched ? 1 : 0}|${curHero.kinorium?.watching ? 1 : 0}|${curHero.kinorium?.user_rating || 0}`
       : "";
-    if (state._lastHeroSlideSig !== slideSig) {
+    const heroContentEl = document.getElementById("hero-content");
+    const heroIsBlank = !heroContentEl || heroContentEl.children.length === 0 || heroSection.classList.contains("hero-fading");
+    if (state._lastHeroSlideSig !== slideSig || heroIsBlank) {
       state._lastHeroSlideSig = slideSig;
       renderHeroSlide(state.heroIndex, false);
     }

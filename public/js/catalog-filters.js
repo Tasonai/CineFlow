@@ -1,10 +1,10 @@
-import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261109v3";
+import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261109v4";
 import {
   displayTitle,
   getItemGenreEntries,
   t,
   translateGenre,
-} from "./i18n.js?v=20261109v3";
+} from "./i18n.js?v=20261109v4";
 import {
   clampFloatingPopover,
   closeFloatingPopovers,
@@ -16,26 +16,26 @@ import {
   showToast,
   syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261109v3";
+} from "./utils.js?v=20261109v4";
 import {
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261109v3";
+} from "./catalog-hero.js?v=20261109v4";
 import {
   applyEnabledServicesVisibility,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261109v3";
+} from "./catalog-media-resolver.js?v=20261109v4";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261109v3";
-import { switchNotificationsTab } from "./catalog-notifications.js?v=20261109v3";
-import { syncSearchClearButton } from "./catalog-live-search.js?v=20261109v3";
-import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261109v3";
-import { openQuickPeekModal } from "./modals.js?v=20261109v3";
-import { loadCatalog } from "./catalog.js?v=20261109v3";
+} from "./catalog-shelves.js?v=20261109v4";
+import { switchNotificationsTab } from "./catalog-notifications.js?v=20261109v4";
+import { syncSearchClearButton } from "./catalog-live-search.js?v=20261109v4";
+import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261109v4";
+import { openQuickPeekModal } from "./modals.js?v=20261109v4";
+import { loadCatalog } from "./catalog.js?v=20261109v4";
 
 export function updateActiveFiltersBadge() {
   let drawerCount = 0;
@@ -1109,15 +1109,24 @@ export function initCatalogToolbarAndFilterBindings() {
     loadCatalog();
   });
 
-  window.addEventListener("offline", () => {
+  window.addEventListener("offline", async () => {
+    try {
+      const probe = await fetch("/api/system/status", { cache: "no-store" });
+      if (probe && probe.ok) {
+        setOfflineMode(false);
+        return;
+      }
+    } catch (_) {}
+    if (state.isPlayerOpen) {
+      const vid = document.getElementById("native-video");
+      if (vid && !vid.paused && !vid.ended && vid.readyState >= 2) {
+        return;
+      }
+    }
     setOfflineMode(true);
     showToast(t("Офлайн-режим: доступны скачанные фильмы и серии", "Offline mode: downloaded movies and series available"));
     renderCatalogShelves();
   });
-
-  if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    setOfflineMode(true);
-  }
 
   document.querySelectorAll(".atv-pill").forEach((btn) => {
     btn.onclick = () => {
