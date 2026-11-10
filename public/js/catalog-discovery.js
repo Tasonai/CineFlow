@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261109v6";
+import { state } from "./state.js?v=20261110v1";
 import {
   displayDescription,
   displayPoster,
@@ -10,7 +10,7 @@ import {
   translateCareer,
   translateGenre,
   transliterateRuToEn,
-} from "./i18n.js?v=20261109v6";
+} from "./i18n.js?v=20261110v1";
 import {
   escapeAttr,
   escapeHtml,
@@ -19,28 +19,28 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261109v6";
+} from "./utils.js?v=20261110v1";
 import {
   buildFallbackAvatarSvg,
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261109v6";
+} from "./modals.js?v=20261110v1";
 import {
   attachSmartPosterFallback,
   buildFallbackPosterSvg,
-} from "./catalog-cards.js?v=20261109v6";
-import { openPlayerModal } from "./player.js?v=20261109v6";
+} from "./catalog-cards.js?v=20261110v1";
+import { openPlayerModal } from "./player.js?v=20261110v1";
 import {
   getPrimaryRating,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261109v6";
+} from "./catalog-media-resolver.js?v=20261110v1";
 import {
   scheduleHeroAmbientTeaser,
   stopHeroAmbientTeaser,
-} from "./catalog-hero.js?v=20261109v6";
+} from "./catalog-hero.js?v=20261110v1";
 
 export function openMovieRouletteModal() {
   const modal = document.getElementById("movie-roulette-modal");

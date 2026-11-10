@@ -741,15 +741,16 @@ class RemuxStreamEngine:
                 return self._sub_cache[cache_key]
 
         rw_timeout_us = str(int(max(5.0, float(timeout_sec or 8.0)) * 1_000_000))
+        sub_probe_val = "2000000" if norm_start > 0.5 else "400000"
         cmd: List[str] = [
             self.ffmpeg_path,
             "-hide_banner",
             "-loglevel",
             "error",
             "-probesize",
-            "400000",
+            sub_probe_val,
             "-analyzeduration",
-            "400000",
+            sub_probe_val,
             "-reconnect",
             "1",
             "-reconnect_streamed",
@@ -864,7 +865,10 @@ class RemuxStreamEngine:
                 cmd.extend(["-hwaccel", "d3d11va"])
 
         if clean_src.startswith(("http://", "https://")):
-            probe_val = "384000" if v_low else "500000"
+            if start_sec > 0.5:
+                probe_val = "5000000"
+            else:
+                probe_val = "384000" if v_low else "500000"
             cmd.extend(
                 [
                     "-probesize",

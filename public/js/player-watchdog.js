@@ -1,7 +1,7 @@
 // Velarium Player Watchdog & Anti-Freeze Subsystem
 // Monitors frame progression, detects hardware video decoder stalls (A/V desync), and performs automated recovery.
 
-import { state } from "./state.js?v=20261109v6";
+import { state } from "./state.js?v=20261110v1";
 
 export function clearVideoStallWatchdog() {
   if (state.stallWatchdogTimerId) {
@@ -308,6 +308,13 @@ export function recoverFrozenVideoPlayback(video, curT, attemptCount = 1) {
       state.hlsInstance.recoverMediaError();
       return;
     } catch (err) { window.logDebug?.("PlayerWatchdog", err); }
+  }
+
+  if (state.remuxMeta && state.remuxMeta.active) {
+    try {
+      video.play().catch(() => {});
+    } catch (_) {}
+    return;
   }
 
   // Perform targeted seek to flush hardware video decoder queue and force keyframe resync

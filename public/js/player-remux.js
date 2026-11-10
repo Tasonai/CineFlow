@@ -1,11 +1,11 @@
 // Velarium Player Remux & Stream Pipeline Subsystem
 // Handles FFmpeg live remux stream endpoints, audio offset shifts, probe timing, and dynamic audio track switching.
 
-import { state } from "./state.js?v=20261109v6";
-import { isEn } from "./i18n.js?v=20261109v6";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261109v6";
-import { syncCustomSelect } from "./utils.js?v=20261109v6";
-import { refreshRemuxSubtitleTracks } from "./subtitles.js?v=20261109v6";
+import { state } from "./state.js?v=20261110v1";
+import { isEn } from "./i18n.js?v=20261110v1";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261110v1";
+import { syncCustomSelect } from "./utils.js?v=20261110v1";
+import { refreshRemuxSubtitleTracks } from "./subtitles.js?v=20261110v1";
 
 export function estimateItemDurationSec(item) {
   if (!item) return 3000;

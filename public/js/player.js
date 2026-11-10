@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261109v6";
+import { state } from "./state.js?v=20261110v1";
 import {
   displayBackdrop,
   displayCountries,
@@ -15,7 +15,7 @@ import {
   translateGenre,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261109v6";
+} from "./i18n.js?v=20261110v1";
 import {
   clampFloatingPopover,
   clampStagePopover,
@@ -51,7 +51,7 @@ import {
   syncSearchInputHasQueryUI,
   syncToastContainerMount,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261109v6";
+} from "./utils.js?v=20261110v1";
 import {
   applyAudioBoostToVideo,
   applySavedPlayerPrefsToVideo,
@@ -68,7 +68,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261109v6";
+} from "./audio-dsp.js?v=20261110v1";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -86,8 +86,8 @@ import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261109v6";
-import { setOfflineMode } from "./features-downloads.js?v=20261109v6";
+} from "./catalog.js?v=20261110v1";
+import { setOfflineMode } from "./features-downloads.js?v=20261110v1";
 import {
   closePersonModal,
   closeQuickPeekModal,
@@ -95,13 +95,13 @@ import {
   openQuickPeekModal,
   refreshOpenPersonModalUI,
   renderModalCastSection,
-} from "./modals.js?v=20261109v6";
-import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261109v6";
+} from "./modals.js?v=20261110v1";
+import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261110v1";
 import {
   refreshDownloadsState,
   sweepPendingDownloadCleanups,
   syncNativeNowPlaying,
-} from "./features.js?v=20261109v6";
+} from "./features.js?v=20261110v1";
 import {
   activateSelectedSubtitleTrack,
   adjustSubtitleOffset,
@@ -125,8 +125,8 @@ import {
   syncSubtitleOffsetUI,
   triggerLocalSubtitleFilePicker,
   updateCustomSubtitleOverlay,
-} from "./subtitles.js?v=20261109v6";
-import { pushDesktopRemoteStateNow, bindRemoteVideoListeners } from "./remote.js?v=20261109v6";
+} from "./subtitles.js?v=20261110v1";
+import { pushDesktopRemoteStateNow, bindRemoteVideoListeners } from "./remote.js?v=20261110v1";
 import {
   clearVideoStallWatchdog,
   cleanupAbrPreloadVideo,
@@ -139,7 +139,7 @@ import {
   getVideoForwardBufferSec,
   checkVideoPlaybackFreeze,
   sortQualityKeysLowToHigh,
-} from "./player-watchdog.js?v=20261109v6";
+} from "./player-watchdog.js?v=20261110v1";
 import {
   estimateItemDurationSec,
   buildRemuxStreamEndpoint,
@@ -149,7 +149,7 @@ import {
   clearRemuxDurationPoll,
   scheduleRemuxFullDurationProbe,
   prepareRemuxAudioSwitch,
-} from "./player-remux.js?v=20261109v6";
+} from "./player-remux.js?v=20261110v1";
 import {
   hasOpenVcPopover,
   closeAllVcPopovers,
@@ -170,7 +170,7 @@ import {
   positionStagePopover,
   toggleQuickOriginalAudio,
   syncCustomControlPopovers,
-} from "./player-ui-controls.js?v=20261109v6";
+} from "./player-ui-controls.js?v=20261110v1";
 import {
   getNextEpisodeCoords,
   showPlayerNextEpisodeToast,
@@ -179,14 +179,14 @@ import {
   clearAutoplayNextTimer,
   isPostwatchCardPausingAutoplay,
   startAutoplayNextCountdown,
-} from "./player-autoplay.js?v=20261109v6";
+} from "./player-autoplay.js?v=20261110v1";
 import {
   syncPipDockUI,
   setPipBackgroundMode,
   restoreFullPlayerFromPip,
   updateMiniPlayerTitle,
   setMiniPlayerMode,
-} from "./player-pip-dock.js?v=20261109v6";
+} from "./player-pip-dock.js?v=20261110v1";
 import {
   escapeEpisodeHtml,
   getEpisodeDisplayMeta,
@@ -202,7 +202,7 @@ import {
   toggleCurrentEpisodeWatched,
   hasStartedWatchingCurrentEpisode,
   markOutgoingEpisodeWatched,
-} from "./player-seasons.js?v=20261109v6";
+} from "./player-seasons.js?v=20261110v1";
 import {
   isHdRezkaStreamDeadOrExpired as _isHdRezkaStreamDeadOrExpired,
   _localizeOfflineSubLabel,
@@ -232,7 +232,7 @@ import {
   loadStremioStreams,
   loadBackup4KReleases,
   _tryRecoverHdRezkaPlayback as _tryRecoverHdRezkaPlaybackImpl,
-} from "./player-streams.js?v=20261109v6";
+} from "./player-streams.js?v=20261110v1";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -247,7 +247,7 @@ import {
   renderModalSimilarItems,
   captureVideoScreenshot,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261109v6";
+} from "./player-meta.js?v=20261110v1";
 import {
   hideXRayPauseShelf,
   showXRayPauseShelf,
@@ -264,7 +264,7 @@ import {
   addOrUpdateRemoteBookmark,
   deleteRemoteBookmarkByIdOrTime,
   renderTimelineBookmarks,
-} from "./player-bookmarks.js?v=20261109v6";
+} from "./player-bookmarks.js?v=20261110v1";
 import {
   syncPostwatchOverlayMount,
   renderPostWatchRatingState,
@@ -273,7 +273,7 @@ import {
   initPlayerStatusAndRatingBindings,
   rateActivePlayerTitle as _rateActivePlayerTitle,
   toggleActivePlayerWatched as _toggleActivePlayerWatched,
-} from "./player-rating.js?v=20261109v6";
+} from "./player-rating.js?v=20261110v1";
 
 export {
   syncPostwatchOverlayMount,
@@ -295,7 +295,7 @@ import {
   getDetectedCreditsStartSec,
   renderTimelineChapterMarkers,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261109v6";
+} from "./player-intro-credits.js?v=20261110v1";
 
 export {
   getDetectedCreditsStartSec,
@@ -303,7 +303,7 @@ export {
   loadSkipIntroSegments,
 };
 
-import { reportScrobbleProgress } from "./player-scrobble.js?v=20261109v6";
+import { reportScrobbleProgress } from "./player-scrobble.js?v=20261110v1";
 
 export { reportScrobbleProgress };
 
@@ -1117,10 +1117,10 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
   if (!keepRemuxMeta) {
     state.remuxMeta = null;
   }
-  if (Number(startTime) > 2) {
-    state.lastKnownPlaybackTime = Math.max(Number(state.lastKnownPlaybackTime) || 0, Number(startTime));
-  } else if (typeof newRemuxOffsetSec === "number" && newRemuxOffsetSec > 2) {
-    state.lastKnownPlaybackTime = Math.max(Number(state.lastKnownPlaybackTime) || 0, newRemuxOffsetSec);
+  if (typeof newRemuxOffsetSec === "number" && newRemuxOffsetSec >= 0) {
+    state.lastKnownPlaybackTime = newRemuxOffsetSec;
+  } else if (Number(startTime) > 2) {
+    state.lastKnownPlaybackTime = Number(startTime);
   }
   let video = document.getElementById("native-video");
   const loader = document.getElementById("video-loader");
@@ -1318,14 +1318,24 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
       (errCode === 3 || (errCode === 4 && (hasStartedPlayingOnce || video.readyState >= 1)))
     ) {
       state.remuxMeta.forceH264 = true;
-      const fallbackUrl = buildRemuxStreamEndpoint(state.remuxMeta, state.remuxMeta.offsetSec || 0);
+      const { cur: effErrCur } = getEffectivePlaybackTiming(video);
+      const errResumeOffset = Math.max(
+        Number(state.remuxMeta.offsetSec) || 0,
+        effErrCur > 2 ? effErrCur : 0,
+        Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0
+      );
+      state.remuxMeta.offsetSec = errResumeOffset;
+      const fallbackUrl = buildRemuxStreamEndpoint(state.remuxMeta, errResumeOffset);
       showToast(
         t(
           "Включено аппаратное перекодирование видео H.264 для совместимости с браузером",
           "Switched to hardware H.264 video transcoding for browser compatibility"
         )
       );
-      playVideoUrl(fallbackUrl, 0, sessionId, { keepRemuxMeta: true });
+      playVideoUrl(fallbackUrl, 0, sessionId, {
+        keepRemuxMeta: true,
+        newRemuxOffsetSec: errResumeOffset,
+      });
       return;
     }
     // Automatic fallback if an external CDN omits Access-Control-Allow-Origin
@@ -1372,10 +1382,14 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
       return;
     }
     const { cur: effCur } = getEffectivePlaybackTiming(video);
+    const rawMediaFallback =
+      !keepRemuxMeta && !state.remuxMeta?.active && Number(state.lastPlaybackMediaTime) > 2
+        ? Number(state.lastPlaybackMediaTime)
+        : 0;
     const resumeAt = Math.max(
       Number(startTime) || 0,
       effCur > 2 ? effCur : 0,
-      Number(state.lastPlaybackMediaTime) > 2 ? Number(state.lastPlaybackMediaTime) : 0,
+      rawMediaFallback,
       Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0
     );
     _tryRecoverHdRezkaPlayback(resumeAt, sessionId, streamUrl, options);
@@ -1383,7 +1397,9 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
   let hasStartedPlayingOnce = false;
   state.userPaused = false;
   state.lastPlaybackMediaTime =
-    Number(startTime) > 0
+    keepRemuxMeta || state.remuxMeta?.active
+      ? 0
+      : Number(startTime) > 0
       ? Number(startTime)
       : Number(state.lastKnownPlaybackTime) > 0
       ? Number(state.lastKnownPlaybackTime)
@@ -1601,7 +1617,9 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
     // Unstick pipeline gaps when RAM buffer already has >=3s ahead of playhead
     if (fwdBuf >= 3.0 && stalledMs >= 3000) {
       try {
-        video.currentTime = curT + 0.06;
+        if (!keepRemuxMeta && !state.remuxMeta?.active) {
+          video.currentTime = curT + 0.06;
+        }
         video.play().catch(() => {});
       } catch (err) { window.logDebug?.("Player", err); }
       state.lastPlaybackAdvanceTs = nowMs;

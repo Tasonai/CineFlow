@@ -1,11 +1,11 @@
-import { state } from "./state.js?v=20261109v6";
+import { state } from "./state.js?v=20261110v1";
 import {
   displayTitle,
   isEn,
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261109v6";
+} from "./i18n.js?v=20261110v1";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -16,41 +16,41 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261109v6";
+} from "./utils.js?v=20261110v1";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
   pickPreferredSubtitleIndex,
-} from "./audio-dsp.js?v=20261109v6";
+} from "./audio-dsp.js?v=20261110v1";
 import {
   buildRemuxSubtitlesList,
   mergeCustomExternalSubtitles,
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
-} from "./subtitles.js?v=20261109v6";
+} from "./subtitles.js?v=20261110v1";
 import {
   buildRemuxStreamEndpoint,
   formatAudioOffsetLabel,
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261109v6";
+} from "./player-remux.js?v=20261110v1";
 import {
   syncCustomControlPopovers,
   syncCustomVideoControlsUI,
-} from "./player-ui-controls.js?v=20261109v6";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261109v6";
+} from "./player-ui-controls.js?v=20261110v1";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261110v1";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261109v6";
-import { playVideoUrl } from "./player.js?v=20261109v6";
+} from "./player-seasons.js?v=20261110v1";
+import { playVideoUrl } from "./player.js?v=20261110v1";
 import {
   buildNextEpisodePreloadKey,
   hideVideoStreamError,
   isHdRezkaStreamDeadOrExpired,
   loadHDRezkaStream,
-} from "./player-streams.js?v=20261109v6";
+} from "./player-streams.js?v=20261110v1";
 
 function _applyLiveAudioOffsetToCurrentStream() {
   if (state.audioOffsetReloadTimerId) {
@@ -152,6 +152,9 @@ export function seekEffectivePlayback(targetSec) {
   const { dur } = getEffectivePlaybackTiming(video);
   const clamped = dur > 0 ? Math.min(Math.max(0, dur - 0.5), Math.max(0, targetSec)) : Math.max(0, targetSec);
 
+  state.lastKnownPlaybackTime = clamped;
+  state.lastPlaybackMediaTime = state.remuxMeta?.active ? 0 : clamped;
+
   if (isHdRezkaStreamDeadOrExpired(video)) {
     state.tokenRefreshTimestamps = [];
     loadHDRezkaStream(clamped, { forceRefresh: true });
@@ -159,17 +162,11 @@ export function seekEffectivePlayback(targetSec) {
   }
 
   if (state.remuxMeta && state.remuxMeta.active) {
-    const offset = state.remuxMeta.offsetSec || 0;
-    const relTarget = clamped - offset;
-    if (relTarget >= 0 && video.buffered && video.buffered.length > 0) {
-      for (let i = 0; i < video.buffered.length; i++) {
-        if (relTarget >= video.buffered.start(i) && relTarget + 1.0 <= video.buffered.end(i)) {
-          video.currentTime = relTarget;
-          syncCustomVideoControlsUI(true);
-          return;
-        }
-      }
-    }
+    // Live /api/remux-stream is a fragmented MP4 pipe with Accept-Ranges: none and no sidx box.
+    // Modifying video.currentTime directly on an un-indexed pipe causes WebKit/Chromium to either
+    // snap currentTime to 0:00 or re-request video.src from its initial start offset.
+    // Always reopen /api/remux-stream at the exact target timestamp.
+    state.remuxMeta.offsetSec = clamped;
     refreshRemuxSubtitleTracks(clamped);
     const loader = document.getElementById("video-loader");
     const loaderText = document.getElementById("video-loader-text");
@@ -193,6 +190,21 @@ export function seekEffectivePlayback(targetSec) {
   }
 
   video.currentTime = clamped;
+  if (clamped > 5) {
+    setTimeout(() => {
+      if (
+        !state.remuxMeta?.active &&
+        state.isPlayerOpen &&
+        !video.seeking &&
+        (Number(video.currentTime) || 0) < 1.5 &&
+        Math.abs((Number(state.lastKnownPlaybackTime) || 0) - clamped) < 2
+      ) {
+        try {
+          video.currentTime = clamped;
+        } catch (_) {}
+      }
+    }, 180);
+  }
   syncCustomVideoControlsUI(true);
 }
 
