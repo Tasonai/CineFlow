@@ -2,14 +2,14 @@
 // Manages interactive player timeline, scrubber, volume slider, stage idle states,
 // fullscreen toggling, control popovers, and responsive layout synchronization.
 
-import { EP_VIEW_MODE_STORAGE_KEY, state } from "./state.js?v=20261110v1";
+import { EP_VIEW_MODE_STORAGE_KEY, state } from "./state.js?v=20261110v2";
 import {
   displayTitle,
   getItemGenreEntries,
   isEn,
   secondaryTitle,
   t,
-} from "./i18n.js?v=20261110v1";
+} from "./i18n.js?v=20261110v2";
 import {
   attachHorizontalWheelScroll,
   clampFloatingPopover,
@@ -25,15 +25,15 @@ import {
   showToast,
   syncToastContainerMount,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261110v1";
-import { isEpisodeWatched, isServiceEnabled, savePreferredStudioForItem } from "./catalog.js?v=20261110v1";
+} from "./utils.js?v=20261110v2";
+import { isEpisodeWatched, isServiceEnabled, savePreferredStudioForItem } from "./catalog.js?v=20261110v2";
 import {
   activateSelectedSubtitleTrack,
   adjustSubtitleOffset,
   closeSubtitleDictPopover,
   renderVcSubtitlesPopover,
   resetSubtitleOffset,
-} from "./subtitles.js?v=20261110v1";
+} from "./subtitles.js?v=20261110v2";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -48,9 +48,9 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261110v1";
-import { pushDesktopRemoteStateNow, scheduleDesktopRemoteStatePush } from "./remote.js?v=20261110v1";
-import { buildRemuxStreamEndpoint, getEffectivePlaybackTiming } from "./player-remux.js?v=20261110v1";
+} from "./audio-dsp.js?v=20261110v2";
+import { pushDesktopRemoteStateNow, scheduleDesktopRemoteStatePush } from "./remote.js?v=20261110v2";
+import { buildRemuxStreamEndpoint, getEffectivePlaybackTiming } from "./player-remux.js?v=20261110v2";
 import {
   filterReleasedEpisodesForSeason,
   getEpisodeDisplayMeta,
@@ -62,15 +62,15 @@ import {
   stepEpisode,
   switchToSeriesSeasonEpisode,
   syncEpisodesStripDrawerUI,
-} from "./player-seasons.js?v=20261110v1";
-import { syncPostwatchOverlayMount } from "./player-rating.js?v=20261110v1";
-import { syncPersonModalMount } from "./modals-person.js?v=20261110v1";
+} from "./player-seasons.js?v=20261110v2";
+import { syncPostwatchOverlayMount } from "./player-rating.js?v=20261110v2";
+import { syncPersonModalMount } from "./modals-person.js?v=20261110v2";
 import {
   clearAutoplayNextTimer,
   dismissPlayerNextEpisodeToast,
   getNextEpisodeCoords,
   setSleepTimer,
-} from "./player-autoplay.js?v=20261110v1";
+} from "./player-autoplay.js?v=20261110v2";
 import {
   adjustAudioOffset,
   hideVideoStreamError,
@@ -86,28 +86,28 @@ import {
   switchRemuxAudioTrack,
   switchSourceTab,
   toggleErrorStudiosPanel,
-} from "./player-streams.js?v=20261110v1";
-import { getDetectedCreditsStartSec, loadSkipIntroSegments } from "./player-intro-credits.js?v=20261110v1";
+} from "./player-streams.js?v=20261110v2";
+import { getDetectedCreditsStartSec, loadSkipIntroSegments } from "./player-intro-credits.js?v=20261110v2";
 import {
   closeBookmarkNoteDialog,
   hideXRayPauseShelf,
   renderTimelineBookmarks,
   toggleBookmarkCurrentMoment,
   toggleXRayPauseShelf,
-} from "./player-bookmarks.js?v=20261110v1";
+} from "./player-bookmarks.js?v=20261110v2";
 import {
   restoreFullPlayerFromPip,
   setMiniPlayerMode,
   setPipBackgroundMode,
   updateMiniPlayerTitle,
-} from "./player-pip-dock.js?v=20261110v1";
-import { captureVideoScreenshot, togglePlayerSidebarCollapsed } from "./player-meta.js?v=20261110v1";
+} from "./player-pip-dock.js?v=20261110v2";
+import { captureVideoScreenshot, togglePlayerSidebarCollapsed } from "./player-meta.js?v=20261110v2";
 import {
   captureVideoFrameBridge,
   closePlayerModal,
   playVideoUrl,
   toggleVideoPlayPause,
-} from "./player.js?v=20261110v1";
+} from "./player.js?v=20261110v2";
 
 export function hasOpenVcPopover() {
   return [
@@ -1473,7 +1473,7 @@ export function initCustomVideoControls() {
       if (dur > 0 && typeof e.clientX === "number") {
         const rawRatio = computeRatio(e.clientX);
         const { ratio } = getSnappingRatio(rawRatio, dur, widthPx);
-        seekEffectivePlayback(ratio * dur);
+        seekEffectivePlayback(ratio * dur, { immediate: true });
       }
       hoverTimeEl?.classList.add("hidden");
       syncCustomVideoControlsUI();
@@ -1517,8 +1517,16 @@ export function initCustomVideoControls() {
     if (e.detail > 0) e.currentTarget?.blur?.();
     const { cur } = getEffectivePlaybackTiming(getVideoEl());
     const target = Math.max(0, cur - 10);
+    const nowBurst = Date.now();
+    if (nowBurst - (state.seekBurstLastTs || 0) < 950 && (state.seekBurstAccumSec || 0) < 0) {
+      state.seekBurstAccumSec -= 10;
+    } else {
+      state.seekBurstAccumSec = -10;
+    }
+    state.seekBurstLastTs = nowBurst;
+    const absBurst = Math.abs(state.seekBurstAccumSec);
     seekEffectivePlayback(target);
-    triggerVideoCenterIndicator("back10", `−10 ${t("секунд", "sec")} · ${formatTime(target)}`);
+    triggerVideoCenterIndicator("back10", `−${absBurst} ${t("секунд", "sec")} · ${formatTime(target)}`);
   });
 
   document.getElementById("vc-btn-fwd10")?.addEventListener("click", (e) => {
@@ -1527,8 +1535,15 @@ export function initCustomVideoControls() {
     const { cur, dur } = getEffectivePlaybackTiming(getVideoEl());
     const maxDur = dur > 0 ? dur : cur + 10;
     const target = Math.min(maxDur, cur + 10);
+    const nowBurst = Date.now();
+    if (nowBurst - (state.seekBurstLastTs || 0) < 950 && (state.seekBurstAccumSec || 0) > 0) {
+      state.seekBurstAccumSec += 10;
+    } else {
+      state.seekBurstAccumSec = 10;
+    }
+    state.seekBurstLastTs = nowBurst;
     seekEffectivePlayback(target);
-    triggerVideoCenterIndicator("fwd10", `+10 ${t("секунд", "sec")} · ${formatTime(target)}`);
+    triggerVideoCenterIndicator("fwd10", `+${state.seekBurstAccumSec} ${t("секунд", "sec")} · ${formatTime(target)}`);
   });
 
   document.getElementById("vc-btn-mute")?.addEventListener("click", (e) => {

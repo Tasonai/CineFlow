@@ -1,11 +1,11 @@
 // Velarium Player Remux & Stream Pipeline Subsystem
 // Handles FFmpeg live remux stream endpoints, audio offset shifts, probe timing, and dynamic audio track switching.
 
-import { state } from "./state.js?v=20261110v1";
-import { isEn } from "./i18n.js?v=20261110v1";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261110v1";
-import { syncCustomSelect } from "./utils.js?v=20261110v1";
-import { refreshRemuxSubtitleTracks } from "./subtitles.js?v=20261110v1";
+import { state } from "./state.js?v=20261110v2";
+import { isEn } from "./i18n.js?v=20261110v2";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261110v2";
+import { syncCustomSelect } from "./utils.js?v=20261110v2";
+import { refreshRemuxSubtitleTracks } from "./subtitles.js?v=20261110v2";
 
 export function estimateItemDurationSec(item) {
   if (!item) return 3000;
@@ -68,7 +68,11 @@ export function getEffectivePlaybackTiming(video = typeof document !== "undefine
   const rawCur = Number.isFinite(video.currentTime) ? video.currentTime : 0;
   const rawDur = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
   if (state.remuxMeta && state.remuxMeta.active) {
-    const effCur = Math.max(0, (state.remuxMeta.offsetSec || 0) + rawCur);
+    const hasPendingSeek =
+      typeof state.pendingRemuxSeekSec === "number" && Number.isFinite(state.pendingRemuxSeekSec);
+    const effCur = hasPendingSeek
+      ? Math.max(0, state.pendingRemuxSeekSec)
+      : Math.max(0, (state.remuxMeta.offsetSec || 0) + rawCur);
     let totalDur = state.remuxMeta.duration > 10 ? state.remuxMeta.duration : 0;
     if (!(totalDur > 10)) {
       const est = estimateItemDurationSec(state.activeItem);

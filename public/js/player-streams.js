@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261110v1";
+import { state } from "./state.js?v=20261110v2";
 import {
   displayBackdrop,
   displayDescription,
@@ -11,7 +11,7 @@ import {
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261110v1";
+} from "./i18n.js?v=20261110v2";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -27,7 +27,7 @@ import {
   showVideoOsd,
   supportsNativePiP,
   syncCustomSelect,
-} from "./utils.js?v=20261110v1";
+} from "./utils.js?v=20261110v2";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
@@ -37,7 +37,7 @@ import {
   savePlayerPrefs,
   startAmbilightLoop,
   stopAmbilightLoop,
-} from "./audio-dsp.js?v=20261110v1";
+} from "./audio-dsp.js?v=20261110v2";
 import {
   getDefaultPlayableSourceTab,
   getPreferredStudioForItem,
@@ -46,8 +46,8 @@ import {
   loadCatalog,
   matchPreferredStudioInList,
   savePreferredStudioForItem,
-} from "./catalog.js?v=20261110v1";
-import { renderModalCastSection } from "./modals.js?v=20261110v1";
+} from "./catalog.js?v=20261110v2";
+import { renderModalCastSection } from "./modals.js?v=20261110v2";
 import {
   activateSelectedSubtitleTrack,
   buildRemuxSubtitlesList,
@@ -57,11 +57,11 @@ import {
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
   revokeLocalVideoBlobUrl,
-} from "./subtitles.js?v=20261110v1";
+} from "./subtitles.js?v=20261110v2";
 import {
   clearVideoStallWatchdog,
   getVideoForwardBufferSec,
-} from "./player-watchdog.js?v=20261110v1";
+} from "./player-watchdog.js?v=20261110v2";
 import {
   buildRemuxStreamEndpoint,
   clearRemuxDurationPoll,
@@ -69,20 +69,20 @@ import {
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261110v1";
+} from "./player-remux.js?v=20261110v2";
 import {
   closeAllVcPopovers,
   isStageFullscreen,
   syncCustomVideoControlsUI,
   syncVcPopoverOpenClass,
   toggleStageFullscreen,
-} from "./player-ui-controls.js?v=20261110v1";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261110v1";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261110v1";
+} from "./player-ui-controls.js?v=20261110v2";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261110v2";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261110v2";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261110v1";
+} from "./player-seasons.js?v=20261110v2";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -90,17 +90,17 @@ import {
   renderModalGenresAndSubheader,
   renderModalProvidersSidebar,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261110v1";
+} from "./player-meta.js?v=20261110v2";
 import {
   getDetectedCreditsStartSec,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261110v1";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261110v1";
-import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261110v1";
+} from "./player-intro-credits.js?v=20261110v2";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261110v2";
+import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261110v2";
 import {
   playVideoUrl,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261110v1";
+} from "./player.js?v=20261110v2";
 
 export function isHdRezkaStreamDeadOrExpired(video) {
   if (!video || state.activeSourceTab !== "hdrezka" || state.remuxMeta?.active) {
@@ -262,6 +262,11 @@ export function syncDownloadButtonVisibility() {
 
 export function abortActiveVideoListeners() {
   clearVideoStallWatchdog();
+  if (state.remuxSeekDebounceTimer) {
+    clearTimeout(state.remuxSeekDebounceTimer);
+    state.remuxSeekDebounceTimer = null;
+  }
+  state.pendingRemuxSeekSec = null;
   if (state.audioOffsetReloadTimerId) {
     clearTimeout(state.audioOffsetReloadTimerId);
     state.audioOffsetReloadTimerId = null;
@@ -2316,7 +2321,7 @@ import {
   resetAudioOffset,
   seekEffectivePlayback,
   switchRemuxAudioTrack,
-} from "./player-streams-4k.js?v=20261110v1";
+} from "./player-streams-4k.js?v=20261110v2";
 export {
   adjustAudioOffset,
   loadBackup4KReleases,

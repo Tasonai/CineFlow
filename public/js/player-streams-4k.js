@@ -1,11 +1,11 @@
-import { state } from "./state.js?v=20261110v1";
+import { state } from "./state.js?v=20261110v2";
 import {
   displayTitle,
   isEn,
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261110v1";
+} from "./i18n.js?v=20261110v2";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -16,41 +16,41 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261110v1";
+} from "./utils.js?v=20261110v2";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
   pickPreferredSubtitleIndex,
-} from "./audio-dsp.js?v=20261110v1";
+} from "./audio-dsp.js?v=20261110v2";
 import {
   buildRemuxSubtitlesList,
   mergeCustomExternalSubtitles,
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
-} from "./subtitles.js?v=20261110v1";
+} from "./subtitles.js?v=20261110v2";
 import {
   buildRemuxStreamEndpoint,
   formatAudioOffsetLabel,
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261110v1";
+} from "./player-remux.js?v=20261110v2";
 import {
   syncCustomControlPopovers,
   syncCustomVideoControlsUI,
-} from "./player-ui-controls.js?v=20261110v1";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261110v1";
+} from "./player-ui-controls.js?v=20261110v2";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261110v2";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261110v1";
-import { playVideoUrl } from "./player.js?v=20261110v1";
+} from "./player-seasons.js?v=20261110v2";
+import { captureVideoFrameBridge, playVideoUrl } from "./player.js?v=20261110v2";
 import {
   buildNextEpisodePreloadKey,
   hideVideoStreamError,
   isHdRezkaStreamDeadOrExpired,
   loadHDRezkaStream,
-} from "./player-streams.js?v=20261110v1";
+} from "./player-streams.js?v=20261110v2";
 
 function _applyLiveAudioOffsetToCurrentStream() {
   if (state.audioOffsetReloadTimerId) {
@@ -146,7 +146,7 @@ export function resetAudioOffset(showFeedback = true) {
   }
 }
 
-export function seekEffectivePlayback(targetSec) {
+export function seekEffectivePlayback(targetSec, options = {}) {
   const video = document.getElementById("native-video");
   if (!video) return;
   const { dur } = getEffectivePlaybackTiming(video);
@@ -165,9 +165,14 @@ export function seekEffectivePlayback(targetSec) {
     // Live /api/remux-stream is a fragmented MP4 pipe with Accept-Ranges: none and no sidx box.
     // Modifying video.currentTime directly on an un-indexed pipe causes WebKit/Chromium to either
     // snap currentTime to 0:00 or re-request video.src from its initial start offset.
-    // Always reopen /api/remux-stream at the exact target timestamp.
+    // Hold the last rendered video frame on the canvas bridge and coalesce rapid step-seeks
+    // so multiple -10/+10 presses spawn only a single FFmpeg process at the final target position.
+    captureVideoFrameBridge(video, 3200);
+    try {
+      if (!video.paused) video.pause();
+    } catch (_) {}
+    state.pendingRemuxSeekSec = clamped;
     state.remuxMeta.offsetSec = clamped;
-    refreshRemuxSubtitleTracks(clamped);
     const loader = document.getElementById("video-loader");
     const loaderText = document.getElementById("video-loader-text");
     if (loader && loaderText) {
@@ -183,9 +188,35 @@ export function seekEffectivePlayback(targetSec) {
       );
       loader.classList.remove("hidden");
     }
-    const remuxUrl = buildRemuxStreamEndpoint(state.remuxMeta, clamped);
-    playVideoUrl(remuxUrl, 0, state.playerSessionId, { keepRemuxMeta: true, newRemuxOffsetSec: clamped });
     syncCustomVideoControlsUI(true);
+
+    if (state.remuxSeekDebounceTimer) {
+      clearTimeout(state.remuxSeekDebounceTimer);
+      state.remuxSeekDebounceTimer = null;
+    }
+    const commitRemuxSeek = () => {
+      state.remuxSeekDebounceTimer = null;
+      const finalTarget =
+        typeof state.pendingRemuxSeekSec === "number" && Number.isFinite(state.pendingRemuxSeekSec)
+          ? state.pendingRemuxSeekSec
+          : clamped;
+      state.pendingRemuxSeekSec = null;
+      if (!state.isPlayerOpen || !state.remuxMeta?.active) return;
+      state.remuxMeta.offsetSec = finalTarget;
+      refreshRemuxSubtitleTracks(finalTarget);
+      const remuxUrl = buildRemuxStreamEndpoint(state.remuxMeta, finalTarget);
+      playVideoUrl(remuxUrl, 0, state.playerSessionId, {
+        keepRemuxMeta: true,
+        newRemuxOffsetSec: finalTarget,
+        preserveFrameBridge: true,
+      });
+      syncCustomVideoControlsUI(true);
+    };
+    if (options.immediate) {
+      commitRemuxSeek();
+    } else {
+      state.remuxSeekDebounceTimer = setTimeout(commitRemuxSeek, 220);
+    }
     return;
   }
 
@@ -223,7 +254,12 @@ export function switchRemuxAudioTrack(newAudioIdx) {
     );
     loader.classList.remove("hidden");
   }
-  playVideoUrl(remuxUrl, 0, state.playerSessionId, { keepRemuxMeta: true, newRemuxOffsetSec: cur });
+  captureVideoFrameBridge(document.getElementById("native-video"), 3200);
+  playVideoUrl(remuxUrl, 0, state.playerSessionId, {
+    keepRemuxMeta: true,
+    newRemuxOffsetSec: cur,
+    preserveFrameBridge: true,
+  });
   showToast(
     t(
       `Аудиодорожка ${srcPrefix}: ${trObj?.label || `#${newAudioIdx + 1}`}`,

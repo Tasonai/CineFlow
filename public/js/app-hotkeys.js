@@ -4,8 +4,8 @@
  * Mini-Player/PiP keyboard shortcuts, and full Player playback/audio/subtitle/crop/Ambilight hotkeys.
  */
 
-import { state } from "./state.js?v=20261110v1";
-import { t } from "./i18n.js?v=20261110v1";
+import { state } from "./state.js?v=20261110v2";
+import { t } from "./i18n.js?v=20261110v2";
 import {
   closeConfirmModal,
   closeCustomSelectMenu,
@@ -15,7 +15,7 @@ import {
   showVideoOsd,
   trapModalTabKey,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261110v1";
+} from "./utils.js?v=20261110v2";
 import {
   applyAudioBoostToVideo,
   applyVideoCropToVideo,
@@ -26,19 +26,19 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261110v1";
+} from "./audio-dsp.js?v=20261110v2";
 import {
   closeCardContextMenu,
   closeCommandPalette,
   closeMovieRouletteModal,
   openCommandPalette,
-} from "./catalog.js?v=20261110v1";
+} from "./catalog.js?v=20261110v2";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261110v1";
-import { jumpToAdjacentTimelineMarker } from "./player-ui-controls.js?v=20261110v1";
+} from "./modals.js?v=20261110v2";
+import { jumpToAdjacentTimelineMarker } from "./player-ui-controls.js?v=20261110v2";
 import {
   captureVideoScreenshot,
   clearAutoplayNextTimer,
@@ -63,15 +63,15 @@ import {
   toggleVideoPlayPause,
   toggleXRayPauseShelf,
   wakeVideoControls,
-} from "./player.js?v=20261110v1";
-import { closeSubtitleDictPopover, closeVocabularyModal } from "./subtitles.js?v=20261110v1";
+} from "./player.js?v=20261110v2";
+import { closeSubtitleDictPopover, closeVocabularyModal } from "./subtitles.js?v=20261110v2";
 import {
   closeBookmarkNoteDialog,
   closeBookmarksModal,
   scrollActiveXRayList,
   switchXRayTab,
-} from "./player-bookmarks.js?v=20261110v1";
-import { closeOnboardingModal } from "./settings.js?v=20261110v1";
+} from "./player-bookmarks.js?v=20261110v2";
+import { closeOnboardingModal } from "./settings.js?v=20261110v2";
 import {
   closeDownloadsModal,
   closeKidsPinModal,
@@ -80,7 +80,7 @@ import {
   closeProfilesModal,
   closeTvCastModal,
   handleTvSpatialKeydown,
-} from "./features.js?v=20261110v1";
+} from "./features.js?v=20261110v2";
 
 export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
   window.addEventListener("focus", () => {
@@ -541,15 +541,30 @@ export function initGlobalHotkeys({ onRequestCloseSettings } = {}) {
       e.preventDefault();
       const { cur } = getEffectivePlaybackTiming(video);
       const target = Math.max(0, cur - 10);
+      const nowBurst = Date.now();
+      if (nowBurst - (state.seekBurstLastTs || 0) < 950 && (state.seekBurstAccumSec || 0) < 0) {
+        state.seekBurstAccumSec -= 10;
+      } else {
+        state.seekBurstAccumSec = -10;
+      }
+      state.seekBurstLastTs = nowBurst;
+      const absBurst = Math.abs(state.seekBurstAccumSec);
       seekEffectivePlayback(target);
-      triggerVideoCenterIndicator("back10", `−10 ${t("секунд", "sec")} · ${formatTime(target)}`);
+      triggerVideoCenterIndicator("back10", `−${absBurst} ${t("секунд", "sec")} · ${formatTime(target)}`);
     } else if ((e.key === "ArrowRight" && tag !== "SELECT") || keyLow === "l" || keyLow === "д") {
       e.preventDefault();
       const { cur, dur } = getEffectivePlaybackTiming(video);
       const maxDur = dur > 0 ? dur : cur + 10;
       const target = Math.min(maxDur, cur + 10);
+      const nowBurst = Date.now();
+      if (nowBurst - (state.seekBurstLastTs || 0) < 950 && (state.seekBurstAccumSec || 0) > 0) {
+        state.seekBurstAccumSec += 10;
+      } else {
+        state.seekBurstAccumSec = 10;
+      }
+      state.seekBurstLastTs = nowBurst;
       seekEffectivePlayback(target);
-      triggerVideoCenterIndicator("fwd10", `+10 ${t("секунд", "sec")} · ${formatTime(target)}`);
+      triggerVideoCenterIndicator("fwd10", `+${state.seekBurstAccumSec} ${t("секунд", "sec")} · ${formatTime(target)}`);
     } else if (e.key === "ArrowUp" && tag !== "SELECT" && !inScrollablePlayerPanel) {
       e.preventDefault();
       state.userMutedThisSession = false;
