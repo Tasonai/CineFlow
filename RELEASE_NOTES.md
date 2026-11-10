@@ -1,13 +1,13 @@
-**Что нового в Velarium 2.7.12:**
+**Что нового в Velarium 2.7.13:**
+• **Бесшовная перемотка в 4K UHD и Stremio Remux**: устранено сбрасывание воспроизведения на начало фильма (`0:00`) при перемотке назад на несколько секунд в потоках `/api/remux-stream`, увеличен буфер индексации ключевых кадров и таблицы `Cues` в FFmpeg для крупных 4K MKV-файлов.
+• **Коалесцирование быстрых нажатий и удержание кадра (`Frame Bridge`)**: серия быстрых нажатий перемотки (`-10` / `+10`, стрелки влево и вправо, клавиши `J` / `L`) суммируется в единый переход (`−10`, `−20`, `−30 секунд`) без лишних перезапусков FFmpeg, а последний кадр видео удерживается на экране без чёрного мигания при перемотке и смене аудиодорожки.
 • **Годовой и месячный дайджест просмотров («Velarium Wrapped»)**: интерактивная сводка в окне статистики с графиком часов просмотра по месяцам, переключением периодов («Весь период», «Этот год», «Этот месяц»), рекордами сериалов и любимыми режиссёрами, актёрами и жанрами.
-• **Флагманские улучшения видеоплеера**: парящая двухстрочная карточка предпросмотра времени и глав над таймлайном, всплывающее меню выбора сезонов и серий прямо поверх видео, интерактивный перевод слов в субтитрах по клику и надёжная пауза по клавише `Space` в полноэкранном режиме.
-• **Плавный скролл каталога и точная индикация сети**: бесшовная вертикальная прокрутка колесом мыши и трекпадом поверх карточек и полок, мгновенное снятие плашки офлайн-режима при активном соединении и плавная смена постеров главного баннера.
-• **Нативное окно Windows и сборка установщиков**: исправлена работа кнопок управления окном (свернуть, развернуть, закрыть) в заголовке Windows WebView2 и синхронизирована облачная CI-сборка установщика.
+• **Полировка видеоплеера и нативных оболочек macOS / Windows**: парящая карточка предпросмотра времени и глав над таймлайном, надёжная пауза по клавише `Space` в полноэкранном режиме, плавный вертикальный скролл поверх карточек каталога и исправление кнопок управления окном в Windows WebView2.
 
 <!-- EN -->
 
-**What's new in Velarium 2.7.12:**
+**What's new in Velarium 2.7.13:**
+• **Seamless Seeking in 4K UHD & Stremio Remux**: fixed backward seeks resetting playback to `0:00` on live `/api/remux-stream` pipelines, and increased the FFmpeg keyframe and Matroska `Cues` probe buffer for large 4K MKV files.
+• **Rapid Seek Coalescing & Frame Bridge**: consecutive `-10` / `+10` seek presses (`ArrowLeft` / `ArrowRight`, `J` / `L`) coalesce into a single FFmpeg seek with cumulative OSD feedback (`−10`, `−20`, `−30 sec`), while the last rendered video frame is held on screen to prevent black flashes during seeks and audio track switches.
 • **Yearly & Monthly Watch Digest ("Velarium Wrapped")**: interactive summary in the Statistics modal featuring a 12-month watch-time chart, period filters ("All Time", "This Year", "This Month"), series marathon records, and favorite directors, actors, and genres.
-• **Flagship Video Player Upgrades**: floating two-line timeline scrubber preview card with chapter badges, in-stage seasons and episodes switcher popover, click-to-translate interactive subtitle words, and reliable `Space` key play/pause in fullscreen mode.
-• **Smooth Catalog Scrolling & Accurate Network Status**: seamless vertical mouse-wheel and trackpad scrolling over title cards and shelves, automatic offline banner dismissal when network connectivity is active, and smooth hero banner transitions.
-• **Native Windows Title Bar & Installer Polish**: fixed minimize, maximize, and close caption button clicks in the Windows WebView2 host window and updated the automated CI installer workflow.
+• **Video Player & Native macOS / Windows Shell Polish**: floating timeline scrubber preview card with chapter badges, reliable `Space` key play/pause in fullscreen mode, smooth vertical scrolling over catalog cards, and caption button fixes in Windows WebView2.

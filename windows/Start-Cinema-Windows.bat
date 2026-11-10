@@ -2,7 +2,7 @@
 chcp 65001 >nul
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
-title Velarium 2.7.12 — Atoma
+title Velarium 2.7.13 — Atoma
 
 cd /d "%~dp0\.."
 
@@ -12,7 +12,7 @@ if exist "%CD%\Velarium.exe" (
 )
 
 echo ============================================================
-echo Запуск Velarium 2.7.12 для Windows (Разработчик: Atoma)
+echo Запуск Velarium 2.7.13 для Windows (Разработчик: Atoma)
 echo ============================================================
 
 if exist "%CD%\runtime\pythonw.exe" (

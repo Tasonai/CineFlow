@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261110v2";
+import { state } from "./state.js?v=20261110v3";
 import {
   displayBackdrop,
   displayCountries,
@@ -8,26 +8,26 @@ import {
   isEn,
   t,
   translateGenre,
-} from "./i18n.js?v=20261110v2";
+} from "./i18n.js?v=20261110v3";
 import {
   cssUrl,
   escapeHtml,
   iconSvg,
   setAmbientColor,
-} from "./utils.js?v=20261110v2";
-import { openQuickPeekModal } from "./modals.js?v=20261110v2";
-import { openPlayerModal } from "./player.js?v=20261110v2";
+} from "./utils.js?v=20261110v3";
+import { openQuickPeekModal } from "./modals.js?v=20261110v3";
+import { openPlayerModal } from "./player.js?v=20261110v3";
 import {
   _hashItemKey,
   filterCatalogItemsByGenreAndYear,
   seededShuffle,
-} from "./catalog-filters.js?v=20261110v2";
+} from "./catalog-filters.js?v=20261110v3";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261110v2";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261110v2";
+} from "./catalog-media-resolver.js?v=20261110v3";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261110v3";
 
 const LAST_HERO_ID_STORAGE_KEY = "velarium_last_hero_id";
 let _heroRecordedThisLaunch = false;

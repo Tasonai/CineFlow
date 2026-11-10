@@ -589,7 +589,7 @@ final class VelariumAppController: NSObject, NSApplicationDelegate, NSWindowDele
         let existingPath = fm.fileExists(atPath: targetAppPath) ? targetAppPath : (fm.fileExists(atPath: legacyAppPath) ? legacyAppPath : "")
         guard !existingPath.isEmpty else { return false }
 
-        let currentVer = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.7.12"
+        let currentVer = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.7.13"
         var installedVer = "2.5.x"
         let targetPlistPath = (existingPath as NSString).appendingPathComponent("Contents/Info.plist")
         if let plistData = try? Data(contentsOf: URL(fileURLWithPath: targetPlistPath)),

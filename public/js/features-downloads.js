@@ -1,11 +1,11 @@
-import { state } from "./state.js?v=20261110v2";
+import { state } from "./state.js?v=20261110v3";
 import {
   displayTitle,
   hasCyrillicText,
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261110v2";
+} from "./i18n.js?v=20261110v3";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -20,13 +20,13 @@ import {
   showToast,
   showVideoOsd,
   syncScrollTopButton,
-} from "./utils.js?v=20261110v2";
+} from "./utils.js?v=20261110v3";
 import {
   getDefaultPlayableSourceTab,
   isEpisodeWatched,
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog.js?v=20261110v2";
+} from "./catalog.js?v=20261110v3";
 import {
   closePlayerModal,
   getEffectivePlaybackTiming,
@@ -34,12 +34,12 @@ import {
   openPlayerModal,
   switchSourceTab,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261110v2";
+} from "./player.js?v=20261110v3";
 import {
   ensureKidsPinVerifiedForAdminAction,
   exitBrowserFullscreenIfNeeded,
   formatBytesHuman,
-} from "./features.js?v=20261110v2";
+} from "./features.js?v=20261110v3";
 
 // ============================================================================
 // 4. OFFLINE DOWNLOADS MANAGER ("Скачать в дорогу" — MP4 + Audio + RU/EN VTT)

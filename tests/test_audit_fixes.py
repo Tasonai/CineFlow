@@ -804,7 +804,7 @@ class TestAuditFixes(unittest.TestCase):
         # Verify NSIS installer script metadata, installer language dialog, and app language custom page
         nsi_path = os.path.join(root, "windows", "installer", "velarium.nsi")
         nsi_txt = self._read_text(nsi_path)
-        self.assertIn('!define APP_VERSION "2.7.12"', nsi_txt)
+        self.assertIn('!define APP_VERSION "2.7.13"', nsi_txt)
         self.assertIn('!define APP_PUBLISHER "Atoma"', nsi_txt)
         self.assertIn("!insertmacro MUI_LANGDLL_DISPLAY", nsi_txt)
         self.assertIn("Page custom AppLangPageCreate AppLangPageLeave", nsi_txt)

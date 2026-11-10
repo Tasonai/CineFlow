@@ -111,7 +111,7 @@ class TestFrontendIntegrity(unittest.TestCase):
         self.assertIn("Atoma", html)
         self.assertIn("2026", html)
         self.assertIn("Windows", html)
-        self.assertIn("2.7.12", html)
+        self.assertIn("2.7.13", html)
 
         for svg_rel in ("favicon.svg", os.path.join("icons", "icon.svg")):
             with open(os.path.join(PUBLIC_DIR, svg_rel), "r", encoding="utf-8") as f:
@@ -241,7 +241,7 @@ class TestFrontendIntegrity(unittest.TestCase):
     def test_v26_responsive_offline_tv_and_native_wrappers_invariants(self):
         with open(os.path.join(PUBLIC_DIR, "index.html"), "r", encoding="utf-8") as f:
             html = f.read()
-        self.assertIn("?v=20261110v2", html)
+        self.assertIn("?v=20261110v3", html)
 
         css_combined = ""
         for css_file in sorted(glob.glob(os.path.join(PUBLIC_DIR, "css", "*.css"))):

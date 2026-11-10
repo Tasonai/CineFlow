@@ -147,7 +147,7 @@ def main() -> None:
         "CFBundleDisplayName": "Velarium",
         "CFBundleIdentifier": "app.velarium.cinema",
         "CFBundleVersion": "27120",
-        "CFBundleShortVersionString": "2.7.12",
+        "CFBundleShortVersionString": "2.7.13",
         "CFBundlePackageType": "APPL",
         "CFBundleExecutable": "Velarium",
         "LSMinimumSystemVersion": "12.0",
