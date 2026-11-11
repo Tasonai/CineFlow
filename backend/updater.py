@@ -84,6 +84,8 @@ class _SafeUpdateHTTPSConnection(http.client.HTTPSConnection):
     def connect(self) -> None:
         if getattr(self, "_tunnel_host", None):
             raise urllib.error.URLError("Disallowed HTTPS CONNECT tunnel")
+        if _is_disallowed_hostname(self.host):
+            raise urllib.error.URLError(f"Disallowed update host: {self.host}")
         try:
             infos = socket.getaddrinfo(self.host, self.port or 443, type=socket.SOCK_STREAM)
         except Exception as exc:
@@ -145,7 +147,16 @@ class _SafeUpdateRedirectHandler(urllib.request.HTTPRedirectHandler):
                 except Exception:
                     pass
             raise urllib.error.URLError(f"Unsafe redirect blocked during update download: {full_new}")
-        return super().redirect_request(req, fp, code, msg, headers, full_new)
+        redirected = super().redirect_request(req, fp, code, msg, headers, full_new)
+        if redirected is not None:
+            parsed_old = urllib.parse.urlparse(req.full_url)
+            if (parsed_old.hostname or "").lower() != (parsed.hostname or "").lower():
+                for sensitive_hdr in ("Authorization", "Cookie", "Proxy-Authorization", "Origin"):
+                    for hdr_dict in (redirected.headers, redirected.unredirected_hdrs):
+                        for existing_k in list(hdr_dict.keys()):
+                            if existing_k.lower() == sensitive_hdr.lower():
+                                hdr_dict.pop(existing_k, None)
+        return redirected
 
 
 class AppUpdater:
@@ -838,6 +849,7 @@ class AppUpdater:
                         "import os, shutil, subprocess, tempfile, time\n"
                         "os.chdir('/tmp')\n"
                         f"dmg = {file_path!r}\n"
+                        f"self_pid = {os.getpid()}\n"
                         "mnt = tempfile.mkdtemp(prefix='velarium_dmg_')\n"
                         "stage_app = '/Applications/.Velarium.app.new'\n"
                         "try:\n"
@@ -858,11 +870,11 @@ class AppUpdater:
                         "        subprocess.run(['/usr/bin/killall', '-TERM', 'Velarium'], check=False)\n"
                         "        subprocess.run(['/usr/bin/pkill', '-TERM', '-f', '/Applications/Velarium.app/Contents/'], check=False)\n"
                         "        subprocess.run(['/usr/bin/pkill', '-TERM', '-f', '/Applications/CineFlow.app/Contents/'], check=False)\n"
-                        "        subprocess.run(['/bin/sh', '-c', '/usr/sbin/lsof -ti tcp:8765 -sTCP:LISTEN | /usr/bin/xargs kill -TERM 2>/dev/null || true'], check=False)\n"
+                        "        subprocess.run(['/bin/kill', '-TERM', str(self_pid)], check=False)\n"
                         "        time.sleep(0.9)\n"
                         "        subprocess.run(['/usr/bin/killall', '-KILL', 'Velarium'], check=False)\n"
                         "        subprocess.run(['/usr/bin/pkill', '-KILL', '-f', '/Applications/Velarium.app/Contents/'], check=False)\n"
-                        "        subprocess.run(['/bin/sh', '-c', '/usr/sbin/lsof -ti tcp:8765 -sTCP:LISTEN | /usr/bin/xargs kill -KILL 2>/dev/null || true'], check=False)\n"
+                        "        subprocess.run(['/bin/kill', '-KILL', str(self_pid)], check=False)\n"
                         "        time.sleep(0.3)\n"
                         "        if os.path.exists(dst_app):\n"
                         "            shutil.rmtree(dst_app, ignore_errors=True)\n"

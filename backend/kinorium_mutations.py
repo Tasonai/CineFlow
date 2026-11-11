@@ -508,8 +508,9 @@ def toggle_episode_watched(
                         ep_id=str(ep_info["ep_id"]),
                         watched=False,
                     ):
-                        ep_info["watched"] = False
-                        ep_info["rating"] = None
+                        with self._episodes_lock:
+                            ep_info["watched"] = False
+                            ep_info["rating"] = None
                         with self._state_lock:
                             uw_bg = self.state.get("unwatched_episodes") or {}
                             cer_bg2 = self.state.get("cleared_episode_ratings") or {}
@@ -1405,7 +1406,8 @@ def set_episode_rating(
                         watched=True,
                         clear_rating_only=True,
                     ):
-                        ep_info["rating"] = None
+                        with self._episodes_lock:
+                            ep_info["rating"] = None
                         with self._state_lock:
                             if self._profile_id == enqueue_pid:
                                 cer_done = self.state.get("cleared_episode_ratings") or {}
@@ -1483,8 +1485,9 @@ def set_episode_rating(
                     score=score,
                     comment=clean_comment,
                 ):
-                    ep_info["watched"] = True
-                    ep_info["rating"] = score
+                    with self._episodes_lock:
+                        ep_info["watched"] = True
+                        ep_info["rating"] = score
                     with self._state_lock:
                         if self._profile_id == enqueue_pid:
                             er_done = self.state.get("episode_ratings") or {}

@@ -347,20 +347,23 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         if self._reject_bad_host():
             return
-        if not self._is_trusted_origin():
-            self.send_response(403)
+        try:
+            if not self._is_trusted_origin():
+                self.send_response(403)
+                self._send_security_headers(allow_media_cors=False)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(204)
             self._send_security_headers(allow_media_cors=False)
-            self.send_header("Content-Length", "0")
+            self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+            self.send_header(
+                "Access-Control-Allow-Headers",
+                "Content-Type, X-Velarium-Pin, X-Velarium-Key, X-Velarium-Intent, X-CineFlow-Pin, X-CineFlow-Key, X-CineFlow-Intent",
+            )
             self.end_headers()
-            return
-        self.send_response(204)
-        self._send_security_headers(allow_media_cors=False)
-        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
-        self.send_header(
-            "Access-Control-Allow-Headers",
-            "Content-Type, X-Velarium-Pin, X-Velarium-Key, X-Velarium-Intent, X-CineFlow-Pin, X-CineFlow-Key, X-CineFlow-Intent",
-        )
-        self.end_headers()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _handle_proxy_stream(self, qs: dict, head_only: bool = False) -> None:
         parsed, _ = self._get_parsed_url_and_qs()

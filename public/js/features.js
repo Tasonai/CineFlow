@@ -1,5 +1,5 @@
-import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261111v1";
-import { displayTitle, isEn, t, translateStudioName } from "./i18n.js?v=20261111v1";
+import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261111v2";
+import { displayTitle, isEn, t, translateStudioName } from "./i18n.js?v=20261111v2";
 import {
   clampFloatingPopover,
   closeCustomSelectMenu,
@@ -23,7 +23,7 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261111v1";
+} from "./utils.js?v=20261111v2";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -31,7 +31,7 @@ import {
   getPlayerPrefs,
   savePlayerPrefs,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261111v1";
+} from "./audio-dsp.js?v=20261111v2";
 import {
   applyEnabledServicesVisibility,
   clearCatalogFrontendCache,
@@ -46,13 +46,13 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261111v1";
+} from "./catalog.js?v=20261111v2";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261111v1";
+} from "./modals.js?v=20261111v2";
 import {
   closeAllVcPopovers,
   closePlayerModal,
@@ -70,19 +70,19 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261111v1";
+} from "./player.js?v=20261111v2";
 import {
   closeOnboardingModal,
   openSettingsModal,
   renderIntegrationsList,
   toggleLanAccess,
   updateBackupSummaryStat,
-} from "./settings.js?v=20261111v1";
+} from "./settings.js?v=20261111v2";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   switchCastModalTab,
-} from "./remote.js?v=20261111v1";
+} from "./remote.js?v=20261111v2";
 
 export function exitBrowserFullscreenIfNeeded() {
   if (typeof document === "undefined") return;
@@ -264,7 +264,7 @@ import {
   _editingProfileId,
   _editingProfileColor,
   _clearKidsPinRequested,
-} from "./features-profiles.js?v=20261111v1";
+} from "./features-profiles.js?v=20261111v2";
 
 export {
   PROFILE_COLOR_SWATCHES,
@@ -438,9 +438,10 @@ export async function startOneClickKinoriumLogin(triggerBtn = null) {
       state.kinoriumOneClickPollTimer = null;
     }
     const pollStartTs = Date.now();
+    const loginProfileId = state.activeProfileId || "main";
     let announcedSyncing = false;
     const checkOneClickStatus = async () => {
-      if (Date.now() - pollStartTs > 310000) {
+      if ((state.activeProfileId || "main") !== loginProfileId || Date.now() - pollStartTs > 310000) {
         if (state.kinoriumOneClickPollTimer) {
           clearInterval(state.kinoriumOneClickPollTimer);
           state.kinoriumOneClickPollTimer = null;
@@ -451,8 +452,9 @@ export async function startOneClickKinoriumLogin(triggerBtn = null) {
       }
       try {
         const stRes = await fetch("/api/kinorium/one-click-status");
-        if (!stRes.ok) return;
+        if (!stRes.ok || (state.activeProfileId || "main") !== loginProfileId) return;
         const stData = await stRes.json();
+        if ((state.activeProfileId || "main") !== loginProfileId) return;
         if (stData.status === "syncing") {
           if (stData.kinorium_account) {
             state.kinoriumAccount = stData.kinorium_account;
@@ -541,7 +543,7 @@ import {
   deleteOfflineDownload,
   deleteSeasonOfflineDownloads,
   openDownloadsFolder,
-} from "./features-downloads.js?v=20261111v1";
+} from "./features-downloads.js?v=20261111v2";
 
 export {
   syncDownloadsHeaderBadge,
@@ -582,7 +584,7 @@ import {
   executeRemoteDpadCommand as _executeRemoteDpadCommand,
   handleTvSpatialKeydown,
   startGamepadPollingLoop,
-} from "./features-tv-mode.js?v=20261111v1";
+} from "./features-tv-mode.js?v=20261111v2";
 
 export {
   clearTvFocusClass,
@@ -622,7 +624,7 @@ import {
   applyPendingTvDeepLinkIfReady,
   openPlayerHandoffModal,
   closePlayerHandoffModal,
-} from "./features-cast.js?v=20261111v1";
+} from "./features-cast.js?v=20261111v2";
 
 export {
   supportsWebkitAirPlay,

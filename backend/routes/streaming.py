@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from backend.downloads import parse_http_byte_range
 from backend.net_security import (
+    SafePublicRedirectHandler,
     is_allowed_media_source_url as _net_is_allowed_media_source_url,
     is_strictly_public_ip_obj as _net_is_strictly_public_ip_obj,
 )
@@ -116,7 +117,10 @@ _SAFE_MEDIA_CTYPES = {
 
 _SHARED_VERIFIED_SSL_CTX = ssl.create_default_context()
 _SHARED_UNVERIFIED_SSL_CTX = ssl._create_unverified_context()
-_LOOPBACK_DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_LOOPBACK_DIRECT_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+    SafePublicRedirectHandler(allow_torrserver_loopback=True),
+)
 
 
 def touch_stream_activity() -> float:
@@ -1286,7 +1290,11 @@ def handle_download_mp4(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
         safe_ascii = "Velarium_Video.mp4"
     elif not safe_ascii.lower().endswith(".mp4"):
         safe_ascii += ".mp4"
-    utf8_quoted = urllib.parse.quote(filename if filename.lower().endswith(".mp4") else filename + ".mp4")
+    clean_utf8_fn = filename.replace("/", "_").replace("\\", "_").strip() or "Velarium_Video"
+    utf8_quoted = urllib.parse.quote(
+        clean_utf8_fn if clean_utf8_fn.lower().endswith(".mp4") else clean_utf8_fn + ".mp4",
+        safe="",
+    )
     parsed_dl = urllib.parse.urlparse(stream_url)
     dl_host_low = (parsed_dl.hostname or "").lower()
     dl_path_low = (parsed_dl.path or "").lower()
@@ -1532,12 +1540,15 @@ def handle_proxy_vtt(handler, qs: Dict[str, Any], parsed, ctx, head_only: bool =
                 _WEBVTT_CONVERTED_CACHE[conv_cache_key] = (now_vtt, data_bytes)
     if data_bytes is None:
         data_bytes = vtt_body.encode("utf-8")
-    handler.send_response(200)
-    handler.send_header("Content-Type", "text/vtt; charset=utf-8")
-    handler.send_header("Content-Length", str(len(data_bytes)))
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.end_headers()
-    handler.wfile.write(data_bytes)
+    try:
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/vtt; charset=utf-8")
+        handler.send_header("Content-Length", str(len(data_bytes)))
+        handler.send_header("Access-Control-Allow-Origin", "*")
+        handler.end_headers()
+        handler.wfile.write(data_bytes)
+    except (BrokenPipeError, ConnectionResetError):
+        pass
     return True
 
 
@@ -1938,13 +1949,16 @@ def handle_video_snapshot(handler, qs: Dict[str, Any], parsed, ctx, head_only: b
     if not png_bytes:
         handler._send_json({"error": "Failed to capture video frame"}, status=502)
         return True
-    handler.send_response(200)
-    handler.send_header("Content-Type", "image/png")
-    handler.send_header("Content-Length", str(len(png_bytes)))
-    handler.send_header("Cache-Control", "private, max-age=300")
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.end_headers()
-    handler.wfile.write(png_bytes)
+    try:
+        handler.send_response(200)
+        handler.send_header("Content-Type", "image/png")
+        handler.send_header("Content-Length", str(len(png_bytes)))
+        handler.send_header("Cache-Control", "private, max-age=300")
+        handler.send_header("Access-Control-Allow-Origin", "*")
+        handler.end_headers()
+        handler.wfile.write(png_bytes)
+    except (BrokenPipeError, ConnectionResetError):
+        pass
     return True
 
 
@@ -1989,16 +2003,28 @@ def handle_downloads_sub(handler, qs: Dict[str, Any], parsed, ctx, head_only: bo
     if not spath or not os.path.isfile(spath):
         handler._send_json({"error": "Subtitle not found"}, status=404)
         return True
-    file_size = os.path.getsize(spath)
-    handler.send_response(200)
-    handler.send_header("Content-Type", "text/vtt; charset=utf-8")
-    handler.send_header("Content-Length", str(file_size))
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.end_headers()
-    if not head_only:
-        with open(spath, "rb") as sf:
-            vtt_bytes = sf.read()
+    if head_only:
+        file_size = os.path.getsize(spath)
+        try:
+            handler.send_response(200)
+            handler.send_header("Content-Type", "text/vtt; charset=utf-8")
+            handler.send_header("Content-Length", str(file_size))
+            handler.send_header("Access-Control-Allow-Origin", "*")
+            handler.end_headers()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        return True
+    with open(spath, "rb") as sf:
+        vtt_bytes = sf.read(10 * 1024 * 1024)
+    try:
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/vtt; charset=utf-8")
+        handler.send_header("Content-Length", str(len(vtt_bytes)))
+        handler.send_header("Access-Control-Allow-Origin", "*")
+        handler.end_headers()
         handler.wfile.write(vtt_bytes)
+    except (BrokenPipeError, ConnectionResetError):
+        pass
     return True
 
 
@@ -2030,11 +2056,14 @@ def handle_downloads_poster(handler, qs: Dict[str, Any], parsed, ctx, head_only:
     if etag and hasattr(handler, "headers") and handler.headers is not None:
         inm = (handler.headers.get("If-None-Match") or "").strip()
         if inm and (etag in [x.strip() for x in inm.split(",")] or inm == "*"):
-            handler.send_response(304)
-            handler.send_header("ETag", etag)
-            handler.send_header("Cache-Control", "public, max-age=86400")
-            handler.send_header("Access-Control-Allow-Origin", "*")
-            handler.end_headers()
+            try:
+                handler.send_response(304)
+                handler.send_header("ETag", etag)
+                handler.send_header("Cache-Control", "public, max-age=86400")
+                handler.send_header("Access-Control-Allow-Origin", "*")
+                handler.end_headers()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             return True
 
     if head_only:
@@ -2044,28 +2073,34 @@ def handle_downloads_poster(handler, qs: Dict[str, Any], parsed, ctx, head_only:
         except Exception:
             head_bytes = b""
         p_ctype = _sniff_raster_image_type(head_bytes) or "image/jpeg"
+        try:
+            handler.send_response(200)
+            handler.send_header("Content-Type", p_ctype)
+            handler.send_header("Content-Length", str(file_size))
+            if etag:
+                handler.send_header("ETag", etag)
+            handler.send_header("Cache-Control", "public, max-age=86400")
+            handler.send_header("Access-Control-Allow-Origin", "*")
+            handler.end_headers()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        return True
+
+    with open(ppath, "rb") as pf:
+        img_bytes = pf.read(10 * 1024 * 1024)
+    ctype = _sniff_raster_image_type(img_bytes[:16]) or "image/jpeg"
+    try:
         handler.send_response(200)
-        handler.send_header("Content-Type", p_ctype)
-        handler.send_header("Content-Length", str(file_size))
+        handler.send_header("Content-Type", ctype)
+        handler.send_header("Content-Length", str(len(img_bytes)))
         if etag:
             handler.send_header("ETag", etag)
         handler.send_header("Cache-Control", "public, max-age=86400")
         handler.send_header("Access-Control-Allow-Origin", "*")
         handler.end_headers()
-        return True
-
-    with open(ppath, "rb") as pf:
-        img_bytes = pf.read()
-    ctype = _sniff_raster_image_type(img_bytes[:16]) or "image/jpeg"
-    handler.send_response(200)
-    handler.send_header("Content-Type", ctype)
-    handler.send_header("Content-Length", str(len(img_bytes)))
-    if etag:
-        handler.send_header("ETag", etag)
-    handler.send_header("Cache-Control", "public, max-age=86400")
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.end_headers()
-    handler.wfile.write(img_bytes)
+        handler.wfile.write(img_bytes)
+    except (BrokenPipeError, ConnectionResetError):
+        pass
     return True
 
 

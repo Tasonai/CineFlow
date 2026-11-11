@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261111v1";
-import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261111v1";
+import { state } from "./state.js?v=20261111v2";
+import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261111v2";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -11,7 +11,7 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261111v1";
+} from "./utils.js?v=20261111v2";
 import {
   applyAudioBoostToVideo,
   applyVideoCropToVideo,
@@ -23,12 +23,12 @@ import {
   startAmbilightLoop,
   stopAmbilightLoop,
   togglePictureInPicture,
-} from "./audio-dsp.js?v=20261111v1";
+} from "./audio-dsp.js?v=20261111v2";
 import {
   adjustSubtitleOffset,
   formatSubtitleOffsetLabel,
   resetSubtitleOffset,
-} from "./subtitles.js?v=20261111v1";
+} from "./subtitles.js?v=20261111v2";
 import {
   addOrUpdateRemoteBookmark,
   closePlayerModal,
@@ -57,9 +57,9 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   toggleXRayPauseShelf,
-} from "./player.js?v=20261111v1";
-import { openPersonModal } from "./modals.js?v=20261111v1";
-import { attachSmartPosterFallback, isEpisodeWatched } from "./catalog.js?v=20261111v1";
+} from "./player.js?v=20261111v2";
+import { openPersonModal } from "./modals.js?v=20261111v2";
+import { attachSmartPosterFallback, isEpisodeWatched } from "./catalog.js?v=20261111v2";
 import {
   closeTvCastModal,
   executeRemoteDpadCommand,
@@ -67,7 +67,7 @@ import {
   isItemSafeForKidsClient,
   requestKidsPinVerification,
   setTvMode,
-} from "./features.js?v=20261111v1";
+} from "./features.js?v=20261111v2";
 
 export function isMobileRemoteUrl() {
   if (typeof window === "undefined") return false;
@@ -3057,8 +3057,10 @@ export function initMobileRemoteController() {
             const trackQuery = encodeURIComponent(`${tr.artist || ""} ${tr.title || ""}`.trim());
             const appleMusicUrl = `https://music.apple.com/search?term=${trackQuery}`;
             const spotifyUrl = `https://open.spotify.com/search/${trackQuery}`;
-            const previewUrl = String(tr.preview_url || "").trim();
-            const artworkUrl = String(tr.artwork_url || "").trim();
+            const rawPreviewUrl = String(tr.preview_url || "").trim();
+            const previewUrl = /^https?:\/\//i.test(rawPreviewUrl) ? rawPreviewUrl : "";
+            const rawArtworkUrl = String(tr.artwork_url || "").trim();
+            const artworkUrl = /^https?:\/\//i.test(rawArtworkUrl) ? rawArtworkUrl : "";
             const isPreviewPlaying = Boolean(previewUrl && rState.previewTrackUrl === previewUrl);
             const previewBtnHtml = previewUrl
               ? `<button type="button" class="atv-remote-track-btn rm-preview-track${isPreviewPlaying ? " is-playing" : ""}" data-preview-url="${escapeAttr(previewUrl)}" title="${escapeAttr(t("Прослушать отрывок", "Play 30s preview"))}">

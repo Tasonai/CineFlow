@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261111v1";
+import { state } from "./state.js?v=20261111v2";
 import {
   displayCountries,
   displayDescription,
@@ -13,7 +13,7 @@ import {
   t,
   translateGenre,
   translateStudioName,
-} from "./i18n.js?v=20261111v1";
+} from "./i18n.js?v=20261111v2";
 import {
   escapeAttr,
   escapeHtml,
@@ -27,8 +27,8 @@ import {
   showVideoOsd,
   syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261111v1";
-import { getPlayerPrefs, savePlayerPrefs } from "./audio-dsp.js?v=20261111v1";
+} from "./utils.js?v=20261111v2";
+import { getPlayerPrefs, savePlayerPrefs } from "./audio-dsp.js?v=20261111v2";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -39,19 +39,19 @@ import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261111v1";
-import { openQuickPeekModal, renderModalCastSection } from "./modals.js?v=20261111v1";
-import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261111v1";
-import { syncNativeNowPlaying } from "./features.js?v=20261111v1";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v1";
+} from "./catalog.js?v=20261111v2";
+import { openQuickPeekModal, renderModalCastSection } from "./modals.js?v=20261111v2";
+import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261111v2";
+import { syncNativeNowPlaying } from "./features.js?v=20261111v2";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v2";
 import {
   getEpisodeDisplayMeta,
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261111v1";
-import { switchSourceTab, syncOfficialEmbeddedStreamRect } from "./player-streams.js?v=20261111v1";
-import { setMiniPlayerMode } from "./player-pip-dock.js?v=20261111v1";
-import { closePlayerModal } from "./player.js?v=20261111v1";
+} from "./player-seasons.js?v=20261111v2";
+import { switchSourceTab, syncOfficialEmbeddedStreamRect } from "./player-streams.js?v=20261111v2";
+import { setMiniPlayerMode } from "./player-pip-dock.js?v=20261111v2";
+import { closePlayerModal } from "./player.js?v=20261111v2";
 
 export const OFFICIAL_STREAMING_SERVICES = new Set(["appletv", "netflix", "prime", "disney", "max", "playerpl"]);
 

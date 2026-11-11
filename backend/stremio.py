@@ -1782,6 +1782,9 @@ class StremioAddonEngine:
                     media_type=media_type,
                     season=season,
                     episode=episode,
+                    year=year,
+                    title=title,
+                    orig_title=orig_title,
                 )
                 if res_play.get("ok") and res_play.get("stream_url"):
                     raw_stream_url = str(res_play["stream_url"])

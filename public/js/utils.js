@@ -5,9 +5,9 @@ import {
   WATCH_HISTORY_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261111v1";
-import { isEn, t } from "./i18n.js?v=20261111v1";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261111v1";
+} from "./state.js?v=20261111v2";
+import { isEn, t } from "./i18n.js?v=20261111v2";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261111v2";
 
 export function escapeAttr(val) {
   return String(val ?? "")
@@ -2130,6 +2130,10 @@ export function upgradeCustomSelect(selectEl) {
 
   if (typeof MutationObserver !== "undefined") {
     const mo = new MutationObserver(() => {
+      if (!selectEl.isConnected) {
+        mo.disconnect();
+        return;
+      }
       syncCustomSelect(selectEl);
       if (_cselectActiveSelect === selectEl && isCustomSelectMenuOpen()) {
         _renderOpenCustomSelectPortal();

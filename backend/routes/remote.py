@@ -295,9 +295,15 @@ def handle_tv_cast(handler: Any, qs: Dict[str, Any], parsed: Any, body: Dict[str
         return True
 
     unwrapped_cast_src = ctx.unwrap_local_proxy_media_url(raw_stream)
-    is_local_cast_path = raw_stream.startswith("/api/") or any(
-        raw_stream.startswith(f"http://{h}:") or raw_stream.startswith(f"https://{h}:")
-        for h in ("127.0.0.1", "localhost")
+    unwrapped_parsed = urllib.parse.urlparse(unwrapped_cast_src)
+    unwrapped_path = (unwrapped_parsed.path or "").strip()
+    is_local_cast_path = (
+        unwrapped_cast_src.startswith("/api/downloads/stream/")
+        or (
+            (unwrapped_parsed.hostname or "").lower() in ("127.0.0.1", "localhost", "::1")
+            and unwrapped_path.startswith("/api/downloads/stream/")
+            and ".." not in unwrapped_path
+        )
     )
     if not is_local_cast_path and not ctx.is_allowed_media_source_url(unwrapped_cast_src, allow_torrserver_loopback=True):
         handler._send_json(

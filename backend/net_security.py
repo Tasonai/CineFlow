@@ -8,6 +8,7 @@ header injection, and unauthorized origin redirects with credential stripping.
 import http.client
 import http.cookiejar
 import ipaddress
+import posixpath
 import re
 import socket
 import ssl
@@ -85,6 +86,9 @@ def _is_valid_public_ip_addr(ip_str: str) -> bool:
     return is_strictly_public_ip_obj(raw)
 
 
+_NUMERIC_HEX_LABEL_RE = re.compile(r"^(?:0x[0-9a-f]+|\d+)$")
+
+
 def _is_disallowed_hostname(host: str) -> bool:
     clean = (host or "").strip().lower().rstrip(".")
     if clean.startswith("[") and clean.endswith("]"):
@@ -93,7 +97,15 @@ def _is_disallowed_hostname(host: str) -> bool:
         return True
     if clean in ("localhost", "ip6-localhost", "broadcasthost"):
         return True
-    return clean.endswith(_DISALLOWED_HOST_SUFFIXES)
+    if clean.endswith(_DISALLOWED_HOST_SUFFIXES):
+        return True
+    try:
+        ipaddress.ip_address(clean)
+    except ValueError:
+        parts = clean.split(".")
+        if parts and all(bool(_NUMERIC_HEX_LABEL_RE.match(p)) for p in parts):
+            return True
+    return False
 
 
 _VERIFIED_PUBLIC_IPS_CACHE: Dict[Tuple[str, int], Tuple[float, List[str]]] = {}
@@ -387,7 +399,13 @@ def is_allowed_media_source_url(
             torr_host, torr_port = "127.0.0.1", 8090
         loopback_names = {"127.0.0.1", "localhost", "::1"}
         if host_low in loopback_names or host_low == torr_host:
-            req_path_low = (parsed.path or "").strip().lower()
+            raw_path = urllib.parse.unquote(parsed.path or "").strip()
+            if not raw_path:
+                req_path_low = ""
+            else:
+                if ".." in raw_path.split("/") or "\\" in raw_path or any(ord(c) < 32 for c in raw_path):
+                    return False
+                req_path_low = posixpath.normpath(raw_path).lower()
             if any(
                 req_path_low.startswith(admin_p)
                 for admin_p in ("/shutdown", "/settings", "/torrents", "/cache", "/viewed")
@@ -408,6 +426,7 @@ def is_allowed_media_source_url(
     except ValueError:
         if (
             "." not in host_low
+            or _is_disallowed_hostname(host_low)
             or host_low.endswith((".local", ".localhost", ".internal", ".lan", ".home.arpa"))
         ):
             return False

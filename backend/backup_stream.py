@@ -502,7 +502,13 @@ class BackupStreamingEngine:
                         if os.name != "nt":
                             popen_kwargs["start_new_session"] = True
                         bind_ip = "::1" if host == "::1" else "127.0.0.1"
-                        with open(log_path, "ab") as log_fh:
+                        log_mode = "ab"
+                        try:
+                            if os.path.isfile(log_path) and os.path.getsize(log_path) > 10 * 1024 * 1024:
+                                log_mode = "wb"
+                        except OSError:
+                            pass
+                        with open(log_path, log_mode) as log_fh:
                             self._torr_proc = subprocess.Popen(
                                 [
                                     self.torr_bin_path,
@@ -1133,16 +1139,12 @@ class BackupStreamingEngine:
                 return 3
             return 2
 
-        def _probe_one(cand: Dict[str, Any], w_sec: float) -> int:
+        def _probe_one(cand: Dict[str, Any], w_sec: float) -> Tuple[int, str, Optional[Dict[str, Any]]]:
             mag = str(cand.get("magnet") or "")
             fs = self._fetch_torrserver_file_stats(mag, wait_metadata_sec=w_sec)
             tier = _classify_fs_tier(fs, reported_seeders=int(cand.get("seeders") or 0))
-            cand["_dht_verified"] = tier
-            if fs:
-                ih = _extract_btih_hex(_enrich_magnet_trackers(mag))
-                if ih:
-                    probed_fs_by_hash[ih] = fs
-            return tier
+            ih = _extract_btih_hex(_enrich_magnet_trackers(mag)) if fs else ""
+            return tier, ih, fs
 
         probe_limit = len(mag_cands) if is_mocked else min(len(mag_cands), max(max_probe, 8))
         batch_all = mag_cands[:probe_limit]
@@ -1164,7 +1166,10 @@ class BackupStreamingEngine:
                 fut.cancel()
                 continue
             try:
-                fut.result(timeout=0.05)
+                tier_res, ih_res, fs_res = fut.result(timeout=0.05)
+                cand["_dht_verified"] = tier_res
+                if ih_res and fs_res:
+                    probed_fs_by_hash[ih_res] = fs_res
             except Exception:
                 cand["_dht_verified"] = -1
 
@@ -2669,7 +2674,15 @@ class BackupStreamingEngine:
                 continue
             raw_stream_url = ""
             if debrid_ready:
-                d_res = self.resolve_debrid_magnet(magnet, media_type=media_type, season=season, episode=episode)
+                d_res = self.resolve_debrid_magnet(
+                    magnet,
+                    media_type=media_type,
+                    season=season,
+                    episode=episode,
+                    year=year,
+                    title=title,
+                    orig_title=orig_title,
+                )
                 if d_res.get("ok") and d_res.get("stream_url"):
                     raw_stream_url = str(d_res["stream_url"])
             if not raw_stream_url and torr_alive:
@@ -2679,6 +2692,9 @@ class BackupStreamingEngine:
                     season,
                     episode,
                     wait_metadata_sec=1.8,
+                    year=year,
+                    title=title,
+                    orig_title=orig_title,
                     release_title=str(rel.get("title") or ""),
                 )
                 raw_stream_url = (

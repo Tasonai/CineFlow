@@ -2,8 +2,8 @@ import {
   PREFERRED_STUDIOS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261111v1";
-import { isEn, t } from "./i18n.js?v=20261111v1";
+} from "./state.js?v=20261111v2";
+import { isEn, t } from "./i18n.js?v=20261111v2";
 import {
   escapeHtml,
   findOfflineDownloadForTitle,
@@ -14,21 +14,21 @@ import {
   iconSvg,
   pluralRu,
   syncCustomSelect,
-} from "./utils.js?v=20261111v1";
-import { getPlayerPrefs } from "./audio-dsp.js?v=20261111v1";
+} from "./utils.js?v=20261111v2";
+import { getPlayerPrefs } from "./audio-dsp.js?v=20261111v2";
 import {
   renderModalProvidersSidebar,
   switchSourceTab,
-} from "./player.js?v=20261111v1";
-import { renderHero } from "./catalog-hero.js?v=20261111v1";
+} from "./player.js?v=20261111v2";
+import { renderHero } from "./catalog-hero.js?v=20261111v2";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261111v1";
+} from "./catalog-shelves.js?v=20261111v2";
 import {
   clearCatalogFrontendCache,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261111v1";
+} from "./catalog.js?v=20261111v2";
 
 const paidOfficialSet = new Set(["appletv", "netflix", "prime", "disney", "max", "playerpl"]);
 
@@ -146,24 +146,27 @@ export function matchPreferredStudioInList(studiosList, savedPref) {
 
 let _preferredStudiosCache = null;
 let _preferredStudiosCacheKey = "";
+let _preferredStudiosCacheRaw = null;
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (ev) => {
     if (!ev || !ev.key || ev.key.includes(PREFERRED_STUDIOS_STORAGE_KEY)) {
       _preferredStudiosCache = null;
       _preferredStudiosCacheKey = "";
+      _preferredStudiosCacheRaw = null;
     }
   });
 }
 
 function _getPreferredStudiosMap() {
   const storageKey = profileStorageKey(PREFERRED_STUDIOS_STORAGE_KEY);
-  if (_preferredStudiosCache && _preferredStudiosCacheKey === storageKey) {
+  const raw = typeof localStorage !== "undefined" ? localStorage.getItem(storageKey) : null;
+  if (_preferredStudiosCache && _preferredStudiosCacheKey === storageKey && _preferredStudiosCacheRaw === raw) {
     return _preferredStudiosCache;
   }
-  const raw = typeof localStorage !== "undefined" ? localStorage.getItem(storageKey) : null;
   const parsed = raw ? JSON.parse(raw) || {} : {};
   const map = parsed && typeof parsed === "object" ? parsed : {};
   _preferredStudiosCacheKey = storageKey;
+  _preferredStudiosCacheRaw = raw;
   _preferredStudiosCache = map;
   return map;
 }
@@ -205,9 +208,11 @@ export function savePreferredStudioForItem(item, studioId, studioName) {
     for (const k of candidateKeys) {
       map[k] = entry;
     }
+    const serialized = JSON.stringify(map);
     _preferredStudiosCacheKey = storageKey;
+    _preferredStudiosCacheRaw = serialized;
     _preferredStudiosCache = map;
-    localStorage.setItem(storageKey, JSON.stringify(map));
+    localStorage.setItem(storageKey, serialized);
   } catch (err) { window.logDebug?.("CatalogMediaResolver", err); }
 }
 let _cwIndexRef = null;

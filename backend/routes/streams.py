@@ -609,13 +609,16 @@ def handle_remux_subtitle(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
         window_sec=window_sec,
     )
     vtt_bytes = vtt_text.encode("utf-8")
-    handler.send_response(200)
-    handler.send_header("Content-Type", "text/vtt; charset=utf-8")
-    handler.send_header("Content-Length", str(len(vtt_bytes)))
-    handler.send_header("Cache-Control", "no-store")
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.end_headers()
-    handler.wfile.write(vtt_bytes)
+    try:
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/vtt; charset=utf-8")
+        handler.send_header("Content-Length", str(len(vtt_bytes)))
+        handler.send_header("Cache-Control", "no-store")
+        handler.send_header("Access-Control-Allow-Origin", "*")
+        handler.end_headers()
+        handler.wfile.write(vtt_bytes)
+    except (BrokenPipeError, ConnectionResetError):
+        pass
     return True
 
 

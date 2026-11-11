@@ -566,7 +566,7 @@ def get_person_details(client, name: str, hint_url: str = "") -> Dict[str, Any]:
             if en_payload and en_payload.get("type") != "disambiguation":
                 if not photo_url:
                     thumb = (en_payload.get("thumbnail") or {}).get("source") or ""
-                    if thumb.startswith("http"):
+                    if thumb.startswith("http") and client._is_valid_person_photo_url(thumb):
                         photo_url = thumb
                         with client._cache_lock:
                             if len(client.person_photo_by_name) > 1500:
@@ -657,7 +657,7 @@ def get_person_details(client, name: str, hint_url: str = "") -> Dict[str, Any]:
                 p_url = client.find_cached_person_url(ru_name)
         if not photo_url:
             thumb = (payload.get("thumbnail") or {}).get("source") or ""
-            if thumb.startswith("http"):
+            if thumb.startswith("http") and client._is_valid_person_photo_url(thumb):
                 photo_url = thumb
                 with client._cache_lock:
                     if len(client.person_photo_by_name) > 1500:
@@ -884,7 +884,7 @@ def get_person_details(client, name: str, hint_url: str = "") -> Dict[str, Any]:
                 continue
             if not photo_url:
                 thumb = (payload.get("thumbnail") or {}).get("source") or ""
-                if thumb.startswith("http"):
+                if thumb.startswith("http") and client._is_valid_person_photo_url(thumb):
                     photo_url = thumb
                     with client._cache_lock:
                         if len(client.person_photo_by_name) > 1500:

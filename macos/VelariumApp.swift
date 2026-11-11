@@ -105,10 +105,11 @@ final class ServerDaemonSupervisor {
         env["PYTHONUNBUFFERED"] = "1"
         proc.environment = env
 
-        if let logHandle = FileHandle(forWritingAtPath: logPath) {
-            logHandle.seekToEndOfFile()
-            proc.standardOutput = logHandle
-            proc.standardError = logHandle
+        let logHandle = FileHandle(forWritingAtPath: logPath)
+        if let lh = logHandle {
+            lh.seekToEndOfFile()
+            proc.standardOutput = lh
+            proc.standardError = lh
         }
 
         do {
@@ -118,6 +119,7 @@ final class ServerDaemonSupervisor {
         } catch {
             NSLog("[Velarium] Failed to spawn server.py: \(error)")
         }
+        try? logHandle?.close()
     }
 
     func waitForServerReady(attemptsLeft: Int, onReady: @escaping () -> Void) {
@@ -1277,7 +1279,9 @@ final class VelariumAppController: NSObject, NSApplicationDelegate, NSWindowDele
     // MARK: - Script Message Handler (JS <-> Native Bridge)
 
     func handleScriptMessage(_ message: WKScriptMessage) {
+        let originHost = message.frameInfo.securityOrigin.host.lowercased()
         guard message.frameInfo.isMainFrame,
+              (originHost == "127.0.0.1" || originHost == "localhost"),
               let body = message.body as? [String: Any],
               let action = body["action"] as? String else { return }
 

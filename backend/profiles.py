@@ -713,7 +713,11 @@ class ProfileManager:
             existing = next((p for p in self._state["profiles"] if p["id"] == clean_id), None) if clean_id else None
             if existing:
                 existing_pin_locked = bool(
-                    existing.get("kids_mode") and len(str(existing.get("kids_pin") or "")) == 4
+                    existing.get("kids_mode")
+                    and (
+                        len(str(existing.get("kids_pin") or "")) == 4
+                        or bool(existing.get("kids_pin_locked_ephemeral"))
+                    )
                 )
                 if existing_pin_locked and (kids_mode is not None or parsed_pin is not None):
                     if not self.verify_active_kids_pin(pin, profile_id=existing["id"]):
@@ -981,7 +985,10 @@ class ProfileManager:
             target = next((p for p in self._state["profiles"] if p["id"] == clean_id), None)
             if not target:
                 return False
-            if target.get("kids_mode") and len(str(target.get("kids_pin") or "")) == 4:
+            if target.get("kids_mode") and (
+                len(str(target.get("kids_pin") or "")) == 4
+                or bool(target.get("kids_pin_locked_ephemeral"))
+            ):
                 if not self.verify_active_kids_pin(pin, profile_id=clean_id):
                     raise PermissionError("PIN_REQUIRED")
             self._state["profiles"] = [p for p in self._state["profiles"] if p["id"] != clean_id]

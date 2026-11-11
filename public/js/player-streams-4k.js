@@ -1,11 +1,11 @@
-import { state } from "./state.js?v=20261111v1";
+import { state } from "./state.js?v=20261111v2";
 import {
   displayTitle,
   isEn,
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261111v1";
+} from "./i18n.js?v=20261111v2";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -16,41 +16,41 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261111v1";
+} from "./utils.js?v=20261111v2";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
   pickPreferredSubtitleIndex,
-} from "./audio-dsp.js?v=20261111v1";
+} from "./audio-dsp.js?v=20261111v2";
 import {
   buildRemuxSubtitlesList,
   mergeCustomExternalSubtitles,
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
-} from "./subtitles.js?v=20261111v1";
+} from "./subtitles.js?v=20261111v2";
 import {
   buildRemuxStreamEndpoint,
   formatAudioOffsetLabel,
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261111v1";
+} from "./player-remux.js?v=20261111v2";
 import {
   syncCustomControlPopovers,
   syncCustomVideoControlsUI,
-} from "./player-ui-controls.js?v=20261111v1";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v1";
+} from "./player-ui-controls.js?v=20261111v2";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v2";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261111v1";
-import { captureVideoFrameBridge, playVideoUrl } from "./player.js?v=20261111v1";
+} from "./player-seasons.js?v=20261111v2";
+import { captureVideoFrameBridge, playVideoUrl } from "./player.js?v=20261111v2";
 import {
   buildNextEpisodePreloadKey,
   hideVideoStreamError,
   isHdRezkaStreamDeadOrExpired,
   loadHDRezkaStream,
-} from "./player-streams.js?v=20261111v1";
+} from "./player-streams.js?v=20261111v2";
 
 function _applyLiveAudioOffsetToCurrentStream() {
   if (state.audioOffsetReloadTimerId) {
@@ -713,7 +713,8 @@ export function renderStremioStreamsList(resumeTime = 0, autoLaunchFirst = false
       (st.stream_kind === "direct_http" && st.direct_url) ||
         ((torrOnline || debridReady) && (st.magnet || st.info_hash))
     );
-    const magnetUri = String(st.magnet || "");
+    const rawMagnetUri = String(st.magnet || "").trim();
+    const magnetUri = /^magnet:\?/i.test(rawMagnetUri) ? rawMagnetUri : "";
     const langs = Array.isArray(st.languages) ? st.languages : [];
     const voices = Array.isArray(st.detected_voices) ? st.detected_voices.slice(0, 3) : [];
     const is4k = /4k|2160/i.test(st.quality || "");
@@ -789,7 +790,9 @@ export function renderStremioStreamsList(resumeTime = 0, autoLaunchFirst = false
       }
     });
     row.querySelector(".btn-open-magnet")?.addEventListener("click", () => {
-      window.location.href = magnetUri;
+      if (/^magnet:\?/i.test(magnetUri)) {
+        window.location.href = magnetUri;
+      }
     });
     row.querySelector(".btn-play-stremio-rel")?.addEventListener("click", () => {
       if (state.activeStremioStreamKey === stKey && video && video.getAttribute("src")) {
@@ -1429,7 +1432,8 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
           (torrOnline && (rel.stream_url || rel.magnet || rel.info_hash)) ||
           (debridReady && rel.stream_kind === "debrid" && rel.magnet)
       );
-      const magnetUri = String(rel.magnet || "");
+      const rawMagnetUri = String(rel.magnet || "").trim();
+      const magnetUri = /^magnet:\?/i.test(rawMagnetUri) ? rawMagnetUri : "";
       const sizeText = translateSizeLabel(rel.size || "");
       const row = document.createElement("div");
       row.className = "release-row";
@@ -1480,7 +1484,9 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
       });
 
       row.querySelector(".btn-open-magnet")?.addEventListener("click", () => {
-        window.location.href = magnetUri;
+        if (/^magnet:\?/i.test(magnetUri)) {
+          window.location.href = magnetUri;
+        }
       });
 
       const playBtn = row.querySelector(".btn-play-4k-rel");

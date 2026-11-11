@@ -290,20 +290,26 @@ def handle_person_photo(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any)
     if cached_hit:
         cached_ctype, cached_bytes = cached_hit
         if strict_photo and "svg" in str(cached_ctype).lower():
-            handler.send_response(404)
-            handler.send_header("Content-Type", "text/plain; charset=utf-8")
-            handler.send_header("Cache-Control", "public, max-age=600")
-            handler.send_header("Content-Length", "0")
-            handler.end_headers()
+            try:
+                handler.send_response(404)
+                handler.send_header("Content-Type", "text/plain; charset=utf-8")
+                handler.send_header("Cache-Control", "public, max-age=600")
+                handler.send_header("Content-Length", "0")
+                handler.end_headers()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             return True
-        handler.send_response(200)
-        handler.send_header("Content-Type", cached_ctype)
-        handler.send_header("X-Content-Type-Options", "nosniff")
-        handler.send_header("Content-Security-Policy", "sandbox; default-src 'none'")
-        handler.send_header("Content-Length", str(len(cached_bytes)))
-        handler.send_header("Cache-Control", "public, max-age=86400")
-        handler.end_headers()
-        handler.wfile.write(cached_bytes)
+        try:
+            handler.send_response(200)
+            handler.send_header("Content-Type", cached_ctype)
+            handler.send_header("X-Content-Type-Options", "nosniff")
+            handler.send_header("Content-Security-Policy", "sandbox; default-src 'none'")
+            handler.send_header("Content-Length", str(len(cached_bytes)))
+            handler.send_header("Cache-Control", "public, max-age=86400")
+            handler.end_headers()
+            handler.wfile.write(cached_bytes)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
         return True
 
     candidate_urls = []
@@ -373,24 +379,30 @@ def handle_person_photo(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any)
                             ctx.person_photo_cache[cache_key] = (out_ctype, raw_img)
                         if name_key:
                             ctx.person_photo_cache[name_key] = (out_ctype, raw_img)
-                    handler.send_response(200)
-                    handler.send_header("Content-Type", out_ctype)
-                    handler.send_header("X-Content-Type-Options", "nosniff")
-                    handler.send_header("Content-Security-Policy", "sandbox; default-src 'none'")
-                    handler.send_header("Content-Length", str(len(raw_img)))
-                    handler.send_header("Cache-Control", "public, max-age=86400")
-                    handler.end_headers()
-                    handler.wfile.write(raw_img)
+                    try:
+                        handler.send_response(200)
+                        handler.send_header("Content-Type", out_ctype)
+                        handler.send_header("X-Content-Type-Options", "nosniff")
+                        handler.send_header("Content-Security-Policy", "sandbox; default-src 'none'")
+                        handler.send_header("Content-Length", str(len(raw_img)))
+                        handler.send_header("Cache-Control", "public, max-age=86400")
+                        handler.end_headers()
+                        handler.wfile.write(raw_img)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
                     return True
         except Exception:
             continue
 
     if strict_photo:
-        handler.send_response(404)
-        handler.send_header("Content-Type", "text/plain; charset=utf-8")
-        handler.send_header("Cache-Control", "public, max-age=600")
-        handler.send_header("Content-Length", "0")
-        handler.end_headers()
+        try:
+            handler.send_response(404)
+            handler.send_header("Content-Type", "text/plain; charset=utf-8")
+            handler.send_header("Cache-Control", "public, max-age=600")
+            handler.send_header("Content-Length", "0")
+            handler.end_headers()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
         return True
 
     parts = [w for w in name.split() if w]
@@ -415,12 +427,15 @@ def handle_person_photo(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any)
             ctx.person_photo_cache[cache_key] = ("image/svg+xml; charset=utf-8", svg)
         if name_key:
             ctx.person_photo_cache[name_key] = ("image/svg+xml; charset=utf-8", svg)
-    handler.send_response(200)
-    handler.send_header("Content-Type", "image/svg+xml; charset=utf-8")
-    handler.send_header("Content-Length", str(len(svg)))
-    handler.send_header("Cache-Control", "public, max-age=3600")
-    handler.end_headers()
-    handler.wfile.write(svg)
+    try:
+        handler.send_response(200)
+        handler.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+        handler.send_header("Content-Length", str(len(svg)))
+        handler.send_header("Cache-Control", "public, max-age=3600")
+        handler.end_headers()
+        handler.wfile.write(svg)
+    except (BrokenPipeError, ConnectionResetError):
+        pass
     return True
 
 
@@ -1122,6 +1137,7 @@ def handle_title_meta(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
 
 
 _CURATED_KEY_PATTERNS: Dict[str, Any] = {}
+_CURATED_KEY_PATTERNS_LOCK = threading.Lock()
 
 
 def _matches_curated_key(norm_key: str, cur_key: str) -> bool:
@@ -1129,12 +1145,23 @@ def _matches_curated_key(norm_key: str, cur_key: str) -> bool:
         return True
     if cur_key not in norm_key:
         return False
-    pat = _CURATED_KEY_PATTERNS.get(cur_key)
+    with _CURATED_KEY_PATTERNS_LOCK:
+        pat = _CURATED_KEY_PATTERNS.get(cur_key)
     if pat is None:
         pat = re.compile(r"(?:^|\b)" + re.escape(cur_key) + r"(?:\b|$)")
-        if len(_CURATED_KEY_PATTERNS) < 512:
-            _CURATED_KEY_PATTERNS[cur_key] = pat
+        with _CURATED_KEY_PATTERNS_LOCK:
+            if len(_CURATED_KEY_PATTERNS) < 512:
+                _CURATED_KEY_PATTERNS[cur_key] = pat
     return bool(pat.search(norm_key))
+
+
+def _safe_year_int(val: Any) -> int:
+    if not val:
+        return 0
+    if isinstance(val, int):
+        return val if 1880 <= val <= 2100 else 0
+    m = re.search(r"\b(19\d\d|20\d\d)\b", str(val))
+    return int(m.group(1)) if m else 0
 
 
 def _build_xray_payload(
@@ -1619,7 +1646,7 @@ def handle_xray(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool
     payload = _build_xray_payload(
         title=title or (cand.get("title") if isinstance(cand, dict) else "") or "",
         orig_title=orig_title or (cand.get("orig_title") if isinstance(cand, dict) else "") or "",
-        year=year or int((cand.get("year") if isinstance(cand, dict) else 0) or 0),
+        year=year or _safe_year_int(cand.get("year") if isinstance(cand, dict) else 0),
         media_type=media_type,
         directors=directors,
         actors=actors,
@@ -1652,7 +1679,7 @@ def handle_xray(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool
                 title or str((cand or {}).get("title") or ""),
                 orig_title or str((cand or {}).get("orig_title") or ""),
                 str((cand or {}).get("rezka_url") or "") or None,
-                year=year or int((cand or {}).get("year") or 0),
+                year=year or _safe_year_int((cand or {}).get("year")),
                 media_type=media_type,
             )
             if isinstance(rz_meta, dict):
@@ -1715,14 +1742,21 @@ def _get_active_profile_id_for_xray(ctx: Any) -> str:
 
 
 _XRAY_SAVED_TRACKS_MEM: Dict[str, List[Dict[str, Any]]] = {}
+_XRAY_SAVED_TRACKS_LOCK = threading.RLock()
 _XRAY_PROF_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 
 def _norm_xray_profile_id(raw_id: Any, ctx: Any) -> str:
+    active_id = _get_active_profile_id_for_xray(ctx)
+    try:
+        pm = getattr(ctx, "profile_manager", None)
+        if pm and hasattr(pm, "is_kids_mode_active") and pm.is_kids_mode_active():
+            return active_id if _XRAY_PROF_ID_RE.match(active_id) else "default"
+    except Exception:
+        pass
     cand = str(raw_id or "").strip()
     if cand and _XRAY_PROF_ID_RE.match(cand):
         return cand
-    active_id = _get_active_profile_id_for_xray(ctx)
     return active_id if _XRAY_PROF_ID_RE.match(active_id) else "default"
 
 
@@ -1737,39 +1771,41 @@ def _clean_xray_http_url(raw_url: Any) -> str:
 
 def _get_saved_xray_tracks(ctx: Any, profile_id: str) -> List[Dict[str, Any]]:
     profile_id = _norm_xray_profile_id(profile_id, ctx)
-    d = getattr(ctx, "__dict__", {})
-    storage_db = d.get("storage_db") if isinstance(d, dict) and "storage_db" in d else getattr(type(ctx), "storage_db", None)
-    if storage_db is None and not hasattr(ctx, "_main_module"):
-        storage_db = getattr(ctx, "storage_db", None)
-    if storage_db and hasattr(storage_db, "get_kv"):
-        try:
-            raw = storage_db.get_kv("xray_saved_tracks", profile_id, default=[])
-            if isinstance(raw, list):
-                return [dict(x) for x in raw if isinstance(x, dict)]
-        except Exception:
-            pass
-    raw_mem = _XRAY_SAVED_TRACKS_MEM.get(profile_id, [])
-    if isinstance(raw_mem, list):
-        return [dict(x) for x in raw_mem if isinstance(x, dict)]
-    return []
+    with _XRAY_SAVED_TRACKS_LOCK:
+        d = getattr(ctx, "__dict__", {})
+        storage_db = d.get("storage_db") if isinstance(d, dict) and "storage_db" in d else getattr(type(ctx), "storage_db", None)
+        if storage_db is None and not hasattr(ctx, "_main_module"):
+            storage_db = getattr(ctx, "storage_db", None)
+        if storage_db and hasattr(storage_db, "get_kv"):
+            try:
+                raw = storage_db.get_kv("xray_saved_tracks", profile_id, default=[])
+                if isinstance(raw, list):
+                    return [dict(x) for x in raw if isinstance(x, dict)]
+            except Exception:
+                pass
+        raw_mem = _XRAY_SAVED_TRACKS_MEM.get(profile_id, [])
+        if isinstance(raw_mem, list):
+            return [dict(x) for x in raw_mem if isinstance(x, dict)]
+        return []
 
 
 def _save_xray_tracks_list(ctx: Any, profile_id: str, items: List[Dict[str, Any]]) -> None:
     profile_id = _norm_xray_profile_id(profile_id, ctx)
     clean = [dict(x) for x in items if isinstance(x, dict)][:250]
-    d = getattr(ctx, "__dict__", {})
-    storage_db = d.get("storage_db") if isinstance(d, dict) and "storage_db" in d else getattr(type(ctx), "storage_db", None)
-    if storage_db is None and not hasattr(ctx, "_main_module"):
-        storage_db = getattr(ctx, "storage_db", None)
-    if storage_db and hasattr(storage_db, "set_kv"):
-        try:
-            storage_db.set_kv("xray_saved_tracks", profile_id, clean)
-        except Exception:
-            pass
-    if profile_id not in _XRAY_SAVED_TRACKS_MEM and len(_XRAY_SAVED_TRACKS_MEM) >= 32:
-        oldest_prof = next(iter(_XRAY_SAVED_TRACKS_MEM))
-        _XRAY_SAVED_TRACKS_MEM.pop(oldest_prof, None)
-    _XRAY_SAVED_TRACKS_MEM[profile_id] = clean
+    with _XRAY_SAVED_TRACKS_LOCK:
+        d = getattr(ctx, "__dict__", {})
+        storage_db = d.get("storage_db") if isinstance(d, dict) and "storage_db" in d else getattr(type(ctx), "storage_db", None)
+        if storage_db is None and not hasattr(ctx, "_main_module"):
+            storage_db = getattr(ctx, "storage_db", None)
+        if storage_db and hasattr(storage_db, "set_kv"):
+            try:
+                storage_db.set_kv("xray_saved_tracks", profile_id, clean)
+            except Exception:
+                pass
+        if profile_id not in _XRAY_SAVED_TRACKS_MEM and len(_XRAY_SAVED_TRACKS_MEM) >= 32:
+            oldest_prof = next(iter(_XRAY_SAVED_TRACKS_MEM))
+            _XRAY_SAVED_TRACKS_MEM.pop(oldest_prof, None)
+        _XRAY_SAVED_TRACKS_MEM[profile_id] = clean
 
 
 def _enrich_xray_payload_with_saved_tracks(payload: Dict[str, Any], ctx: Any) -> None:
@@ -1795,6 +1831,8 @@ def _enrich_xray_payload_with_saved_tracks(payload: Dict[str, Any], ctx: Any) ->
 
 
 def handle_xray_saved_tracks_get(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
+    if hasattr(handler, "_require_authorized_client_if_lan") and not handler._require_authorized_client_if_lan():
+        return True
     prof_id = _norm_xray_profile_id(qs.get("profile_id", [""])[0], ctx)
     saved = _get_saved_xray_tracks(ctx, prof_id)
     handler._send_json(
@@ -1820,37 +1858,38 @@ def handle_xray_saved_tracks_post(handler: Any, qs: Dict[str, Any], parsed: Any,
     if not title and not track_in.get("track_id"):
         handler._send_json({"ok": False, "error": "Track title is required"}, status=400)
         return True
-    saved = _get_saved_xray_tracks(ctx, prof_id)
-    existing_idx = next(
-        (idx for idx, item in enumerate(saved) if str(item.get("track_id") or _compute_xray_track_id(item)) == track_id),
-        -1,
-    )
-    if action == "remove" or (action == "toggle" and existing_idx >= 0):
-        if existing_idx >= 0:
-            saved.pop(existing_idx)
-        is_saved = False
-    else:
-        entry = {
-            "track_id": track_id,
-            "title": title or str((saved[existing_idx] if existing_idx >= 0 else {}).get("title") or ""),
-            "artist": artist or str((saved[existing_idx] if existing_idx >= 0 else {}).get("artist") or ""),
-            "album": str(track_in.get("album") or "").strip()[:240],
-            "scene": str(track_in.get("scene") or "").strip()[:500],
-            "media_title": str(track_in.get("media_title") or body.get("media_title") or "").strip()[:240],
-            "media_id": str(track_in.get("media_id") or body.get("media_id") or "").strip()[:120],
-            "preview_url": _clean_xray_http_url(track_in.get("preview_url")),
-            "artwork_url": _clean_xray_http_url(track_in.get("artwork_url")),
-            "apple_music_url": _clean_xray_http_url(track_in.get("apple_music_url")),
-            "spotify_url": _clean_xray_http_url(track_in.get("spotify_url")),
-            "youtube_url": _clean_xray_http_url(track_in.get("youtube_url")),
-            "saved_at": int(time.time()),
-        }
-        if existing_idx >= 0:
-            saved[existing_idx] = entry
+    with _XRAY_SAVED_TRACKS_LOCK:
+        saved = _get_saved_xray_tracks(ctx, prof_id)
+        existing_idx = next(
+            (idx for idx, item in enumerate(saved) if str(item.get("track_id") or _compute_xray_track_id(item)) == track_id),
+            -1,
+        )
+        if action == "remove" or (action == "toggle" and existing_idx >= 0):
+            if existing_idx >= 0:
+                saved.pop(existing_idx)
+            is_saved = False
         else:
-            saved.insert(0, entry)
-        is_saved = True
-    _save_xray_tracks_list(ctx, prof_id, saved)
+            entry = {
+                "track_id": track_id,
+                "title": title or str((saved[existing_idx] if existing_idx >= 0 else {}).get("title") or ""),
+                "artist": artist or str((saved[existing_idx] if existing_idx >= 0 else {}).get("artist") or ""),
+                "album": str(track_in.get("album") or "").strip()[:240],
+                "scene": str(track_in.get("scene") or "").strip()[:500],
+                "media_title": str(track_in.get("media_title") or body.get("media_title") or "").strip()[:240],
+                "media_id": str(track_in.get("media_id") or body.get("media_id") or "").strip()[:120],
+                "preview_url": _clean_xray_http_url(track_in.get("preview_url")),
+                "artwork_url": _clean_xray_http_url(track_in.get("artwork_url")),
+                "apple_music_url": _clean_xray_http_url(track_in.get("apple_music_url")),
+                "spotify_url": _clean_xray_http_url(track_in.get("spotify_url")),
+                "youtube_url": _clean_xray_http_url(track_in.get("youtube_url")),
+                "saved_at": int(time.time()),
+            }
+            if existing_idx >= 0:
+                saved[existing_idx] = entry
+            else:
+                saved.insert(0, entry)
+            is_saved = True
+        _save_xray_tracks_list(ctx, prof_id, saved)
     handler._send_json(
         {
             "ok": True,

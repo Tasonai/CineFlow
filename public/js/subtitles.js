@@ -1,5 +1,5 @@
-import { profileStorageKey, state } from "./state.js?v=20261111v1";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261111v1";
+import { profileStorageKey, state } from "./state.js?v=20261111v2";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261111v2";
 import {
   clampStagePopover,
   escapeAttr,
@@ -10,9 +10,9 @@ import {
   showToast,
   showVideoOsd,
   syncScrollTopButton,
-} from "./utils.js?v=20261111v1";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261111v1";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v1";
+} from "./utils.js?v=20261111v2";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261111v2";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v2";
 import {
   clearAutoplayNextTimer,
   clearRemuxDurationPoll,
@@ -24,7 +24,7 @@ import {
   renderTimelineBookmarks,
   syncCustomControlPopovers,
   syncVcPopoverOpenClass,
-} from "./player.js?v=20261111v1";
+} from "./player.js?v=20261111v2";
 
 export function formatSubtitleOffsetLabel(sec = state.subtitleOffsetSec) {
   const num = Math.round((Number(sec) || 0) * 100) / 100;
@@ -732,12 +732,13 @@ export function exportVocabularyToAnkiTsv() {
     ["#tags:Velarium vocabulary"],
   ];
   list.forEach((item) => {
-    const w = String(item.word || "").replace(/\t/g, " ");
-    const tr = String(item.translation || "").replace(/\t/g, " ");
-    const ctx = String(item.context || "").replace(/\t/g, " ");
-    const tit = String(item.title || "").replace(/\t/g, " ");
+    const cleanField = (val) => escapeHtml(String(val || "").replace(/[\t\r\n]+/g, " ").trim());
+    const w = cleanField(item.word);
+    const tr = cleanField(item.translation);
+    const ctx = cleanField(item.context);
+    const tit = cleanField(item.title);
     const alts = Array.isArray(item.alternatives) && item.alternatives.length > 0
-      ? ` (${item.alternatives.join(", ")})`
+      ? ` (${item.alternatives.map((a) => cleanField(a)).filter(Boolean).join(", ")})`
       : "";
     const backHtml = ctx
       ? `<b>${tr}${alts}</b><br><small><i>${ctx}</i></small>`
@@ -1784,11 +1785,21 @@ export function bindSubtitleFileAndDropListeners() {
         const video = document.getElementById("native-video");
         if (video) {
           revokeLocalVideoBlobUrl(video);
+          if (state.remuxSeekDebounceTimer) {
+            clearTimeout(state.remuxSeekDebounceTimer);
+            state.remuxSeekDebounceTimer = null;
+          }
+          if (state.audioOffsetReloadTimerId) {
+            clearTimeout(state.audioOffsetReloadTimerId);
+            state.audioOffsetReloadTimerId = null;
+          }
           clearVideoStallWatchdog();
           clearSeamlessEpisodeBridge(true);
           clearRemuxDurationPoll();
           clearAutoplayNextTimer();
           hideXRayPauseShelf();
+          document.getElementById("video-loader")?.classList.add("hidden");
+          document.getElementById("video-error")?.classList.add("hidden");
           const cleanName = videoFile.name.replace(/\.[^/.]+$/, "");
           const objUrl = URL.createObjectURL(videoFile);
           video._cfLocalBlobUrl = objUrl;
@@ -1822,6 +1833,7 @@ export function bindSubtitleFileAndDropListeners() {
             subtitleTracks: [],
           };
           state.subtitles = [];
+          state.customExternalSubtitles = [];
           state.activeSubtitleIndex = -1;
           clearCustomSubtitleOverlay(false);
           populateSubtitlesSelector([]);

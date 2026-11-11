@@ -190,7 +190,10 @@ def get_similar_catalog_items(
         return []
 
     rated_high = sum(1 for r in raw_list if isinstance(r.get("kinorium_rating"), (int, float)) and float(r["kinorium_rating"]) >= 6.0)
-    friends_by_kid = self.state.get("friends_ratings_by_kid") or {}
+    with self._state_lock:
+        friends_by_kid = dict(self.state.get("friends_ratings_by_kid") or {})
+        critics_by_kid = dict(self.state.get("critics_by_kid") or {})
+        by_kid_snap = dict(self._by_kid)
     scored: List[tuple] = []
 
     for idx, raw in enumerate(raw_list):
@@ -214,12 +217,12 @@ def get_similar_catalog_items(
         if k_status.get("not_watching"):
             continue
 
-        rem_entry = self._by_kid.get(skid) or {}
+        rem_entry = by_kid_snap.get(skid) or {}
         genres = list(rem_entry.get("genres") or (["Сериал"] if mtype == "series" else ["Фильм"]))
         imdb_val = float(rem_entry.get("imdb_rating") or kr_num)
         critics_val = rem_entry.get("critics_rating")
         if critics_val is None:
-            c_cached = (self.state.get("critics_by_kid") or {}).get(skid)
+            c_cached = critics_by_kid.get(skid)
             if isinstance(c_cached, int) and c_cached > 0:
                 critics_val = c_cached
 

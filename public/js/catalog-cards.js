@@ -2,14 +2,14 @@
 // Handles poster card rendering, poster image fallbacks, smart badges,
 // live trailer hover previews, and the card action context menu.
 
-import { state } from "./state.js?v=20261111v1";
+import { state } from "./state.js?v=20261111v2";
 import {
   displayPoster,
   displayTitle,
   formatCriticsRating,
   isEn,
   t,
-} from "./i18n.js?v=20261111v1";
+} from "./i18n.js?v=20261111v2";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -19,24 +19,25 @@ import {
   iconSvg,
   pluralRu,
   showToast,
-} from "./utils.js?v=20261111v1";
+  withKinoriumActionLock,
+} from "./utils.js?v=20261111v2";
 import {
   openPlayerModal,
-} from "./player.js?v=20261111v1";
+} from "./player.js?v=20261111v2";
 import {
   openTvCastModal,
-} from "./features.js?v=20261111v1";
+} from "./features.js?v=20261111v2";
 import {
   openQuickPeekModal,
-} from "./modals.js?v=20261111v1";
+} from "./modals.js?v=20261111v2";
 import {
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
   resolvePreferredPlayTab,
   getFriendsAverageScore,
   patchCatalogItemKinoriumInPlace,
-} from "./catalog-media-resolver.js?v=20261111v1";
-import { stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261111v1";
+} from "./catalog-media-resolver.js?v=20261111v2";
+import { stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261111v2";
 
 export function buildPosterBadgesHtml(item, precomputedEpInfo = null) {
   const offlineSaved = findOfflineDownloadForTitle(item);
@@ -94,7 +95,7 @@ export function buildPosterBadgesHtml(item, precomputedEpInfo = null) {
     : "";
 
   const scoreBadge = kStatus.user_rating
-    ? `<div class="atv-user-score-badge" title="${t("Ваша оценка в Kinorium", "Your Kinorium rating")}">${iconSvg("star", 10)}<span>${kStatus.user_rating}</span></div>`
+    ? `<div class="atv-user-score-badge" title="${t("Ваша оценка в Kinorium", "Your Kinorium rating")}">${iconSvg("star", 10)}<span>${escapeHtml(String(kStatus.user_rating))}</span></div>`
     : "";
 
   const leftBadges = statusBadge && offlineBadge
@@ -349,101 +350,125 @@ export function openCardContextMenu(e, item, cardEl) {
         const info = resolveSeriesEpisodeInfo(item);
         openPlayerModal(item, "trailer", info.season, info.episode, info.currentTime);
       } else if (act === "watchlist") {
-        try {
-          const payload = {
-            id: item.id || "",
-            kinorium_id: String(item.kinorium?.kinorium_id || item.kinorium_id || ""),
-            rezka_id: String(item.rezka_id || ""),
-            rezka_url: String(item.rezka_url || ""),
-            title: item.title || "",
-            orig_title: item.orig_title || "",
-            year: item.year || "",
-            media_type: item.media_type || "movie",
-            in_watchlist: !inWatchlist,
-          };
-          const res = await fetch("/api/kinorium/watchlist", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-          const kRes = await res.json();
-          if (!res.ok || kRes?.ok === false || kRes?.error) {
-            throw new Error(kRes?.error || `HTTP ${res.status}`);
-          }
-          patchCatalogItemKinoriumInPlace(item, kRes);
-          showToast(
-            !inWatchlist
-              ? t("Добавлено в список «Буду смотреть»", "Added to Watchlist")
-              : t("Удалено из списка «Буду смотреть»", "Removed from Watchlist"),
-            {
-              undoText: t("Отменить", "Undo"),
-              durationMs: 5000,
-              onUndo: async () => {
-                try {
-                  const uRes = await fetch("/api/kinorium/watchlist", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ ...payload, in_watchlist: inWatchlist }),
-                  });
-                  const uData = await uRes.json();
-                  if (uRes.ok && uData?.ok !== false && !uData?.error) {
-                    patchCatalogItemKinoriumInPlace(item, uData);
-                  }
-                } catch (err) { window.logDebug?.("CatalogCards", err); }
-              },
+        await withKinoriumActionLock(item, async () => {
+          const reqProfileId = state.activeProfileId || "default";
+          try {
+            const payload = {
+              id: item.id || "",
+              kinorium_id: String(item.kinorium?.kinorium_id || item.kinorium_id || ""),
+              rezka_id: String(item.rezka_id || ""),
+              rezka_url: String(item.rezka_url || ""),
+              title: item.title || "",
+              orig_title: item.orig_title || "",
+              year: item.year || "",
+              media_type: item.media_type || "movie",
+              in_watchlist: !inWatchlist,
+            };
+            const res = await fetch("/api/kinorium/watchlist", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            const kRes = await res.json();
+            if (!res.ok || kRes?.ok === false || kRes?.error) {
+              throw new Error(kRes?.error || `HTTP ${res.status}`);
             }
-          );
-        } catch (err) {
-          showToast(err?.message || t("Ошибка связи с Kinorium", "Kinorium connection error"));
-        }
+            if ((state.activeProfileId || "default") !== reqProfileId) return;
+            patchCatalogItemKinoriumInPlace(item, kRes);
+            showToast(
+              !inWatchlist
+                ? t("Добавлено в список «Буду смотреть»", "Added to Watchlist")
+                : t("Удалено из списка «Буду смотреть»", "Removed from Watchlist"),
+              {
+                undoText: t("Отменить", "Undo"),
+                durationMs: 5000,
+                onUndo: async () => {
+                  await withKinoriumActionLock(item, async () => {
+                    try {
+                      if ((state.activeProfileId || "default") !== reqProfileId) return;
+                      const uRes = await fetch("/api/kinorium/watchlist", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ ...payload, in_watchlist: inWatchlist }),
+                      });
+                      const uData = await uRes.json();
+                      if (
+                        (state.activeProfileId || "default") === reqProfileId &&
+                        uRes.ok &&
+                        uData?.ok !== false &&
+                        !uData?.error
+                      ) {
+                        patchCatalogItemKinoriumInPlace(item, uData);
+                      }
+                    } catch (err) { window.logDebug?.("CatalogCards", err); }
+                  });
+                },
+              }
+            );
+          } catch (err) {
+            showToast(err?.message || t("Ошибка связи с Kinorium", "Kinorium connection error"));
+          }
+        });
       } else if (act === "watched") {
-        try {
-          const payload = {
-            id: item.id || "",
-            kinorium_id: String(item.kinorium?.kinorium_id || item.kinorium_id || ""),
-            rezka_id: String(item.rezka_id || ""),
-            rezka_url: String(item.rezka_url || ""),
-            title: item.title || "",
-            orig_title: item.orig_title || "",
-            year: item.year || "",
-            media_type: item.media_type || "movie",
-            watched: !isWatched,
-          };
-          const res = await fetch("/api/kinorium/watched", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-          const kRes = await res.json();
-          if (!res.ok || kRes?.ok === false || kRes?.error) {
-            throw new Error(kRes?.error || `HTTP ${res.status}`);
-          }
-          patchCatalogItemKinoriumInPlace(item, kRes);
-          showToast(
-            !isWatched
-              ? t("Отмечено просмотренным", "Marked as watched")
-              : t("Снята отметка просмотра", "Unmarked as watched"),
-            {
-              undoText: t("Отменить", "Undo"),
-              durationMs: 5000,
-              onUndo: async () => {
-                try {
-                  const uRes = await fetch("/api/kinorium/watched", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ ...payload, watched: isWatched }),
-                  });
-                  const uData = await uRes.json();
-                  if (uRes.ok && uData?.ok !== false && !uData?.error) {
-                    patchCatalogItemKinoriumInPlace(item, uData);
-                  }
-                } catch (err) { window.logDebug?.("CatalogCards", err); }
-              },
+        await withKinoriumActionLock(item, async () => {
+          const reqProfileId = state.activeProfileId || "default";
+          try {
+            const payload = {
+              id: item.id || "",
+              kinorium_id: String(item.kinorium?.kinorium_id || item.kinorium_id || ""),
+              rezka_id: String(item.rezka_id || ""),
+              rezka_url: String(item.rezka_url || ""),
+              title: item.title || "",
+              orig_title: item.orig_title || "",
+              year: item.year || "",
+              media_type: item.media_type || "movie",
+              watched: !isWatched,
+            };
+            const res = await fetch("/api/kinorium/watched", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            const kRes = await res.json();
+            if (!res.ok || kRes?.ok === false || kRes?.error) {
+              throw new Error(kRes?.error || `HTTP ${res.status}`);
             }
-          );
-        } catch (err) {
-          showToast(err?.message || t("Ошибка связи с Kinorium", "Kinorium connection error"));
-        }
+            if ((state.activeProfileId || "default") !== reqProfileId) return;
+            patchCatalogItemKinoriumInPlace(item, kRes);
+            showToast(
+              !isWatched
+                ? t("Отмечено просмотренным", "Marked as watched")
+                : t("Снята отметка просмотра", "Unmarked as watched"),
+              {
+                undoText: t("Отменить", "Undo"),
+                durationMs: 5000,
+                onUndo: async () => {
+                  await withKinoriumActionLock(item, async () => {
+                    try {
+                      if ((state.activeProfileId || "default") !== reqProfileId) return;
+                      const uRes = await fetch("/api/kinorium/watched", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ ...payload, watched: isWatched }),
+                      });
+                      const uData = await uRes.json();
+                      if (
+                        (state.activeProfileId || "default") === reqProfileId &&
+                        uRes.ok &&
+                        uData?.ok !== false &&
+                        !uData?.error
+                      ) {
+                        patchCatalogItemKinoriumInPlace(item, uData);
+                      }
+                    } catch (err) { window.logDebug?.("CatalogCards", err); }
+                  });
+                },
+              }
+            );
+          } catch (err) {
+            showToast(err?.message || t("Ошибка связи с Kinorium", "Kinorium connection error"));
+          }
+        });
       } else if (act === "tv") {
         openTvCastModal(null, "tv", item);
       } else if (act === "share") {

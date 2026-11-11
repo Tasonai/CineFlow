@@ -85,25 +85,15 @@ class LocalVaultCipher:
                 except Exception:
                     pass
             set_private_file_permissions(tmp_path, is_dir=False)
-            if sys.platform != "win32":
-                try:
-                    os.link(tmp_path, self.key_path)
-                except OSError as exc:
-                    if isinstance(exc, FileExistsError):
-                        raise
-                    if not os.path.exists(self.key_path):
-                        os.replace(tmp_path, self.key_path)
-                    else:
-                        raise FileExistsError()
-            else:
-                fd_win = os.open(
-                    self.key_path,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
-                    0o600,
-                )
-                with os.fdopen(fd_win, "wb") as fw:
-                    fw.write(key)
-                    fw.flush()
+            try:
+                os.link(tmp_path, self.key_path)
+            except OSError as exc:
+                if isinstance(exc, FileExistsError):
+                    raise
+                if not os.path.exists(self.key_path):
+                    os.replace(tmp_path, self.key_path)
+                else:
+                    raise FileExistsError()
             set_private_file_permissions(self.key_path, is_dir=False)
         except FileExistsError:
             # Another process/thread published the key concurrently: read theirs

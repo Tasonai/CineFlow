@@ -1,5 +1,5 @@
-import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261111v1";
-import { isEn, t } from "./i18n.js?v=20261111v1";
+import { ACTIVE_PROFILE_STORAGE_KEY, state } from "./state.js?v=20261111v2";
+import { isEn, t } from "./i18n.js?v=20261111v2";
 import {
   clampFloatingPopover,
   closeCustomSelectMenu,
@@ -16,14 +16,14 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261111v1";
+} from "./utils.js?v=20261111v2";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
   applyVideoCropToVideo,
   getPlayerPrefs,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261111v1";
+} from "./audio-dsp.js?v=20261111v2";
 import {
   applyEnabledServicesVisibility,
   clearCatalogFrontendCache,
@@ -32,23 +32,23 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261111v1";
+} from "./catalog.js?v=20261111v2";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261111v1";
-import { closePlayerModal } from "./player.js?v=20261111v1";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261111v1";
+} from "./modals.js?v=20261111v2";
+import { closePlayerModal } from "./player.js?v=20261111v2";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261111v2";
 import {
   renderIntegrationsList,
   updateBackupSummaryStat,
-} from "./settings.js?v=20261111v1";
+} from "./settings.js?v=20261111v2";
 import {
   refreshDownloadsState,
   syncDownloadsHeaderBadge,
-} from "./features-downloads.js?v=20261111v1";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v1";
+} from "./features-downloads.js?v=20261111v2";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v2";
 
 export const PROFILE_COLOR_SWATCHES = [
   "#0A84FF",
@@ -672,6 +672,11 @@ export async function switchActiveProfile(profileId, verifiedPin = "") {
       showToast(data.error || t("Не удалось переключить профиль", "Could not switch profile"));
       return;
     }
+    if (state.kinoriumOneClickPollTimer) {
+      clearInterval(state.kinoriumOneClickPollTimer);
+      state.kinoriumOneClickPollTimer = null;
+    }
+    state.kinoriumOneClickPolling = false;
     if (state.isPlayerOpen) {
       closePlayerModal(true, true);
     }

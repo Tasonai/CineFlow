@@ -614,7 +614,7 @@ class DoHSplitNetworkClient:
         is_post = method.upper() == "POST"
         with self._anubis_lock:
             solved = self._solve_anubis_challenge(
-                body, final_url, opener, merged_headers, skip_target_get=is_post
+                body, final_url, opener, merged_headers, skip_target_get=True
             )
         if not solved:
             return None
@@ -629,20 +629,23 @@ class DoHSplitNetworkClient:
             "_final_url": final_url2,
             "_raw_bytes": bytes(raw_solved_bytes),
         }
-        if is_post:
+        if is_post or not body2:
             req_retry = urllib.request.Request(
-                target_url, data=data, headers=merged_headers, method="POST"
+                target_url if is_post else (final_url or target_url),
+                data=data if is_post else None,
+                headers=merged_headers,
+                method="POST" if is_post else "GET",
             )
-            with opener.open(req_retry, timeout=timeout) as resp_post:
-                raw_post = resp_post.read(self.MAX_DECOMPRESSED_BYTES)
-                dec_post_bytes = self._decompress_bytes(
-                    raw_post, resp_post.headers.get("Content-Encoding", "")
+            with opener.open(req_retry, timeout=timeout) as resp_retry:
+                raw_retry = resp_retry.read(self.MAX_DECOMPRESSED_BYTES)
+                dec_retry_bytes = self._decompress_bytes(
+                    raw_retry, resp_retry.headers.get("Content-Encoding", "")
                 )
-                body_post = dec_post_bytes.decode("utf-8", errors="replace") if dec_post_bytes else ""
-                post_headers = dict(resp_post.headers)
-                post_headers["_final_url"] = resp_post.geturl() or final_url2
-                post_headers["_raw_bytes"] = dec_post_bytes
-                return resp_post.status, body_post, post_headers
+                body_retry = dec_retry_bytes.decode("utf-8", errors="replace") if dec_retry_bytes else ""
+                retry_headers = dict(resp_retry.headers)
+                retry_headers["_final_url"] = resp_retry.geturl() or final_url2
+                retry_headers["_raw_bytes"] = dec_retry_bytes
+                return resp_retry.status, body_retry, retry_headers
         return status2, body2, resp_headers
 
     def _execute_once(
@@ -870,7 +873,13 @@ class DoHSplitNetworkClient:
         if clean_proxy:
             p_prx = urllib.parse.urlparse(clean_proxy)
             prx_host = (p_prx.hostname or "").strip().lower().rstrip(".")
-            if p_prx.scheme not in ("http", "https") or not prx_host or prx_host in ("0.0.0.0", "169.254.169.254"):
+            if (
+                p_prx.scheme not in ("http", "https")
+                or not prx_host
+                or prx_host in ("0.0.0.0", "::", "169.254.169.254")
+                or prx_host.startswith(("169.254.", "fe80:"))
+                or (prx_host in ("127.0.0.1", "localhost", "::1") and p_prx.port == 8765)
+            ):
                 clean_proxy = ""
 
         target_url = clean_url

@@ -10,14 +10,14 @@ import {
   profileStorageKey,
   profileStorageKeyFor,
   state,
-} from "./state.js?v=20261111v1";
+} from "./state.js?v=20261111v2";
 import {
   applyStaticDomTranslations,
   displayAddonDescription,
   isEn,
   syncLanguageSegmentedControlUI,
   t,
-} from "./i18n.js?v=20261111v1";
+} from "./i18n.js?v=20261111v2";
 import {
   closeCustomSelectMenu,
   copyTextToClipboard,
@@ -33,32 +33,32 @@ import {
   syncAllCustomSelects,
   syncCustomSelect,
   syncScrollTopButton,
-} from "./utils.js?v=20261111v1";
-import { applyEnabledServicesVisibility, isServiceEnabled } from "./catalog-media-resolver.js?v=20261111v1";
+} from "./utils.js?v=20261111v2";
+import { applyEnabledServicesVisibility, isServiceEnabled } from "./catalog-media-resolver.js?v=20261111v2";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261111v1";
-import { renderHero } from "./catalog-hero.js?v=20261111v1";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261111v1";
+} from "./catalog-shelves.js?v=20261111v2";
+import { renderHero } from "./catalog-hero.js?v=20261111v2";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261111v2";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
-} from "./catalog-filters.js?v=20261111v1";
+} from "./catalog-filters.js?v=20261111v2";
 import {
   clearCatalogFrontendCache,
   loadCatalog,
   renderLoginBannerIfNeeded,
   updateFriendsFilterDropdown,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261111v1";
-import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261111v1";
-import { loadStremioStreams } from "./player-streams.js?v=20261111v1";
-import { renderModalProvidersSidebar } from "./player-meta.js?v=20261111v1";
+} from "./catalog.js?v=20261111v2";
+import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261111v2";
+import { loadStremioStreams } from "./player-streams.js?v=20261111v2";
+import { renderModalProvidersSidebar } from "./player-meta.js?v=20261111v2";
 import {
   refreshOpenPlayerLanguageUI,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261111v1";
+} from "./player.js?v=20261111v2";
 import {
   applyProfilesPayload,
   ensureKidsPinVerifiedForAdminAction,
@@ -71,12 +71,12 @@ import {
   renderProfilesModalUI,
   renderTvCastModalUI,
   startOneClickKinoriumLogin,
-} from "./features.js?v=20261111v1";
+} from "./features.js?v=20261111v2";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   syncDesktopConnectedRemotesUI,
-} from "./remote.js?v=20261111v1";
+} from "./remote.js?v=20261111v2";
 import {
   changeUserCountryInstant,
   closeOnboardingModal,
@@ -87,7 +87,7 @@ import {
   setOnboardingStep,
   skipOnboardingModal,
   submitOnboardingModal,
-} from "./settings-onboarding.js?v=20261111v1";
+} from "./settings-onboarding.js?v=20261111v2";
 import {
   buildFullBackupPayload,
   checkAppUpdates,
@@ -99,7 +99,7 @@ import {
   saveUpdaterSettingsImmediate,
   startAppUpdateDownload,
   updateBackupSummaryStat,
-} from "./settings-updater.js?v=20261111v1";
+} from "./settings-updater.js?v=20261111v2";
 
 export {
   buildFullBackupPayload,
@@ -1097,7 +1097,7 @@ export async function triggerLanSync() {
     let localBookmarks = [];
     try {
       const bms =
-        localStorage.getItem(profileStorageKey(BOOKMARKS_STORAGE_KEY)) ||
+        localStorage.getItem(profileStorageKeyFor(BOOKMARKS_STORAGE_KEY, activeProf)) ||
         localStorage.getItem("velarium_moments") ||
         localStorage.getItem("saved_moments");
       if (bms) localBookmarks = JSON.parse(bms);
@@ -1105,7 +1105,7 @@ export async function triggerLanSync() {
 
     let localPreferredStudios = {};
     try {
-      const rawStudios = localStorage.getItem(profileStorageKey(PREFERRED_STUDIOS_STORAGE_KEY));
+      const rawStudios = localStorage.getItem(profileStorageKeyFor(PREFERRED_STUDIOS_STORAGE_KEY, activeProf));
       if (rawStudios) localPreferredStudios = JSON.parse(rawStudios) || {};
     } catch (err) { window.logDebug?.("Settings", err); }
 
@@ -1134,22 +1134,23 @@ export async function triggerLanSync() {
     try {
       if (Array.isArray(mergeData.watch_history) && mergeData.watch_history.length > 0) {
         localStorage.setItem(
-          profileStorageKey(WATCH_HISTORY_STORAGE_KEY),
+          profileStorageKeyFor(WATCH_HISTORY_STORAGE_KEY, activeProf),
           JSON.stringify(mergeData.watch_history.slice(0, 150))
         );
       }
       if (Array.isArray(mergeData.bookmarks) && mergeData.bookmarks.length > 0) {
         localStorage.setItem(
-          profileStorageKey(BOOKMARKS_STORAGE_KEY),
+          profileStorageKeyFor(BOOKMARKS_STORAGE_KEY, activeProf),
           JSON.stringify(mergeData.bookmarks.slice(0, 500))
         );
       }
       if (mergeData.preferred_studios && typeof mergeData.preferred_studios === "object") {
         localStorage.setItem(
-          profileStorageKey(PREFERRED_STUDIOS_STORAGE_KEY),
+          profileStorageKeyFor(PREFERRED_STUDIOS_STORAGE_KEY, activeProf),
           JSON.stringify(mergeData.preferred_studios)
         );
       }
+      invalidateLocalCaches();
     } catch (err) { window.logDebug?.("Settings", err); }
 
     if (statusEl) {
@@ -1282,6 +1283,7 @@ export async function openSettingsModal(initialTab = "integrations", focusKinori
   }
   const settingsAbort = typeof AbortController !== "undefined" ? new AbortController() : null;
   _settingsLoadAbort = settingsAbort;
+  const reqProfileId = state.activeProfileId || "main";
   let res;
   try {
     res = await fetch(
@@ -1292,8 +1294,9 @@ export async function openSettingsModal(initialTab = "integrations", focusKinori
     if (err && err.name === "AbortError") return;
     res = { ok: false };
   }
-  if (settingsAbort && settingsAbort.signal.aborted) return;
+  if ((settingsAbort && settingsAbort.signal.aborted) || (state.activeProfileId || "main") !== reqProfileId) return;
   const cfg = res.ok ? await res.json().catch(() => ({})) : {};
+  if ((state.activeProfileId || "main") !== reqProfileId) return;
   if (cfg.integrations) {
     state.integrations = cfg.integrations;
   }

@@ -14,6 +14,7 @@ _SUBPROC_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _FFMPEG_NET_WHITELIST = "http,https,tcp,tls,crypto,data,httpproxy"
 _CTRL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 _WS_CHAR_RE = re.compile(r"\s")
+_DUB_WORD_RE = re.compile(r"\bdub(?:bed|bing)?\b")
 
 
 def _is_valid_ffmpeg_http_url(url: str) -> bool:
@@ -259,31 +260,33 @@ class RemuxStreamEngine:
         return caps
 
     def get_hw_capabilities(self) -> Dict[str, Any]:
+        with _HW_CAPS_CACHE_LOCK:
+            hw_caps = dict(self._hw_caps)
         active = bool(
-            self._hw_caps.get("videotoolbox_hwaccel")
-            or self._hw_caps.get("d3d11va_hwaccel")
-            or self._hw_caps.get("cuda_hwaccel")
-            or self._hw_caps.get("h264_videotoolbox")
-            or self._hw_caps.get("h264_nvenc")
-            or self._hw_caps.get("h264_qsv")
-            or self._hw_caps.get("h264_amf")
-            or self._hw_caps.get("aac_at")
+            hw_caps.get("videotoolbox_hwaccel")
+            or hw_caps.get("d3d11va_hwaccel")
+            or hw_caps.get("cuda_hwaccel")
+            or hw_caps.get("h264_videotoolbox")
+            or hw_caps.get("h264_nvenc")
+            or hw_caps.get("h264_qsv")
+            or hw_caps.get("h264_amf")
+            or hw_caps.get("aac_at")
         )
         parts: List[str] = []
-        if self._hw_caps.get("h264_videotoolbox") or self._hw_caps.get("videotoolbox_hwaccel"):
+        if hw_caps.get("h264_videotoolbox") or hw_caps.get("videotoolbox_hwaccel"):
             parts.append("VideoToolbox")
-        if self._hw_caps.get("aac_at"):
+        if hw_caps.get("aac_at"):
             parts.append("AudioToolbox")
-        if self._hw_caps.get("h264_nvenc") or self._hw_caps.get("cuda_hwaccel"):
+        if hw_caps.get("h264_nvenc") or hw_caps.get("cuda_hwaccel"):
             parts.append("NVIDIA NVENC")
-        elif self._hw_caps.get("h264_qsv"):
+        elif hw_caps.get("h264_qsv"):
             parts.append("Intel QuickSync")
-        elif self._hw_caps.get("h264_amf"):
+        elif hw_caps.get("h264_amf"):
             parts.append("AMD AMF")
-        elif self._hw_caps.get("d3d11va_hwaccel"):
+        elif hw_caps.get("d3d11va_hwaccel"):
             parts.append("Direct3D 11")
         return {
-            **self._hw_caps,
+            **hw_caps,
             "active": active,
             "summary": " + ".join(parts) if parts else "Software FFmpeg",
         }
@@ -407,7 +410,7 @@ class RemuxStreamEngine:
         for tr in audio_tracks:
             lbl_low = str(tr.get("label") or "").lower()
             tr_lang = str(tr.get("lang") or "").lower()
-            if tr_lang in ("", "und") and re.search(r"\bdub(?:bed|bing)?\b", lbl_low):
+            if tr_lang in ("", "und") and _DUB_WORD_RE.search(lbl_low):
                 return int(tr["audio_index"])
         return 0
 
@@ -516,7 +519,7 @@ class RemuxStreamEngine:
                 if cached.get("_failed"):
                     ttl = 5.0
                 else:
-                    ttl = self._probe_ttl_sec if cached_dur > 1.0 else (3.5 if fast_probe else 0.0)
+                    ttl = self._probe_ttl_sec if cached_dur > 1.0 else (3.5 if (fast_probe or not cached.get("_fast_probed")) else 0.0)
                 if ttl > 0 and (now - cached.get("_ts", 0)) < ttl:
                     if cached.get("_failed"):
                         return {k: v for k, v in cached.items() if not str(k).startswith("_")}
@@ -539,7 +542,7 @@ class RemuxStreamEngine:
                     if cached.get("_failed") and (now_after - cached.get("_ts", 0)) < 5.0:
                         return {k: v for k, v in cached.items() if not str(k).startswith("_")}
                     cached_dur_after = float(cached.get("duration") or 0.0)
-                    ttl_after = self._probe_ttl_sec if cached_dur_after > 1.0 else (3.5 if fast_probe else 0.0)
+                    ttl_after = self._probe_ttl_sec if cached_dur_after > 1.0 else (3.5 if (fast_probe or not cached.get("_fast_probed")) else 0.0)
                     if not cached.get("_failed") and ttl_after > 0 and (now_after - cached.get("_ts", 0)) < ttl_after:
                         return self._localize_probe_payload(cached, ui_lang=ui_lang)
 
@@ -863,6 +866,10 @@ class RemuxStreamEngine:
         elif subtitle_index is not None and int(subtitle_index) >= 0 and not any(ch in clean_src for ch in ("'", ",", ";", "[", "]")):
             esc_src = clean_src.replace("\\", "/").replace("'", "'\\''").replace(":", "\\:")
             sub_filter = f"subtitles='{esc_src}':si={int(subtitle_index)}:force_style='FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,MarginV=25'"
+
+        if sub_filter and start_sec > 0.5:
+            shift_s = f"{start_sec:.2f}"
+            sub_filter = f"setpts=PTS+{shift_s}/TB,{sub_filter},setpts=PTS-{shift_s}/TB"
 
         need_video_transcode = bool(
             bool(sub_filter)

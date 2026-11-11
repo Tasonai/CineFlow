@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261111v1";
-import { t, isEn, displayTitle, hasCyrillicText } from "./i18n.js?v=20261111v1";
+import { state } from "./state.js?v=20261111v2";
+import { t, isEn, displayTitle, hasCyrillicText } from "./i18n.js?v=20261111v2";
 import {
   escapeHtml,
   iconSvg,
@@ -13,23 +13,23 @@ import {
   getEpisodeProgress,
   saveEpisodeProgress,
   syncCustomSelect,
-} from "./utils.js?v=20261111v1";
+} from "./utils.js?v=20261111v2";
 import {
   isEpisodeWatched,
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261111v1";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261111v1";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261111v1";
-import { sweepPendingDownloadCleanups } from "./features.js?v=20261111v1";
-import { syncCustomVideoControlsUI } from "./player-ui-controls.js?v=20261111v1";
-import { closeSubtitleDictPopover, syncSubtitleOffsetUI } from "./subtitles.js?v=20261111v1";
+} from "./catalog.js?v=20261111v2";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261111v2";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261111v2";
+import { sweepPendingDownloadCleanups } from "./features.js?v=20261111v2";
+import { syncCustomVideoControlsUI } from "./player-ui-controls.js?v=20261111v2";
+import { closeSubtitleDictPopover, syncSubtitleOffsetUI } from "./subtitles.js?v=20261111v2";
 import {
   getNextEpisodeCoords,
   clearAutoplayNextTimer,
   dismissPlayerNextEpisodeToast,
-} from "./player-autoplay.js?v=20261111v1";
+} from "./player-autoplay.js?v=20261111v2";
 
 const _RU_MONTH_MAP = {
   января: "Jan",
@@ -46,9 +46,9 @@ const _RU_MONTH_MAP = {
   декабря: "Dec",
 };
 const _RU_MONTH_RE = new RegExp(Object.keys(_RU_MONTH_MAP).join("|"), "gi");
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v1";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v1";
-import { reportScrobbleProgress } from "./player-scrobble.js?v=20261111v1";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v2";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v2";
+import { reportScrobbleProgress } from "./player-scrobble.js?v=20261111v2";
 import {
   loadBackup4KReleases,
   loadHDRezkaStream,
@@ -57,19 +57,19 @@ import {
   loadStremioStreams,
   resetVideoElementForStreamChange,
   switchSourceTab,
-} from "./player-streams.js?v=20261111v1";
-import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261111v1";
+} from "./player-streams.js?v=20261111v2";
+import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261111v2";
 import {
   OFFICIAL_STREAMING_SERVICES,
   syncMediaSessionMetadata,
   updateModalKinoriumHeader,
-} from "./player-meta.js?v=20261111v1";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261111v1";
+} from "./player-meta.js?v=20261111v2";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261111v2";
 import {
   hideXRayPauseShelf,
   closeBookmarkNoteDialog,
   renderTimelineBookmarks,
-} from "./player-bookmarks.js?v=20261111v1";
+} from "./player-bookmarks.js?v=20261111v2";
 
 export function hasStartedWatchingCurrentEpisode(item, seasonNum, epNum) {
   if (state.creditsOverlayShownThisEpisode) return true;
@@ -772,6 +772,14 @@ export async function switchToSeriesSeasonEpisode(targetSeason, targetEpisode) {
     skipOutroEl.querySelector(".atv-preload-ready-dot")?.remove();
   }
   clearAutoplayNextTimer();
+  if (state.remuxSeekDebounceTimer) {
+    clearTimeout(state.remuxSeekDebounceTimer);
+    state.remuxSeekDebounceTimer = null;
+  }
+  if (state.audioOffsetReloadTimerId) {
+    clearTimeout(state.audioOffsetReloadTimerId);
+    state.audioOffsetReloadTimerId = null;
+  }
   state._nextEpToastDismissed = false;
   state.autoplayCancelledThisEpisode = false;
   state.introSkippedThisEpisode = false;
@@ -861,6 +869,14 @@ export function syncEpisodesStripDrawerUI() {
 export async function stepEpisode(delta) {
   if (!state.activeItem || state.activeItem.media_type !== "series") return;
   dismissPlayerNextEpisodeToast(false);
+  if (state.remuxSeekDebounceTimer) {
+    clearTimeout(state.remuxSeekDebounceTimer);
+    state.remuxSeekDebounceTimer = null;
+  }
+  if (state.audioOffsetReloadTimerId) {
+    clearTimeout(state.audioOffsetReloadTimerId);
+    state.audioOffsetReloadTimerId = null;
+  }
   state._nextEpToastDismissed = false;
   const prevSeason = state.activeSeason;
   const prevEpisode = state.activeEpisode;
@@ -895,8 +911,14 @@ export async function stepEpisode(delta) {
       prevSeason,
       prevEpisode
     );
-    if (epIdx >= 0 && epIdx + 1 < curSeasonEps.length) {
-      state.activeEpisode = curSeasonEps[epIdx + 1];
+    const nextInCurSeason =
+      epIdx >= 0
+        ? epIdx + 1 < curSeasonEps.length
+          ? curSeasonEps[epIdx + 1]
+          : undefined
+        : curSeasonEps.find((ep) => ep > state.activeEpisode);
+    if (nextInCurSeason !== undefined) {
+      state.activeEpisode = nextInCurSeason;
     } else if (seasonIdx >= 0 && seasonIdx + 1 < seasonNumbers.length) {
       const nextS = seasonNumbers[seasonIdx + 1];
       const nextSeasonEps = filterReleasedEpisodesForSeason(
@@ -916,8 +938,14 @@ export async function stepEpisode(delta) {
       markOutgoingEpisodeWatched(state.activeItem, prevSeason, prevEpisode);
     }
   } else if (delta < 0) {
-    if (epIdx > 0) {
-      state.activeEpisode = curSeasonEps[epIdx - 1];
+    const prevInCurSeason =
+      epIdx > 0
+        ? curSeasonEps[epIdx - 1]
+        : epIdx === -1
+        ? [...curSeasonEps].reverse().find((ep) => ep < state.activeEpisode)
+        : undefined;
+    if (prevInCurSeason !== undefined) {
+      state.activeEpisode = prevInCurSeason;
     } else if (seasonIdx > 0) {
       const prevS = seasonNumbers[seasonIdx - 1];
       const prevSeasonEps = filterReleasedEpisodesForSeason(
@@ -935,6 +963,14 @@ export async function stepEpisode(delta) {
     }
   }
 
+  if (state.remuxSeekDebounceTimer) {
+    clearTimeout(state.remuxSeekDebounceTimer);
+    state.remuxSeekDebounceTimer = null;
+  }
+  if (state.audioOffsetReloadTimerId) {
+    clearTimeout(state.audioOffsetReloadTimerId);
+    state.audioOffsetReloadTimerId = null;
+  }
   state.introSkippedThisEpisode = false;
   state.probeCreditsStartSec = 0;
   state._lastPreloadDoneKey = "";

@@ -107,6 +107,12 @@ class VelariumStorageDB:
         set_private_file_permissions(f"{self.db_path}-wal", is_dir=False)
         set_private_file_permissions(f"{self.db_path}-shm", is_dir=False)
 
+    @staticmethod
+    def _reap_thread_conn_weak(self_ref: "weakref.ReferenceType[VelariumStorageDB]", tid: int) -> None:
+        inst = self_ref()
+        if inst is not None:
+            inst._reap_thread_conn(tid)
+
     def _reap_thread_conn(self, tid: int) -> None:
         with self._read_conns_lock:
             old_conn = self._read_conns.pop(tid, None)
@@ -159,7 +165,7 @@ class VelariumStorageDB:
                 except Exception:
                     pass
             try:
-                weakref.finalize(threading.current_thread(), self._reap_thread_conn, tid)
+                weakref.finalize(threading.current_thread(), VelariumStorageDB._reap_thread_conn_weak, weakref.ref(self), tid)
             except Exception:
                 pass
             return conn
@@ -261,11 +267,11 @@ class VelariumStorageDB:
             out["remote_pair_token"] = old_rpt
         for sk in ("session_cookie", "auth_token"):
             old_v = prev_raw.get(sk)
-            if isinstance(old_v, str) and old_v.startswith(LocalVaultCipher.PREFIX):
+            if isinstance(old_v, str) and old_v.startswith(LocalVaultCipher.PREFIX) and not out.get(sk):
                 out[sk] = old_v
         if isinstance(prev_raw.get("backup_stream"), dict) and isinstance(out.get("backup_stream"), dict):
             old_dk = prev_raw["backup_stream"].get("debrid_api_key")
-            if isinstance(old_dk, str) and old_dk.startswith(LocalVaultCipher.PREFIX):
+            if isinstance(old_dk, str) and old_dk.startswith(LocalVaultCipher.PREFIX) and not out["backup_stream"].get("debrid_api_key"):
                 bkp = dict(out["backup_stream"])
                 bkp["debrid_api_key"] = old_dk
                 out["backup_stream"] = bkp
@@ -273,7 +279,7 @@ class VelariumStorageDB:
             acc = dict(out["account"])
             for ak in ("session_cookie", "auth_token"):
                 old_av = prev_raw["account"].get(ak)
-                if isinstance(old_av, str) and old_av.startswith(LocalVaultCipher.PREFIX):
+                if isinstance(old_av, str) and old_av.startswith(LocalVaultCipher.PREFIX) and not acc.get(ak):
                     acc[ak] = old_av
             out["account"] = acc
         if isinstance(prev_raw.get("profiles"), list) and isinstance(out.get("profiles"), list):
@@ -287,7 +293,7 @@ class VelariumStorageDB:
                 for p in out["profiles"]:
                     if isinstance(p, dict):
                         pid = str(p.get("id") or "")
-                        if pid in old_pins:
+                        if pid in old_pins and p.get("kids_mode") and not p.get("kids_pin"):
                             p_cp = dict(p)
                             p_cp["kids_pin"] = old_pins[pid]
                             merged_profs.append(p_cp)
@@ -462,21 +468,21 @@ class VelariumStorageDB:
         with self._lock:
             if self._closed:
                 return
-            if self.vault.is_ephemeral and isinstance(enc_val, dict):
-                with contextlib.closing(
-                    self._conn.execute(
-                        "SELECT value_json FROM kv_store WHERE namespace = ? AND key = ?",
-                        (ns_s, key_s),
-                    )
-                ) as cur:
-                    old_row = cur.fetchone()
-                if old_row:
-                    try:
-                        enc_val = self._preserve_existing_ciphertexts(json.loads(old_row[0]), enc_val)
-                    except Exception:
-                        pass
-            payload = _safe_json_dumps(enc_val)
             with self._write_tx():
+                if self.vault.is_ephemeral and isinstance(enc_val, dict):
+                    with contextlib.closing(
+                        self._conn.execute(
+                            "SELECT value_json FROM kv_store WHERE namespace = ? AND key = ?",
+                            (ns_s, key_s),
+                        )
+                    ) as cur:
+                        old_row = cur.fetchone()
+                    if old_row:
+                        try:
+                            enc_val = self._preserve_existing_ciphertexts(json.loads(old_row[0]), enc_val)
+                        except Exception:
+                            pass
+                payload = _safe_json_dumps(enc_val)
                 self._conn.execute(
                     """
                     INSERT INTO kv_store (namespace, key, value_json, updated_at)
@@ -773,9 +779,9 @@ class VelariumStorageDB:
             prev_hashes = self._cache_entry_hashes.setdefault(cname, {})
             if prev_hashes.get(skey) == payload_hash:
                 return
-            prev_hashes[skey] = payload_hash
             w_cnt = self._cache_write_counts.get(cname, 0) + 1
             self._cache_write_counts[cname] = w_cnt
+            pruned = False
             with self._write_tx():
                 self._conn.execute(
                     """
@@ -790,6 +796,9 @@ class VelariumStorageDB:
                 if w_cnt >= 40:
                     self._cache_write_counts[cname] = 0
                     self._prune_cache_namespace_locked(cname)
+                    pruned = True
+            if not pruned:
+                prev_hashes[skey] = payload_hash
 
     def set_cache_entries_batch(self, cache_name: str, entries: Dict[str, Any]) -> None:
         if not entries:
@@ -811,15 +820,17 @@ class VelariumStorageDB:
                 return
             prev_hashes = self._cache_entry_hashes.setdefault(cname, {})
             rows = []
+            pending_hashes = []
             for rk, rval, rhash in prepared:
                 if prev_hashes.get(rk) == rhash:
                     continue
-                prev_hashes[rk] = rhash
                 rows.append((cname, rk, rval, now))
+                pending_hashes.append((rk, rhash))
             if not rows:
                 return
             w_cnt = self._cache_write_counts.get(cname, 0) + len(rows)
             self._cache_write_counts[cname] = w_cnt
+            pruned = False
             with self._write_tx():
                 self._conn.executemany(
                     """
@@ -834,6 +845,10 @@ class VelariumStorageDB:
                 if w_cnt >= 40:
                     self._cache_write_counts[cname] = 0
                     self._prune_cache_namespace_locked(cname)
+                    pruned = True
+            if not pruned:
+                for rk, rhash in pending_hashes:
+                    prev_hashes[rk] = rhash
 
     def load_cache_dict(self, cache_name: str, max_entries: int = 4000) -> Dict[str, Any]:
         conn = self._reader_conn()
@@ -913,15 +928,12 @@ class VelariumStorageDB:
             with self._write_tx():
                 if not serialized_items:
                     self._conn.execute("DELETE FROM cache_entries WHERE cache_name = ?", (cname,))
-                    ns_hashes.clear()
                 else:
                     if to_delete:
                         self._conn.executemany(
                             "DELETE FROM cache_entries WHERE cache_name = ? AND entry_key = ?",
                             to_delete,
                         )
-                        for _, ek in to_delete:
-                            ns_hashes.pop(ek, None)
                     if to_upsert:
                         self._conn.executemany(
                             """
@@ -933,8 +945,15 @@ class VelariumStorageDB:
                             """,
                             to_upsert,
                         )
-                        for sk, _, v_hash, _ in serialized_items:
-                            ns_hashes[sk] = v_hash
+            if not serialized_items:
+                ns_hashes.clear()
+            else:
+                if to_delete:
+                    for _, ek in to_delete:
+                        ns_hashes.pop(ek, None)
+                if to_upsert:
+                    for sk, _, v_hash, _ in serialized_items:
+                        ns_hashes[sk] = v_hash
 
     # ------------------------------------------------------------------
     # Offline Downloads Table

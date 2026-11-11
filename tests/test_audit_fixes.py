@@ -2453,6 +2453,52 @@ class TestAuditFixes(unittest.TestCase):
         launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
         self.assertIn("is_safe_browser_url_w", launcher_c)
 
+    def test_pass16_security_bugs_and_performance_audit(self):
+        """Pass-16 deep security, bugfix & performance audit regressions."""
+        from backend.net_security import _is_disallowed_hostname, is_allowed_media_source_url
+        from backend.kinorium_http import solve_kinorium_js_challenge
+
+        # 1. Dotted octal/hex/numeric IPv4 and TorrServer path traversal SSRF guards
+        self.assertTrue(_is_disallowed_hostname("0177.0.0.1"))
+        self.assertTrue(_is_disallowed_hostname("0x7f.0.0.1"))
+        self.assertTrue(_is_disallowed_hostname("127.1"))
+        self.assertTrue(_is_disallowed_hostname("0251.0376.0251.0376"))
+        self.assertFalse(is_allowed_media_source_url("http://0177.0.0.1/video.mp4"))
+        self.assertFalse(is_allowed_media_source_url("http://0x7f.0.0.1/video.mp4"))
+        self.assertFalse(is_allowed_media_source_url("http://127.0.0.1:8090/stream/../shutdown"))
+        self.assertFalse(is_allowed_media_source_url("http://127.0.0.1:8090/stream/%2e%2e/torrents"))
+        self.assertTrue(is_allowed_media_source_url("http://127.0.0.1:8090/stream/movie.mkv?link=abc&index=1&play"))
+
+        # 2. Kinorium JS challenge solver rejects ES6 Unicode code-point escapes
+        self.assertEqual(
+            solve_kinorium_js_challenge(server.kinorium_service, "document.cookie = \\u{69}mport('os');"),
+            "",
+        )
+
+        # 3. Proxy URL validation and Anubis lock decoupling in backend/doh.py
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        doh_py = self._read_text(os.path.join(root, "backend", "doh.py"))
+        self.assertIn("skip_target_get=True", doh_py)
+        self.assertIn("p_prx.port == 8765", doh_py)
+
+        # 4. Frontend & native wrapper Pass-16 invariants
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        intro_js = self._read_text(os.path.join(root, "public", "js", "player-intro-credits.js"))
+        self.assertIn("escapeAttr", intro_js.splitlines()[2])
+
+        p4k_js = self._read_text(os.path.join(root, "public", "js", "player-streams-4k.js"))
+        self.assertIn("/^magnet:\\?/i.test(rawMagnetUri)", p4k_js)
+
+        seasons_js = self._read_text(os.path.join(root, "public", "js", "player-seasons.js"))
+        self.assertIn("curSeasonEps.find((ep) => ep > state.activeEpisode)", seasons_js)
+
+        swift_src = self._read_text(os.path.join(root, "macos", "VelariumApp.swift"))
+        self.assertIn("message.frameInfo.securityOrigin.host.lowercased()", swift_src)
+        self.assertIn("try? logHandle?.close()", swift_src)
+
+        launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
+        self.assertIn("put_AreHostObjectsAllowed(settings, FALSE)", launcher_c)
+
 
 if __name__ == "__main__":
     unittest.main()

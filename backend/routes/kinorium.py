@@ -59,14 +59,17 @@ def handle_kinorium_avatar(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
             cached_hit = ctx.person_photo_cache.get(cache_key)
     if cached_hit:
         cached_ctype, cached_bytes = cached_hit
-        handler.send_response(200)
-        handler.send_header("Content-Type", cached_ctype)
-        handler.send_header("X-Content-Type-Options", "nosniff")
-        handler.send_header("Content-Security-Policy", "sandbox; default-src 'none'")
-        handler.send_header("Content-Length", str(len(cached_bytes)))
-        handler.send_header("Cache-Control", "public, max-age=3600")
-        handler.end_headers()
-        handler.wfile.write(cached_bytes)
+        try:
+            handler.send_response(200)
+            handler.send_header("Content-Type", cached_ctype)
+            handler.send_header("X-Content-Type-Options", "nosniff")
+            handler.send_header("Content-Security-Policy", "sandbox; default-src 'none'")
+            handler.send_header("Content-Length", str(len(cached_bytes)))
+            handler.send_header("Cache-Control", "public, max-age=3600")
+            handler.end_headers()
+            handler.wfile.write(cached_bytes)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
         return True
 
     if uid_q:
@@ -95,14 +98,17 @@ def handle_kinorium_avatar(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
                                 for k_old in list(ctx.person_photo_cache.keys())[:88]:
                                     ctx.person_photo_cache.pop(k_old, None)
                             ctx.person_photo_cache[cache_key] = (out_ctype, raw_img)
-                        handler.send_response(200)
-                        handler.send_header("Content-Type", out_ctype)
-                        handler.send_header("X-Content-Type-Options", "nosniff")
-                        handler.send_header("Content-Security-Policy", "sandbox; default-src 'none'")
-                        handler.send_header("Content-Length", str(len(raw_img)))
-                        handler.send_header("Cache-Control", "public, max-age=3600")
-                        handler.end_headers()
-                        handler.wfile.write(raw_img)
+                        try:
+                            handler.send_response(200)
+                            handler.send_header("Content-Type", out_ctype)
+                            handler.send_header("X-Content-Type-Options", "nosniff")
+                            handler.send_header("Content-Security-Policy", "sandbox; default-src 'none'")
+                            handler.send_header("Content-Length", str(len(raw_img)))
+                            handler.send_header("Cache-Control", "public, max-age=3600")
+                            handler.end_headers()
+                            handler.wfile.write(raw_img)
+                        except (BrokenPipeError, ConnectionResetError):
+                            pass
                         return True
             except Exception:
                 continue
@@ -120,12 +126,15 @@ def handle_kinorium_avatar(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
         f'<text x="60" y="74" fill="#ffffff" font-family="-apple-system,sans-serif" '
         f'font-size="42" font-weight="700" text-anchor="middle">{safe_initials}</text></svg>'
     ).encode("utf-8")
-    handler.send_response(200)
-    handler.send_header("Content-Type", "image/svg+xml; charset=utf-8")
-    handler.send_header("Content-Length", str(len(svg)))
-    handler.send_header("Cache-Control", "public, max-age=300")
-    handler.end_headers()
-    handler.wfile.write(svg)
+    try:
+        handler.send_response(200)
+        handler.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+        handler.send_header("Content-Length", str(len(svg)))
+        handler.send_header("Cache-Control", "public, max-age=300")
+        handler.end_headers()
+        handler.wfile.write(svg)
+    except (BrokenPipeError, ConnectionResetError):
+        pass
     return True
 
 
@@ -197,6 +206,8 @@ def handle_kinorium_stats(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
 
 
 def handle_kinorium_one_click_status(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
+    if not handler._require_authorized_client_if_lan():
+        return True
     handler._send_json(ctx.kinorium_auth_manager.get_status())
     return True
 
@@ -519,7 +530,7 @@ def handle_kinorium_continue_watching_restore(handler, qs: Dict[str, Any], parse
 
 def handle_kinorium_sync(handler, qs: Dict[str, Any], parsed, body: Dict[str, Any], ctx) -> bool:
     is_local = handler._is_loopback_client()
-    if not is_local and (body.get("user_id") or body.get("profile_url") or body.get("session_cookie")):
+    if not is_local:
         if not handler._require_authorized_client_if_lan(body):
             return True
     with ctx.kinorium_service._state_lock:

@@ -129,6 +129,8 @@ def resolve_offline_episode_stream(
         rezka_url=str(snapshot.get("rezka_url") or ""),
         force_refresh=True,
     )
+    if not isinstance(st_data, dict):
+        st_data = {}
     if mtype == "series":
         s_map = st_data.get("seasons_map") or {}
         prem_map = st_data.get("prem_episodes_map") or {}
@@ -141,6 +143,8 @@ def resolve_offline_episode_stream(
 
     if not want_tr and want_studio and isinstance(st_data.get("studios"), list):
         for st_obj in st_data["studios"]:
+            if not isinstance(st_obj, dict):
+                continue
             st_nm = str(st_obj.get("name") or "").strip().lower()
             st_id = str(st_obj.get("id") or "")
             if st_id and st_nm == want_studio and st_id != str(st_data.get("selected_translator_id") or ""):
@@ -157,7 +161,7 @@ def resolve_offline_episode_stream(
                     rezka_url=str(st_data.get("rezka_url") or snapshot.get("rezka_url") or ""),
                     force_refresh=True,
                 )
-                if st_alt.get("qualities"):
+                if isinstance(st_alt, dict) and st_alt.get("qualities"):
                     st_data = st_alt
                 break
 
@@ -1103,6 +1107,15 @@ class OfflineDownloadManager:
     def _open_safe_aux_url(cls, url: str, timeout: float = 8.0, local_port: int = 8765):
         if not cls._is_safe_aux_url(url, local_port=local_port):
             raise ValueError("Disallowed auxiliary asset URL")
+        parsed_aux = urllib.parse.urlparse(str(url or "").strip())
+        if (parsed_aux.hostname or "").lower() not in ("127.0.0.1", "localhost"):
+            from .net_security import open_safe_public_url
+            return open_safe_public_url(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"},
+                timeout=timeout,
+                allow_torrserver_loopback=False,
+            )
 
         opener = cls._get_aux_opener()
         req = urllib.request.Request(
@@ -1262,8 +1275,10 @@ class OfflineDownloadManager:
                                 sub_proc.terminate()
                             except Exception:
                                 pass
+                    sub_ok = False
                     try:
                         sub_proc.wait(timeout=120)
+                        sub_ok = sub_proc.returncode == 0
                     except Exception:
                         try:
                             sub_proc.kill()
@@ -1281,7 +1296,7 @@ class OfflineDownloadManager:
                         except OSError:
                             pass
                         return
-                    if os.path.isfile(dest_vtt_part) and os.path.getsize(dest_vtt_part) > 12:
+                    if sub_ok and os.path.isfile(dest_vtt_part) and os.path.getsize(dest_vtt_part) > 12:
                         os.replace(dest_vtt_part, dest_vtt)
                         saved_subs.append(
                             {
@@ -1293,6 +1308,11 @@ class OfflineDownloadManager:
                             }
                         )
                         continue
+                    elif os.path.isfile(dest_vtt_part):
+                        try:
+                            os.remove(dest_vtt_part)
+                        except OSError:
+                            pass
                     elif os.path.isfile(dest_vtt_part):
                         try:
                             os.remove(dest_vtt_part)

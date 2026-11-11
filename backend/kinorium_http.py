@@ -180,7 +180,7 @@ def solve_kinorium_js_challenge(self: Any, body: str) -> str:
         return ""
     js_code = re.sub(r"</?script[^>]*>", "", body, flags=re.I)
     if re.search(
-        r"(?:\b(?:require|process|child_process|Deno|Bun|ActiveXObject|WScript|Scripting|FileSystemObject|GetObject|WebSocket|fetch|XMLHttpRequest|importScripts|eval|Function|constructor|globalThis|readFile|load)\b|\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2})",
+        r"(?:\b(?:require|process|child_process|Deno|Bun|ActiveXObject|WScript|Scripting|FileSystemObject|GetObject|WebSocket|fetch|XMLHttpRequest|importScripts|eval|Function|constructor|globalThis|readFile|load)\b|\\u\{[0-9a-fA-F]+\}|\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2})",
         js_code,
     ):
         return ""
@@ -377,7 +377,9 @@ def solve_kinorium_js_challenge(self: Any, body: str) -> str:
                 os.makedirs(prof_dir, exist_ok=True)
                 html_file = os.path.join(td, "challenge.html")
                 wrapped_html = (
-                    "<!doctype html><html><head><meta charset='utf-8'></head><body><script>"
+                    "<!doctype html><html><head><meta charset='utf-8'>"
+                    "<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'\">"
+                    "</head><body><script>"
                     "var __ck=[];Object.defineProperty(document,'cookie',{"
                     "set:function(v){var s=String(v||'').split(';')[0];if(s.indexOf('=')>0)__ck.push(s.trim());},"
                     "get:function(){return __ck.join('; ');}});"
@@ -388,7 +390,7 @@ def solve_kinorium_js_challenge(self: Any, body: str) -> str:
                 with open(html_file, "w", encoding="utf-8") as hf:
                     hf.write(wrapped_html)
                 file_url = "file:///" + html_file.replace("\\", "/").lstrip("/")
-                dom_out = subprocess.check_output(
+                b_proc = subprocess.Popen(
                     [
                         browser_exe,
                         "--headless=new",
@@ -403,10 +405,34 @@ def solve_kinorium_js_challenge(self: Any, body: str) -> str:
                         "--dump-dom",
                         file_url,
                     ],
+                    stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
-                    timeout=6,
                     creationflags=no_win_flag,
-                ).decode("utf-8", errors="ignore")
+                    start_new_session=(sys.platform != "win32"),
+                )
+                try:
+                    raw_dom_bytes, _ = b_proc.communicate(timeout=6)
+                    dom_out = (raw_dom_bytes or b"").decode("utf-8", errors="ignore")
+                except subprocess.TimeoutExpired:
+                    if sys.platform == "win32":
+                        subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(b_proc.pid)],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            creationflags=no_win_flag,
+                        )
+                    else:
+                        import signal as _signal
+                        try:
+                            os.killpg(os.getpgid(b_proc.pid), _signal.SIGKILL)
+                        except Exception:
+                            pass
+                    try:
+                        b_proc.kill()
+                        b_proc.wait(timeout=1)
+                    except Exception:
+                        pass
+                    dom_out = ""
                 m_dom = re.search(r'data-cf-ck="([^"]*)"', dom_out)
                 if m_dom and m_dom.group(1).strip():
                     return m_dom.group(1).strip()

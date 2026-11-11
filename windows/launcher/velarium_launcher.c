@@ -1034,7 +1034,8 @@ static HRESULT STDMETHODCALLTYPE ControllerCompleted_Invoke(
         ICoreWebView2Settings *settings = NULL;
         if (SUCCEEDED(g_webview->lpVtbl->get_Settings(g_webview, &settings)) && settings) {
             settings->lpVtbl->put_IsScriptEnabled(settings, TRUE);
-            settings->lpVtbl->put_IsWebMessageEnabled(settings, TRUE);
+            settings->lpVtbl->put_IsWebMessageEnabled(settings, g_is_stream_window ? FALSE : TRUE);
+            settings->lpVtbl->put_AreHostObjectsAllowed(settings, FALSE);
             settings->lpVtbl->put_AreDefaultScriptDialogsEnabled(settings, TRUE);
             settings->lpVtbl->put_IsStatusBarEnabled(settings, FALSE);
             settings->lpVtbl->Release(settings);

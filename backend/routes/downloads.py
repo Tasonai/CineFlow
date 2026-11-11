@@ -23,6 +23,10 @@ def handle_downloads_get(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
 
 
 def handle_downloads_prefs_get(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
+    app_lang = ctx.app_prefs.get("app_lang", "ru")
+    req_lang = ctx.norm_app_lang(qs.get("lang", [app_lang])[0], app_lang)
+    if not handler._require_authorized_client_if_lan(lang=req_lang):
+        return True
     handler._send_json({"ok": True, "prefs": ctx.download_manager.get_prefs()})
     return True
 

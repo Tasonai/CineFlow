@@ -781,14 +781,14 @@ class HDRezkaClient:
             if isinstance(v, list):
                 out[k] = [dict(x) if isinstance(x, dict) else x for x in v]
             elif isinstance(v, dict):
-                if k == "inline_streams":
+                if k in ("inline_streams", "episodes_titles", "episodes_meta"):
                     out[k] = {
                         sk: {bk: dict(bv) if isinstance(bv, dict) else bv for bk, bv in sv.items()}
                         if isinstance(sv, dict)
                         else sv
                         for sk, sv in v.items()
                     }
-                elif k in ("seasons", "prem_episodes_map"):
+                elif k in ("seasons", "seasons_map", "prem_episodes_map"):
                     out[k] = {sk: list(sv) if isinstance(sv, list) else sv for sk, sv in v.items()}
                 else:
                     out[k] = dict(v)
@@ -1878,7 +1878,7 @@ class HDRezkaClient:
             numeric_id = ""
             safe_rezka_url = None
         # Work on a private copy so per-request tweaks never leak into the shared page_cache entry
-        meta = dict(raw_meta)
+        meta = self._clone_page_meta(raw_meta)
 
         live_streams: Dict[str, str] = {}
         live_backups: Dict[str, List[str]] = {}

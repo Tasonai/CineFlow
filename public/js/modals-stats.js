@@ -1,4 +1,4 @@
-import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v1";
+import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v2";
 import {
   displayPoster,
   displayTitle,
@@ -8,7 +8,7 @@ import {
   translateGenre,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261111v1";
+} from "./i18n.js?v=20261111v2";
 import {
   closeCustomSelectMenu,
   copyTextToClipboard,
@@ -25,15 +25,15 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261111v1";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261111v1";
+} from "./utils.js?v=20261111v2";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261111v2";
 import {
   getDefaultPlayableSourceTab,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261111v1";
-import { openPlayerModal } from "./player.js?v=20261111v1";
-import { updateBackupSummaryStat } from "./settings.js?v=20261111v1";
-import { openPersonModal, openQuickPeekModal } from "./modals.js?v=20261111v1";
+} from "./catalog-media-resolver.js?v=20261111v2";
+import { openPlayerModal } from "./player.js?v=20261111v2";
+import { updateBackupSummaryStat } from "./settings.js?v=20261111v2";
+import { openPersonModal, openQuickPeekModal } from "./modals.js?v=20261111v2";
 
 let _timeFmtRu = null;
 let _timeFmtEn = null;
@@ -1285,6 +1285,7 @@ export async function openStatsModal(initialTab = "analytics") {
       };
     });
   } catch (err) {
+    if (err?.name === "AbortError" || statsAbort.signal.aborted) return;
     bodyEl.innerHTML = `<div class="atv-error-note">${t("Не удалось загрузить статистику профиля", "Failed to load profile statistics")}</div>`;
   }
 }

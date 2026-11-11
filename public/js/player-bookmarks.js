@@ -1,4 +1,4 @@
-import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v1";
+import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v2";
 import {
   displayPoster,
   displayTitle,
@@ -6,7 +6,7 @@ import {
   isEn,
   t,
   transliterateRuToEn,
-} from "./i18n.js?v=20261111v1";
+} from "./i18n.js?v=20261111v2";
 import {
   attachHorizontalWheelScroll,
   clampStagePopover,
@@ -20,15 +20,15 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261111v1";
-import { attachSmartPosterFallback } from "./catalog.js?v=20261111v1";
-import { openPersonModal } from "./modals.js?v=20261111v1";
-import { buildFallbackAvatarSvg } from "./modals-person.js?v=20261111v1";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v1";
-import { seekEffectivePlayback } from "./player-streams.js?v=20261111v1";
-import { findActiveChapterLabel, syncVcPopoverOpenClass } from "./player-ui-controls.js?v=20261111v1";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v1";
-import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261111v1";
+} from "./utils.js?v=20261111v2";
+import { attachSmartPosterFallback } from "./catalog.js?v=20261111v2";
+import { openPersonModal } from "./modals.js?v=20261111v2";
+import { buildFallbackAvatarSvg } from "./modals-person.js?v=20261111v2";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v2";
+import { seekEffectivePlayback } from "./player-streams.js?v=20261111v2";
+import { findActiveChapterLabel, syncVcPopoverOpenClass } from "./player-ui-controls.js?v=20261111v2";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v2";
+import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261111v2";
 
 let _bookmarkDialogWasPlaying = false;
 let _activeEditingMoment = null;
@@ -1684,10 +1684,11 @@ export function toggleBookmarksPopover() {
   } else {
     html += '<div class="atv-vc-bookmarks-list">';
     moments.forEach((m) => {
+      const safeTime = Number(m.time) || 0;
       html += `
-        <div class="atv-vc-bookmark-row" data-time="${m.time}">
-          <button type="button" class="atv-vc-bm-jump" data-time="${m.time}">
-            <span class="atv-vc-bm-time">${escapeHtml(m.label || formatTime(m.time))}</span>
+        <div class="atv-vc-bookmark-row" data-time="${safeTime}">
+          <button type="button" class="atv-vc-bm-jump" data-time="${safeTime}">
+            <span class="atv-vc-bm-time">${escapeHtml(m.label || formatTime(safeTime))}</span>
             <span class="atv-vc-bm-note">${escapeHtml(m.note || t("(Без заметки)", "(No note)"))}</span>
           </button>
           <div class="atv-vc-bm-actions">
@@ -2013,7 +2014,7 @@ export function renderBookmarksModalList(filterQuery = null) {
         poster: m.poster,
       };
       const sourceTab = m.source || "hdrezka";
-      const { openPlayerModal } = await import("./player.js?v=20261111v1");
+      const { openPlayerModal } = await import("./player.js?v=20261111v2");
       openPlayerModal(targetItem, sourceTab, m.season || 1, m.episode || 1, m.time || 0);
     });
   });

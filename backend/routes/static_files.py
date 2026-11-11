@@ -167,10 +167,13 @@ def serve_static_file(
 
     if not is_valid_static:
         if is_asset_request:
-            handler.send_response(404)
-            handler.send_header("Content-Type", "text/plain; charset=utf-8")
-            handler.send_header("Content-Length", "0")
-            handler.end_headers()
+            try:
+                handler.send_response(404)
+                handler.send_header("Content-Type", "text/plain; charset=utf-8")
+                handler.send_header("Content-Length", "0")
+                handler.end_headers()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             return
         file_path = os.path.join(public_dir, "index.html")
 
