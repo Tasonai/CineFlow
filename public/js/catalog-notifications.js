@@ -2,7 +2,7 @@ import {
   NOTIF_DESKTOP_ALERTED_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261111v3";
+} from "./state.js?v=20261111v4";
 import {
   displayPoster,
   displayTitle,
@@ -10,7 +10,7 @@ import {
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261111v3";
+} from "./i18n.js?v=20261111v4";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -21,16 +21,17 @@ import {
   matchCatalogItemSafe,
   pluralRu,
   saveSeenNotificationsSet,
-} from "./utils.js?v=20261111v3";
-import { openQuickPeekModal } from "./modals.js?v=20261111v3";
-import { openPlayerModal } from "./player.js?v=20261111v3";
-import { openSettingsModal } from "./settings.js?v=20261111v3";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
+import { openQuickPeekModal } from "./modals.js?v=20261111v4";
+import { openPlayerModal } from "./player.js?v=20261111v4";
+import { openSettingsModal } from "./settings.js?v=20261111v4";
+import { isItemSafeForKidsClient } from "./features.js?v=20261111v4";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261111v4";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261111v3";
+} from "./catalog-media-resolver.js?v=20261111v4";
 
 let _notifCacheEpoch = "";
 let _notifCacheItems = [];
@@ -455,10 +456,22 @@ export async function renderReleaseCalendarShelf(forceRefresh = false) {
   attachHorizontalWheelScroll(row);
 
   const curLang = state.appLang || "ru";
-  if (!state.calendarData || state.calendarDataLang !== curLang || forceRefresh) {
+  const reqProfileId = state.activeProfileId || state.activeProfile?.id || "main";
+  if (
+    !state.calendarData ||
+    state.calendarDataLang !== curLang ||
+    state.calendarDataProfileId !== reqProfileId ||
+    forceRefresh
+  ) {
     try {
-      if (!_calendarInFlightPromise || _calendarInFlightLang !== curLang || forceRefresh) {
+      if (
+        !_calendarInFlightPromise ||
+        _calendarInFlightLang !== curLang ||
+        _calendarInFlightProfileId !== reqProfileId ||
+        forceRefresh
+      ) {
         _calendarInFlightLang = curLang;
+        _calendarInFlightProfileId = reqProfileId;
         state.calendarLoading = true;
         const qs = new URLSearchParams({
           lang: curLang,
@@ -469,9 +482,10 @@ export async function renderReleaseCalendarShelf(forceRefresh = false) {
         _calendarInFlightPromise = fetch(`/api/calendar?${qs.toString()}`)
           .then(async (res) => {
             const data = await res.json().catch(() => null);
-            if (res.ok && data?.ok) {
+            if (res.ok && data?.ok && (state.activeProfileId || state.activeProfile?.id || "main") === reqProfileId) {
               state.calendarData = data;
               state.calendarDataLang = curLang;
+              state.calendarDataProfileId = reqProfileId;
               return data;
             }
             return null;
@@ -485,12 +499,15 @@ export async function renderReleaseCalendarShelf(forceRefresh = false) {
       await _calendarInFlightPromise;
     } catch (err) { window.logDebug?.("CatalogNotifications", err); }
   }
+  if ((state.activeProfileId || state.activeProfile?.id || "main") !== reqProfileId) return;
 
   const calData = state.calendarData;
   const upcoming = Array.isArray(calData?.upcoming) ? calData.upcoming : [];
   const todayIso = String(calData?.today || new Date().toISOString().slice(0, 10));
 
-  const visibleEvents = upcoming.filter((ev) => ev && !ev.watched);
+  const visibleEvents = upcoming.filter(
+    (ev) => ev && !ev.watched && (!state.activeProfile?.kids_mode || isItemSafeForKidsClient(ev))
+  );
 
   if (visibleEvents.length === 0) {
     shelf.classList.add("hidden");
@@ -602,8 +619,11 @@ export async function renderReleaseCalendarShelf(forceRefresh = false) {
         year: ev.year || "",
         media_type: "series",
         poster: ev.poster || "",
+        genres: Array.isArray(ev.genres) ? ev.genres : [],
+        age_rating: ev.age_rating || "",
       };
       const target = matchCatalogItemSafe(state.catalogItems, synthCandidate) || synthCandidate;
+      if (state.activeProfile?.kids_mode && !isItemSafeForKidsClient(target)) return;
       openQuickPeekModal(target);
     };
 

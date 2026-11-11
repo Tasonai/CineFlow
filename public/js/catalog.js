@@ -3,7 +3,7 @@ import {
   PREFERRED_STUDIOS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261111v3";
+} from "./state.js?v=20261111v4";
 import {
   displayBackdrop,
   displayCountries,
@@ -18,7 +18,7 @@ import {
   translateGenre,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261111v3";
+} from "./i18n.js?v=20261111v4";
 import {
   attachHorizontalWheelScroll,
   copyTextToClipboard,
@@ -43,25 +43,25 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261111v3";
-import { getPlayerPrefs } from "./audio-dsp.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
+import { getPlayerPrefs } from "./audio-dsp.js?v=20261111v4";
 import {
   buildPersonPhotoCard,
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261111v3";
-import { openPlayerModal, renderModalProvidersSidebar, switchSourceTab } from "./player.js?v=20261111v3";
-import { confirmServiceLogin, openSettingsModal, triggerServiceLoginFlow } from "./settings.js?v=20261111v3";
-import { openTvCastModal, renderHeaderProfileSwitcher } from "./features.js?v=20261111v3";
-import { getOfflineCatalogItems, setOfflineMode } from "./features-downloads.js?v=20261111v3";
+} from "./modals.js?v=20261111v4";
+import { openPlayerModal, renderModalProvidersSidebar, switchSourceTab } from "./player.js?v=20261111v4";
+import { confirmServiceLogin, openSettingsModal, triggerServiceLoginFlow } from "./settings.js?v=20261111v4";
+import { openTvCastModal, renderHeaderProfileSwitcher } from "./features.js?v=20261111v4";
+import { getOfflineCatalogItems, setOfflineMode } from "./features-downloads.js?v=20261111v4";
 import {
   renderContinueWatching,
   parseItemDurationMinutes,
   renderCuratedShelves,
   renderCatalogShelves,
-} from "./catalog-shelves.js?v=20261111v3";
+} from "./catalog-shelves.js?v=20261111v4";
 import {
   buildPosterBadgesHtml,
   buildFallbackPosterSvg,
@@ -73,7 +73,7 @@ import {
   renderPosterCardsInto,
   cancelPendingCardBatch,
   appendPosterCardsProgressive,
-} from "./catalog-cards.js?v=20261111v3";
+} from "./catalog-cards.js?v=20261111v4";
 import {
   stopHeroAmbientTeaser,
   scheduleHeroAmbientTeaser,
@@ -83,13 +83,13 @@ import {
   renderHeroSlide,
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261111v3";
+} from "./catalog-hero.js?v=20261111v4";
 import {
   collectNewEpisodeNotifications,
   switchNotificationsTab,
   loadAndRenderReleaseCalendar,
   renderNotificationsBell,
-} from "./catalog-notifications.js?v=20261111v3";
+} from "./catalog-notifications.js?v=20261111v4";
 import {
   openMovieRouletteModal,
   closeMovieRouletteModal,
@@ -98,7 +98,7 @@ import {
   openCommandPalette,
   closeCommandPalette,
   initCommandPalette,
-} from "./catalog-discovery.js?v=20261111v3";
+} from "./catalog-discovery.js?v=20261111v4";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
@@ -111,7 +111,7 @@ import {
   sortCatalogItems,
   resetCatalogDrawerFiltersUI,
   initCatalogToolbarAndFilterBindings,
-} from "./catalog-filters.js?v=20261111v3";
+} from "./catalog-filters.js?v=20261111v4";
 import {
   isEpisodeWatched,
   normalizeStudioBrand,
@@ -132,7 +132,7 @@ import {
   getFriendsAverageScore,
   patchCatalogItemKinoriumInPlace,
   getPrimaryRating,
-} from "./catalog-media-resolver.js?v=20261111v3";
+} from "./catalog-media-resolver.js?v=20261111v4";
 
 export {
   renderContinueWatching,
@@ -356,11 +356,17 @@ export async function loadCatalog(options = {}) {
   }
 
   const endpoint = q ? `/api/search?${params.toString()}` : `/api/catalog?${params.toString()}`;
-  const activeProfId = state.activeProfile?.id || "main";
+  const activeProfId = state.activeProfileId || state.activeProfile?.id || "main";
   const cacheKey = `${activeProfId}::${endpoint}`;
 
   let warmHit = _catalogEndpointCache.get(cacheKey);
-  if (!warmHit && !q && state.kinoriumSection === "all" && state.providerFilter === "all") {
+  if (
+    !warmHit &&
+    !q &&
+    state.kinoriumSection === "all" &&
+    state.providerFilter === "all" &&
+    !state.activeProfile?.kids_mode
+  ) {
     try {
       const rawWarm = sessionStorage.getItem(`${WARM_CATALOG_STORAGE_KEY}_${activeProfId}`);
       if (rawWarm) {
@@ -387,7 +393,11 @@ export async function loadCatalog(options = {}) {
     const res = await fetch(endpoint, { signal: abortController.signal });
     const data = await res.json();
     clearTimeout(skeletonTimer);
-    if (reqId !== state.catalogReqId || (state.activeProfile?.id || "main") !== activeProfId) return;
+    if (
+      reqId !== state.catalogReqId ||
+      (state.activeProfileId || state.activeProfile?.id || "main") !== activeProfId
+    )
+      return;
     if (!res.ok || data?.ok === false || data?.error || !Array.isArray(data?.items)) {
       throw new Error(data?.error || `HTTP ${res.status}`);
     }
@@ -462,7 +472,7 @@ export async function checkLiveRezkaSeriesUpdates(showFeedback = false, forceRef
     btn.disabled = true;
   }
   try {
-    const reqProfileId = state.activeProfile?.id || "main";
+    const reqProfileId = state.activeProfileId || state.activeProfile?.id || "main";
     const url = forceRefresh
       ? "/api/hdrezka/check-watching-updates?force=1"
       : "/api/hdrezka/check-watching-updates";
@@ -471,7 +481,7 @@ export async function checkLiveRezkaSeriesUpdates(showFeedback = false, forceRef
     if (!res.ok || data?.ok === false || data?.error) {
       throw new Error(data?.error || `HTTP ${res.status}`);
     }
-    if ((state.activeProfile?.id || "main") !== reqProfileId) return;
+    if ((state.activeProfileId || state.activeProfile?.id || "main") !== reqProfileId) return;
     const updates = data.updates || [];
     let hasChanges = false;
     updates.forEach((u) => {
@@ -548,11 +558,11 @@ export async function checkLiveRezkaSeriesUpdates(showFeedback = false, forceRef
 export async function pollLiveKinoriumDigest() {
   if (document.hidden || state.isPlayerOpen || !isServiceEnabled("kinorium")) return;
   try {
-    const reqProfileId = state.activeProfile?.id || "main";
+    const reqProfileId = state.activeProfileId || state.activeProfile?.id || "main";
     const res = await fetch("/api/kinorium/live-digest");
     if (!res.ok) return;
     const data = await res.json();
-    if ((state.activeProfile?.id || "main") !== reqProfileId) return;
+    if ((state.activeProfileId || state.activeProfile?.id || "main") !== reqProfileId) return;
     let changed = false;
     (data.updates || []).forEach((u) => {
       const prev = u.id ? state.liveSeriesUpdates[u.id] : null;

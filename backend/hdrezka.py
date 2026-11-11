@@ -179,8 +179,16 @@ class HDRezkaClient:
         m_clean = mirror.strip().rstrip("/")
         if not self._is_rezka_page_url(m_clean):
             return
+        known_hosts = {
+            (urllib.parse.urlparse(m).hostname or "").lower()
+            for m in self.get_mirrors()
+            if m
+        }
+        cand_host = (urllib.parse.urlparse(m_clean).hostname or "").lower()
+        if not cand_host or cand_host not in known_hosts:
+            return
         relay = str(getattr(self, "cf_worker_relay", "") or "").strip()
-        if relay and m_clean.split("//")[-1].split("/")[0] in relay:
+        if relay and cand_host in relay:
             # Never promote the Cloudflare relay host itself as a HDRezka mirror
             return
         with self._mirror_lock:
@@ -923,8 +931,6 @@ class HDRezkaClient:
                 timeout=5.0,
             )
             if status == 200 and page_html and "initCDN" in page_html:
-                final_m = "/".join(resp_headers.get("_final_url", target_url).split("/")[:3])
-                self._promote_working_mirror(final_m)
                 if not self._verify_resolved_page(
                     page_html,
                     page_url=target_url,
@@ -940,6 +946,9 @@ class HDRezkaClient:
                     page_html = ""
                     target_url = ""
                     safe_numeric_id = ""
+                else:
+                    final_m = "/".join(resp_headers.get("_final_url", target_url).split("/")[:3])
+                    self._promote_working_mirror(final_m)
 
         # If target_url was missing, stale, or failed verification, resolve via dual-query search
         if status != 200 or not page_html or "initCDN" not in page_html:

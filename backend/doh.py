@@ -198,6 +198,8 @@ class DoHSplitNetworkClient:
         )
         self.cookie_jar = _LockedCookieJar()
         self._anubis_lock = threading.Lock()
+        self._anubis_inflight: Dict[str, threading.Event] = {}
+        self._anubis_results: Dict[str, bool] = {}
         self.default_ua = (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -612,10 +614,38 @@ class DoHSplitNetworkClient:
         if 'id="anubis_challenge"' not in body:
             return None
         is_post = method.upper() == "POST"
+        p_origin = urllib.parse.urlparse(final_url or target_url)
+        origin_key = f"{p_origin.scheme.lower()}://{(p_origin.hostname or '').lower()}"
+        wait_ev: Optional[threading.Event] = None
+        is_leader = False
         with self._anubis_lock:
-            solved = self._solve_anubis_challenge(
-                body, final_url, opener, merged_headers, skip_target_get=True
-            )
+            existing_ev = self._anubis_inflight.get(origin_key)
+            if existing_ev is not None:
+                wait_ev = existing_ev
+            else:
+                wait_ev = threading.Event()
+                self._anubis_inflight[origin_key] = wait_ev
+                self._anubis_results.pop(origin_key, None)
+                is_leader = True
+
+        solved = None
+        if is_leader:
+            try:
+                solved = self._solve_anubis_challenge(
+                    body, final_url, opener, merged_headers, skip_target_get=True
+                )
+            finally:
+                with self._anubis_lock:
+                    self._anubis_results[origin_key] = bool(solved)
+                    self._anubis_inflight.pop(origin_key, None)
+                    wait_ev.set()
+        else:
+            wait_ev.wait(timeout=12.0)
+            with self._anubis_lock:
+                leader_ok = bool(self._anubis_results.get(origin_key))
+            if leader_ok:
+                solved = (200, "", final_url or target_url, b"")
+
         if not solved:
             return None
         if len(solved) == 4:
@@ -873,15 +903,16 @@ class DoHSplitNetworkClient:
         if clean_proxy:
             p_prx = urllib.parse.urlparse(clean_proxy)
             prx_host = (p_prx.hostname or "").strip().lower().rstrip(".")
+            is_loopback_prx = (
+                prx_host in ("127.0.0.1", "localhost", "::1", "::ffff:127.0.0.1")
+                or prx_host.startswith(("127.", "::ffff:127."))
+            )
             if (
                 p_prx.scheme not in ("http", "https")
                 or not prx_host
                 or prx_host in ("0.0.0.0", "::", "169.254.169.254")
                 or prx_host.startswith(("169.254.", "fe80:"))
-                or (
-                    (prx_host in ("127.0.0.1", "localhost", "::1", "::ffff:127.0.0.1") or prx_host.startswith("127."))
-                    and p_prx.port == 8765
-                )
+                or (is_loopback_prx and (p_prx.port in (8765, 8090, None)))
             ):
                 clean_proxy = ""
 

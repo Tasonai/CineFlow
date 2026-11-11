@@ -2,14 +2,14 @@
 // Manages interactive player timeline, scrubber, volume slider, stage idle states,
 // fullscreen toggling, control popovers, and responsive layout synchronization.
 
-import { EP_VIEW_MODE_STORAGE_KEY, state } from "./state.js?v=20261111v3";
+import { EP_VIEW_MODE_STORAGE_KEY, state } from "./state.js?v=20261111v4";
 import {
   displayTitle,
   getItemGenreEntries,
   isEn,
   secondaryTitle,
   t,
-} from "./i18n.js?v=20261111v3";
+} from "./i18n.js?v=20261111v4";
 import {
   attachHorizontalWheelScroll,
   clampFloatingPopover,
@@ -25,15 +25,15 @@ import {
   showToast,
   syncToastContainerMount,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261111v3";
-import { isEpisodeWatched, isServiceEnabled, savePreferredStudioForItem } from "./catalog.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
+import { isEpisodeWatched, isServiceEnabled, savePreferredStudioForItem } from "./catalog.js?v=20261111v4";
 import {
   activateSelectedSubtitleTrack,
   adjustSubtitleOffset,
   closeSubtitleDictPopover,
   renderVcSubtitlesPopover,
   resetSubtitleOffset,
-} from "./subtitles.js?v=20261111v3";
+} from "./subtitles.js?v=20261111v4";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -48,9 +48,9 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261111v3";
-import { pushDesktopRemoteStateNow, scheduleDesktopRemoteStatePush } from "./remote.js?v=20261111v3";
-import { buildRemuxStreamEndpoint, getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v3";
+} from "./audio-dsp.js?v=20261111v4";
+import { pushDesktopRemoteStateNow, scheduleDesktopRemoteStatePush } from "./remote.js?v=20261111v4";
+import { buildRemuxStreamEndpoint, getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v4";
 import {
   filterReleasedEpisodesForSeason,
   getEpisodeDisplayMeta,
@@ -62,15 +62,15 @@ import {
   stepEpisode,
   switchToSeriesSeasonEpisode,
   syncEpisodesStripDrawerUI,
-} from "./player-seasons.js?v=20261111v3";
-import { syncPostwatchOverlayMount } from "./player-rating.js?v=20261111v3";
-import { syncPersonModalMount } from "./modals-person.js?v=20261111v3";
+} from "./player-seasons.js?v=20261111v4";
+import { syncPostwatchOverlayMount } from "./player-rating.js?v=20261111v4";
+import { syncPersonModalMount } from "./modals-person.js?v=20261111v4";
 import {
   clearAutoplayNextTimer,
   dismissPlayerNextEpisodeToast,
   getNextEpisodeCoords,
   setSleepTimer,
-} from "./player-autoplay.js?v=20261111v3";
+} from "./player-autoplay.js?v=20261111v4";
 import {
   adjustAudioOffset,
   hideVideoStreamError,
@@ -86,28 +86,28 @@ import {
   switchRemuxAudioTrack,
   switchSourceTab,
   toggleErrorStudiosPanel,
-} from "./player-streams.js?v=20261111v3";
-import { getDetectedCreditsStartSec, loadSkipIntroSegments } from "./player-intro-credits.js?v=20261111v3";
+} from "./player-streams.js?v=20261111v4";
+import { getDetectedCreditsStartSec, loadSkipIntroSegments } from "./player-intro-credits.js?v=20261111v4";
 import {
   closeBookmarkNoteDialog,
   hideXRayPauseShelf,
   renderTimelineBookmarks,
   toggleBookmarkCurrentMoment,
   toggleXRayPauseShelf,
-} from "./player-bookmarks.js?v=20261111v3";
+} from "./player-bookmarks.js?v=20261111v4";
 import {
   restoreFullPlayerFromPip,
   setMiniPlayerMode,
   setPipBackgroundMode,
   updateMiniPlayerTitle,
-} from "./player-pip-dock.js?v=20261111v3";
-import { captureVideoScreenshot, togglePlayerSidebarCollapsed } from "./player-meta.js?v=20261111v3";
+} from "./player-pip-dock.js?v=20261111v4";
+import { captureVideoScreenshot, togglePlayerSidebarCollapsed } from "./player-meta.js?v=20261111v4";
 import {
   captureVideoFrameBridge,
   closePlayerModal,
   playVideoUrl,
   toggleVideoPlayPause,
-} from "./player.js?v=20261111v3";
+} from "./player.js?v=20261111v4";
 
 export function hasOpenVcPopover() {
   return [
@@ -133,7 +133,7 @@ export function syncVcPopoverOpenClass() {
   }
 }
 
-export function closeAllVcPopovers() {
+export function closeAllVcPopovers({ resumeFromSubDict = true } = {}) {
   closeCustomSelectMenu({ restoreFocus: false });
   [
     ["vc-episodes-popover", "vc-btn-episodes"],
@@ -151,7 +151,7 @@ export function closeAllVcPopovers() {
     }
   });
   if (state.subDictOpen) {
-    closeSubtitleDictPopover(true);
+    closeSubtitleDictPopover(resumeFromSubDict);
   }
   document.getElementById("btn-player-gear")?.classList.remove("active");
   syncVcPopoverOpenClass();
@@ -1624,7 +1624,7 @@ export function initCustomVideoControls() {
 
   document.getElementById("vc-btn-xray")?.addEventListener("click", (e) => {
     e.stopPropagation();
-    closeAllVcPopovers();
+    closeAllVcPopovers({ resumeFromSubDict: false });
     toggleXRayPauseShelf();
     wakeVideoControls();
   });
@@ -1657,10 +1657,6 @@ export function initCustomVideoControls() {
     fsBtnEl.addEventListener("click", (e) => {
       e.stopPropagation();
       e.currentTarget?.blur?.();
-      if (e.detail === 0) {
-        toggleVideoPlayPause(true);
-        return;
-      }
       toggleStageFullscreen();
     });
   }

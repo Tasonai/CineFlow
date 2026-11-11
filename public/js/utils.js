@@ -5,9 +5,9 @@ import {
   WATCH_HISTORY_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261111v3";
-import { isEn, t } from "./i18n.js?v=20261111v3";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261111v3";
+} from "./state.js?v=20261111v4";
+import { isEn, t } from "./i18n.js?v=20261111v4";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261111v4";
 
 export function escapeAttr(val) {
   return String(val ?? "")
@@ -1046,20 +1046,13 @@ export function attachHorizontalWheelScroll(el, options = {}) {
       });
     };
 
-    const onWindowResize = () => {
-      if (!el.isConnected) {
-        window.removeEventListener("resize", onWindowResize);
-        return;
-      }
-      scheduleSyncChevronState();
-    };
+    const resizeEntry = _registerHscrollResizeEntry(el, scheduleSyncChevronState);
     el.addEventListener("scroll", scheduleSyncChevronState, { passive: true });
-    window.addEventListener("resize", onWindowResize, { passive: true });
     if (typeof MutationObserver !== "undefined") {
       const mo = new MutationObserver(() => {
         if (!el.isConnected) {
           mo.disconnect();
-          window.removeEventListener("resize", onWindowResize);
+          _hscrollChevronResizeCallbacks.delete(resizeEntry);
           return;
         }
         scheduleSyncChevronState();
@@ -1069,7 +1062,30 @@ export function attachHorizontalWheelScroll(el, options = {}) {
     scheduleSyncChevronState();
   }
 }
+
 let videoCenterTimer = null;
+const _hscrollChevronResizeCallbacks = new Set();
+let _hscrollWindowResizeBound = false;
+function _registerHscrollResizeEntry(el, syncFn) {
+  const ref = typeof WeakRef === "function" ? new WeakRef(el) : null;
+  const entry = { ref, el: ref ? null : el, syncFn };
+  _hscrollChevronResizeCallbacks.add(entry);
+  if (!_hscrollWindowResizeBound && typeof window !== "undefined") {
+    _hscrollWindowResizeBound = true;
+    const onWindowResize = () => {
+      for (const item of Array.from(_hscrollChevronResizeCallbacks)) {
+        const node = item.ref ? item.ref.deref() : item.el;
+        if (!node || !node.isConnected) {
+          _hscrollChevronResizeCallbacks.delete(item);
+          continue;
+        }
+        item.syncFn();
+      }
+    };
+    window.addEventListener("resize", onWindowResize, { passive: true });
+  }
+  return entry;
+}
 export function triggerVideoCenterIndicator(kind, captionText = "") {
   const wrap = document.getElementById("video-center-indicator");
   const iconBox = document.getElementById("video-center-icon");

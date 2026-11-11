@@ -1,4 +1,4 @@
-import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v3";
+import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v4";
 import {
   displayBackdrop,
   displayCountries,
@@ -15,7 +15,7 @@ import {
   translateCareer,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261111v3";
+} from "./i18n.js?v=20261111v4";
 import {
   attachHorizontalWheelScroll,
   bindStarsHoverRange,
@@ -40,11 +40,11 @@ import {
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
   withKinoriumActionLock,
-} from "./utils.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
-} from "./catalog-cards.js?v=20261111v3";
+} from "./catalog-cards.js?v=20261111v4";
 import {
   applyEnabledServicesVisibility,
   getDefaultPlayableSourceTab,
@@ -53,27 +53,27 @@ import {
   patchCatalogItemKinoriumInPlace,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261111v3";
+} from "./catalog-media-resolver.js?v=20261111v4";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261111v3";
-import { renderHero, stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261111v3";
-import { getCatalogFranchiseItemsForItem, updateActiveFiltersBadge } from "./catalog-filters.js?v=20261111v3";
-import { loadCatalog } from "./catalog.js?v=20261111v3";
-import { escapeEpisodeHtml, resolveSeriesCompletedFlag } from "./player-seasons.js?v=20261111v3";
+} from "./catalog-shelves.js?v=20261111v4";
+import { renderHero, stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261111v4";
+import { getCatalogFranchiseItemsForItem, updateActiveFiltersBadge } from "./catalog-filters.js?v=20261111v4";
+import { loadCatalog } from "./catalog.js?v=20261111v4";
+import { escapeEpisodeHtml, resolveSeriesCompletedFlag } from "./player-seasons.js?v=20261111v4";
 import {
   closePlayerModal,
   openPlayerModal,
-} from "./player.js?v=20261111v3";
-import { updateBackupSummaryStat } from "./settings.js?v=20261111v3";
+} from "./player.js?v=20261111v4";
+import { updateBackupSummaryStat } from "./settings.js?v=20261111v4";
 import {
   closeStatsModal,
   formatRelativeWatchDate,
   openStatsModal,
   renderWatchHistoryTab,
   switchStatsModalTab,
-} from "./modals-stats.js?v=20261111v3";
+} from "./modals-stats.js?v=20261111v4";
 import {
   buildCastPeopleArray,
   buildFallbackAvatarSvg,
@@ -87,7 +87,7 @@ import {
   renderPersonStatsStrip,
   syncPersonModalMount,
   triggerPersonSearch,
-} from "./modals-person.js?v=20261111v3";
+} from "./modals-person.js?v=20261111v4";
 
 export {
   buildCastPeopleArray,
@@ -1752,6 +1752,7 @@ export async function openQuickPeekModal(item, options = {}) {
 
   try {
     const reqLang = state.appLang || "ru";
+    const reqProfileId = state.activeProfileId || state.activeProfile?.id || "main";
     const params = new URLSearchParams({
       id: String(item.id || ""),
       rezka_id: String(item.rezka_id || ""),
@@ -1777,7 +1778,12 @@ export async function openQuickPeekModal(item, options = {}) {
     );
     if (!res.ok) return;
     const meta = await res.json();
-    if (reqId !== state.quickPeekReqId) return;
+    if (
+      reqId !== state.quickPeekReqId ||
+      (state.activeProfileId || state.activeProfile?.id || "main") !== reqProfileId
+    ) {
+      return;
+    }
     if (meta.rezka_id) item.rezka_id = meta.rezka_id;
     if (meta.rezka_url) item.rezka_url = meta.rezka_url;
     if (meta.kinorium_id && !item.kinorium_id) item.kinorium_id = meta.kinorium_id;
@@ -1924,6 +1930,7 @@ export function initQuickPeekBindings() {
     btn.onclick = () => {
       const item = state.quickPeekItem;
       if (!item) return;
+      const reqProfileId = state.activeProfileId || "main";
       const score = parseInt(btn.dataset.score, 10) || 0;
       const prevKin = item.kinorium ? { ...item.kinorium } : null;
       const optimisticKin = {
@@ -1936,6 +1943,7 @@ export function initQuickPeekBindings() {
       item.kinorium = optimisticKin;
       syncQuickPeekStatusesUI(item);
       withKinoriumActionLock(`qp-rate:${item.id}`, qpStarsWrap || btn, async () => {
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         try {
           const res = await fetch("/api/kinorium/rate", {
             method: "POST",
@@ -1950,6 +1958,7 @@ export function initQuickPeekBindings() {
           if (!res.ok || updated?.ok === false || updated?.error) {
             throw new Error(updated?.error || `HTTP ${res.status}`);
           }
+          if ((state.activeProfileId || "main") !== reqProfileId) return;
           item.kinorium = updated;
           if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
           patchCatalogItemKinoriumInPlace(item, updated);
@@ -1963,8 +1972,10 @@ export function initQuickPeekBindings() {
             )
           );
         } catch (err) {
-          item.kinorium = prevKin;
-          if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+          if ((state.activeProfileId || "main") === reqProfileId) {
+            item.kinorium = prevKin;
+            if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+          }
           throw err;
         }
       });
@@ -1975,7 +1986,9 @@ export function initQuickPeekBindings() {
     qpClearRateBtn.onclick = () => {
       const item = state.quickPeekItem;
       if (!item || !item.kinorium?.user_rating) return;
+      const reqProfileId = state.activeProfileId || "main";
       withKinoriumActionLock(`qp-rate:${item.id}`, qpClearRateBtn, async () => {
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         const res = await fetch("/api/kinorium/rate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1989,6 +2002,7 @@ export function initQuickPeekBindings() {
         if (!res.ok || updated?.ok === false || updated?.error) {
           throw new Error(updated?.error || `HTTP ${res.status}`);
         }
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         item.kinorium = updated;
         if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
         patchCatalogItemKinoriumInPlace(item, updated);
@@ -2006,7 +2020,9 @@ export function initQuickPeekBindings() {
   qpBtnWatching?.addEventListener("click", () => {
     const item = state.quickPeekItem;
     if (!item) return;
+    const reqProfileId = state.activeProfileId || "main";
     withKinoriumActionLock(`qp-watching:${item.id}`, qpBtnWatching, async () => {
+      if ((state.activeProfileId || "main") !== reqProfileId) return;
       const res = await fetch("/api/kinorium/watching", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2016,6 +2032,7 @@ export function initQuickPeekBindings() {
       if (!res.ok || updated?.ok === false || updated?.error) {
         throw new Error(updated?.error || `HTTP ${res.status}`);
       }
+      if ((state.activeProfileId || "main") !== reqProfileId) return;
       item.kinorium = updated;
       if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
       patchCatalogItemKinoriumInPlace(item, updated);
@@ -2026,21 +2043,28 @@ export function initQuickPeekBindings() {
         {
           undoText: t("Отменить", "Undo"),
           durationMs: 5000,
-          onUndo: async () => {
-            try {
-              const uRes = await fetch("/api/kinorium/watching", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(buildQpPayload(item)),
-              });
-              const uData = await uRes.json();
-              if (uRes.ok && uData?.ok !== false && !uData?.error) {
-                item.kinorium = uData;
-                if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
-                patchCatalogItemKinoriumInPlace(item, uData);
-              }
-            } catch (err) { window.logDebug?.("Modals", err); }
-          },
+          onUndo: () =>
+            withKinoriumActionLock(`qp-watching:${item.id}`, qpBtnWatching, async () => {
+              if ((state.activeProfileId || "main") !== reqProfileId) return;
+              try {
+                const uRes = await fetch("/api/kinorium/watching", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(buildQpPayload(item)),
+                });
+                const uData = await uRes.json();
+                if (
+                  uRes.ok &&
+                  uData?.ok !== false &&
+                  !uData?.error &&
+                  (state.activeProfileId || "main") === reqProfileId
+                ) {
+                  item.kinorium = uData;
+                  if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+                  patchCatalogItemKinoriumInPlace(item, uData);
+                }
+              } catch (err) { window.logDebug?.("Modals", err); }
+            }),
         }
       );
     });
@@ -2050,7 +2074,9 @@ export function initQuickPeekBindings() {
   qpBtnWatchlist?.addEventListener("click", () => {
     const item = state.quickPeekItem;
     if (!item) return;
+    const reqProfileId = state.activeProfileId || "main";
     withKinoriumActionLock(`qp-watchlist:${item.id}`, qpBtnWatchlist, async () => {
+      if ((state.activeProfileId || "main") !== reqProfileId) return;
       const res = await fetch("/api/kinorium/watchlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2060,6 +2086,7 @@ export function initQuickPeekBindings() {
       if (!res.ok || updated?.ok === false || updated?.error) {
         throw new Error(updated?.error || `HTTP ${res.status}`);
       }
+      if ((state.activeProfileId || "main") !== reqProfileId) return;
       item.kinorium = updated;
       if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
       patchCatalogItemKinoriumInPlace(item, updated);
@@ -2070,21 +2097,28 @@ export function initQuickPeekBindings() {
         {
           undoText: t("Отменить", "Undo"),
           durationMs: 5000,
-          onUndo: async () => {
-            try {
-              const uRes = await fetch("/api/kinorium/watchlist", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(buildQpPayload(item)),
-              });
-              const uData = await uRes.json();
-              if (uRes.ok && uData?.ok !== false && !uData?.error) {
-                item.kinorium = uData;
-                if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
-                patchCatalogItemKinoriumInPlace(item, uData);
-              }
-            } catch (err) { window.logDebug?.("Modals", err); }
-          },
+          onUndo: () =>
+            withKinoriumActionLock(`qp-watchlist:${item.id}`, qpBtnWatchlist, async () => {
+              if ((state.activeProfileId || "main") !== reqProfileId) return;
+              try {
+                const uRes = await fetch("/api/kinorium/watchlist", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(buildQpPayload(item)),
+                });
+                const uData = await uRes.json();
+                if (
+                  uRes.ok &&
+                  uData?.ok !== false &&
+                  !uData?.error &&
+                  (state.activeProfileId || "main") === reqProfileId
+                ) {
+                  item.kinorium = uData;
+                  if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+                  patchCatalogItemKinoriumInPlace(item, uData);
+                }
+              } catch (err) { window.logDebug?.("Modals", err); }
+            }),
         }
       );
     });
@@ -2094,7 +2128,9 @@ export function initQuickPeekBindings() {
   qpBtnWatched?.addEventListener("click", () => {
     const item = state.quickPeekItem;
     if (!item) return;
+    const reqProfileId = state.activeProfileId || "main";
     withKinoriumActionLock(`qp-watched:${item.id}`, qpBtnWatched, async () => {
+      if ((state.activeProfileId || "main") !== reqProfileId) return;
       const curWatched = Boolean(item.kinorium?.watched);
       const res = await fetch("/api/kinorium/watched", {
         method: "POST",
@@ -2105,6 +2141,7 @@ export function initQuickPeekBindings() {
       if (!res.ok || updated?.ok === false || updated?.error) {
         throw new Error(updated?.error || `HTTP ${res.status}`);
       }
+      if ((state.activeProfileId || "main") !== reqProfileId) return;
       item.kinorium = updated;
       if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
       patchCatalogItemKinoriumInPlace(item, updated);
@@ -2115,21 +2152,28 @@ export function initQuickPeekBindings() {
         {
           undoText: t("Отменить", "Undo"),
           durationMs: 5000,
-          onUndo: async () => {
-            try {
-              const uRes = await fetch("/api/kinorium/watched", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ...buildQpPayload(item), watched: curWatched }),
-              });
-              const uData = await uRes.json();
-              if (uRes.ok && uData?.ok !== false && !uData?.error) {
-                item.kinorium = uData;
-                if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
-                patchCatalogItemKinoriumInPlace(item, uData);
-              }
-            } catch (err) { window.logDebug?.("Modals", err); }
-          },
+          onUndo: () =>
+            withKinoriumActionLock(`qp-watched:${item.id}`, qpBtnWatched, async () => {
+              if ((state.activeProfileId || "main") !== reqProfileId) return;
+              try {
+                const uRes = await fetch("/api/kinorium/watched", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ ...buildQpPayload(item), watched: curWatched }),
+                });
+                const uData = await uRes.json();
+                if (
+                  uRes.ok &&
+                  uData?.ok !== false &&
+                  !uData?.error &&
+                  (state.activeProfileId || "main") === reqProfileId
+                ) {
+                  item.kinorium = uData;
+                  if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+                  patchCatalogItemKinoriumInPlace(item, uData);
+                }
+              } catch (err) { window.logDebug?.("Modals", err); }
+            }),
         }
       );
     });
@@ -2139,7 +2183,9 @@ export function initQuickPeekBindings() {
   qpBtnNever?.addEventListener("click", () => {
     const item = state.quickPeekItem;
     if (!item) return;
+    const reqProfileId = state.activeProfileId || "main";
     withKinoriumActionLock(`qp-never:${item.id}`, qpBtnNever, async () => {
+      if ((state.activeProfileId || "main") !== reqProfileId) return;
       const res = await fetch("/api/kinorium/never", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2149,6 +2195,7 @@ export function initQuickPeekBindings() {
       if (!res.ok || updated?.ok === false || updated?.error) {
         throw new Error(updated?.error || `HTTP ${res.status}`);
       }
+      if ((state.activeProfileId || "main") !== reqProfileId) return;
       item.kinorium = updated;
       if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
       patchCatalogItemKinoriumInPlace(item, updated);
@@ -2159,21 +2206,28 @@ export function initQuickPeekBindings() {
         {
           undoText: t("Отменить", "Undo"),
           durationMs: 5000,
-          onUndo: async () => {
-            try {
-              const uRes = await fetch("/api/kinorium/never", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(buildQpPayload(item)),
-              });
-              const uData = await uRes.json();
-              if (uRes.ok && uData?.ok !== false && !uData?.error) {
-                item.kinorium = uData;
-                if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
-                patchCatalogItemKinoriumInPlace(item, uData);
-              }
-            } catch (err) { window.logDebug?.("Modals", err); }
-          },
+          onUndo: () =>
+            withKinoriumActionLock(`qp-never:${item.id}`, qpBtnNever, async () => {
+              if ((state.activeProfileId || "main") !== reqProfileId) return;
+              try {
+                const uRes = await fetch("/api/kinorium/never", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(buildQpPayload(item)),
+                });
+                const uData = await uRes.json();
+                if (
+                  uRes.ok &&
+                  uData?.ok !== false &&
+                  !uData?.error &&
+                  (state.activeProfileId || "main") === reqProfileId
+                ) {
+                  item.kinorium = uData;
+                  if (state.quickPeekItem === item) syncQuickPeekStatusesUI(item);
+                  patchCatalogItemKinoriumInPlace(item, uData);
+                }
+              } catch (err) { window.logDebug?.("Modals", err); }
+            }),
         }
       );
     });

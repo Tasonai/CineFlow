@@ -221,7 +221,7 @@ class AppUpdater:
                         repo = DEFAULT_UPDATE_REPO
                     else:
                         repo = custom_repo
-                if custom_manifest:
+                if custom_manifest and custom_manifest.lower().startswith("https://") and validate_safe_external_url(custom_manifest):
                     manifest_url = custom_manifest
             except Exception:
                 pass
@@ -742,6 +742,7 @@ class AppUpdater:
                     total = int(cl_header) if (cl_header and str(cl_header).isdigit()) else target_expected_size
                     with self._lock:
                         self._status["total_bytes"] = total
+                    max_bytes = target_expected_size if target_expected_size > 0 else (512 * 1024 * 1024)
                     last_pct = -1.0
                     last_reported_bytes = 0
                     with open(part_path, "wb") as fp:
@@ -751,9 +752,11 @@ class AppUpdater:
                             chunk = resp.read(256 * 1024)
                             if not chunk:
                                 break
+                            downloaded += len(chunk)
+                            if downloaded > max_bytes:
+                                raise RuntimeError(f"Installer exceeds allowed maximum size ({max_bytes} bytes)")
                             fp.write(chunk)
                             hasher.update(chunk)
-                            downloaded += len(chunk)
                             pct = round(min(99.9, (downloaded * 100.0 / total)), 1) if total > 0 else 0.0
                             if pct != last_pct or (downloaded - last_reported_bytes) >= 1048576:
                                 last_pct = pct
@@ -835,7 +838,7 @@ class AppUpdater:
             sha256_verified = bool(expected_sha) and bool(self._status.get("sha256_verified"))
             if not sha256_verified:
                 auto_reveal = True
-        if not file_path or not os.path.isfile(file_path):
+        if not file_path or os.path.islink(file_path) or not os.path.isfile(file_path):
             st = self.get_status()
             return {
                 "ok": False,
@@ -844,15 +847,59 @@ class AppUpdater:
                 "updater": st,
             }
 
+        exec_path = file_path
+        if not auto_reveal and sha256_verified and expected_sha:
+            try:
+                stage_dir = os.path.join(self.storage_dir, "updates_stage")
+                os.makedirs(stage_dir, mode=0o700, exist_ok=True)
+                try:
+                    os.chmod(stage_dir, 0o700)
+                except OSError:
+                    pass
+                staged_file = os.path.join(stage_dir, os.path.basename(file_path))
+                if os.path.islink(staged_file) or os.path.exists(staged_file):
+                    os.unlink(staged_file)
+                verify_hasher = hashlib.sha256()
+                with open(file_path, "rb") as src_fp, open(
+                    os.open(staged_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb"
+                ) as dst_fp:
+                    while True:
+                        blk = src_fp.read(256 * 1024)
+                        if not blk:
+                            break
+                        verify_hasher.update(blk)
+                        dst_fp.write(blk)
+                if verify_hasher.hexdigest().lower() != expected_sha.lower():
+                    try:
+                        os.unlink(staged_file)
+                    except OSError:
+                        pass
+                    st = self.get_status()
+                    return {
+                        "ok": False,
+                        "error": "Installer SHA-256 verification failed before launch. Please re-download the update.",
+                        "status": st,
+                        "updater": st,
+                    }
+                exec_path = staged_file
+            except Exception as stage_err:
+                st = self.get_status()
+                return {
+                    "ok": False,
+                    "error": f"Could not stage verified installer: {stage_err}",
+                    "status": st,
+                    "updater": st,
+                }
+
         try:
             if sys.platform == "darwin":
                 if auto_reveal:
                     subprocess.Popen(["open", "-R", file_path])
-                elif sha256_verified and file_path.lower().endswith(".dmg") and os.access("/Applications", os.W_OK):
+                elif sha256_verified and exec_path.lower().endswith(".dmg") and os.access("/Applications", os.W_OK):
                     upd_script = (
                         "import os, shutil, subprocess, tempfile, time\n"
                         "os.chdir('/tmp')\n"
-                        f"dmg = {file_path!r}\n"
+                        f"dmg = {exec_path!r}\n"
                         f"self_pid = {os.getpid()}\n"
                         "mnt = tempfile.mkdtemp(prefix='velarium_dmg_')\n"
                         "stage_app = '/Applications/.Velarium.app.new'\n"
@@ -906,14 +953,14 @@ class AppUpdater:
                         stderr=subprocess.DEVNULL,
                     )
                 else:
-                    subprocess.Popen(["open", file_path])
+                    subprocess.Popen(["open", exec_path])
             elif sys.platform == "win32":
                 if auto_reveal:
                     subprocess.Popen(["explorer", f"/select,{os.path.normpath(file_path)}"])
                 else:
-                    os.startfile(file_path)  # type: ignore[attr-defined]
+                    os.startfile(exec_path)  # type: ignore[attr-defined]
             else:
-                subprocess.Popen(["xdg-open", os.path.dirname(file_path) if auto_reveal else file_path])
+                subprocess.Popen(["xdg-open", os.path.dirname(file_path) if auto_reveal else exec_path])
 
             with self._lock:
                 self._status["state"] = "installing"

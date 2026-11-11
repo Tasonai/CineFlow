@@ -1175,9 +1175,10 @@ static LRESULT CALLBACK VelariumWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             }
             break;
 
-        case WM_NCLBUTTONUP:
-            if (wParam == HTMINBUTTON || wParam == HTMAXBUTTON || wParam == HTCLOSE) {
-                g_nc_pressed_ht = 0;
+        case WM_NCLBUTTONUP: {
+            WPARAM pressed = g_nc_pressed_ht;
+            g_nc_pressed_ht = 0;
+            if (pressed == wParam && (wParam == HTMINBUTTON || wParam == HTMAXBUTTON || wParam == HTCLOSE)) {
                 if (wParam == HTMINBUTTON) {
                     PostMessageW(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, lParam);
                     return 0;
@@ -1191,8 +1192,8 @@ static LRESULT CALLBACK VelariumWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
                     return 0;
                 }
             }
-            g_nc_pressed_ht = 0;
             break;
+        }
 
         case WM_SIZE:
             sync_webview_bounds(hwnd);

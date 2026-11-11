@@ -405,9 +405,8 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
         path = parsed.path
         if (
             path.startswith("/api/")
-            and path not in ("/api/proxy-stream", "/api/proxy-vtt")
+            and path not in ("/api/proxy-stream", "/api/proxy-vtt", "/api/remux-stream", "/api/remux-subtitle", "/api/person-photo")
             and not path.startswith("/api/downloads/")
-            and self.headers.get("Origin")
             and not self._is_trusted_origin()
         ):
             self._send_json({"error": "Forbidden cross-origin request"}, status=403)
@@ -596,7 +595,12 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
         parsed, qs = self._get_parsed_url_and_qs()
         path = parsed.path
 
-        if path.startswith("/api/") and self.headers.get("Origin") and not self._is_trusted_origin():
+        if (
+            path.startswith("/api/")
+            and path not in ("/api/proxy-stream", "/api/proxy-vtt", "/api/remux-stream", "/api/remux-subtitle", "/api/person-photo")
+            and not path.startswith("/api/downloads/")
+            and not self._is_trusted_origin()
+        ):
             self._send_json({"ok": False, "error": "Forbidden cross-origin request"}, status=403)
             return
 
@@ -617,7 +621,7 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
             return
         parsed, qs = self._get_parsed_url_and_qs()
         path = parsed.path
-        if self.headers.get("Origin") and not self._is_trusted_origin():
+        if not self._is_trusted_origin():
             self._send_json({"ok": False, "error": "Forbidden cross-origin request"}, status=403)
             return
         max_body = self.MAX_IMPORT_BODY_BYTES if path == "/api/backup/import" else self.MAX_JSON_BODY_BYTES

@@ -32,7 +32,13 @@ def _is_valid_ffmpeg_http_url(url: str) -> bool:
         return False
     try:
         from .net_security import is_allowed_media_source_url
-        return bool(is_allowed_media_source_url(s, allow_torrserver_loopback=True))
+        return bool(
+            is_allowed_media_source_url(
+                s,
+                allow_torrserver_loopback=True,
+                require_dns_resolution=True,
+            )
+        )
     except Exception:
         return False
 
@@ -593,11 +599,112 @@ class RemuxStreamEngine:
                         "_ts": time.time(),
                         "_failed": True,
                     }
-                    if self._probe_inflight.get(inflight_key) is inflight_ev:
-                        self._probe_inflight.pop(inflight_key, None)
-                inflight_ev.set()
                 return {"ok": False, "error": err_msg, "remux_available": True}
             parsed = json.loads(proc.stdout)
+
+            fmt = parsed.get("format") or {}
+            fmt_name = str(fmt.get("format_name") or "").lower()
+            streams = parsed.get("streams") or []
+            chapters = parsed.get("chapters") or []
+            duration = self._extract_best_duration(fmt, streams)
+            credits_start_sec = self._extract_credits_chapter_sec(chapters, duration)
+            video_codec = ""
+            video_width = 0
+            video_height = 0
+            audio_tracks: List[Dict[str, Any]] = []
+            subtitle_tracks: List[Dict[str, Any]] = []
+
+            audio_ord = 0
+            for st in streams:
+                ctype = str(st.get("codec_type") or "").lower()
+                cname = str(st.get("codec_name") or "").lower()
+                if ctype == "video" and not video_codec and cname not in ("mjpeg", "png", "webp"):
+                    video_codec = cname
+                    video_width = int(st.get("width") or 0)
+                    video_height = int(st.get("height") or 0)
+                elif ctype == "audio":
+                    channels = int(st.get("channels") or 2)
+                    tags = st.get("tags") or {}
+                    raw_lang = str(tags.get("language") or tags.get("LANGUAGE") or "").strip().lower()
+                    audio_tracks.append(
+                        {
+                            "audio_index": audio_ord,
+                            "stream_index": int(st.get("index") or 0),
+                            "codec": cname,
+                            "channels": channels,
+                            "lang": raw_lang,
+                            "label": self._build_audio_label(audio_ord, st, ui_lang=ui_lang),
+                            "browser_native_audio": cname in _BROWSER_SAFE_AUDIO_CODECS,
+                            "_raw_stream": {
+                                "tags": tags,
+                                "codec_name": cname,
+                                "channels": channels,
+                            },
+                        }
+                    )
+                    audio_ord += 1
+                elif ctype == "subtitle" and cname in _TEXT_SUBTITLE_CODECS:
+                    s_idx = int(st.get("index") or 0)
+                    s_tags = st.get("tags") or {}
+                    s_lang = str(s_tags.get("language") or s_tags.get("LANGUAGE") or "").strip().lower()
+                    subtitle_tracks.append(
+                        {
+                            "stream_index": s_idx,
+                            "codec": cname,
+                            "lang": s_lang,
+                            "label": self._build_sub_label(len(subtitle_tracks), st, ui_lang=ui_lang),
+                            "_raw_stream": {
+                                "tags": s_tags,
+                                "disposition": st.get("disposition") or {},
+                            },
+                        }
+                    )
+
+            priority_subs: List[Dict[str, Any]] = []
+            other_subs: List[Dict[str, Any]] = []
+            _prio_langs = {"rus", "ru", "eng", "en", "ukr", "uk", "pol", "pl"}
+            for st_item in subtitle_tracks:
+                st_lang = str(st_item.get("lang") or "").lower()
+                st_lbl = str(st_item.get("label") or "").lower()
+                if st_lang in _prio_langs or any(
+                    m in st_lbl for m in ("рус", "russian", "англ", "english", "укр", "ukrain", "polsk", "polish")
+                ):
+                    priority_subs.append(st_item)
+                else:
+                    other_subs.append(st_item)
+            ordered_subtitles = (priority_subs + other_subs)[:40]
+
+            default_audio_idx = self._select_default_audio_index(audio_tracks, ui_lang=ui_lang)
+
+            is_mp4_webm = any(k in fmt_name for k in ("mp4", "mov", "webm")) and "matroska" not in fmt_name
+            first_audio_safe = bool(audio_tracks and audio_tracks[0]["browser_native_audio"])
+            needs_remux = bool(
+                not is_mp4_webm
+                or not first_audio_safe
+                or len(audio_tracks) > 1
+                or video_codec in ("hevc", "h265")
+            )
+
+            raw_result = {
+                "ok": True,
+                "remux_available": True,
+                "format_name": fmt_name,
+                "duration": round(duration, 2),
+                "credits_start_sec": credits_start_sec,
+                "video_codec": video_codec,
+                "width": video_width,
+                "height": video_height,
+                "needs_remux": needs_remux,
+                "default_audio_index": default_audio_idx,
+                "audio_tracks": audio_tracks,
+                "subtitle_tracks": ordered_subtitles,
+            }
+            with self._lock:
+                if len(self._probe_cache) > 120:
+                    for k_old in list(self._probe_cache.keys())[:30]:
+                        self._probe_cache.pop(k_old, None)
+                self._probe_cache[cache_key] = {**raw_result, "_ts": time.time(), "_fast_probed": bool(fast_probe)}
+            return self._localize_probe_payload(raw_result, ui_lang=ui_lang)
         except subprocess.TimeoutExpired:
             with self._lock:
                 self._probe_cache[cache_key] = {
@@ -607,9 +714,6 @@ class RemuxStreamEngine:
                     "_ts": time.time(),
                     "_failed": True,
                 }
-                if self._probe_inflight.get(inflight_key) is inflight_ev:
-                    self._probe_inflight.pop(inflight_key, None)
-            inflight_ev.set()
             return {"ok": False, "error": "Timeout probing torrent stream (peers warming up)", "remux_available": True}
         except Exception as exc:
             with self._lock:
@@ -620,117 +724,13 @@ class RemuxStreamEngine:
                     "_ts": time.time(),
                     "_failed": True,
                 }
-                if self._probe_inflight.get(inflight_key) is inflight_ev:
-                    self._probe_inflight.pop(inflight_key, None)
-            inflight_ev.set()
             return {"ok": False, "error": str(exc), "remux_available": True}
-
-        fmt = parsed.get("format") or {}
-        fmt_name = str(fmt.get("format_name") or "").lower()
-        streams = parsed.get("streams") or []
-        chapters = parsed.get("chapters") or []
-        duration = self._extract_best_duration(fmt, streams)
-        credits_start_sec = self._extract_credits_chapter_sec(chapters, duration)
-        video_codec = ""
-        video_width = 0
-        video_height = 0
-        audio_tracks: List[Dict[str, Any]] = []
-        subtitle_tracks: List[Dict[str, Any]] = []
-
-        audio_ord = 0
-        for st in streams:
-            ctype = str(st.get("codec_type") or "").lower()
-            cname = str(st.get("codec_name") or "").lower()
-            if ctype == "video" and not video_codec and cname not in ("mjpeg", "png", "webp"):
-                video_codec = cname
-                video_width = int(st.get("width") or 0)
-                video_height = int(st.get("height") or 0)
-            elif ctype == "audio":
-                channels = int(st.get("channels") or 2)
-                tags = st.get("tags") or {}
-                raw_lang = str(tags.get("language") or tags.get("LANGUAGE") or "").strip().lower()
-                audio_tracks.append(
-                    {
-                        "audio_index": audio_ord,
-                        "stream_index": int(st.get("index") or 0),
-                        "codec": cname,
-                        "channels": channels,
-                        "lang": raw_lang,
-                        "label": self._build_audio_label(audio_ord, st, ui_lang=ui_lang),
-                        "browser_native_audio": cname in _BROWSER_SAFE_AUDIO_CODECS,
-                        "_raw_stream": {
-                            "tags": tags,
-                            "codec_name": cname,
-                            "channels": channels,
-                        },
-                    }
-                )
-                audio_ord += 1
-            elif ctype == "subtitle" and cname in _TEXT_SUBTITLE_CODECS:
-                s_idx = int(st.get("index") or 0)
-                s_tags = st.get("tags") or {}
-                s_lang = str(s_tags.get("language") or s_tags.get("LANGUAGE") or "").strip().lower()
-                subtitle_tracks.append(
-                    {
-                        "stream_index": s_idx,
-                        "codec": cname,
-                        "lang": s_lang,
-                        "label": self._build_sub_label(len(subtitle_tracks), st, ui_lang=ui_lang),
-                        "_raw_stream": {
-                            "tags": s_tags,
-                            "disposition": st.get("disposition") or {},
-                        },
-                    }
-                )
-
-        priority_subs: List[Dict[str, Any]] = []
-        other_subs: List[Dict[str, Any]] = []
-        _prio_langs = {"rus", "ru", "eng", "en", "ukr", "uk", "pol", "pl"}
-        for st_item in subtitle_tracks:
-            st_lang = str(st_item.get("lang") or "").lower()
-            st_lbl = str(st_item.get("label") or "").lower()
-            if st_lang in _prio_langs or any(
-                m in st_lbl for m in ("рус", "russian", "англ", "english", "укр", "ukrain", "polsk", "polish")
-            ):
-                priority_subs.append(st_item)
-            else:
-                other_subs.append(st_item)
-        ordered_subtitles = (priority_subs + other_subs)[:40]
-
-        default_audio_idx = self._select_default_audio_index(audio_tracks, ui_lang=ui_lang)
-
-        is_mp4_webm = any(k in fmt_name for k in ("mp4", "mov", "webm")) and "matroska" not in fmt_name
-        first_audio_safe = bool(audio_tracks and audio_tracks[0]["browser_native_audio"])
-        needs_remux = bool(
-            not is_mp4_webm
-            or not first_audio_safe
-            or len(audio_tracks) > 1
-            or video_codec in ("hevc", "h265")
-        )
-
-        raw_result = {
-            "ok": True,
-            "remux_available": True,
-            "format_name": fmt_name,
-            "duration": round(duration, 2),
-            "credits_start_sec": credits_start_sec,
-            "video_codec": video_codec,
-            "width": video_width,
-            "height": video_height,
-            "needs_remux": needs_remux,
-            "default_audio_index": default_audio_idx,
-            "audio_tracks": audio_tracks,
-            "subtitle_tracks": ordered_subtitles,
-        }
-        with self._lock:
-            if len(self._probe_cache) > 120:
-                for k_old in list(self._probe_cache.keys())[:30]:
-                    self._probe_cache.pop(k_old, None)
-            self._probe_cache[cache_key] = {**raw_result, "_ts": now}
-            if self._probe_inflight.get(inflight_key) is inflight_ev:
-                self._probe_inflight.pop(inflight_key, None)
-        inflight_ev.set()
-        return self._localize_probe_payload(raw_result, ui_lang=ui_lang)
+        finally:
+            if is_leader:
+                with self._lock:
+                    if self._probe_inflight.get(inflight_key) is inflight_ev:
+                        self._probe_inflight.pop(inflight_key, None)
+                inflight_ev.set()
 
     def extract_subtitle_vtt(
         self,
@@ -840,9 +840,18 @@ class RemuxStreamEngine:
         audio_offset_sec: float = 0.0,
         subtitles_file: str = "",
         subtitle_index: Optional[int] = None,
+        allow_local_file: bool = False,
     ) -> List[str]:
         clean_src = str(source_url or "").strip()
-        if not _is_valid_ffmpeg_http_url(clean_src):
+        is_local_file = bool(
+            allow_local_file
+            and clean_src
+            and not _CTRL_CHAR_RE.search(clean_src)
+            and os.path.isabs(clean_src)
+            and os.path.isfile(clean_src)
+            and not os.path.islink(clean_src)
+        )
+        if not is_local_file and not _is_valid_ffmpeg_http_url(clean_src):
             raise ValueError("Invalid remux source URL")
         v_low = (video_codec or "").strip().lower()
         a_low = (audio_codec or "").strip().lower()

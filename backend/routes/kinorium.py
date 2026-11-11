@@ -222,6 +222,11 @@ def handle_integrations(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
 # ---------------------------------------------------------------------------
 
 def handle_kinorium_scrobble(handler, qs: Dict[str, Any], parsed, body: Dict[str, Any], ctx) -> bool:
+    req_prof_id = str(body.get("profile_id") or "").strip()
+    active_prof_id = str(ctx.profile_manager.get_active_profile_id() or "").strip() if hasattr(ctx, "profile_manager") else ""
+    if req_prof_id and active_prof_id and req_prof_id != active_prof_id:
+        handler._send_json({"ok": True, "ignored_stale_profile": True})
+        return True
     if not _check_kinorium_kids_safe(handler, body, ctx, path="/api/kinorium/scrobble"):
         return True
     raw_comp = body.get("is_series_completed")

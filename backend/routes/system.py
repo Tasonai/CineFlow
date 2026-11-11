@@ -9,6 +9,7 @@ import sys
 import threading
 from urllib.parse import urlparse
 
+from backend.doh import validate_safe_external_url
 from backend.regions import (
     get_country_profile,
     get_european_countries_list,
@@ -240,7 +241,7 @@ def handle_system_update_check_post(handler, qs, parsed, body, ctx):
             changed_cfg = True
         if "update_manifest_url" in body:
             raw_m_url = str(body.get("update_manifest_url") or "").strip()[:512]
-            if raw_m_url and not raw_m_url.lower().startswith(("https://", "http://")):
+            if raw_m_url and (not raw_m_url.lower().startswith("https://") or not validate_safe_external_url(raw_m_url)):
                 raw_m_url = ""
             ctx.app_prefs["update_manifest_url"] = raw_m_url
             changed_cfg = True
@@ -431,7 +432,7 @@ def handle_settings_post(handler, qs, parsed, body, ctx):
         ctx.app_prefs["update_repo"] = str(body.get("update_repo") or "").strip()[:160]
     if "update_manifest_url" in body and is_local:
         raw_m_url = str(body.get("update_manifest_url") or "").strip()[:512]
-        if raw_m_url and not raw_m_url.lower().startswith(("https://", "http://")):
+        if raw_m_url and (not raw_m_url.lower().startswith("https://") or not validate_safe_external_url(raw_m_url)):
             raw_m_url = ""
         ctx.app_prefs["update_manifest_url"] = raw_m_url
     rezka_cfg = body.get("hdrezka", {})

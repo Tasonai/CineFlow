@@ -643,6 +643,7 @@ class CdpWebSocketClient:
         if parsed.query:
             path = f"{path}?{parsed.query}"
 
+        self._timeout = float(timeout)
         self._sock = socket.create_connection((host, port), timeout=timeout)
         self._sock.settimeout(timeout)
         self._buf = bytearray()
@@ -898,7 +899,7 @@ def _run_chromium_cdp_login(browser_exe: str, url: str) -> int:
         "--window-size=520,720",
         f"--user-data-dir={temp_profile}",
         f"--remote-debugging-port={port}",
-        "--remote-allow-origins=*",
+        "--remote-debugging-address=127.0.0.1",
         "--no-first-run",
         "--no-default-browser-check",
         "--disable-extensions",
@@ -1055,6 +1056,9 @@ def _run_pywebview_login(url: str, title: str) -> int:
                     try:
                         for ck in win.get_cookies() or []:
                             for k, morsel in ck.items():
+                                dom = str(morsel.get("domain") or "").lower()
+                                if dom and "kinorium." not in dom:
+                                    continue
                                 if k and morsel.value and morsel.value.lower() != "deleted":
                                     cookies_dict[str(k).strip()] = str(morsel.value).strip()
                     except Exception:

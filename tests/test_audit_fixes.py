@@ -2479,7 +2479,7 @@ class TestAuditFixes(unittest.TestCase):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         doh_py = self._read_text(os.path.join(root, "backend", "doh.py"))
         self.assertIn("skip_target_get=True", doh_py)
-        self.assertIn("p_prx.port == 8765", doh_py)
+        self.assertIn("p_prx.port in (8765, 8090, None)", doh_py)
 
         # 4. Frontend & native wrapper Pass-16 invariants
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -2544,6 +2544,123 @@ class TestAuditFixes(unittest.TestCase):
 
         launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
         self.assertIn("IsEqualIID(riid, &IID_IUnknown)", launcher_c)
+
+    def test_pass18_security_bugs_and_performance_audit(self):
+        """Pass-18 deep security, bugfix & performance audit regressions."""
+        import socket as _socket
+        import tempfile
+        import urllib.error
+        import urllib.request
+        from unittest import mock
+
+        from backend.backup_stream import _normalize_torrserver_url
+        from backend.kinorium_http import solve_kinorium_js_challenge
+        from backend.net_security import (
+            _VERIFIED_PUBLIC_IPS_CACHE,
+            _VERIFIED_PUBLIC_IPS_LOCK,
+            _resolve_verified_public_ips,
+            default_safe_public_opener,
+            is_allowed_media_source_url,
+        )
+        from backend.profiles import ProfileManager
+        from backend.request_handler import CinemaRequestHandler
+
+        # 1. Dual-stack IPv6 SSRF blocking, fail-closed DNS mode, and callable default_safe_public_opener()
+        self.assertTrue(callable(default_safe_public_opener))
+        self.assertIsInstance(default_safe_public_opener(), urllib.request.OpenerDirector)
+
+        with _VERIFIED_PUBLIC_IPS_LOCK:
+            _VERIFIED_PUBLIC_IPS_CACHE.pop(("ipv6-loopback-rebind.invalid", 443), None)
+        with mock.patch(
+            "backend.net_security.socket.getaddrinfo",
+            return_value=[
+                (_socket.AF_INET6, _socket.SOCK_STREAM, 6, "", ("::ffff:127.0.0.1", 443, 0, 0)),
+            ],
+        ):
+            with self.assertRaises(urllib.error.URLError):
+                _resolve_verified_public_ips("ipv6-loopback-rebind.invalid", 443)
+            self.assertFalse(
+                is_allowed_media_source_url(
+                    "https://ipv6-loopback-rebind.invalid/video.mp4",
+                    allow_torrserver_loopback=False,
+                )
+            )
+
+        with mock.patch(
+            "backend.net_security.socket.getaddrinfo",
+            side_effect=_socket.gaierror("NXDOMAIN"),
+        ):
+            self.assertFalse(
+                is_allowed_media_source_url(
+                    "https://unresolvable-media-target.invalid/video.mp4",
+                    allow_torrserver_loopback=False,
+                    require_dns_resolution=True,
+                )
+            )
+
+        # 2. Multi-Kids-profile PIN verification across all locked Kids profiles
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pm = ProfileManager(tmp_dir)
+            pm.save_profile(profile_id="kids", kids_mode=True, kids_pin="1111")
+            p2 = pm.save_profile(name="Junior", kids_mode=True, kids_pin="2222", pin="1111")
+            self.assertEqual(set(pm.list_kids_pin_locked_profiles()), {"kids", p2["id"]})
+            self.assertFalse(pm.verify_any_kids_pin("1111"))
+            self.assertFalse(pm.verify_any_kids_pin("2222"))
+            with self.assertRaises(PermissionError):
+                pm.import_profiles_bundle(pm.export_profiles_bundle(), enforce_pin=True, pin="1111")
+            pm.save_profile(profile_id=p2["id"], kids_mode=True, kids_pin="1111", pin="2222")
+            self.assertTrue(pm.verify_any_kids_pin("1111"))
+
+        # 3. Unconditional _is_trusted_origin blocks cross-site Sec-Fetch-Site even without Origin header
+        dummy_handler = CinemaRequestHandler.__new__(CinemaRequestHandler)
+        dummy_handler.headers = {"Sec-Fetch-Site": "cross-site"}
+        self.assertFalse(dummy_handler._is_trusted_origin())
+
+        # 4. TorrServer URL normalizer rejects public internet IPs and Velarium's own port
+        self.assertEqual(_normalize_torrserver_url("http://93.184.216.34:8090"), "")
+        self.assertEqual(_normalize_torrserver_url("http://127.0.0.1:8765"), "")
+        self.assertEqual(_normalize_torrserver_url("http://127.0.0.1:8090"), "http://127.0.0.1:8090")
+        self.assertEqual(_normalize_torrserver_url("http://192.168.1.25:8090"), "http://192.168.1.25:8090")
+
+        # 5. Kinorium JS challenge solver handles static concat and contains no unsandboxed cscript/jsc runners
+        self.assertEqual(
+            solve_kinorium_js_challenge(
+                server.kinorium_service,
+                "<script>document.cookie = 'anti' + '_ddos=ok42; path=/';</script>",
+            ),
+            "anti_ddos=ok42",
+        )
+        self.assertEqual(
+            solve_kinorium_js_challenge(
+                server.kinorium_service,
+                "<script>document.cookie = Proxy.revocable({}, {});</script>",
+            ),
+            "",
+        )
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        kin_http_py = self._read_text(os.path.join(root, "backend", "kinorium_http.py"))
+        self.assertNotIn("cscript.exe", kin_http_py)
+        self.assertNotIn("JavaScriptCore.framework", kin_http_py)
+
+        # 6. Frontend & native wrapper Pass-18 invariants
+        backup_py = self._read_text(os.path.join(root, "backend", "routes", "backup.py"))
+        import_src = backup_py.split("def handle_backup_import", 1)[1]
+        for forbidden_key in ("update_manifest_url", "update_repo", "proxy_url", "cf_worker_relay", "torrserver_url"):
+            self.assertNotIn(forbidden_key, import_src)
+
+        cards_js = self._read_text(os.path.join(root, "public", "js", "catalog-cards.js"))
+        self.assertIn("withKinoriumActionLock(cardWatchedLockKey, btn, async () => {", cards_js)
+        self.assertIn("withKinoriumActionLock(cardWatchedLockKey, null, async () => {", cards_js)
+
+        player_js = self._read_text(os.path.join(root, "public", "js", "player.js"))
+        self.assertIn("skipProgressSave", player_js)
+
+        win_webview_py = self._read_text(os.path.join(root, "windows", "kinorium_login_webview.py"))
+        self.assertIn("--remote-debugging-address=127.0.0.1", win_webview_py)
+        self.assertNotIn("--remote-allow-origins=*", win_webview_py)
+
+        launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
+        self.assertIn("pressed == wParam", launcher_c)
 
 
 if __name__ == "__main__":

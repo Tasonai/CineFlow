@@ -1242,7 +1242,11 @@ def _build_xray_payload(
                 itunes_url,
                 headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Velarium/2.7"},
             )
-            opener = default_safe_public_opener()
+            opener = (
+                default_safe_public_opener()
+                if callable(default_safe_public_opener)
+                else default_safe_public_opener
+            )
             with opener.open(req, timeout=2.4) as resp:
                 data = json.loads(resp.read(524288).decode("utf-8", errors="replace"))
             results = data.get("results") if isinstance(data, dict) else []
@@ -1420,14 +1424,18 @@ def _build_xray_payload(
         "soundtrack": soundtrack[:8],
         "trivia": trivia[:7],
     }
-    if not itunes_network_failed:
-        with _XRAY_CACHE_LOCK:
-            if len(_XRAY_CACHE) > 400:
-                oldest_keys = sorted(_XRAY_CACHE.keys(), key=lambda k: _XRAY_CACHE[k][0])[:100]
-                for ok_k in oldest_keys:
-                    _XRAY_CACHE.pop(ok_k, None)
-            cache_ts = (now - 86100.0) if used_synthetic_fallback else now
-            _XRAY_CACHE[cache_key] = (cache_ts, copy.deepcopy(payload))
+    with _XRAY_CACHE_LOCK:
+        if len(_XRAY_CACHE) > 400:
+            oldest_keys = sorted(_XRAY_CACHE.keys(), key=lambda k: _XRAY_CACHE[k][0])[:100]
+            for ok_k in oldest_keys:
+                _XRAY_CACHE.pop(ok_k, None)
+        if itunes_network_failed:
+            cache_ts = now - 86340.0
+        elif used_synthetic_fallback:
+            cache_ts = now - 86100.0
+        else:
+            cache_ts = now
+        _XRAY_CACHE[cache_key] = (cache_ts, copy.deepcopy(payload))
     return payload
 
 
@@ -1462,7 +1470,11 @@ def _fetch_wikipedia_xray_trivia(
                 "Accept": "application/json",
             },
         )
-        opener = default_safe_public_opener()
+        opener = (
+            default_safe_public_opener()
+            if callable(default_safe_public_opener)
+            else default_safe_public_opener
+        )
         with opener.open(req, timeout=2.2) as resp:
             data = json.loads(resp.read(524288).decode("utf-8", errors="replace"))
         pages = ((data.get("query") or {}).get("pages") or {}) if isinstance(data, dict) else {}
@@ -1746,14 +1758,20 @@ _XRAY_PROF_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
 def _norm_xray_profile_id(raw_id: Any, ctx: Any) -> str:
     active_id = _get_active_profile_id_for_xray(ctx)
+    pm = getattr(ctx, "profile_manager", None) if ctx is not None else None
     try:
-        pm = getattr(ctx, "profile_manager", None)
         if pm and hasattr(pm, "is_kids_mode_active") and pm.is_kids_mode_active():
             return active_id if _XRAY_PROF_ID_RE.match(active_id) else "default"
     except Exception:
         pass
     cand = str(raw_id or "").strip()
     if cand and _XRAY_PROF_ID_RE.match(cand):
+        if pm is not None and hasattr(pm, "profile_exists") and cand not in ("default", active_id):
+            try:
+                if not pm.profile_exists(cand):
+                    return active_id if _XRAY_PROF_ID_RE.match(active_id) else "default"
+            except Exception:
+                pass
         return cand
     return active_id if _XRAY_PROF_ID_RE.match(active_id) else "default"
 
@@ -1851,7 +1869,14 @@ def handle_xray_saved_tracks_post(handler: Any, qs: Dict[str, Any], parsed: Any,
     pm = getattr(ctx, "profile_manager", None)
     if pm is not None:
         if hasattr(pm, "is_profile_kids_pin_locked") and pm.is_profile_kids_pin_locked(prof_id) and prof_id != _get_active_profile_id_for_xray(ctx):
-            if hasattr(handler, "_require_kids_pin_if_locked") and not handler._require_kids_pin_if_locked(str(body.get("pin") or "")):
+            raw_pin = str(body.get("pin") or "")
+            if hasattr(pm, "is_pin_locked_out"):
+                locked_out, retry_sec = pm.is_pin_locked_out(profile_id=prof_id)
+                if locked_out:
+                    handler._send_json({"ok": False, "error": "PIN locked out", "pin_locked_out": True, "retry_after_sec": retry_sec}, status=429)
+                    return True
+            if hasattr(pm, "verify_active_kids_pin") and not pm.verify_active_kids_pin(raw_pin, profile_id=prof_id):
+                handler._send_json({"ok": False, "error": "Kids PIN required", "pin_required": True}, status=403)
                 return True
         if hasattr(pm, "is_kids_mode_active") and pm.is_kids_mode_active():
             track_check = body.get("track") if isinstance(body.get("track"), dict) else body
@@ -1859,7 +1884,12 @@ def handle_xray_saved_tracks_post(handler: Any, qs: Dict[str, Any], parsed: Any,
             m_id = str(track_check.get("media_id") or body.get("media_id") or "").strip()
             if (m_title or m_id) and hasattr(ctx, "build_trusted_item_for_kids_check") and hasattr(pm, "is_item_kids_safe"):
                 cand_xray = ctx.build_trusted_item_for_kids_check(item_id=m_id, title=m_title)
-                if (cand_xray.get("genres") or cand_xray.get("description") or cand_xray.get("age_rating")) and not pm.is_item_kids_safe(cand_xray):
+                probe_xray = (
+                    cand_xray
+                    if (cand_xray.get("genres") or cand_xray.get("description") or cand_xray.get("age_rating"))
+                    else {**cand_xray, "genres": ["семейный"]}
+                )
+                if not (cand_xray.get("title") or cand_xray.get("orig_title") or cand_xray.get("genres")) or not pm.is_item_kids_safe(probe_xray):
                     handler._send_json({"ok": False, "error": "Restricted in Kids Mode"}, status=403)
                     return True
     action = str(body.get("action") or "toggle").strip().lower()

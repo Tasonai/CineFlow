@@ -3,29 +3,29 @@
 // (watching_10, completed, series finale), continue watching synchronization,
 // and offline download automation triggers.
 
-import { state } from "./state.js?v=20261111v3";
-import { t, displayTitle } from "./i18n.js?v=20261111v3";
-import { saveEpisodeProgress, showToast } from "./utils.js?v=20261111v3";
+import { state } from "./state.js?v=20261111v4";
+import { t, displayTitle } from "./i18n.js?v=20261111v4";
+import { saveEpisodeProgress, showToast } from "./utils.js?v=20261111v4";
 import {
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   renderContinueWatching,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261111v3";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261111v3";
-import { refreshDownloadsState } from "./features.js?v=20261111v3";
+} from "./catalog.js?v=20261111v4";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261111v4";
+import { refreshDownloadsState } from "./features.js?v=20261111v4";
 import {
   resolveEffectiveSeasonsMap,
   resolveSeriesCompletedFlag,
   populateSeasonEpisodeSelectors,
-} from "./player-seasons.js?v=20261111v3";
-import { updateModalKinoriumHeader } from "./player-meta.js?v=20261111v3";
+} from "./player-seasons.js?v=20261111v4";
+import { updateModalKinoriumHeader } from "./player-meta.js?v=20261111v4";
 
 export async function reportScrobbleProgress(currentTime, duration, options = {}) {
   if (!state.activeItem) return;
   const item = state.activeItem;
   if (item.is_local_file || String(item.id || "").startsWith("local_")) return;
-  const reqProfileId = state.activeProfileId;
+  const reqProfileId = state.activeProfileId || state.activeProfile?.id || "main";
   const forceWatched = Boolean(options.forceWatched);
   const reason = String(options.reason || "");
   const reqSeason = Number(options.season || state.activeSeason) || 1;
@@ -66,6 +66,7 @@ export async function reportScrobbleProgress(currentTime, duration, options = {}
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        profile_id: reqProfileId,
         id: item.id,
         rezka_id: String(item.rezka_id || ""),
         rezka_url: String(item.rezka_url || ""),
@@ -101,7 +102,7 @@ export async function reportScrobbleProgress(currentTime, duration, options = {}
     if (!res.ok || data?.ok === false || data?.error) {
       throw new Error(data?.error || `HTTP ${res.status}`);
     }
-    if (reqProfileId && state.activeProfileId && reqProfileId !== state.activeProfileId) {
+    if ((state.activeProfileId || state.activeProfile?.id || "main") !== reqProfileId) {
       return;
     }
     const offlineHook = data.offline_automation || data.offline_hook;

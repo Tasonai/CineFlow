@@ -126,8 +126,12 @@ def _normalize_torrserver_url(raw_url: str, velarium_port: int = 8765) -> str:
                 return ""
         if ip_obj.is_link_local or ip_obj.is_multicast or ip_obj.is_unspecified or ip_obj.is_reserved:
             return ""
+        if not (ip_obj.is_loopback or ip_obj.is_private):
+            return ""
         host_fmt = f"[{host}]" if ":" in host else host
     except ValueError:
+        if host != "localhost" and not host.endswith(".local") and "." in host:
+            return ""
         if "%" in host:
             return ""
         host_fmt = host

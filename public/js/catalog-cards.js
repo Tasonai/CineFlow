@@ -2,14 +2,14 @@
 // Handles poster card rendering, poster image fallbacks, smart badges,
 // live trailer hover previews, and the card action context menu.
 
-import { state } from "./state.js?v=20261111v3";
+import { state } from "./state.js?v=20261111v4";
 import {
   displayPoster,
   displayTitle,
   formatCriticsRating,
   isEn,
   t,
-} from "./i18n.js?v=20261111v3";
+} from "./i18n.js?v=20261111v4";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -20,24 +20,24 @@ import {
   pluralRu,
   showToast,
   withKinoriumActionLock,
-} from "./utils.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
 import {
   openPlayerModal,
-} from "./player.js?v=20261111v3";
+} from "./player.js?v=20261111v4";
 import {
   openTvCastModal,
-} from "./features.js?v=20261111v3";
+} from "./features.js?v=20261111v4";
 import {
   openQuickPeekModal,
-} from "./modals.js?v=20261111v3";
+} from "./modals.js?v=20261111v4";
 import {
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
   resolvePreferredPlayTab,
   getFriendsAverageScore,
   patchCatalogItemKinoriumInPlace,
-} from "./catalog-media-resolver.js?v=20261111v3";
-import { stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261111v3";
+} from "./catalog-media-resolver.js?v=20261111v4";
+import { stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261111v4";
 
 export function buildPosterBadgesHtml(item, precomputedEpInfo = null) {
   const offlineSaved = findOfflineDownloadForTitle(item);
@@ -350,7 +350,8 @@ export function openCardContextMenu(e, item, cardEl) {
         const info = resolveSeriesEpisodeInfo(item);
         openPlayerModal(item, "trailer", info.season, info.episode, info.currentTime);
       } else if (act === "watchlist") {
-        await withKinoriumActionLock(item, async () => {
+        const cardLockKey = `card-watchlist:${item.id || item.title || ""}`;
+        await withKinoriumActionLock(cardLockKey, btn, async () => {
           const reqProfileId = state.activeProfileId || "main";
           try {
             const payload = {
@@ -383,7 +384,7 @@ export function openCardContextMenu(e, item, cardEl) {
                 undoText: t("Отменить", "Undo"),
                 durationMs: 5000,
                 onUndo: async () => {
-                  await withKinoriumActionLock(item, async () => {
+                  await withKinoriumActionLock(cardLockKey, null, async () => {
                     try {
                       if ((state.activeProfileId || "main") !== reqProfileId) return;
                       const uRes = await fetch("/api/kinorium/watchlist", {
@@ -410,7 +411,8 @@ export function openCardContextMenu(e, item, cardEl) {
           }
         });
       } else if (act === "watched") {
-        await withKinoriumActionLock(item, async () => {
+        const cardWatchedLockKey = `card-watched:${item.id || item.title || ""}`;
+        await withKinoriumActionLock(cardWatchedLockKey, btn, async () => {
           const reqProfileId = state.activeProfileId || "main";
           try {
             const payload = {
@@ -443,7 +445,7 @@ export function openCardContextMenu(e, item, cardEl) {
                 undoText: t("Отменить", "Undo"),
                 durationMs: 5000,
                 onUndo: async () => {
-                  await withKinoriumActionLock(item, async () => {
+                  await withKinoriumActionLock(cardWatchedLockKey, null, async () => {
                     try {
                       if ((state.activeProfileId || "main") !== reqProfileId) return;
                       const uRes = await fetch("/api/kinorium/watched", {

@@ -839,30 +839,51 @@ class ProfileManager:
                 "secondary_kinorium_states": secondary_states,
             }
 
-    def has_any_kids_pin_locked_profile(self) -> Optional[str]:
+    def profile_exists(self, profile_id: str) -> bool:
+        pid = self._sanitize_profile_id(str(profile_id or ""))
+        if not pid:
+            return False
+        with self._lock:
+            return any(p.get("id") == pid for p in (self._state.get("profiles") or []))
+
+    def is_profile_kids_pin_locked(self, profile_id: str) -> bool:
+        pid = self._sanitize_profile_id(str(profile_id or ""))
+        if not pid:
+            return False
+        with self._lock:
+            prof = next((p for p in (self._state.get("profiles") or []) if p.get("id") == pid), None)
+            if not prof or not prof.get("kids_mode"):
+                return False
+            return len(str(prof.get("kids_pin") or "")) == 4 or bool(prof.get("kids_pin_locked_ephemeral"))
+
+    def list_kids_pin_locked_profiles(self) -> List[str]:
         with self._lock:
             act_id = str(self._state.get("active_profile_id") or "main")
-            active = next((p for p in self._state["profiles"] if p["id"] == act_id), None)
-            if active and active.get("kids_mode") and (
-                len(str(active.get("kids_pin") or "")) == 4 or bool(active.get("kids_pin_locked_ephemeral"))
-            ):
-                return act_id
+            locked: List[str] = []
             for p in self._state["profiles"]:
                 if p.get("kids_mode") and (
                     len(str(p.get("kids_pin") or "")) == 4 or bool(p.get("kids_pin_locked_ephemeral"))
                 ):
-                    return str(p["id"])
-            return None
+                    pid = str(p["id"])
+                    if pid == act_id:
+                        locked.insert(0, pid)
+                    else:
+                        locked.append(pid)
+            return locked
+
+    def has_any_kids_pin_locked_profile(self) -> Optional[str]:
+        locked = self.list_kids_pin_locked_profiles()
+        return locked[0] if locked else None
 
     def has_any_kids_pin(self) -> bool:
-        return bool(self.has_any_kids_pin_locked_profile())
+        return bool(self.list_kids_pin_locked_profiles())
 
     def verify_any_kids_pin(self, pin: str) -> bool:
         with self._lock:
-            locked_pid = self.has_any_kids_pin_locked_profile()
-            if not locked_pid:
+            locked_pids = self.list_kids_pin_locked_profiles()
+            if not locked_pids:
                 return True
-            return self.verify_active_kids_pin(pin, profile_id=locked_pid)
+            return all(self.verify_active_kids_pin(pin, profile_id=pid) for pid in locked_pids)
 
     def import_profiles_bundle(
         self,
@@ -875,9 +896,10 @@ class ProfileManager:
             return {"restored_profiles_count": len(self._state.get("profiles") or [])}
         with self._lock:
             if enforce_pin:
-                locked_pid = self.has_any_kids_pin_locked_profile()
-                if locked_pid and not self.verify_active_kids_pin(pin, profile_id=locked_pid):
-                    raise PermissionError("PIN_REQUIRED")
+                locked_pids = self.list_kids_pin_locked_profiles()
+                for locked_pid in locked_pids:
+                    if not self.verify_active_kids_pin(pin, profile_id=locked_pid):
+                        raise PermissionError("PIN_REQUIRED")
 
             old_profiles_by_id = {p["id"]: dict(p) for p in (self._state.get("profiles") or []) if isinstance(p, dict) and p.get("id")}
             old_ids = set(old_profiles_by_id.keys())

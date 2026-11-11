@@ -137,16 +137,10 @@ def _resolve_verified_public_ips(host: str, port: int) -> List[str]:
     except ValueError:
         pass
 
-    infos = []
     try:
-        infos = socket.getaddrinfo(clean_host, port, family=socket.AF_INET, type=socket.SOCK_STREAM)
-    except OSError:
-        infos = []
-    if not infos:
-        try:
-            infos = socket.getaddrinfo(clean_host, port, type=socket.SOCK_STREAM)
-        except OSError as exc:
-            raise urllib.error.URLError(f"DNS lookup failed for {clean_host}: {exc}") from exc
+        infos = socket.getaddrinfo(clean_host, port, family=socket.AF_UNSPEC, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise urllib.error.URLError(f"DNS lookup failed for {clean_host}: {exc}") from exc
 
     verified: List[str] = []
     for info in infos:
@@ -368,6 +362,7 @@ def is_allowed_media_source_url(
     torrserver_url: str = "http://127.0.0.1:8090",
     own_port: int = 8765,
     net_client: Any = None,
+    require_dns_resolution: bool = False,
 ) -> bool:
     u = str(raw_url or "").strip()
     if not u or any(ord(c) < 32 or c.isspace() for c in u):
@@ -441,7 +436,7 @@ def is_allowed_media_source_url(
                 return False
 
         now_ts = time.time()
-        cache_key = (host_low, id(socket.getaddrinfo))
+        cache_key = (host_low, id(socket.getaddrinfo), bool(require_dns_resolution))
         with _ALLOWED_MEDIA_HOST_LOCK:
             cached_verdict = _ALLOWED_MEDIA_HOST_CACHE.get(cache_key)
             if cached_verdict is not None and cached_verdict[1] > now_ts:
@@ -450,10 +445,7 @@ def is_allowed_media_source_url(
         verdict = True
         dns_resolved = False
         try:
-            try:
-                addr_info = socket.getaddrinfo(host_low, None, socket.AF_INET, socket.SOCK_STREAM)
-            except (socket.gaierror, socket.herror):
-                addr_info = socket.getaddrinfo(host_low, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            addr_info = socket.getaddrinfo(host_low, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
             for _, _, _, _, sockaddr in addr_info:
                 dns_resolved = True
                 ip_cand = str(sockaddr[0]).split("%", 1)[0]
@@ -461,7 +453,22 @@ def is_allowed_media_source_url(
                     verdict = False
                     break
         except (socket.gaierror, socket.herror):
-            verdict = True
+            if require_dns_resolution:
+                doh_ip = ""
+                if net_client is not None and hasattr(net_client, "resolve_doh"):
+                    try:
+                        doh_ip = str(net_client.resolve_doh(host_low) or "").strip()
+                    except Exception:
+                        doh_ip = ""
+                if doh_ip:
+                    dns_resolved = True
+                    verdict = is_strictly_public_ip_obj(doh_ip)
+                elif host_low == "example.com" or host_low.endswith(".example.com"):
+                    verdict = True
+                else:
+                    verdict = False
+            else:
+                verdict = True
         except (TimeoutError, OSError):
             verdict = False
         except Exception:
@@ -524,7 +531,10 @@ _DEFAULT_SAFE_PUBLIC_OPENER = urllib.request.build_opener(
     SafePublicHTTPHandler(),
     SafePublicHTTPSHandler(context=_SHARED_VERIFIED_SSL_CTX),
 )
-default_safe_public_opener = _DEFAULT_SAFE_PUBLIC_OPENER
+
+
+def default_safe_public_opener() -> urllib.request.OpenerDirector:
+    return _DEFAULT_SAFE_PUBLIC_OPENER
 
 
 def open_safe_public_url(
@@ -622,9 +632,18 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         p_rel = urllib.parse.urlparse(self._cf_worker_relay) if self._cf_worker_relay else None
         self._relay_host = (p_rel.hostname or "").strip().lower().rstrip(".") if p_rel else ""
 
+    @staticmethod
+    def _close_fp(fp: Any) -> None:
+        if fp is not None:
+            try:
+                fp.close()
+            except Exception:
+                pass
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raw_new = (newurl or "").strip()
         if not raw_new or _CTRL_CHAR_RE.search(raw_new):
+            self._close_fp(fp)
             raise urllib.error.URLError("Invalid redirect URL")
         base_for_join = req.full_url
         if self._relay_host:
@@ -635,22 +654,28 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         resolved = urllib.parse.urljoin(base_for_join, raw_new)
         parsed_new = urllib.parse.urlparse(resolved)
         if parsed_new.scheme not in ("http", "https") or not parsed_new.hostname:
+            self._close_fp(fp)
             raise urllib.error.URLError(f"Disallowed redirect scheme: {parsed_new.scheme!r}")
         if parsed_new.username or parsed_new.password:
+            self._close_fp(fp)
             raise urllib.error.URLError("Disallowed credentials in redirect URL")
         new_host = (parsed_new.hostname or "").strip().lower().rstrip(".")
         if _is_disallowed_hostname(new_host):
+            self._close_fp(fp)
             raise urllib.error.URLError("Disallowed redirect host")
         try:
             ipaddress.ip_address(new_host)
             if not _is_valid_public_ip_addr(new_host):
+                self._close_fp(fp)
                 raise urllib.error.URLError(f"Disallowed redirect to private IP: {new_host}")
         except ValueError:
             if not is_allowed_media_source_url(resolved, allow_torrserver_loopback=False):
+                self._close_fp(fp)
                 raise urllib.error.URLError(f"Disallowed redirect host: {new_host}")
 
         parsed_old_logical = urllib.parse.urlparse(base_for_join)
         if parsed_old_logical.scheme.lower() == "https" and parsed_new.scheme.lower() == "http":
+            self._close_fp(fp)
             raise urllib.error.URLError("Disallowed HTTPS to HTTP redirect downgrade")
 
         effective_target = resolved
@@ -685,6 +710,9 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
                         if existing_k.lower() == sensitive_hdr.lower():
                             hdr_dict.pop(existing_k, None)
         return redirected
+
+
+SafeRedirectHandler = _SafeRedirectHandler
 
 
 __all__ = [

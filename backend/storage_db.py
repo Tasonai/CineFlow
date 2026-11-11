@@ -94,7 +94,7 @@ class VelariumStorageDB:
         self._cache_write_counts: Dict[str, int] = {}
         self._cache_entry_hashes: Dict[str, Dict[str, str]] = {}
         self._local = threading.local()
-        self._read_conns: Dict[int, sqlite3.Connection] = {}
+        self._read_conns: Dict[int, Tuple[int, sqlite3.Connection]] = {}
         self._read_conns_lock = threading.Lock()
         self._conn = sqlite3.connect(
             self.db_path,
@@ -108,17 +108,17 @@ class VelariumStorageDB:
         set_private_file_permissions(f"{self.db_path}-shm", is_dir=False)
 
     @staticmethod
-    def _reap_thread_conn_weak(self_ref: "weakref.ReferenceType[VelariumStorageDB]", tid: int) -> None:
+    def _reap_thread_conn_weak(self_ref: "weakref.ReferenceType[VelariumStorageDB]", conn_id: int) -> None:
         inst = self_ref()
         if inst is not None:
-            inst._reap_thread_conn(tid)
+            inst._reap_thread_conn(conn_id)
 
-    def _reap_thread_conn(self, tid: int) -> None:
+    def _reap_thread_conn(self, conn_id: int) -> None:
         with self._read_conns_lock:
-            old_conn = self._read_conns.pop(tid, None)
-        if old_conn is not None:
+            entry = self._read_conns.pop(conn_id, None)
+        if entry is not None:
             try:
-                old_conn.close()
+                entry[1].close()
             except Exception:
                 pass
 
@@ -146,6 +146,7 @@ class VelariumStorageDB:
             cur.close()
             self._local.conn = conn
             tid = threading.get_ident()
+            conn_id = id(conn)
             stale_conns = []
             with self._read_conns_lock:
                 if self._closed:
@@ -157,22 +158,18 @@ class VelariumStorageDB:
                     return None
                 if len(self._read_conns) >= 8:
                     alive_tids = {t.ident for t in threading.enumerate() if t.ident is not None}
-                    for k_tid in list(self._read_conns.keys()):
-                        if k_tid not in alive_tids and k_tid != tid:
-                            sc = self._read_conns.pop(k_tid, None)
-                            if sc is not None:
-                                stale_conns.append(sc)
-                prev_c = self._read_conns.pop(tid, None)
-                if prev_c is not None and prev_c is not conn:
-                    stale_conns.append(prev_c)
-                self._read_conns[tid] = conn
+                    for k_cid, (c_tid, c_obj) in list(self._read_conns.items()):
+                        if c_tid not in alive_tids and c_tid != tid:
+                            self._read_conns.pop(k_cid, None)
+                            stale_conns.append(c_obj)
+                self._read_conns[conn_id] = (tid, conn)
             for sc in stale_conns:
                 try:
                     sc.close()
                 except Exception:
                     pass
             try:
-                weakref.finalize(threading.current_thread(), VelariumStorageDB._reap_thread_conn_weak, weakref.ref(self), tid)
+                weakref.finalize(threading.current_thread(), VelariumStorageDB._reap_thread_conn_weak, weakref.ref(self), conn_id)
             except Exception:
                 pass
             return conn
@@ -251,7 +248,7 @@ class VelariumStorageDB:
             except Exception:
                 pass
             with self._read_conns_lock:
-                for rconn in self._read_conns.values():
+                for _, rconn in self._read_conns.values():
                     try:
                         rconn.close()
                     except Exception:

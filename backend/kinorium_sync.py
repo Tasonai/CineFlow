@@ -415,6 +415,34 @@ def reconcile_series_episodes(
         return self.get_item_status(eff_item_id, title=title, orig_title=orig_title)
 
     user_cookie = self._get_active_sync_cookie()
+    prev_tl_cookie = getattr(self._sync_cookie_tl, "cookie", None)
+    self._sync_cookie_tl.cookie = user_cookie
+    try:
+        return _reconcile_series_episodes_impl(
+            self,
+            start_pid=start_pid,
+            eff_kid=eff_kid,
+            eff_item_id=eff_item_id,
+            title=title,
+            orig_title=orig_title,
+            user_cookie=user_cookie,
+            force_refresh=force_refresh,
+        )
+    finally:
+        self._sync_cookie_tl.cookie = prev_tl_cookie
+
+
+def _reconcile_series_episodes_impl(
+    self,
+    *,
+    start_pid: str,
+    eff_kid: str,
+    eff_item_id: str,
+    title: str,
+    orig_title: str,
+    user_cookie: str,
+    force_refresh: bool,
+) -> Dict[str, Any]:
     ep_state = self.fetch_series_episodes_state(eff_kid, item_id=eff_item_id, force_refresh=force_refresh)
     if self._profile_id != start_pid:
         return self.get_item_status(eff_item_id, title=title, orig_title=orig_title)
@@ -627,12 +655,21 @@ def reconcile_local_statuses_to_remote(self) -> int:
     if not user_cookie:
         return 0
 
+    prev_tl_cookie = getattr(self._sync_cookie_tl, "cookie", None)
+    self._sync_cookie_tl.cookie = user_cookie
+    try:
+        return _reconcile_local_statuses_to_remote_impl(self, start_pid)
+    finally:
+        self._sync_cookie_tl.cookie = prev_tl_cookie
+
+
+def _reconcile_local_statuses_to_remote_impl(self, start_pid: str) -> int:
     pushed = 0
     with self._state_lock:
-        rem_watched = self.state.setdefault("remote_watched_items", {})
-        rem_watching = self.state.setdefault("remote_watching_items", {})
-        rem_watchlist = self.state.setdefault("remote_watchlist_items", {})
-        rem_never = self.state.setdefault("remote_never_items", {})
+        rem_watched = dict(self.state.setdefault("remote_watched_items", {}))
+        rem_watching = dict(self.state.setdefault("remote_watching_items", {}))
+        rem_watchlist = dict(self.state.setdefault("remote_watchlist_items", {}))
+        rem_never = dict(self.state.setdefault("remote_never_items", {}))
         ratings_map = dict(self.state.get("ratings") or {})
         watched_map = dict(self.state.get("watched") or {})
         watching_local_list = list(self.state.get("watching_local") or [])
@@ -674,6 +711,7 @@ def reconcile_local_statuses_to_remote(self) -> int:
         if self._sync_to_kinorium_remote(action="unwatched", item_id=str(raw_id), title=t_ru, orig_title=t_orig, resolved_kid=kid_c):
             with self._state_lock:
                 if self._profile_id == start_pid:
+                    self.state.setdefault("remote_watched_items", {}).pop(kid_c, None)
                     rem_watched.pop(kid_c, None)
                     live_w = (self.state.get("watched") or {}).get(raw_id)
                     if isinstance(live_w, dict):
@@ -703,6 +741,10 @@ def reconcile_local_statuses_to_remote(self) -> int:
         if self._sync_to_kinorium_remote(action="rate_remove", item_id=str(raw_id), title=t_ru, orig_title=t_orig, resolved_kid=kid_c):
             with self._state_lock:
                 if self._profile_id == start_pid:
+                    for sec_key in ("remote_watched_items", "remote_watching_items", "remote_watchlist_items"):
+                        live_sec = self.state.setdefault(sec_key, {})
+                        if isinstance(live_sec.get(kid_c), dict):
+                            live_sec[kid_c]["score"] = None
                     for sec in (rem_watched, rem_watching, rem_watchlist):
                         if isinstance(sec.get(kid_c), dict):
                             sec[kid_c]["score"] = None
@@ -716,10 +758,10 @@ def reconcile_local_statuses_to_remote(self) -> int:
             pushed += 1
 
     pushed_rem_tombstones = set(str(x) for x in (self.state.get("remote_removals_pushed") or []))
-    for rem_ids, rem_dict, rem_action, state_rem_key in (
-        (watching_removed, rem_watching, "watching_remove", "watching_removed"),
-        (watchlist_removed, rem_watchlist, "watchlist_remove", "watchlist_removed"),
-        (never_removed, rem_never, "never_remove", "never_removed"),
+    for rem_ids, rem_dict, rem_state_map_key, rem_action, state_rem_key in (
+        (watching_removed, rem_watching, "remote_watching_items", "watching_remove", "watching_removed"),
+        (watchlist_removed, rem_watchlist, "remote_watchlist_items", "watchlist_remove", "watchlist_removed"),
+        (never_removed, rem_never, "remote_never_items", "never_remove", "never_removed"),
     ):
         seen_rem_kids: set = set()
         for raw_id in rem_ids:
@@ -735,6 +777,7 @@ def reconcile_local_statuses_to_remote(self) -> int:
             if self._sync_to_kinorium_remote(action=rem_action, item_id=str(raw_id), title=t_ru, orig_title=t_orig, resolved_kid=kid_c):
                 with self._state_lock:
                     if self._profile_id == start_pid:
+                        self.state.setdefault(rem_state_map_key, {}).pop(kid_c, None)
                         rem_dict.pop(kid_c, None)
                         pushed_rem_tombstones.add(tomb_token)
                         self.state["remote_removals_pushed"] = list(pushed_rem_tombstones)[-1000:]
@@ -809,15 +852,21 @@ def reconcile_local_statuses_to_remote(self) -> int:
                                 w_live[k_sync]["remote_synced"] = True
                             if isinstance(r_live.get(k_sync), dict):
                                 r_live[k_sync]["remote_synced"] = True
-                        if keep_watching and kid_c in rem_watching:
+                        live_rem_watching = self.state.setdefault("remote_watching_items", {})
+                        live_rem_watched = self.state.setdefault("remote_watched_items", {})
+                        if keep_watching and (kid_c in live_rem_watching or kid_c in rem_watching):
                             if sc_val is not None:
-                                rem_watching[kid_c]["score"] = sc_val
+                                if isinstance(live_rem_watching.get(kid_c), dict):
+                                    live_rem_watching[kid_c]["score"] = sc_val
+                                if isinstance(rem_watching.get(kid_c), dict):
+                                    rem_watching[kid_c]["score"] = sc_val
                         else:
                             tpl = self._ensure_remote_entry_template(kid_c, t_ru, t_orig, extra=meta_src)
                             tpl["watched"] = True
                             tpl["status"] = "done"
                             if sc_val is not None:
                                 tpl["score"] = sc_val
+                            live_rem_watched[kid_c] = tpl
                             rem_watched[kid_c] = tpl
                         self._save_dirty = True
                 pushed += 1
@@ -843,6 +892,7 @@ def reconcile_local_statuses_to_remote(self) -> int:
                     tpl = self._ensure_remote_entry_template(kid_c, t_ru, t_orig)
                     tpl["watching"] = True
                     tpl["status"] = "now"
+                    self.state.setdefault("remote_watching_items", {})[kid_c] = tpl
                     rem_watching[kid_c] = tpl
                     self._save_dirty = True
             pushed += 1
@@ -868,6 +918,7 @@ def reconcile_local_statuses_to_remote(self) -> int:
                     tpl = self._ensure_remote_entry_template(kid_c, t_ru, t_orig)
                     tpl["in_watchlist"] = True
                     tpl["status"] = "future"
+                    self.state.setdefault("remote_watchlist_items", {})[kid_c] = tpl
                     rem_watchlist[kid_c] = tpl
                     self._save_dirty = True
             pushed += 1
@@ -893,6 +944,7 @@ def reconcile_local_statuses_to_remote(self) -> int:
                     tpl = self._ensure_remote_entry_template(kid_c, t_ru, t_orig)
                     tpl["not_watching"] = True
                     tpl["status"] = "never"
+                    self.state.setdefault("remote_never_items", {})[kid_c] = tpl
                     rem_never[kid_c] = tpl
                     self._save_dirty = True
             pushed += 1

@@ -447,7 +447,12 @@ def handle_hdrezka_check_watching_updates(handler, qs: Dict[str, Any], parsed, c
         )
         return True
 
-    has_upd_auth = handler._is_loopback_client() or ctx.remote_broker.verify_key(qs.get("k", [""])[0].strip())
+    hdrs_upd = getattr(handler, "headers", None)
+    k_upd = (
+        qs.get("k", [""])[0].strip()
+        or str((hdrs_upd.get("X-Velarium-Key") or hdrs_upd.get("X-CineFlow-Key") or "") if hdrs_upd else "").strip()
+    )
+    has_upd_auth = handler._is_loopback_client() or ctx.remote_broker.verify_key(k_upd)
     force_refresh = qs.get("force", ["0"])[0] in ("1", "true", "yes") and has_upd_auth
     req_profile_id = str(getattr(ctx.kinorium_service, "_profile_id", "main") or "main")
     all_watching_series = ctx.aggregator._enrich_from_curated(

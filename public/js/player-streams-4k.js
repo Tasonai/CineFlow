@@ -1,11 +1,11 @@
-import { state } from "./state.js?v=20261111v3";
+import { state } from "./state.js?v=20261111v4";
 import {
   displayTitle,
   isEn,
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261111v3";
+} from "./i18n.js?v=20261111v4";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -16,41 +16,41 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
   pickPreferredSubtitleIndex,
-} from "./audio-dsp.js?v=20261111v3";
+} from "./audio-dsp.js?v=20261111v4";
 import {
   buildRemuxSubtitlesList,
   mergeCustomExternalSubtitles,
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
-} from "./subtitles.js?v=20261111v3";
+} from "./subtitles.js?v=20261111v4";
 import {
   buildRemuxStreamEndpoint,
   formatAudioOffsetLabel,
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261111v3";
+} from "./player-remux.js?v=20261111v4";
 import {
   syncCustomControlPopovers,
   syncCustomVideoControlsUI,
-} from "./player-ui-controls.js?v=20261111v3";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v3";
+} from "./player-ui-controls.js?v=20261111v4";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v4";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261111v3";
-import { captureVideoFrameBridge, playVideoUrl } from "./player.js?v=20261111v3";
+} from "./player-seasons.js?v=20261111v4";
+import { captureVideoFrameBridge, playVideoUrl } from "./player.js?v=20261111v4";
 import {
   buildNextEpisodePreloadKey,
   hideVideoStreamError,
   isHdRezkaStreamDeadOrExpired,
   loadHDRezkaStream,
-} from "./player-streams.js?v=20261111v3";
+} from "./player-streams.js?v=20261111v4";
 
 function _applyLiveAudioOffsetToCurrentStream() {
   if (state.audioOffsetReloadTimerId) {
@@ -705,6 +705,7 @@ export function renderStremioStreamsList(resumeTime = 0, autoLaunchFirst = false
       });
     } catch (err) {
       if (err && err.name === "AbortError") return;
+      if (!state.isPlayerOpen || sessionId !== state.playerSessionId || state.activeSourceTab !== "stremio") return;
       loader?.classList.add("hidden");
       showToast(t("Ошибка при подключении к потоку Stremio", "Error connecting to Stremio stream"));
     }
@@ -951,6 +952,7 @@ export async function loadStremioStreams(resumeTime = 0, options = {}) {
     renderStremioStreamsList(resumeTime, true);
   } catch (err) {
     if (err && err.name === "AbortError") return;
+    if (!state.isPlayerOpen || sessionId !== state.playerSessionId || state.activeSourceTab !== "stremio") return;
     console.error("Stremio streams error:", err);
     if (listEl) {
       listEl.innerHTML = `<div class="atv-stream-empty-note">${t(
@@ -1550,6 +1552,7 @@ export async function loadBackup4KReleases(resumeTime = 0, forceRefresh = false,
     }
   } catch (err) {
     if (err && err.name === "AbortError") return;
+    if (!state.isPlayerOpen || sessionId !== state.playerSessionId || state.activeSourceTab !== "backup4k") return;
     console.error("Backup stream error:", err);
     loader?.classList.add("hidden");
     if (listEl) {

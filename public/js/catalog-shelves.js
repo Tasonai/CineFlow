@@ -2,7 +2,7 @@
 // Manages "Continue Watching", "Curated Collections" (Friends' picks, In your taste,
 // Short movies tonight, Top Kinorium/IMDb), and separated/unified catalog shelves.
 
-import { state } from "./state.js?v=20261111v3";
+import { state } from "./state.js?v=20261111v4";
 import {
   displayBackdrop,
   displayPoster,
@@ -11,7 +11,7 @@ import {
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261111v3";
+} from "./i18n.js?v=20261111v4";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -23,36 +23,36 @@ import {
   matchCatalogItemSafe,
   showToast,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
 import {
   buildPersonPhotoCard,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261111v3";
+} from "./modals.js?v=20261111v4";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
   renderPosterCardsInto,
-} from "./catalog-cards.js?v=20261111v3";
+} from "./catalog-cards.js?v=20261111v4";
 import {
   filterCatalogItemsByGenreAndYear,
   sortCatalogItems,
-} from "./catalog-filters.js?v=20261111v3";
+} from "./catalog-filters.js?v=20261111v4";
 import {
   formatRemainingTime,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261111v3";
-import { renderHero } from "./catalog-hero.js?v=20261111v3";
-import { renderNotificationsBell, renderReleaseCalendarShelf } from "./catalog-notifications.js?v=20261111v3";
+} from "./catalog-media-resolver.js?v=20261111v4";
+import { renderHero } from "./catalog-hero.js?v=20261111v4";
+import { renderNotificationsBell, renderReleaseCalendarShelf } from "./catalog-notifications.js?v=20261111v4";
 import {
   clearCatalogFrontendCache,
   loadCatalog,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261111v3";
-import { getOfflineCatalogItems } from "./features-downloads.js?v=20261111v3";
+} from "./catalog.js?v=20261111v4";
+import { getOfflineCatalogItems } from "./features-downloads.js?v=20261111v4";
 
 export function renderContinueWatching() {
   renderNotificationsBell();
@@ -115,6 +115,7 @@ export function renderContinueWatching() {
         `Restore hidden (${dismissedCount})`
       );
       restoreBtn.onclick = async () => {
+        const reqProfileId = state.activeProfileId || "main";
         restoreBtn.disabled = true;
         try {
           const res = await fetch("/api/kinorium/continue-watching/restore", {
@@ -128,6 +129,7 @@ export function renderContinueWatching() {
             showToast(data?.error || t("Не удалось вернуть скрытые карточки", "Could not restore hidden items"));
             return;
           }
+          if ((state.activeProfileId || "main") !== reqProfileId) return;
           if (state.kinoriumAccount && typeof data.cw_dismissed_count === "number") {
             state.kinoriumAccount.cw_dismissed_count = data.cw_dismissed_count;
           }
@@ -243,6 +245,7 @@ export function renderContinueWatching() {
     if (removeBtn) {
       removeBtn.onclick = async (e) => {
         e.stopPropagation();
+        const reqProfileId = state.activeProfileId || "main";
         try {
           const res = await fetch("/api/kinorium/continue-watching/remove", {
             method: "POST",
@@ -253,6 +256,7 @@ export function renderContinueWatching() {
           if (!res.ok || data?.ok === false || data?.error) {
             throw new Error(data?.error || `HTTP ${res.status}`);
           }
+          if ((state.activeProfileId || "main") !== reqProfileId) return;
           clearCatalogFrontendCache();
           if (state.kinoriumAccount && typeof data.cw_dismissed_count === "number") {
             state.kinoriumAccount.cw_dismissed_count = data.cw_dismissed_count;
@@ -276,6 +280,7 @@ export function renderContinueWatching() {
               actionLabel: t("Отменить", "Undo"),
               durationMs: 8000,
               onAction: async () => {
+                if ((state.activeProfileId || "main") !== reqProfileId) return;
                 try {
                   const rRes = await fetch("/api/kinorium/continue-watching/restore", {
                     method: "POST",
@@ -286,6 +291,7 @@ export function renderContinueWatching() {
                   if (!rRes.ok || rData?.ok === false || rData?.error) {
                     throw new Error(rData?.error || `HTTP ${rRes.status}`);
                   }
+                  if ((state.activeProfileId || "main") !== reqProfileId) return;
                   clearCatalogFrontendCache();
                   if (state.kinoriumAccount && typeof rData.cw_dismissed_count === "number") {
                     state.kinoriumAccount.cw_dismissed_count = rData.cw_dismissed_count;

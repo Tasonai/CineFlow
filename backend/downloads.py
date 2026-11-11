@@ -341,6 +341,7 @@ class OfflineDownloadManager:
         self.local_port_getter = local_port_getter
         self.stream_resolver = stream_resolver
         self._lock = threading.RLock()
+        self._persist_lock = threading.Lock()
         self._active_procs: Dict[str, subprocess.Popen] = {}
         self._active_aux_procs: Dict[str, subprocess.Popen] = {}
         self._cancelled_ids: set = set()
@@ -452,11 +453,14 @@ class OfflineDownloadManager:
         return items
 
     def _save_single_progress_locked(self, did: str) -> None:
-        rec = self._items.get(did)
-        if not rec:
+        with self._lock:
+            rec = self._items.get(did)
+            rec_snap = dict(rec) if isinstance(rec, dict) else None
+        if not rec_snap:
             return
         try:
-            self._db.upsert_download(did, rec)
+            with self._persist_lock:
+                self._db.upsert_download(did, rec_snap)
         except Exception:
             pass
 
@@ -466,30 +470,33 @@ class OfflineDownloadManager:
         skip_db: bool = False,
         changed_ids: Optional[Sequence[str]] = None,
     ) -> None:
-        mp = target_map if target_map is not None else self._items
-        if not skip_db:
+        with self._lock:
+            src_mp = target_map if target_map is not None else self._items
+            mp_snap = {str(k): dict(v) for k, v in src_mp.items() if isinstance(v, dict)}
+        ordered = sorted(mp_snap.values(), key=lambda x: float(x.get("created_at") or 0.0), reverse=True)
+        with self._persist_lock:
+            if not skip_db:
+                try:
+                    if changed_ids:
+                        for cid in changed_ids:
+                            rec = mp_snap.get(str(cid))
+                            if isinstance(rec, dict):
+                                self._db.upsert_download(str(cid), rec)
+                    else:
+                        self._db.replace_all_downloads(mp_snap)
+                except Exception:
+                    pass
+            tmp = f"{self.index_path}.tmp.{threading.get_ident()}"
             try:
-                if changed_ids:
-                    for cid in changed_ids:
-                        rec = mp.get(cid)
-                        if isinstance(rec, dict):
-                            self._db.upsert_download(cid, rec)
-                else:
-                    self._db.replace_all_downloads(mp)
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump({"updated_at": time.time(), "items": ordered}, f, ensure_ascii=False, indent=2)
+                os.replace(tmp, self.index_path)
             except Exception:
-                pass
-        ordered = sorted(mp.values(), key=lambda x: float(x.get("created_at") or 0.0), reverse=True)
-        tmp = f"{self.index_path}.tmp.{threading.get_ident()}"
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"updated_at": time.time(), "items": ordered}, f, ensure_ascii=False, indent=2)
-            os.replace(tmp, self.index_path)
-        except Exception:
-            try:
-                if os.path.exists(tmp):
-                    os.remove(tmp)
-            except OSError:
-                pass
+                try:
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                except OSError:
+                    pass
 
     @staticmethod
     def build_download_id(

@@ -2324,6 +2324,8 @@ class KinoriumService:
                     allow_network=True,
                     media_type="series",
                 )
+                if self._profile_id != start_pid:
+                    return self.get_item_status(item_id, title=title, orig_title=orig_title)
                 self._record_episode_watched(
                     item_id,
                     title,
@@ -2420,7 +2422,7 @@ class KinoriumService:
                         )
             else:
                 # Finished movie (95% or credits started) -> mark watched and move out of 'Смотрю' / Up Next
-                if not already_watched and not cur_status.get("not_watching"):
+                if self._profile_id == start_pid and not already_watched and not cur_status.get("not_watching"):
                     watched_res = self.mark_watched(
                         item_id=item_id,
                         title=title,
@@ -2433,7 +2435,7 @@ class KinoriumService:
                     remote_movie_synced = bool(watched_res.get("remote_synced"))
                     just_scrobbled = True
         else:
-            if progress >= watching_threshold and not already_watched and not cur_status.get("watching") and not cur_status.get("not_watching"):
+            if self._profile_id == start_pid and progress >= watching_threshold and not already_watched and not cur_status.get("watching") and not cur_status.get("not_watching"):
                 promoted_to_watching, remote_watching_synced = self._promote_to_watching_with_status(
                     item_id=item_id,
                     title=title,

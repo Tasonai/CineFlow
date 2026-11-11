@@ -73,7 +73,6 @@ PUBLIC_DIR = _PATHS["public_dir"]
 DATA_DIR = _PATHS["data_dir"]
 SETTINGS_PATH = _PATHS["settings_path"]
 BIN_DIR = _PATHS["bin_dir"]
-SETTINGS_SAVE_LOCK = threading.Lock()
 ensure_bin_in_path(BIN_DIR)
 
 
@@ -114,6 +113,7 @@ dlna_manager = SERVICES.dlna_manager
 kinorium_auth_manager = SERVICES.kinorium_auth_manager
 app_updater = SERVICES.app_updater
 settings_manager = SERVICES.settings_manager
+SETTINGS_SAVE_LOCK = settings_manager.settings_save_lock
 
 APP_PREFS = SERVICES.app_prefs
 SERVER_RUNTIME = SERVICES.server_runtime

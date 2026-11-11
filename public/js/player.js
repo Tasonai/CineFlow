@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261111v3";
+import { state } from "./state.js?v=20261111v4";
 import {
   displayBackdrop,
   displayCountries,
@@ -15,7 +15,7 @@ import {
   translateGenre,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261111v3";
+} from "./i18n.js?v=20261111v4";
 import {
   clampFloatingPopover,
   clampStagePopover,
@@ -51,7 +51,7 @@ import {
   syncSearchInputHasQueryUI,
   syncToastContainerMount,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
 import {
   applyAudioBoostToVideo,
   applySavedPlayerPrefsToVideo,
@@ -68,7 +68,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261111v3";
+} from "./audio-dsp.js?v=20261111v4";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -86,8 +86,8 @@ import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261111v3";
-import { setOfflineMode } from "./features-downloads.js?v=20261111v3";
+} from "./catalog.js?v=20261111v4";
+import { setOfflineMode } from "./features-downloads.js?v=20261111v4";
 import {
   closePersonModal,
   closeQuickPeekModal,
@@ -95,13 +95,14 @@ import {
   openQuickPeekModal,
   refreshOpenPersonModalUI,
   renderModalCastSection,
-} from "./modals.js?v=20261111v3";
-import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261111v3";
+} from "./modals.js?v=20261111v4";
+import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261111v4";
 import {
+  isItemSafeForKidsClient,
   refreshDownloadsState,
   sweepPendingDownloadCleanups,
   syncNativeNowPlaying,
-} from "./features.js?v=20261111v3";
+} from "./features.js?v=20261111v4";
 import {
   activateSelectedSubtitleTrack,
   adjustSubtitleOffset,
@@ -125,8 +126,8 @@ import {
   syncSubtitleOffsetUI,
   triggerLocalSubtitleFilePicker,
   updateCustomSubtitleOverlay,
-} from "./subtitles.js?v=20261111v3";
-import { pushDesktopRemoteStateNow, bindRemoteVideoListeners } from "./remote.js?v=20261111v3";
+} from "./subtitles.js?v=20261111v4";
+import { pushDesktopRemoteStateNow, bindRemoteVideoListeners } from "./remote.js?v=20261111v4";
 import {
   clearVideoStallWatchdog,
   cleanupAbrPreloadVideo,
@@ -139,7 +140,7 @@ import {
   getVideoForwardBufferSec,
   checkVideoPlaybackFreeze,
   sortQualityKeysLowToHigh,
-} from "./player-watchdog.js?v=20261111v3";
+} from "./player-watchdog.js?v=20261111v4";
 import {
   estimateItemDurationSec,
   buildRemuxStreamEndpoint,
@@ -149,7 +150,7 @@ import {
   clearRemuxDurationPoll,
   scheduleRemuxFullDurationProbe,
   prepareRemuxAudioSwitch,
-} from "./player-remux.js?v=20261111v3";
+} from "./player-remux.js?v=20261111v4";
 import {
   hasOpenVcPopover,
   closeAllVcPopovers,
@@ -170,7 +171,7 @@ import {
   positionStagePopover,
   toggleQuickOriginalAudio,
   syncCustomControlPopovers,
-} from "./player-ui-controls.js?v=20261111v3";
+} from "./player-ui-controls.js?v=20261111v4";
 import {
   getNextEpisodeCoords,
   showPlayerNextEpisodeToast,
@@ -179,14 +180,14 @@ import {
   clearAutoplayNextTimer,
   isPostwatchCardPausingAutoplay,
   startAutoplayNextCountdown,
-} from "./player-autoplay.js?v=20261111v3";
+} from "./player-autoplay.js?v=20261111v4";
 import {
   syncPipDockUI,
   setPipBackgroundMode,
   restoreFullPlayerFromPip,
   updateMiniPlayerTitle,
   setMiniPlayerMode,
-} from "./player-pip-dock.js?v=20261111v3";
+} from "./player-pip-dock.js?v=20261111v4";
 import {
   escapeEpisodeHtml,
   getEpisodeDisplayMeta,
@@ -202,7 +203,7 @@ import {
   toggleCurrentEpisodeWatched,
   hasStartedWatchingCurrentEpisode,
   markOutgoingEpisodeWatched,
-} from "./player-seasons.js?v=20261111v3";
+} from "./player-seasons.js?v=20261111v4";
 import {
   isHdRezkaStreamDeadOrExpired as _isHdRezkaStreamDeadOrExpired,
   _localizeOfflineSubLabel,
@@ -232,7 +233,7 @@ import {
   loadStremioStreams,
   loadBackup4KReleases,
   _tryRecoverHdRezkaPlayback as _tryRecoverHdRezkaPlaybackImpl,
-} from "./player-streams.js?v=20261111v3";
+} from "./player-streams.js?v=20261111v4";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -247,7 +248,7 @@ import {
   renderModalSimilarItems,
   captureVideoScreenshot,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261111v3";
+} from "./player-meta.js?v=20261111v4";
 import {
   hideXRayPauseShelf,
   showXRayPauseShelf,
@@ -264,7 +265,7 @@ import {
   addOrUpdateRemoteBookmark,
   deleteRemoteBookmarkByIdOrTime,
   renderTimelineBookmarks,
-} from "./player-bookmarks.js?v=20261111v3";
+} from "./player-bookmarks.js?v=20261111v4";
 import {
   syncPostwatchOverlayMount,
   renderPostWatchRatingState,
@@ -273,7 +274,7 @@ import {
   initPlayerStatusAndRatingBindings,
   rateActivePlayerTitle as _rateActivePlayerTitle,
   toggleActivePlayerWatched as _toggleActivePlayerWatched,
-} from "./player-rating.js?v=20261111v3";
+} from "./player-rating.js?v=20261111v4";
 
 export {
   syncPostwatchOverlayMount,
@@ -295,7 +296,7 @@ import {
   getDetectedCreditsStartSec,
   renderTimelineChapterMarkers,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261111v3";
+} from "./player-intro-credits.js?v=20261111v4";
 
 export {
   getDetectedCreditsStartSec,
@@ -303,7 +304,7 @@ export {
   loadSkipIntroSegments,
 };
 
-import { reportScrobbleProgress } from "./player-scrobble.js?v=20261111v3";
+import { reportScrobbleProgress } from "./player-scrobble.js?v=20261111v4";
 
 export { reportScrobbleProgress };
 
@@ -488,6 +489,10 @@ export async function openPlayerModal(item, initialTab = "hdrezka", season = 1, 
     if (match) {
       item = { ...match, ...item };
     }
+  }
+  if (state.activeProfile?.kids_mode && item && !isItemSafeForKidsClient(item)) {
+    showToast(t("Контент недоступен в детском профиле", "Content is restricted in Kids profile"));
+    return;
   }
   if (item && !item.media_type) {
     const isKnownSeries = Boolean(
@@ -1960,6 +1965,9 @@ export function bindNativeVideoElementListeners(video) {
             navigator.mediaSession.playbackState = "playing";
           } catch (err) { window.logDebug?.("Player", err); }
         }
+        if (state.subDictOpen) {
+          closeSubtitleDictPopover(false);
+        }
         hideXRayPauseShelf();
       } else {
         if (evName === "pause") {
@@ -2522,15 +2530,16 @@ export function setupVideoListeners() {
     btnErrRetry.onclick = (e) => {
       e.stopPropagation();
       hideVideoStreamError();
+      state.tokenRefreshTimestamps = [];
+      state.usedBackupUrls = new Set();
       const v = getVideoEl();
       const { cur: effCur } = getEffectivePlaybackTiming(v);
       const savedMediaTime = Number(state.lastPlaybackMediaTime) > 5 ? Number(state.lastPlaybackMediaTime) : 0;
-      const curPos = effCur > 5 ? effCur : savedMediaTime;
+      const savedKnownTime = Number(state.lastKnownPlaybackTime) > 5 ? Number(state.lastKnownPlaybackTime) : 0;
+      const curPos = Math.max(effCur > 5 ? effCur : 0, savedMediaTime, savedKnownTime);
       if (state.activeSourceTab === "offline") {
         loadOfflineStreamForActiveTitle(curPos);
       } else if (state.activeSourceTab === "hdrezka") {
-        state.tokenRefreshTimestamps = [];
-        state.usedBackupUrls = new Set();
         const loader = document.getElementById("video-loader");
         const loaderText = document.getElementById("video-loader-text");
         if (loaderText) {
@@ -2576,7 +2585,10 @@ export function setupVideoListeners() {
 // Scrobbling and Kinorium watch progress synchronization modularized into ./player-scrobble.js
 // Post-watch rating overlay and credits prompt modularized into ./player-rating.js
 
-export function closePlayerModal(skipCatalogReload = false, forceStop = false, fromPopState = false) {
+export function closePlayerModal(skipCatalogReload = false, forceStop = false, fromPopStateOrOpts = false) {
+  const isOptsObj = Boolean(fromPopStateOrOpts && typeof fromPopStateOrOpts === "object");
+  const fromPopState = isOptsObj ? Boolean(fromPopStateOrOpts.fromPopState) : Boolean(fromPopStateOrOpts);
+  const skipProgressSave = isOptsObj ? Boolean(fromPopStateOrOpts.skipProgressSave) : false;
   if (!forceStop && state.isPlayerOpen && isVideoInPiP()) {
     setPipBackgroundMode(true);
     showToast(
@@ -2604,7 +2616,7 @@ export function closePlayerModal(skipCatalogReload = false, forceStop = false, f
   }
 
   const video = document.getElementById("native-video");
-  if (state.isPlayerOpen && state.activeItem && video) {
+  if (!skipProgressSave && state.isPlayerOpen && state.activeItem && video) {
     const { cur, dur } = getEffectivePlaybackTiming(video);
     const epCloseKey = `${state.activeItem.id || ""}:s${state.activeSeason}e${state.activeEpisode}`;
     const alreadyDoneOnClose =
@@ -2910,9 +2922,16 @@ export function refreshOpenPlayerLanguageUI(langChanged = false) {
     loadStremioStreams(resumePos);
   } else if (state.activeSourceTab === "backup4k") {
     const activeRelUrl = state.active4kReleaseUrl;
+    const sessionSnap = state.playerSessionId;
+    const prevQuality = state.activeQuality || "4K UHD";
     loadBackup4KReleases(resumePos).then(() => {
-      if (activeRelUrl && state.isPlayerOpen && state.activeSourceTab === "backup4k") {
-        probeAndPlay4KStream(activeRelUrl, resumePos, "4K UHD", state.playerSessionId, {
+      if (
+        activeRelUrl &&
+        state.isPlayerOpen &&
+        state.playerSessionId === sessionSnap &&
+        state.activeSourceTab === "backup4k"
+      ) {
+        probeAndPlay4KStream(activeRelUrl, resumePos, prevQuality, sessionSnap, {
           extraSubtitles: state.external4kSubs || [],
         });
       }

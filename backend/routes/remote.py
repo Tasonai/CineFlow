@@ -32,9 +32,27 @@ except Exception:
     _LOCAL_HOSTNAME = "Velarium"
 
 
+def _extract_remote_key(handler: Any, qs: Dict[str, Any], body: Any = None) -> str:
+    if isinstance(body, dict):
+        bk = str(body.get("k") or "").strip()
+        if bk:
+            return bk
+    if isinstance(qs, dict):
+        qk = str((qs.get("k") or [""])[0] or "").strip()
+        if qk:
+            return qk
+    hdrs = getattr(handler, "headers", None)
+    if hdrs is not None and hasattr(hdrs, "get"):
+        hk = str(hdrs.get("X-Velarium-Key") or hdrs.get("X-CineFlow-Key") or "").strip()
+        if hk:
+            return hk
+    return ""
+
+
 def handle_tv_devices(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
     is_local_tv = handler._is_loopback_client()
-    has_tv_auth = is_local_tv or ctx.remote_broker.verify_key(qs.get("k", [""])[0].strip())
+    k_tv_auth = _extract_remote_key(handler, qs)
+    has_tv_auth = bool(is_local_tv or ctx.remote_broker.verify_key(k_tv_auth))
     force_scan = (
         qs.get("force", ["0"])[0].strip().lower() in ("1", "true", "yes")
         and has_tv_auth
@@ -84,11 +102,7 @@ def handle_tv_devices(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
     lan_ip = ctx.detect_lan_ipv4()
     port = int(ctx.server_runtime.get("port") or 8765)
     devices = ctx.dlna_manager.discover_devices(timeout_sec=1.5 if force_scan else 1.2, force_refresh=force_scan)
-    k_tv_auth = (
-        qs.get("k", [""])[0].strip()
-        or str(handler.headers.get("X-Velarium-Key") or handler.headers.get("X-CineFlow-Key") or "").strip()
-    )
-    can_read_pair_token = bool(handler._is_loopback_client() or ctx.remote_broker.verify_key(k_tv_auth))
+    can_read_pair_token = has_tv_auth
     qr_info = ctx.dlna_manager.build_tv_qr_payload(
         lan_ip=lan_ip,
         port=port,
@@ -149,11 +163,12 @@ def handle_remote_pairing_get(handler: Any, qs: Dict[str, Any], parsed: Any, ctx
         if hasattr(handler, "_is_loopback_client")
         else True
     )
-    k_param = qs.get("k", [""])[0].strip()
+    k_param = _extract_remote_key(handler, qs)
     has_auth = is_local or ctx.remote_broker.verify_key(k_param)
     auto_lan = qs.get("auto_lan", ["0"])[0].strip().lower() in ("1", "true", "yes")
+    hdrs = getattr(handler, "headers", None)
     intent_ok = (
-        str(handler.headers.get("X-Velarium-Intent") or handler.headers.get("X-CineFlow-Intent") or "")
+        str((hdrs.get("X-Velarium-Intent") or hdrs.get("X-CineFlow-Intent") or "") if hdrs else "")
         .strip()
         .lower()
         == "pair"
@@ -180,7 +195,7 @@ def handle_remote_state_get(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: 
         if hasattr(handler, "_is_loopback_client")
         else True
     )
-    k_param = qs.get("k", [""])[0].strip()
+    k_param = _extract_remote_key(handler, qs)
     if not is_local and not ctx.remote_broker.verify_key(k_param):
         handler._send_json({"ok": False, "error": "Unauthorized remote key"}, status=403)
         return True
@@ -221,7 +236,7 @@ def handle_remote_catalog_get(handler: Any, qs: Dict[str, Any], parsed: Any, ctx
         if hasattr(handler, "_is_loopback_client")
         else True
     )
-    k_param = qs.get("k", [""])[0].strip()
+    k_param = _extract_remote_key(handler, qs)
     if not is_local and not ctx.remote_broker.verify_key(k_param):
         handler._send_json({"ok": False, "error": "Unauthorized remote key"}, status=403)
         return True
@@ -241,6 +256,8 @@ def handle_remote_catalog_get(handler: Any, qs: Dict[str, Any], parsed: Any, ctx
             "poster": it.get("poster") or "",
             "poster_en": it.get("poster_en") or "",
             "backdrop": it.get("backdrop") or "",
+            "genres": list(it.get("genres") or []),
+            "age_rating": str(it.get("age_rating") or ""),
             "season": it.get("season") or 1,
             "episode": it.get("episode") or 1,
             "current_time": it.get("current_time") or 0,
@@ -365,7 +382,7 @@ def handle_tv_cast(handler: Any, qs: Dict[str, Any], parsed: Any, body: Dict[str
     port_num = int(ctx.server_runtime.get("port") or 8765)
     if raw_sub and burn_subs:
         remux_params = {
-            "src": raw_stream,
+            "src": unwrapped_cast_src,
             "sub": raw_sub,
             "burn_sub": "1",
             "compat": "1",
@@ -464,7 +481,7 @@ def handle_remote_command(handler: Any, qs: Dict[str, Any], parsed: Any, body: D
         if hasattr(handler, "_is_loopback_client")
         else True
     )
-    k_val = str(body.get("k") or (qs.get("k", [""])[0] if qs else "")).strip()
+    k_val = _extract_remote_key(handler, qs, body)
     if not is_local and not ctx.remote_broker.verify_key(k_val):
         handler._send_json({"ok": False, "error": "Unauthorized remote key"}, status=403)
         return True
@@ -484,12 +501,19 @@ def handle_remote_command(handler: Any, qs: Dict[str, Any], parsed: Any, body: D
             orig_title=str(raw_rem_item.get("orig_title") or ""),
             media_type=str(raw_rem_item.get("media_type") or "movie"),
         )
+        has_trusted_meta = bool(cand_rem.get("genres") or cand_rem.get("description") or cand_rem.get("age_rating"))
+        raw_genres_rem = raw_rem_item.get("genres") if isinstance(raw_rem_item.get("genres"), list) else []
+        raw_age_rem = str(raw_rem_item.get("age_rating") or "")
         probe_rem = (
             cand_rem
-            if (cand_rem.get("genres") or cand_rem.get("description") or cand_rem.get("age_rating"))
-            else {**cand_rem, "genres": ["семейный"]}
+            if has_trusted_meta
+            else {**cand_rem, "genres": raw_genres_rem, "age_rating": raw_age_rem}
         )
-        if not (cand_rem.get("title") or cand_rem.get("orig_title") or cand_rem.get("genres")) or not ctx.profile_manager.is_item_kids_safe(probe_rem):
+        if (
+            not (cand_rem.get("title") or cand_rem.get("orig_title") or cand_rem.get("genres"))
+            or (not has_trusted_meta and not raw_genres_rem)
+            or not ctx.profile_manager.is_item_kids_safe(probe_rem)
+        ):
             handler._send_json(
                 {
                     "ok": False,
@@ -742,10 +766,24 @@ def handle_sync_merge(handler: Any, qs: Dict[str, Any], parsed: Any, body: Any =
     in_bookmarks = body.get("bookmarks") or []
     in_studios = body.get("preferred_studios") if isinstance(body.get("preferred_studios"), dict) else {}
 
-    # If local device is in Kids mode, filter out non-kids-safe content
+    # If local device is in Kids mode, filter out non-kids-safe content (verifying both incoming and catalog metadata)
     if is_kids and prof_mgr and hasattr(prof_mgr, "is_item_kids_safe"):
-        in_history = [it for it in in_history if isinstance(it, dict) and prof_mgr.is_item_kids_safe(it)]
-        in_bookmarks = [it for it in in_bookmarks if isinstance(it, dict) and prof_mgr.is_item_kids_safe(it)]
+        def _is_sync_entry_kids_safe(it: Any) -> bool:
+            if not isinstance(it, dict) or not prof_mgr.is_item_kids_safe(it):
+                return False
+            if hasattr(ctx, "build_trusted_item_for_kids_check"):
+                trusted_it = ctx.build_trusted_item_for_kids_check(
+                    item_id=str(it.get("id") or it.get("itemId") or ""),
+                    title=str(it.get("title") or it.get("itemTitle") or ""),
+                    orig_title=str(it.get("orig_title") or ""),
+                    media_type=str(it.get("media_type") or "movie"),
+                )
+                if trusted_it.get("genres") or trusted_it.get("description") or trusted_it.get("age_rating"):
+                    return bool(prof_mgr.is_item_kids_safe(trusted_it))
+            return True
+
+        in_history = [it for it in in_history if _is_sync_entry_kids_safe(it)]
+        in_bookmarks = [it for it in in_bookmarks if _is_sync_entry_kids_safe(it)]
 
     store = _resolve_sync_store(ctx)
     merged_history_count = 0
@@ -811,7 +849,7 @@ def handle_sync_merge(handler: Any, qs: Dict[str, Any], parsed: Any, body: Any =
                 if not existing or _sync_ts(m, "time") >= _sync_ts(existing, "time"):
                     bm_map[mid] = m
                     merged_bookmarks_count += 1
-            merged_bm_list = list(bm_map.values())[:500]
+            merged_bm_list = sorted(bm_map.values(), key=lambda x: _sync_ts(x, "time"), reverse=True)[:500]
             store.set(bm_key, merged_bm_list)
 
             # Merge per-series preferred studios by key with last-write-wins

@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261111v3";
-import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261111v3";
+import { state } from "./state.js?v=20261111v4";
+import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261111v4";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -11,7 +11,7 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
 import {
   applyAudioBoostToVideo,
   applyVideoCropToVideo,
@@ -23,12 +23,12 @@ import {
   startAmbilightLoop,
   stopAmbilightLoop,
   togglePictureInPicture,
-} from "./audio-dsp.js?v=20261111v3";
+} from "./audio-dsp.js?v=20261111v4";
 import {
   adjustSubtitleOffset,
   formatSubtitleOffsetLabel,
   resetSubtitleOffset,
-} from "./subtitles.js?v=20261111v3";
+} from "./subtitles.js?v=20261111v4";
 import {
   addOrUpdateRemoteBookmark,
   closePlayerModal,
@@ -57,9 +57,9 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   toggleXRayPauseShelf,
-} from "./player.js?v=20261111v3";
-import { openPersonModal } from "./modals.js?v=20261111v3";
-import { attachSmartPosterFallback, isEpisodeWatched, resolvePreferredPlayTab } from "./catalog.js?v=20261111v3";
+} from "./player.js?v=20261111v4";
+import { openPersonModal } from "./modals.js?v=20261111v4";
+import { attachSmartPosterFallback, isEpisodeWatched, resolvePreferredPlayTab } from "./catalog.js?v=20261111v4";
 import {
   closeTvCastModal,
   executeRemoteDpadCommand,
@@ -67,7 +67,7 @@ import {
   isItemSafeForKidsClient,
   requestKidsPinVerification,
   setTvMode,
-} from "./features.js?v=20261111v3";
+} from "./features.js?v=20261111v4";
 
 export function isMobileRemoteUrl() {
   if (typeof window === "undefined") return false;
@@ -1055,14 +1055,26 @@ async function _executeRemoteCommandOnDesktop(cmdObj) {
       }
       const itemData = payload.item;
       if (itemData && itemData.title) {
-        if (Boolean(state.activeProfile?.kids_mode) && !isItemSafeForKidsClient(itemData)) {
-          showToast(
-            t(
-              "Контент недоступен в детском профиле",
-              "Content restricted in Kids Mode"
-            )
+        let checkItem = itemData;
+        if (Boolean(state.activeProfile?.kids_mode)) {
+          const catMatch = matchCatalogItemSafe(state.catalogItems, itemData);
+          if (catMatch) {
+            checkItem = catMatch;
+          }
+          const hasVerifiableMeta = Boolean(
+            checkItem.kids_safe === true ||
+              (Array.isArray(checkItem.genres) && checkItem.genres.length > 0) ||
+              checkItem.age_rating
           );
-          break;
+          if (!hasVerifiableMeta || !isItemSafeForKidsClient(checkItem)) {
+            showToast(
+              t(
+                "Контент недоступен в детском профиле",
+                "Content restricted in Kids Mode"
+              )
+            );
+            break;
+          }
         }
         const sNum = Math.max(1, Number(payload.season || itemData.season) || 1);
         const eNum = Math.max(1, Number(payload.episode || itemData.episode) || 1);
@@ -4294,12 +4306,21 @@ export function initMobileRemoteController() {
           rState.lastSeq = Number(data.seq || data.state_version || rState.lastSeq);
           rState.lastSyncPerfMs = performance.now();
           const prevProfileId = rState.snap?.active_profile_id || "main";
+          const prevKidsMode = Boolean(rState.snap?.kids_mode);
           if (data.state && typeof data.state === "object") {
             rState.snap = { ...rState.snap, ...data.state };
           }
           const nextProfileId = rState.snap?.active_profile_id || "main";
-          if (nextProfileId !== prevProfileId && (rState.catalogLoaded || rState.activeTab === "catalog")) {
-            loadRemoteCatalog(rState.searchQuery);
+          const nextKidsMode = Boolean(rState.snap?.kids_mode);
+          if (nextProfileId !== prevProfileId || nextKidsMode !== prevKidsMode) {
+            rState.catalogCW = [];
+            rState.catalogItems = [];
+            rState.searchResults = [];
+            rState.catalogLoaded = false;
+            loadRemoteCatalog("");
+            if (rState.searchQuery) {
+              loadRemoteCatalog(rState.searchQuery);
+            }
           }
           const srvLang = data.app_lang || rState.snap?.app_lang;
           if (srvLang) {

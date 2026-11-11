@@ -1,5 +1,5 @@
-import { profileStorageKey, state } from "./state.js?v=20261111v3";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261111v3";
+import { profileStorageKey, state } from "./state.js?v=20261111v4";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261111v4";
 import {
   clampStagePopover,
   escapeAttr,
@@ -10,9 +10,9 @@ import {
   showToast,
   showVideoOsd,
   syncScrollTopButton,
-} from "./utils.js?v=20261111v3";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261111v3";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261111v4";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v4";
 import {
   clearAutoplayNextTimer,
   clearRemuxDurationPoll,
@@ -20,12 +20,14 @@ import {
   clearVideoStallWatchdog,
   closeAllVcPopovers,
   getEffectivePlaybackTiming,
+  hideVideoStreamError,
   hideXRayPauseShelf,
   playVideoUrl,
   renderTimelineBookmarks,
   syncCustomControlPopovers,
   syncVcPopoverOpenClass,
-} from "./player.js?v=20261111v3";
+} from "./player.js?v=20261111v4";
+import { closeOfficialEmbeddedStream } from "./player-streams.js?v=20261111v4";
 
 export function formatSubtitleOffsetLabel(sec = state.subtitleOffsetSec) {
   const num = Math.round((Number(sec) || 0) * 100) / 100;
@@ -1789,6 +1791,11 @@ export function bindSubtitleFileAndDropListeners() {
       if (videoFile) {
         e.preventDefault();
         e.stopPropagation();
+        if (!state.isPlayerOpen) return;
+        if (state.activeProfile?.kids_mode) {
+          showToast(t("Локальные файлы отключены в детском профиле", "Local video files are disabled in Kids profile"));
+          return;
+        }
         const video = document.getElementById("native-video");
         if (video) {
           revokeLocalVideoBlobUrl(video);
@@ -1805,6 +1812,16 @@ export function bindSubtitleFileAndDropListeners() {
           clearRemuxDurationPoll();
           clearAutoplayNextTimer();
           hideXRayPauseShelf();
+          hideVideoStreamError();
+          state.activeOfficialService = "";
+          closeOfficialEmbeddedStream();
+          document.getElementById("official-stream-panel")?.classList.add("hidden");
+          const trailerBox = document.getElementById("trailer-stage-box");
+          if (trailerBox) {
+            trailerBox.innerHTML = "";
+            trailerBox.classList.add("hidden");
+          }
+          state.trailerPlaying = false;
           document.getElementById("video-loader")?.classList.add("hidden");
           document.getElementById("video-error")?.classList.add("hidden");
           const cleanName = videoFile.name.replace(/\.[^/.]+$/, "");
@@ -1865,6 +1882,7 @@ export function bindSubtitleFileAndDropListeners() {
           syncCustomControlPopovers();
           state.activeItem = {
             id: `local_${Date.now()}`,
+            is_local_file: true,
             title: cleanName,
             media_type: "movie",
             year: new Date().getFullYear(),

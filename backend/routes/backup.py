@@ -23,8 +23,14 @@ def handle_backup_export(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any
     ):
         return
     is_local = handler._is_loopback_client()
+    locked_export_pids = ctx.profile_manager.list_kids_pin_locked_profiles()
+    pin_verified_all = True
+    if locked_export_pids:
+        if not pin_q or not ctx.profile_manager.verify_any_kids_pin(pin_q):
+            pin_verified_all = False
+    redact_profiles = (not is_local) or (not pin_verified_all)
     act_prof_id = ctx.profile_manager.get_active_profile_id()
-    profiles_bundle = ctx.profile_manager.export_profiles_bundle(redact_secrets=not is_local)
+    profiles_bundle = ctx.profile_manager.export_profiles_bundle(redact_secrets=redact_profiles)
     if act_prof_id == "main":
         main_kin_state = ctx.kinorium_service.export_backup_state(redact_secrets=not is_local)
     else:
@@ -94,13 +100,13 @@ def handle_backup_import(handler: Any, qs: Dict[str, Any], parsed: Any, body: Di
     ):
         return True
     if isinstance(body.get("profiles_bundle"), dict):
-        locked_pid = ctx.profile_manager.has_any_kids_pin_locked_profile()
-        if locked_pid:
-            lock_rem = max(
+        locked_pids = ctx.profile_manager.list_kids_pin_locked_profiles()
+        if locked_pids:
+            lock_candidates = [
                 ctx.profile_manager.get_pin_lockout_remaining("main"),
                 ctx.profile_manager.get_pin_lockout_remaining(ctx.profile_manager.get_active_profile_id()),
-                ctx.profile_manager.get_pin_lockout_remaining(locked_pid),
-            )
+            ] + [ctx.profile_manager.get_pin_lockout_remaining(pid) for pid in locked_pids]
+            lock_rem = max(lock_candidates)
             if lock_rem > 0:
                 handler._send_json(
                     {
@@ -152,15 +158,6 @@ def handle_backup_import(handler: Any, qs: Dict[str, Any], parsed: Any, body: Di
         ctx.remote_broker.set_app_lang(ctx.app_prefs["app_lang"])
     if "setup_completed" in body:
         ctx.app_prefs["setup_completed"] = bool(body.get("setup_completed"))
-    if "auto_check_updates" in body and is_local:
-        ctx.app_prefs["auto_check_updates"] = bool(body.get("auto_check_updates"))
-    if "update_repo" in body and is_local:
-        ctx.app_prefs["update_repo"] = str(body.get("update_repo") or "").strip()[:160]
-    if "update_manifest_url" in body and is_local:
-        raw_m_url = str(body.get("update_manifest_url") or "").strip()[:512]
-        if raw_m_url and not raw_m_url.lower().startswith(("https://", "http://")):
-            raw_m_url = ""
-        ctx.app_prefs["update_manifest_url"] = raw_m_url
     if "user_country" in body:
         ctx.apply_user_country(
             str(body.get("user_country") or "PL"),
@@ -172,8 +169,6 @@ def handle_backup_import(handler: Any, qs: Dict[str, Any], parsed: Any, body: Di
     if isinstance(rezka_cfg, dict) and rezka_cfg:
         ctx.rezka_client.configure(
             custom_mirror=rezka_cfg.get("custom_mirror") if is_local else None,
-            proxy_url=rezka_cfg.get("proxy_url") if is_local else None,
-            cf_worker_relay=rezka_cfg.get("cf_worker_relay") if is_local else None,
             spoof_region=rezka_cfg.get("spoof_region"),
             preferred_studios=rezka_cfg.get("preferred_studios"),
         )
@@ -182,7 +177,6 @@ def handle_backup_import(handler: Any, qs: Dict[str, Any], parsed: Any, body: Di
         ctx.backup_stream_engine.configure(
             mode=bkp_cfg.get("mode"),
             debrid_api_key=bkp_cfg.get("debrid_api_key"),
-            torrserver_url=bkp_cfg.get("torrserver_url"),
         )
     if isinstance(body.get("stremio_addons"), list) and is_local:
         ctx.stremio_engine.restore_addons(body["stremio_addons"])

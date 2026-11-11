@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261111v3";
+import { state } from "./state.js?v=20261111v4";
 import {
   displayCountries,
   displayDescription,
@@ -13,7 +13,7 @@ import {
   t,
   translateGenre,
   translateStudioName,
-} from "./i18n.js?v=20261111v3";
+} from "./i18n.js?v=20261111v4";
 import {
   escapeAttr,
   escapeHtml,
@@ -27,8 +27,8 @@ import {
   showVideoOsd,
   syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261111v3";
-import { getPlayerPrefs, savePlayerPrefs } from "./audio-dsp.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
+import { getPlayerPrefs, savePlayerPrefs } from "./audio-dsp.js?v=20261111v4";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -39,19 +39,19 @@ import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261111v3";
-import { openQuickPeekModal, renderModalCastSection } from "./modals.js?v=20261111v3";
-import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261111v3";
-import { syncNativeNowPlaying } from "./features.js?v=20261111v3";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v3";
+} from "./catalog.js?v=20261111v4";
+import { openQuickPeekModal, renderModalCastSection } from "./modals.js?v=20261111v4";
+import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261111v4";
+import { isItemSafeForKidsClient, syncNativeNowPlaying } from "./features.js?v=20261111v4";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v4";
 import {
   getEpisodeDisplayMeta,
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261111v3";
-import { switchSourceTab, syncOfficialEmbeddedStreamRect } from "./player-streams.js?v=20261111v3";
-import { setMiniPlayerMode } from "./player-pip-dock.js?v=20261111v3";
-import { closePlayerModal } from "./player.js?v=20261111v3";
+} from "./player-seasons.js?v=20261111v4";
+import { switchSourceTab, syncOfficialEmbeddedStreamRect } from "./player-streams.js?v=20261111v4";
+import { setMiniPlayerMode } from "./player-pip-dock.js?v=20261111v4";
+import { closePlayerModal } from "./player.js?v=20261111v4";
 
 export const OFFICIAL_STREAMING_SERVICES = new Set(["appletv", "netflix", "prime", "disney", "max", "playerpl"]);
 
@@ -663,6 +663,10 @@ export function renderModalSimilarItems(item, overrideSimilarItems = null, overr
     const bundle = resolveClientSimilarBundle(item, 6);
     topSimilar = bundle.items;
     sourceType = bundle.source;
+  }
+
+  if (state.activeProfile?.kids_mode) {
+    topSimilar = topSimilar.filter((sim) => isItemSafeForKidsClient(sim));
   }
 
   if (topSimilar.length === 0) {

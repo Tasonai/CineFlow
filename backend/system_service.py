@@ -107,6 +107,7 @@ def sync_lan_listener(
     server_class: Any,
     handler_class: Any,
     poll_interval: float = 0.15,
+    app_prefs: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Dynamically binds or unbinds the secondary HTTP listener on the local LAN IPv4 address.
@@ -140,10 +141,20 @@ def sync_lan_listener(
     if lan_enabled and lan_ip:
         try:
             lan_srv = server_class((lan_ip, port), handler_class)
+            should_start = True
             with server_runtime["lock"]:
-                server_runtime["lan_server"] = lan_srv
-                server_runtime["lan_bound_ip"] = lan_ip
-                server_runtime["host"] = "0.0.0.0"
+                if app_prefs is not None and not bool(app_prefs.get("lan_access", False)):
+                    should_start = False
+                else:
+                    server_runtime["lan_server"] = lan_srv
+                    server_runtime["lan_bound_ip"] = lan_ip
+                    server_runtime["host"] = "0.0.0.0"
+            if not should_start:
+                try:
+                    lan_srv.server_close()
+                except Exception:
+                    pass
+                return
             threading.Thread(
                 target=lan_srv.serve_forever,
                 kwargs={"poll_interval": poll_interval},
@@ -221,4 +232,5 @@ class SystemService:
             detect_lan_fn=self.detect_lan_fn,
             server_class=self.server_class,
             handler_class=self.handler_class,
+            app_prefs=self.app_prefs,
         )

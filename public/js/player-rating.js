@@ -1,21 +1,21 @@
-import { state } from "./state.js?v=20261111v3";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261111v3";
+import { state } from "./state.js?v=20261111v4";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261111v4";
 import {
   bindStarsHoverRange,
   clampFloatingPopover,
   closeFloatingPopovers,
   showToast,
   withKinoriumActionLock,
-} from "./utils.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
 import {
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261111v3";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261111v3";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261111v3";
-import { isStageFullscreen } from "./player-ui-controls.js?v=20261111v3";
-import { updateModalKinoriumHeader } from "./player-meta.js?v=20261111v3";
+} from "./catalog.js?v=20261111v4";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261111v4";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261111v4";
+import { isStageFullscreen } from "./player-ui-controls.js?v=20261111v4";
+import { updateModalKinoriumHeader } from "./player-meta.js?v=20261111v4";
 import {
   getEpisodeDisplayMeta,
   getEpisodeRatingEntry,
@@ -24,7 +24,7 @@ import {
   resolveSeriesCompletedFlag,
   toggleCurrentEpisodeWatched,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261111v3";
+} from "./player-seasons.js?v=20261111v4";
 
 export function syncPostwatchOverlayMount() {
   const overlay = document.getElementById("kinorium-postwatch-overlay");
@@ -447,9 +447,11 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
     watchingBtn.onclick = () => {
       if (!state.activeItem) return;
       const itemRef = state.activeItem;
+      const reqProfileId = state.activeProfileId || "main";
       const metaSnapshot = getItemMetaPayload(itemRef);
       document.getElementById("kinorium-status-popover")?.classList.add("hidden");
       withKinoriumActionLock(`pl-watching:${itemRef.id}`, watchingBtn, async () => {
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         const res = await fetch("/api/kinorium/watching", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -459,6 +461,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
         if (!res.ok || kStatus?.ok === false || kStatus?.error) {
           throw new Error(kStatus?.error || `HTTP ${res.status}`);
         }
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         itemRef.kinorium = kStatus;
         if (state.activeItem === itemRef) updateModalKinoriumHeader(kStatus);
         patchCatalogItemKinoriumInPlace(itemRef, kStatus);
@@ -469,21 +472,28 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
           {
             undoText: t("Отменить", "Undo"),
             durationMs: 5000,
-            onUndo: async () => {
-              try {
-                const uRes = await fetch("/api/kinorium/watching", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(metaSnapshot),
-                });
-                const uData = await uRes.json();
-                if (uRes.ok && uData?.ok !== false && !uData?.error) {
-                  itemRef.kinorium = uData;
-                  if (state.activeItem === itemRef) updateModalKinoriumHeader(uData);
-                  patchCatalogItemKinoriumInPlace(itemRef, uData);
-                }
-              } catch (err) { window.logDebug?.("PlayerRating", err); }
-            },
+            onUndo: () =>
+              withKinoriumActionLock(`pl-watching:${itemRef.id}`, watchingBtn, async () => {
+                if ((state.activeProfileId || "main") !== reqProfileId) return;
+                try {
+                  const uRes = await fetch("/api/kinorium/watching", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(metaSnapshot),
+                  });
+                  const uData = await uRes.json();
+                  if (
+                    uRes.ok &&
+                    uData?.ok !== false &&
+                    !uData?.error &&
+                    (state.activeProfileId || "main") === reqProfileId
+                  ) {
+                    itemRef.kinorium = uData;
+                    if (state.activeItem === itemRef) updateModalKinoriumHeader(uData);
+                    patchCatalogItemKinoriumInPlace(itemRef, uData);
+                  }
+                } catch (err) { window.logDebug?.("PlayerRating", err); }
+              }),
           }
         );
       });
@@ -495,9 +505,11 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
     plWatchedBtn.onclick = () => {
       if (!state.activeItem) return;
       const itemRef = state.activeItem;
+      const reqProfileId = state.activeProfileId || "main";
       const metaSnapshot = getItemMetaPayload(itemRef);
       document.getElementById("kinorium-status-popover")?.classList.add("hidden");
       withKinoriumActionLock(`pl-watched:${itemRef.id}`, plWatchedBtn, async () => {
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         const curWatched = Boolean(itemRef.kinorium?.watched);
         const sSnap = state.activeSeason;
         const eSnap = state.activeEpisode;
@@ -515,6 +527,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
         if (!res.ok || kStatus?.ok === false || kStatus?.error) {
           throw new Error(kStatus?.error || `HTTP ${res.status}`);
         }
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         itemRef.kinorium = kStatus;
         if (state.activeItem === itemRef) {
           updateModalKinoriumHeader(kStatus);
@@ -534,35 +547,42 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
           {
             undoText: t("Отменить", "Undo"),
             durationMs: 5000,
-            onUndo: async () => {
-              try {
-                const uRes = await fetch("/api/kinorium/watched", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    ...metaSnapshot,
-                    watched: curWatched,
-                    season: sSnap,
-                    episode: eSnap,
-                  }),
-                });
-                const uData = await uRes.json();
-                if (uRes.ok && uData?.ok !== false && !uData?.error) {
-                  itemRef.kinorium = uData;
-                  if (state.activeItem === itemRef) {
-                    updateModalKinoriumHeader(uData);
-                    if (itemRef.media_type === "series") {
-                      populateSeasonEpisodeSelectors(
-                        itemRef,
-                        resolveEffectiveSeasonsMap(itemRef, state.seasonsMap)
-                      );
+            onUndo: () =>
+              withKinoriumActionLock(`pl-watched:${itemRef.id}`, plWatchedBtn, async () => {
+                if ((state.activeProfileId || "main") !== reqProfileId) return;
+                try {
+                  const uRes = await fetch("/api/kinorium/watched", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      ...metaSnapshot,
+                      watched: curWatched,
+                      season: sSnap,
+                      episode: eSnap,
+                    }),
+                  });
+                  const uData = await uRes.json();
+                  if (
+                    uRes.ok &&
+                    uData?.ok !== false &&
+                    !uData?.error &&
+                    (state.activeProfileId || "main") === reqProfileId
+                  ) {
+                    itemRef.kinorium = uData;
+                    if (state.activeItem === itemRef) {
+                      updateModalKinoriumHeader(uData);
+                      if (itemRef.media_type === "series") {
+                        populateSeasonEpisodeSelectors(
+                          itemRef,
+                          resolveEffectiveSeasonsMap(itemRef, state.seasonsMap)
+                        );
+                      }
                     }
+                    patchCatalogItemKinoriumInPlace(itemRef, uData);
+                    pushDesktopRemoteStateNow();
                   }
-                  patchCatalogItemKinoriumInPlace(itemRef, uData);
-                  pushDesktopRemoteStateNow();
-                }
-              } catch (err) { window.logDebug?.("PlayerRating", err); }
-            },
+                } catch (err) { window.logDebug?.("PlayerRating", err); }
+              }),
           }
         );
       });
@@ -637,9 +657,11 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
     plWatchlistBtn.onclick = () => {
       if (!state.activeItem) return;
       const itemRef = state.activeItem;
+      const reqProfileId = state.activeProfileId || "main";
       const metaSnapshot = getItemMetaPayload(itemRef);
       document.getElementById("kinorium-status-popover")?.classList.add("hidden");
       withKinoriumActionLock(`pl-watchlist:${itemRef.id}`, plWatchlistBtn, async () => {
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         const res = await fetch("/api/kinorium/watchlist", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -649,6 +671,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
         if (!res.ok || kStatus?.ok === false || kStatus?.error) {
           throw new Error(kStatus?.error || `HTTP ${res.status}`);
         }
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         itemRef.kinorium = kStatus;
         if (state.activeItem === itemRef) {
           updateModalKinoriumHeader(kStatus);
@@ -668,24 +691,31 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
           {
             undoText: t("Отменить", "Undo"),
             durationMs: 5000,
-            onUndo: async () => {
-              try {
-                const uRes = await fetch("/api/kinorium/watchlist", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(metaSnapshot),
-                });
-                const uData = await uRes.json();
-                if (uRes.ok && uData?.ok !== false && !uData?.error) {
-                  itemRef.kinorium = uData;
-                  if (state.activeItem === itemRef) {
-                    updateModalKinoriumHeader(uData);
+            onUndo: () =>
+              withKinoriumActionLock(`pl-watchlist:${itemRef.id}`, plWatchlistBtn, async () => {
+                if ((state.activeProfileId || "main") !== reqProfileId) return;
+                try {
+                  const uRes = await fetch("/api/kinorium/watchlist", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(metaSnapshot),
+                  });
+                  const uData = await uRes.json();
+                  if (
+                    uRes.ok &&
+                    uData?.ok !== false &&
+                    !uData?.error &&
+                    (state.activeProfileId || "main") === reqProfileId
+                  ) {
+                    itemRef.kinorium = uData;
+                    if (state.activeItem === itemRef) {
+                      updateModalKinoriumHeader(uData);
+                    }
+                    patchCatalogItemKinoriumInPlace(itemRef, uData);
+                    pushDesktopRemoteStateNow();
                   }
-                  patchCatalogItemKinoriumInPlace(itemRef, uData);
-                  pushDesktopRemoteStateNow();
-                }
-              } catch (err) { window.logDebug?.("PlayerRating", err); }
-            },
+                } catch (err) { window.logDebug?.("PlayerRating", err); }
+              }),
           }
         );
       });
@@ -697,9 +727,11 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
     neverBtn.onclick = () => {
       if (!state.activeItem) return;
       const itemRef = state.activeItem;
+      const reqProfileId = state.activeProfileId || "main";
       const metaSnapshot = getItemMetaPayload(itemRef);
       document.getElementById("kinorium-status-popover")?.classList.add("hidden");
       withKinoriumActionLock(`pl-never:${itemRef.id}`, neverBtn, async () => {
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         const res = await fetch("/api/kinorium/never", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -709,6 +741,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
         if (!res.ok || kStatus?.ok === false || kStatus?.error) {
           throw new Error(kStatus?.error || `HTTP ${res.status}`);
         }
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         itemRef.kinorium = kStatus;
         if (state.activeItem === itemRef) updateModalKinoriumHeader(kStatus);
         patchCatalogItemKinoriumInPlace(itemRef, kStatus);
@@ -719,21 +752,28 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
           {
             undoText: t("Отменить", "Undo"),
             durationMs: 5000,
-            onUndo: async () => {
-              try {
-                const uRes = await fetch("/api/kinorium/never", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(metaSnapshot),
-                });
-                const uData = await uRes.json();
-                if (uRes.ok && uData?.ok !== false && !uData?.error) {
-                  itemRef.kinorium = uData;
-                  if (state.activeItem === itemRef) updateModalKinoriumHeader(uData);
-                  patchCatalogItemKinoriumInPlace(itemRef, uData);
-                }
-              } catch (err) { window.logDebug?.("PlayerRating", err); }
-            },
+            onUndo: () =>
+              withKinoriumActionLock(`pl-never:${itemRef.id}`, neverBtn, async () => {
+                if ((state.activeProfileId || "main") !== reqProfileId) return;
+                try {
+                  const uRes = await fetch("/api/kinorium/never", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(metaSnapshot),
+                  });
+                  const uData = await uRes.json();
+                  if (
+                    uRes.ok &&
+                    uData?.ok !== false &&
+                    !uData?.error &&
+                    (state.activeProfileId || "main") === reqProfileId
+                  ) {
+                    itemRef.kinorium = uData;
+                    if (state.activeItem === itemRef) updateModalKinoriumHeader(uData);
+                    patchCatalogItemKinoriumInPlace(itemRef, uData);
+                  }
+                } catch (err) { window.logDebug?.("PlayerRating", err); }
+              }),
           }
         );
       });
@@ -748,6 +788,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
   const submitPostWatchRating = (scoreVal, triggerCtrl, closeAfterSave = true) => {
     if (!state.activeItem) return;
     const itemRef = state.activeItem;
+    const reqProfileId = state.activeProfileId || "main";
     const metaSnapshot = getItemMetaPayload(itemRef);
     const score = parseInt(scoreVal, 10) || 0;
     if (score <= 0) {
@@ -755,6 +796,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
       return;
     }
     withKinoriumActionLock(`pl-rate:${itemRef.id}`, triggerCtrl, async () => {
+      if ((state.activeProfileId || "main") !== reqProfileId) return;
       const comment = postwatchCommentInp ? postwatchCommentInp.value : "";
       const isEpisodeScope =
         itemRef.media_type === "series" && state.postwatchScope === "episode";
@@ -789,6 +831,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
         if (!res.ok || kStatus?.ok === false || kStatus?.error) {
           throw new Error(kStatus?.error || `HTTP ${res.status}`);
         }
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         itemRef.kinorium = kStatus;
         state.catalogDirty = true;
         if (kStatus.kinorium_counts) {
@@ -840,6 +883,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
       if (!res.ok || kStatus?.ok === false || kStatus?.error) {
         throw new Error(kStatus?.error || `HTTP ${res.status}`);
       }
+      if ((state.activeProfileId || "main") !== reqProfileId) return;
       itemRef.kinorium = kStatus;
       if (kStatus.kinorium_counts) {
         state.kinoriumCounts = { ...state.kinoriumCounts, ...kStatus.kinorium_counts };
@@ -898,8 +942,10 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
     postwatchClearBtn.onclick = () => {
       if (!state.activeItem) return;
       const itemRef = state.activeItem;
+      const reqProfileId = state.activeProfileId || "main";
       const metaSnapshot = getItemMetaPayload(itemRef);
       withKinoriumActionLock(`pl-rate:${itemRef.id}`, postwatchClearBtn, async () => {
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         const isEpisodeScope =
           itemRef.media_type === "series" && state.postwatchScope === "episode";
         if (isEpisodeScope) {
@@ -921,6 +967,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
           if (!res.ok || kStatus?.ok === false || kStatus?.error) {
             throw new Error(kStatus?.error || `HTTP ${res.status}`);
           }
+          if ((state.activeProfileId || "main") !== reqProfileId) return;
           itemRef.kinorium = kStatus;
           state.catalogDirty = true;
           if (kStatus.kinorium_counts) {
@@ -956,6 +1003,7 @@ export function initPlayerStatusAndRatingBindings({ onClosePlayerModal } = {}) {
         if (!res.ok || kStatus?.ok === false || kStatus?.error) {
           throw new Error(kStatus?.error || `HTTP ${res.status}`);
         }
+        if ((state.activeProfileId || "main") !== reqProfileId) return;
         itemRef.kinorium = kStatus;
         if (kStatus.kinorium_counts) {
           state.kinoriumCounts = { ...state.kinoriumCounts, ...kStatus.kinorium_counts };

@@ -175,99 +175,28 @@ def sanitize_session_cookie(raw_cookie: str) -> str:
 
 def solve_kinorium_js_challenge(self: Any, body: str) -> str:
     """
-    Cross-platform solver for Kinorium's JS anti-bot cookie challenge (`document['cookie'] = ...`).
-    Works across macOS (`jsc`), Node.js (`node`), Windows/Linux headless Chromium (`msedge` / `chrome`),
-    and pure-Python static/concatenation cookie assignments without requiring macOS-only tools.
+    Hardened cross-platform solver for Kinorium's JS anti-bot cookie challenge (`document['cookie'] = ...`).
+    Uses pure-Python static/concatenation evaluation first (zero subprocesses) and falls back only to an
+    isolated null-prototype Node `vm` context with code generation disabled and zero outer-realm functions.
     """
     if not body or len(body) > 131072 or ("document['cookie']" not in body and "document.cookie" not in body):
         return ""
     script_blocks = re.findall(r"<script[^>]*>([\s\S]*?)</script>", body, flags=re.I)
     js_code = "\n".join(script_blocks) if script_blocks else re.sub(r"</?script[^>]*>", "", body, flags=re.I)
     if re.search(
-        r"(?:\b(?:require|process|child_process|Deno|Bun|ActiveXObject|WScript|Scripting|FileSystemObject|GetObject|WebSocket|fetch|XMLHttpRequest|importScripts|eval|Function|constructor|globalThis|readFile|load|loadString|run|readline|jscOptions|DollarVM)\b|\\u\{[0-9a-fA-F]+\}|\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2})",
+        r"(?:\b(?:require|process|child_process|Deno|Bun|ActiveXObject|WScript|Scripting|FileSystemObject|GetObject|WebSocket|fetch|XMLHttpRequest|importScripts|import|eval|Function|constructor|prototype|__proto__|Reflect|Proxy|WebAssembly|globalThis|writeFile|openFile|readFile|read|load|loadString|run|readline|jscOptions|DollarVM)\b|\\u\{[0-9a-fA-F]+\}|\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2})",
         js_code,
     ):
         return ""
-    shim_core = f"""
-    var __cf_orig_console = (typeof globalThis !== "undefined" && globalThis.console) ? globalThis.console : null;
-    var __cf_emit = (typeof print === "function")
-      ? print
-      : (__cf_orig_console && __cf_orig_console.log ? __cf_orig_console.log.bind(__cf_orig_console) : function() {{}});
-    var process = undefined, require = undefined, global = undefined, Deno = undefined, Bun = undefined;
-    var cookies = [];
-    var console = {{ log: function() {{}}, warn: function() {{}}, error: function() {{}} }};
-    var document = {{
-      set cookie(val) {{
-        var kv = String(val || "").split(";")[0];
-        var eq = kv.indexOf("=");
-        if (eq > 0) {{
-          cookies.push(kv.slice(0, eq).trim() + "=" + kv.slice(eq + 1).trim());
-        }}
-      }},
-      get cookie() {{ return cookies.join("; "); }},
-      createElement: function() {{ return {{ getContext: function() {{ return {{ getExtension: function() {{ return {{ UNMASKED_RENDERER_WEBGL: 1 }}; }}, getParameter: function() {{ return "ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)"; }} }}; }} }}; }},
-      startViewTransition: function() {{}}
-    }};
-    var window = {{ screen: {{ width: 1920, height: 1080 }}, speechSynthesis: {{}} }};
-    var navigator = {{ maxTouchPoints: 0, webdriver: false, userAgent: {json.dumps(self.UA)}, bluetooth: {{}}, userAgentData: {{}}, speechSynthesis: {{}}, platform: "MacIntel", hardwareConcurrency: 8, deviceMemory: 8, languages: ["ru-RU", "ru", "en-US"] }};
-    var top = {{ location: {{ href: "https://en.kinorium.com/", reload: function() {{}} }} }};
-    var location = top.location;
-    var XMLHttpRequest = function() {{ this.open = function(){{}}; this.setRequestHeader = function(){{}}; this.send = function(){{}}; }};
-    try {{
-      {js_code}
-    }} catch (_err) {{}}
-    __cf_emit("COOKIES_OUT:" + cookies.join("; "));
-    """
 
-    no_win_flag = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    import shutil as _shutil
-
-    # 1. macOS JavaScriptCore CLI (if present) or Node.js (cross-platform isolated VM)
-    js_runners: List[List[str]] = []
-    if os.path.isfile(self.JSC_PATH):
-        js_runners.append([self.JSC_PATH, "-e", shim_core])
-    node_bin = _shutil.which("node") or _shutil.which("nodejs")
-    if node_bin:
-        node_vm_runner = (
-            "const vm = require('vm');\n"
-            "const sb = Object.create(null);\n"
-            "sb.print = (s) => process.stdout.write(String(s) + '\\n');\n"
-            "sb.String = String; sb.Number = Number; sb.Boolean = Boolean; sb.Array = Array;\n"
-            "sb.Object = Object; sb.Math = Math; sb.Date = Date; sb.RegExp = RegExp;\n"
-            "sb.JSON = JSON; sb.parseInt = parseInt; sb.parseFloat = parseFloat;\n"
-            "sb.encodeURIComponent = encodeURIComponent; sb.decodeURIComponent = decodeURIComponent;\n"
-            f"const code = {json.dumps(shim_core)};\n"
-            "try {\n"
-            "  const ctx = vm.createContext(sb, { codeGeneration: { strings: false, wasm: false } });\n"
-            "  vm.runInContext(code, ctx, { timeout: 2000 });\n"
-            "} catch (_) {}\n"
-        )
-        js_runners.append([node_bin, "--disallow-code-generation-from-strings", "-e", node_vm_runner])
-
-    for cmd in js_runners:
-        try:
-            out = subprocess.check_output(
-                cmd,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-                creationflags=no_win_flag,
-            ).decode("utf-8", errors="ignore")
-            for line in out.splitlines():
-                if "COOKIES_OUT:" in line:
-                    solved = line.split("COOKIES_OUT:", 1)[1].strip()
-                    if solved:
-                        return solved
-        except Exception:
-            continue
-
-    # 2. Pure-Python extraction for literal / string-concatenated document['cookie'] assignments
+    # 1. Pure-Python extraction for literal / string-concatenated document['cookie'] assignments (0ms, zero RCE surface)
     try:
         var_table: Dict[str, str] = {}
-        for vm in re.finditer(
+        for vm_match in re.finditer(
             r"\b(?:var|let|const)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(['\"])([^'\"]*)\2",
             js_code,
         ):
-            var_table[vm.group(1)] = vm.group(3)
+            var_table[vm_match.group(1)] = vm_match.group(3)
 
         extracted_pairs: List[str] = []
         assign_re = re.compile(
@@ -308,141 +237,64 @@ def solve_kinorium_js_challenge(self: Any, body: str) -> str:
     except Exception:
         pass
 
-    # 3. Windows native Chakra JScript9 CLI (cscript.exe, ~15ms, zero browser startup)
-    cscript_bin = _shutil.which("cscript") or _shutil.which("cscript.exe")
-    if cscript_bin and sys.platform == "win32":
-        try:
-            import tempfile as _tempfile
+    # 2. Isolated Node.js vm context (null prototype, strings/wasm codegen disabled, zero host functions exposed)
+    no_win_flag = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    import shutil as _shutil
 
-            cscript_shim = (
-                "var __cf_wsh_echo = (typeof WScript !== 'undefined' && WScript.Echo) ? function(s){ try { WScript.Echo(s); } catch(e){} } : function(){};\n"
-                "var __cf_emit = function(s){ __cf_wsh_echo(s); };\n"
-                "var ActiveXObject = undefined, GetObject = undefined, WScript = undefined, Scripting = undefined;\n"
-                "var cookies = [];\n"
-                "var console = { log: function(){}, warn: function(){}, error: function(){} };\n"
-                "var document = {\n"
-                "  createElement: function(){ return { getContext: function(){ return { getExtension: function(){ return { UNMASKED_RENDERER_WEBGL: 1 }; }, getParameter: function(){ return 'ANGLE (Generic GPU, Direct3D11)'; } }; } }; },\n"
-                "  startViewTransition: function(){}\n"
-                "};\n"
-                "if (Object.defineProperty) {\n"
-                "  Object.defineProperty(document, 'cookie', {\n"
-                "    set: function(val){ var kv=String(val||'').split(';')[0]; var eq=kv.indexOf('='); if(eq>0) cookies.push(kv.slice(0,eq).trim()+'='+kv.slice(eq+1).trim()); },\n"
-                "    get: function(){ return cookies.join('; '); }\n"
-                "  });\n"
-                "}\n"
-                f"var window = {{ screen: {{ width: 1920, height: 1080 }}, speechSynthesis: {{}} }};\n"
-                f"var navigator = {{ maxTouchPoints: 0, webdriver: false, userAgent: {json.dumps(self.UA)}, platform: 'Win32', hardwareConcurrency: 8, deviceMemory: 8, languages: ['ru-RU', 'ru', 'en-US'] }};\n"
-                "var top = { location: { href: 'https://en.kinorium.com/', reload: function(){} } };\n"
-                "var location = top.location;\n"
-                "var XMLHttpRequest = function(){ this.open=function(){}; this.setRequestHeader=function(){}; this.send=function(){}; };\n"
-                f"try {{ {js_code} }} catch (_err) {{}}\n"
-                "__cf_emit('COOKIES_OUT:' + cookies.join('; '));\n"
-            )
-            with _tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8", delete=False) as tf:
-                tf.write(cscript_shim)
-                js_tmp_path = tf.name
-            try:
-                out = subprocess.check_output(
-                    [
-                        cscript_bin,
-                        "//NoLogo",
-                        "//B",
-                        "//T:3",
-                        "//E:{16d51579-a30b-4c8b-a276-0ff4dc41e755}",
-                        js_tmp_path,
-                    ],
-                    stderr=subprocess.DEVNULL,
-                    timeout=4,
-                    creationflags=no_win_flag,
-                ).decode("utf-8", errors="ignore")
-                for line in out.splitlines():
-                    if "COOKIES_OUT:" in line:
-                        solved = line.split("COOKIES_OUT:", 1)[1].strip()
-                        if solved:
-                            return solved
-            finally:
-                try:
-                    os.unlink(js_tmp_path)
-                except OSError:
-                    pass
+    node_bin = _shutil.which("node") or _shutil.which("nodejs")
+    if node_bin:
+        shim_core = f"""
+        var cookies = [];
+        var console = {{ log: function() {{}}, warn: function() {{}}, error: function() {{}} }};
+        var document = {{
+          set cookie(val) {{
+            var kv = ("" + (val || "")).split(";")[0];
+            var eq = kv.indexOf("=");
+            if (eq > 0) {{
+              cookies.push(kv.slice(0, eq).trim() + "=" + kv.slice(eq + 1).trim());
+            }}
+          }},
+          get cookie() {{ return cookies.join("; "); }},
+          createElement: function() {{ return {{ getContext: function() {{ return {{ getExtension: function() {{ return {{ UNMASKED_RENDERER_WEBGL: 1 }}; }}, getParameter: function() {{ return "ANGLE (Apple, ANGLE Metal Renderer: Apple M1, Unspecified Version)"; }} }}; }} }}; }},
+          startViewTransition: function() {{}}
+        }};
+        var window = {{ screen: {{ width: 1920, height: 1080 }}, speechSynthesis: {{}} }};
+        var navigator = {{ maxTouchPoints: 0, webdriver: false, userAgent: {json.dumps(self.UA)}, bluetooth: {{}}, userAgentData: {{}}, speechSynthesis: {{}}, platform: "MacIntel", hardwareConcurrency: 8, deviceMemory: 8, languages: ["ru-RU", "ru", "en-US"] }};
+        var top = {{ location: {{ href: "https://en.kinorium.com/", reload: function() {{}} }} }};
+        var location = top.location;
+        try {{
+          {js_code}
+        }} catch (_err) {{}}
+        __cf_out = cookies.join("; ");
+        """
+        node_vm_runner = (
+            "'use strict';\n"
+            "const vm = require('vm');\n"
+            "const sb = Object.create(null);\n"
+            "sb.__cf_out = '';\n"
+            f"const code = {json.dumps(shim_core)};\n"
+            "try {\n"
+            "  const ctx = vm.createContext(sb, { codeGeneration: { strings: false, wasm: false } });\n"
+            "  vm.runInContext(code, ctx, { timeout: 1500 });\n"
+            "  if (typeof sb.__cf_out === 'string' && sb.__cf_out) {\n"
+            "    process.stdout.write('COOKIES_OUT:' + sb.__cf_out.slice(0, 4096) + '\\n');\n"
+            "  }\n"
+            "} catch (_) {}\n"
+        )
+        try:
+            out = subprocess.check_output(
+                [node_bin, "--disallow-code-generation-from-strings", "-e", node_vm_runner],
+                stderr=subprocess.DEVNULL,
+                timeout=4,
+                creationflags=no_win_flag,
+            ).decode("utf-8", errors="ignore")
+            for line in out.splitlines():
+                if "COOKIES_OUT:" in line:
+                    solved = line.split("COOKIES_OUT:", 1)[1].strip()
+                    if solved:
+                        return solved
         except Exception:
             pass
-
-    # 4. Windows / Linux headless Edge / Chrome V8 DOM evaluation with persistent profile dir
-    try:
-        from windows.kinorium_login_webview import find_chromium_browser
-
-        browser_exe = find_chromium_browser()
-        if browser_exe:
-            import tempfile as _tempfile
-
-            with _tempfile.TemporaryDirectory(prefix="cf_kin_js_") as td:
-                prof_dir = os.path.join(td, "prof")
-                os.makedirs(prof_dir, exist_ok=True)
-                html_file = os.path.join(td, "challenge.html")
-                safe_inline_js = js_code.replace("</", "<\\/")
-                wrapped_html = (
-                    "<!doctype html><html><head><meta charset='utf-8'>"
-                    "<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'\">"
-                    "</head><body><script>"
-                    "var __ck=[];Object.defineProperty(document,'cookie',{"
-                    "set:function(v){var s=String(v||'').split(';')[0];if(s.indexOf('=')>0)__ck.push(s.trim());},"
-                    "get:function(){return __ck.join('; ');}});"
-                    f"try{{{safe_inline_js}}}catch(e){{}}"
-                    "document.body.setAttribute('data-cf-ck',__ck.join('; '));"
-                    "</script></body></html>"
-                )
-                with open(html_file, "w", encoding="utf-8") as hf:
-                    hf.write(wrapped_html)
-                file_url = "file:///" + html_file.replace("\\", "/").lstrip("/")
-                b_proc = subprocess.Popen(
-                    [
-                        browser_exe,
-                        "--headless=new",
-                        "--disable-gpu",
-                        "--no-first-run",
-                        "--no-default-browser-check",
-                        "--disable-extensions",
-                        "--disable-component-update",
-                        "--disable-sync",
-                        "--proxy-bypass-list=<-loopback>",
-                        f"--user-data-dir={prof_dir}",
-                        "--dump-dom",
-                        file_url,
-                    ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    creationflags=no_win_flag,
-                    start_new_session=(sys.platform != "win32"),
-                )
-                try:
-                    raw_dom_bytes, _ = b_proc.communicate(timeout=6)
-                    dom_out = (raw_dom_bytes or b"").decode("utf-8", errors="ignore")
-                except subprocess.TimeoutExpired:
-                    if sys.platform == "win32":
-                        subprocess.run(
-                            ["taskkill", "/F", "/T", "/PID", str(b_proc.pid)],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            creationflags=no_win_flag,
-                        )
-                    else:
-                        import signal as _signal
-                        try:
-                            os.killpg(os.getpgid(b_proc.pid), _signal.SIGKILL)
-                        except Exception:
-                            pass
-                    try:
-                        b_proc.kill()
-                        b_proc.wait(timeout=1)
-                    except Exception:
-                        pass
-                    dom_out = ""
-                m_dom = re.search(r'data-cf-ck="([^"]*)"', dom_out)
-                if m_dom and m_dom.group(1).strip():
-                    return m_dom.group(1).strip()
-    except Exception:
-        pass
 
     return ""
 

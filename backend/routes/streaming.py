@@ -1552,6 +1552,26 @@ def handle_proxy_vtt(handler, qs: Dict[str, Any], parsed, ctx, head_only: bool =
     return True
 
 
+def _get_remux_sub_cache_dir(ctx: Any) -> str:
+    base_data = str(getattr(ctx, "data_dir", "") or "").strip()
+    if not base_data:
+        srv = _get_server_module()
+        base_data = str(getattr(srv, "DATA_DIR", "") or "").strip() if srv else ""
+    target_dir = (
+        os.path.join(base_data, "cache", "remux_subs")
+        if base_data
+        else os.path.join(tempfile.gettempdir(), f"velarium_remux_subs_{os.getuid() if hasattr(os, 'getuid') else 'local'}")
+    )
+    os.makedirs(target_dir, mode=0o700, exist_ok=True)
+    if os.path.islink(target_dir):
+        raise OSError("Refusing symlinked remux subtitle cache dir")
+    try:
+        os.chmod(target_dir, 0o700)
+    except OSError:
+        pass
+    return target_dir
+
+
 def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: bool = False) -> bool:
     """Handles /api/remux-stream zero-copy live FFmpeg remux pipeline."""
     if head_only:
@@ -1563,7 +1583,8 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
         handler.end_headers()
         return True
 
-    src_url = qs.get("src", [""])[0].strip()
+    raw_src_param = qs.get("src", [""])[0].strip()
+    src_url = _unwrap_local_proxy_media_url(raw_src_param)
     audio_idx = max(0, ctx.qs_int(qs, "audio", 0))
     start_sec = max(0.0, ctx.qs_float(qs, "start", 0.0))
     audio_offset_sec = max(-5.0, min(5.0, ctx.qs_float(qs, "ashift", 0.0)))
@@ -1573,41 +1594,99 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
     channels = max(1, ctx.qs_int(qs, "ch", 2))
     sub_param = qs.get("sub", [""])[0].strip()
     sub_idx = ctx.qs_int(qs, "sub_idx", -1)
+    if sub_param and "/api/remux-subtitle" in sub_param:
+        try:
+            sub_p = urllib.parse.urlparse(sub_param)
+            sub_q = urllib.parse.parse_qs(sub_p.query)
+            if sub_idx < 0 and sub_q.get("idx"):
+                sub_idx = max(0, int(sub_q["idx"][0]))
+            sub_param = ""
+        except Exception:
+            pass
     burn_sub = qs.get("burn_sub", [""])[0].strip().lower() in ("1", "true", "yes") or bool(sub_param or sub_idx >= 0)
     remux_engine = ctx.remux_engine
-    if not _check_allowed_media_source_url(src_url, allow_torrserver_loopback=True) or not remux_engine.is_available():
+    allow_local_remux_file = False
+    src_parsed = urllib.parse.urlparse(src_url)
+    src_path = (src_parsed.path or "").strip()
+    if src_url.startswith("/api/downloads/stream/") or (
+        src_url.startswith(("http://", "https://")) and src_path.startswith("/api/downloads/stream/") and ".." not in src_path
+    ):
+        dl_id_src = urllib.parse.unquote(src_path[len("/api/downloads/stream/") :]).strip("/")
+        dl_mgr = getattr(ctx, "download_manager", None)
+        prof_mgr = getattr(ctx, "profile_manager", None)
+        if (
+            dl_id_src
+            and dl_mgr is not None
+            and prof_mgr is not None
+            and dl_mgr.is_download_allowed(
+                dl_id_src,
+                kids_mode=prof_mgr.is_kids_mode_active(),
+                active_profile_id=prof_mgr.get_active_profile_id(),
+            )
+        ):
+            local_vpath = dl_mgr.get_video_file_path(dl_id_src)
+            if local_vpath and os.path.isfile(local_vpath) and not os.path.islink(local_vpath):
+                src_url = local_vpath
+                allow_local_remux_file = True
+
+    if (
+        (not allow_local_remux_file and not _check_allowed_media_source_url(src_url, allow_torrserver_loopback=True))
+        or not remux_engine.is_available()
+    ):
         handler._send_json({"error": "Remux source unavailable"}, status=400)
         return True
 
     temp_sub_path = ""
     if burn_sub and sub_param:
         try:
-            if sub_param.startswith("/api/downloads/sub/"):
-                parts = sub_param.strip("/").split("/")
+            sub_cache_dir = _get_remux_sub_cache_dir(ctx)
+            if sub_param.startswith("/api/downloads/sub/") or (
+                sub_param.startswith(("http://", "https://"))
+                and (urllib.parse.urlparse(sub_param).path or "").startswith("/api/downloads/sub/")
+            ):
+                sub_p_path = urllib.parse.urlparse(sub_param).path if sub_param.startswith(("http://", "https://")) else sub_param
+                parts = sub_p_path.strip("/").split("/")
                 if len(parts) >= 4:
-                    dl_id = parts[3]
-                    sub_fn = parts[4] if len(parts) > 4 else "sub.vtt"
-                    dl_sub_file = ctx.download_manager.get_subtitle_file_path(dl_id, sub_fn)
-                    if dl_sub_file and os.path.isfile(dl_sub_file):
+                    dl_id = urllib.parse.unquote(parts[3])
+                    sub_fn = urllib.parse.unquote(parts[4]) if len(parts) > 4 else "sub.vtt"
+                    dl_mgr = getattr(ctx, "download_manager", None)
+                    prof_mgr = getattr(ctx, "profile_manager", None)
+                    dl_sub_ok = (
+                        dl_mgr is not None
+                        and (
+                            prof_mgr is None
+                            or dl_mgr.is_download_allowed(
+                                dl_id,
+                                kids_mode=prof_mgr.is_kids_mode_active(),
+                                active_profile_id=prof_mgr.get_active_profile_id(),
+                            )
+                        )
+                    )
+                    dl_sub_file = dl_mgr.get_subtitle_file_path(dl_id, sub_fn) if dl_sub_ok else ""
+                    if dl_sub_file and os.path.isfile(dl_sub_file) and not os.path.islink(dl_sub_file):
                         try:
                             sub_mtime = os.path.getmtime(dl_sub_file)
                         except OSError:
                             sub_mtime = 0.0
                         with _REMUX_SUB_SRT_LOCK:
-                            cached_srt = _REMUX_SUB_SRT_CACHE.get((dl_sub_file, sub_mtime))
-                        if cached_srt and os.path.isfile(cached_srt) and os.path.getsize(cached_srt) > 0:
+                            cached_srt = _REMUX_SUB_SRT_CACHE.get(("dl", dl_sub_file, sub_mtime))
+                        if cached_srt and os.path.isfile(cached_srt) and not os.path.islink(cached_srt) and os.path.getsize(cached_srt) > 0:
                             temp_sub_path = cached_srt
                         else:
                             with open(dl_sub_file, "rb") as sf:
                                 s_bytes = sf.read(8 * 1024 * 1024)
-                            sub_hash = hashlib.sha256(s_bytes).hexdigest()[:12]
-                            tmp_f = os.path.join(tempfile.gettempdir(), f"velarium_sub_{sub_hash}.srt")
+                            sub_hash = hashlib.sha256(s_bytes).hexdigest()[:16]
+                            tmp_f = os.path.join(sub_cache_dir, f"velarium_sub_{sub_hash}.srt")
+                            if os.path.islink(tmp_f):
+                                raise OSError("Refusing symlinked subtitle cache file")
                             if not (os.path.isfile(tmp_f) and os.path.getsize(tmp_f) > 0):
                                 from backend.subtitles import decode_subtitle_bytes, convert_vtt_to_srt
                                 s_text = decode_subtitle_bytes(s_bytes)
                                 if "WEBVTT" in s_text[:128]:
                                     s_text = convert_vtt_to_srt(s_text)
                                 tmp_f_atomic = f"{tmp_f}.{os.getpid()}.{threading.get_ident()}.tmp"
+                                if os.path.lexists(tmp_f_atomic):
+                                    os.unlink(tmp_f_atomic)
                                 with open(tmp_f_atomic, "w", encoding="utf-8") as tf:
                                     tf.write(s_text)
                                 os.replace(tmp_f_atomic, tmp_f)
@@ -1616,12 +1695,12 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                                     evict_keys = list(_REMUX_SUB_SRT_CACHE.keys())[:16]
                                     for ek in evict_keys:
                                         old_srt = _REMUX_SUB_SRT_CACHE.pop(ek, None)
-                                        if old_srt and old_srt != tmp_f:
+                                        if isinstance(old_srt, str) and old_srt and old_srt != tmp_f:
                                             try:
                                                 os.unlink(old_srt)
                                             except OSError:
                                                 pass
-                                _REMUX_SUB_SRT_CACHE[(dl_sub_file, sub_mtime)] = tmp_f
+                                _REMUX_SUB_SRT_CACHE[("dl", dl_sub_file, sub_mtime)] = tmp_f
                             temp_sub_path = tmp_f
             elif sub_param.startswith(("http://", "https://")) or sub_param.startswith("/api/proxy-vtt"):
                 real_sub_url = sub_param
@@ -1629,43 +1708,46 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                     parsed_sub = urllib.parse.urlparse(real_sub_url)
                     sub_qs = urllib.parse.parse_qs(parsed_sub.query)
                     real_sub_url = (sub_qs.get("url") or [real_sub_url])[0]
-                url_sub_hash = hashlib.sha256(real_sub_url.encode("utf-8")).hexdigest()[:12]
-                url_tmp_f = os.path.join(tempfile.gettempdir(), f"velarium_sub_{url_sub_hash}.srt")
+                url_sub_hash = hashlib.sha256(real_sub_url.encode("utf-8")).hexdigest()[:16]
+                url_tmp_f = os.path.join(sub_cache_dir, f"velarium_sub_{url_sub_hash}.srt")
+                if os.path.islink(url_tmp_f):
+                    raise OSError("Refusing symlinked subtitle cache file")
                 if os.path.isfile(url_tmp_f) and os.path.getsize(url_tmp_f) > 64:
                     temp_sub_path = url_tmp_f
                 elif _check_allowed_media_source_url(real_sub_url, allow_torrserver_loopback=True):
                     from backend.subtitles import decode_subtitle_bytes, convert_vtt_to_srt
-                    with _REMUX_SUB_SRT_LOCK:
-                        cached_srt_txt = _REMUX_SUB_SRT_CACHE.get(("url_txt", real_sub_url))
-                    if isinstance(cached_srt_txt, str) and cached_srt_txt:
-                        s_text = cached_srt_txt
+                    parsed_real_sub = urllib.parse.urlparse(real_sub_url)
+                    sub_host = (parsed_real_sub.hostname or "").lower()
+                    if sub_host in ("127.0.0.1", "localhost", "::1"):
+                        req_sub = urllib.request.Request(real_sub_url, headers={"User-Agent": "Mozilla/5.0"})
+                        s_ctx = _LOOPBACK_DIRECT_OPENER.open(req_sub, timeout=4.0)
                     else:
-                        parsed_real_sub = urllib.parse.urlparse(real_sub_url)
-                        sub_host = (parsed_real_sub.hostname or "").lower()
-                        if sub_host in ("127.0.0.1", "localhost", "::1"):
-                            req_sub = urllib.request.Request(real_sub_url, headers={"User-Agent": "Mozilla/5.0"})
-                            s_ctx = _LOOPBACK_DIRECT_OPENER.open(req_sub, timeout=4.0)
-                        else:
-                            s_ctx = ctx.open_safe_public_url(
-                                real_sub_url,
-                                headers={"User-Agent": "Mozilla/5.0"},
-                                timeout=4.0,
-                            )
-                        with s_ctx as s_resp:
-                            s_bytes = s_resp.read(8 * 1024 * 1024)
-                        s_text = decode_subtitle_bytes(s_bytes)
-                        if "WEBVTT" in s_text[:128]:
-                            s_text = convert_vtt_to_srt(s_text)
-                        with _REMUX_SUB_SRT_LOCK:
-                            if len(_REMUX_SUB_SRT_CACHE) > 64:
-                                for ek in list(_REMUX_SUB_SRT_CACHE.keys())[:16]:
-                                    _REMUX_SUB_SRT_CACHE.pop(ek, None)
-                            _REMUX_SUB_SRT_CACHE[("url_txt", real_sub_url)] = s_text
+                        s_ctx = ctx.open_safe_public_url(
+                            real_sub_url,
+                            headers={"User-Agent": "Mozilla/5.0"},
+                            timeout=4.0,
+                        )
+                    with s_ctx as s_resp:
+                        s_bytes = s_resp.read(8 * 1024 * 1024)
+                    s_text = decode_subtitle_bytes(s_bytes)
+                    if "WEBVTT" in s_text[:128]:
+                        s_text = convert_vtt_to_srt(s_text)
                     url_tmp_atomic = f"{url_tmp_f}.{os.getpid()}.{threading.get_ident()}.tmp"
+                    if os.path.lexists(url_tmp_atomic):
+                        os.unlink(url_tmp_atomic)
                     with open(url_tmp_atomic, "w", encoding="utf-8") as tf:
                         tf.write(s_text)
                     os.replace(url_tmp_atomic, url_tmp_f)
                     with _REMUX_SUB_SRT_LOCK:
+                        if len(_REMUX_SUB_SRT_CACHE) > 64:
+                            for ek in list(_REMUX_SUB_SRT_CACHE.keys())[:16]:
+                                old_srt = _REMUX_SUB_SRT_CACHE.pop(ek, None)
+                                if isinstance(old_srt, str) and old_srt and old_srt != url_tmp_f:
+                                    try:
+                                        os.unlink(old_srt)
+                                    except OSError:
+                                        pass
+                        _REMUX_SUB_SRT_CACHE[("url", real_sub_url)] = url_tmp_f
                         if url_tmp_f not in _REMUX_TEMP_SUB_FILES:
                             _REMUX_TEMP_SUB_FILES.append(url_tmp_f)
                         if len(_REMUX_TEMP_SUB_FILES) > 24:
@@ -1717,6 +1799,7 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                 audio_offset_sec=audio_offset_sec,
                 subtitles_file=temp_sub_path,
                 subtitle_index=sub_idx if sub_idx >= 0 else None,
+                allow_local_file=allow_local_remux_file,
             )
             attempt_t0 = time.time()
             ff_env_rmx = (

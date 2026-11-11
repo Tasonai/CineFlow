@@ -148,19 +148,23 @@ final class ServerDaemonSupervisor {
     func restartServer(isLaunchAgentInstalled: Bool, onReady: @escaping () -> Void) {
         let hadSpawnedProc = (serverProcess != nil)
         stopSpawnedServerIfNeeded()
-        if !hadSpawnedProc && isLaunchAgentInstalled {
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            p.arguments = ["kickstart", "-k", "gui/\(getuid())/app.velarium.cinema"]
-            try? p.run()
-            p.waitUntilExit()
+        if !hadSpawnedProc {
+            if isLaunchAgentInstalled {
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+                p.arguments = ["kickstart", "-k", "gui/\(getuid())/app.velarium.cinema"]
+                try? p.run()
+                p.waitUntilExit()
 
-            // Also kick legacy label if present during upgrade
-            let pLegacy = Process()
-            pLegacy.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            pLegacy.arguments = ["bootout", "gui/\(getuid())/app.cineflow.cinema"]
-            try? pLegacy.run()
-            pLegacy.waitUntilExit()
+                // Also kick legacy label if present during upgrade
+                let pLegacy = Process()
+                pLegacy.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+                pLegacy.arguments = ["bootout", "gui/\(getuid())/app.cineflow.cinema"]
+                try? pLegacy.run()
+                pLegacy.waitUntilExit()
+            } else {
+                killStaleServerOnPort()
+            }
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.ensureBackendServerRunning(onReady: onReady)
@@ -1056,6 +1060,17 @@ final class VelariumAppController: NSObject, NSApplicationDelegate, NSWindowDele
             return
         }
         if webView === self.webView, let url = navigationAction.request.url {
+            if navigationAction.targetFrame?.isMainFrame == true,
+               let scheme = url.scheme?.lowercased(),
+               (scheme == "http" || scheme == "https") {
+                let host = (url.host ?? "").lowercased()
+                let isLocalBackend = (host == "127.0.0.1" || host == "localhost") && (url.port == nil || url.port == serverPort)
+                if !isLocalBackend {
+                    NSWorkspace.shared.open(url)
+                    decisionHandler(.cancel, preferences)
+                    return
+                }
+            }
             let path = url.path
             let query = url.query ?? ""
             if url.scheme == "blob" || path.hasPrefix("/api/download-mp4") || query.contains("download=1") {

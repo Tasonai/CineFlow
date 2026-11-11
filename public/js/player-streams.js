@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261111v3";
+import { state } from "./state.js?v=20261111v4";
 import {
   displayBackdrop,
   displayDescription,
@@ -11,7 +11,7 @@ import {
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261111v3";
+} from "./i18n.js?v=20261111v4";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -27,7 +27,7 @@ import {
   showVideoOsd,
   supportsNativePiP,
   syncCustomSelect,
-} from "./utils.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
@@ -37,7 +37,7 @@ import {
   savePlayerPrefs,
   startAmbilightLoop,
   stopAmbilightLoop,
-} from "./audio-dsp.js?v=20261111v3";
+} from "./audio-dsp.js?v=20261111v4";
 import {
   getDefaultPlayableSourceTab,
   getPreferredStudioForItem,
@@ -46,8 +46,8 @@ import {
   loadCatalog,
   matchPreferredStudioInList,
   savePreferredStudioForItem,
-} from "./catalog.js?v=20261111v3";
-import { renderModalCastSection } from "./modals.js?v=20261111v3";
+} from "./catalog.js?v=20261111v4";
+import { renderModalCastSection } from "./modals.js?v=20261111v4";
 import {
   activateSelectedSubtitleTrack,
   buildRemuxSubtitlesList,
@@ -57,11 +57,11 @@ import {
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
   revokeLocalVideoBlobUrl,
-} from "./subtitles.js?v=20261111v3";
+} from "./subtitles.js?v=20261111v4";
 import {
   clearVideoStallWatchdog,
   getVideoForwardBufferSec,
-} from "./player-watchdog.js?v=20261111v3";
+} from "./player-watchdog.js?v=20261111v4";
 import {
   buildRemuxStreamEndpoint,
   clearRemuxDurationPoll,
@@ -69,20 +69,20 @@ import {
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261111v3";
+} from "./player-remux.js?v=20261111v4";
 import {
   closeAllVcPopovers,
   isStageFullscreen,
   syncCustomVideoControlsUI,
   syncVcPopoverOpenClass,
   toggleStageFullscreen,
-} from "./player-ui-controls.js?v=20261111v3";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261111v3";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v3";
+} from "./player-ui-controls.js?v=20261111v4";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261111v4";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v4";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261111v3";
+} from "./player-seasons.js?v=20261111v4";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -90,17 +90,17 @@ import {
   renderModalGenresAndSubheader,
   renderModalProvidersSidebar,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261111v3";
+} from "./player-meta.js?v=20261111v4";
 import {
   getDetectedCreditsStartSec,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261111v3";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261111v3";
-import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261111v3";
+} from "./player-intro-credits.js?v=20261111v4";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261111v4";
+import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261111v4";
 import {
   playVideoUrl,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261111v3";
+} from "./player.js?v=20261111v4";
 
 export function isHdRezkaStreamDeadOrExpired(video) {
   if (!video || state.activeSourceTab !== "hdrezka" || state.remuxMeta?.active) {
@@ -930,6 +930,7 @@ export function resetVideoElementForStreamChange() {
   closeSubtitleDictPopover(false);
   const video = document.getElementById("native-video");
   abortActiveVideoListeners();
+  clearRemuxDurationPoll();
   if (state.remuxDurationReprobeTimer) {
     clearTimeout(state.remuxDurationReprobeTimer);
     state.remuxDurationReprobeTimer = null;
@@ -938,30 +939,21 @@ export function resetVideoElementForStreamChange() {
     clearTimeout(state.audioOffsetReloadTimerId);
     state.audioOffsetReloadTimerId = null;
   }
-  if (state.preloadAbortController) {
-    try {
-      state.preloadAbortController.abort();
-    } catch (err) { window.logDebug?.("PlayerStreams", err); }
-    state.preloadAbortController = null;
-  }
-  if (state.remuxProbeAbortController) {
-    try {
-      state.remuxProbeAbortController.abort();
-    } catch (err) { window.logDebug?.("PlayerStreams", err); }
-    state.remuxProbeAbortController = null;
-  }
-  if (state.stremioResolveAbortController) {
-    try {
-      state.stremioResolveAbortController.abort();
-    } catch (err) { window.logDebug?.("PlayerStreams", err); }
-    state.stremioResolveAbortController = null;
-  }
-  if (state.skipIntroAbortController) {
-    try {
-      state.skipIntroAbortController.abort();
-    } catch (err) { window.logDebug?.("PlayerStreams", err); }
-    state.skipIntroAbortController = null;
-  }
+  [
+    "streamAbortController",
+    "backup4kAbortController",
+    "preloadAbortController",
+    "remuxProbeAbortController",
+    "stremioResolveAbortController",
+    "skipIntroAbortController",
+  ].forEach((ctrlKey) => {
+    if (state[ctrlKey]) {
+      try {
+        state[ctrlKey].abort();
+      } catch (err) { window.logDebug?.("PlayerStreams", err); }
+      state[ctrlKey] = null;
+    }
+  });
   state.remuxMeta = null;
   state.currentStreamUrl = "";
   state.activeStremioStreamKey = "";
@@ -1158,10 +1150,13 @@ export function showVideoStreamError(
       e.preventDefault();
       e.stopPropagation();
       hideVideoStreamError();
+      state.tokenRefreshTimestamps = [];
+      state.usedBackupUrls = new Set();
       const v = document.getElementById("native-video");
       const { cur: effCur } = getEffectivePlaybackTiming(v);
       const savedMediaTime = Number(state.lastPlaybackMediaTime) > 5 ? Number(state.lastPlaybackMediaTime) : 0;
-      const curPos = effCur > 5 ? effCur : savedMediaTime;
+      const savedKnownTime = Number(state.lastKnownPlaybackTime) > 5 ? Number(state.lastKnownPlaybackTime) : 0;
+      const curPos = Math.max(effCur > 5 ? effCur : 0, savedMediaTime, savedKnownTime);
       if (state.activeSourceTab === "backup4k") {
         loadBackup4KReleases(curPos, true);
       } else if (state.activeSourceTab === "stremio") {
@@ -1234,7 +1229,8 @@ export function switchHdRezkaStudio(studioId, rawStudioName = "") {
   const v = document.getElementById("native-video");
   const { cur: effCur } = getEffectivePlaybackTiming(v);
   const savedMediaTime = Number(state.lastPlaybackMediaTime) > 5 ? Number(state.lastPlaybackMediaTime) : 0;
-  const curPos = effCur > 5 ? effCur : savedMediaTime;
+  const savedKnownTime = Number(state.lastKnownPlaybackTime) > 5 ? Number(state.lastKnownPlaybackTime) : 0;
+  const curPos = Math.max(effCur > 5 ? effCur : 0, savedMediaTime, savedKnownTime);
   loadHDRezkaStream(curPos, { forceRefresh: true });
 }
 
@@ -2242,6 +2238,7 @@ export async function loadHDRezkaStream(resumeTime = 0, options = {}) {
   } catch (err) {
     clearTimeout(requestTimeoutId);
     if (err && err.name === "AbortError" && !requestTimedOut) return;
+    if (!state.isPlayerOpen || sessionId !== state.playerSessionId || state.activeSourceTab !== "hdrezka") return;
     if (!options?._autoStudioTried && item) {
       let candStudios = state.availableStudios || item?.studios || [];
       if (!candStudios.length && item.title) {
@@ -2336,7 +2333,7 @@ import {
   resetAudioOffset,
   seekEffectivePlayback,
   switchRemuxAudioTrack,
-} from "./player-streams-4k.js?v=20261111v3";
+} from "./player-streams-4k.js?v=20261111v4";
 export {
   adjustAudioOffset,
   loadBackup4KReleases,

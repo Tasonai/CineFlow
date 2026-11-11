@@ -1,4 +1,4 @@
-import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v3";
+import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v4";
 import {
   displayPoster,
   displayTitle,
@@ -6,7 +6,7 @@ import {
   isEn,
   t,
   transliterateRuToEn,
-} from "./i18n.js?v=20261111v3";
+} from "./i18n.js?v=20261111v4";
 import {
   attachHorizontalWheelScroll,
   clampStagePopover,
@@ -20,15 +20,15 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261111v3";
-import { attachSmartPosterFallback } from "./catalog.js?v=20261111v3";
-import { openPersonModal } from "./modals.js?v=20261111v3";
-import { buildFallbackAvatarSvg } from "./modals-person.js?v=20261111v3";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v3";
-import { seekEffectivePlayback } from "./player-streams.js?v=20261111v3";
-import { findActiveChapterLabel, syncVcPopoverOpenClass } from "./player-ui-controls.js?v=20261111v3";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v3";
-import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
+import { attachSmartPosterFallback } from "./catalog.js?v=20261111v4";
+import { openPersonModal } from "./modals.js?v=20261111v4";
+import { buildFallbackAvatarSvg } from "./modals-person.js?v=20261111v4";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v4";
+import { seekEffectivePlayback } from "./player-streams.js?v=20261111v4";
+import { findActiveChapterLabel, syncVcPopoverOpenClass } from "./player-ui-controls.js?v=20261111v4";
+import { exitBrowserFullscreenIfNeeded, isItemSafeForKidsClient } from "./features.js?v=20261111v4";
+import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261111v4";
 
 let _bookmarkDialogWasPlaying = false;
 let _activeEditingMoment = null;
@@ -73,6 +73,8 @@ function _hydrateMomentFromActiveState(targetMoment) {
   if (it.imdb_id && !targetMoment.imdb_id) targetMoment.imdb_id = String(it.imdb_id);
   if (it.rezka_id && !targetMoment.rezka_id) targetMoment.rezka_id = String(it.rezka_id);
   if (it.rezka_url && !targetMoment.rezka_url) targetMoment.rezka_url = String(it.rezka_url);
+  if (Array.isArray(it.genres) && it.genres.length > 0 && !targetMoment.genres) targetMoment.genres = it.genres;
+  if (it.age_rating && !targetMoment.age_rating) targetMoment.age_rating = String(it.age_rating);
   if (state.activeSourceTab) targetMoment.source = String(state.activeSourceTab);
   return targetMoment;
 }
@@ -90,6 +92,8 @@ function _buildMomentFromActiveState(curSec, noteText = "") {
     imdb_id: String(it.imdb_id || ""),
     rezka_id: String(it.rezka_id || ""),
     rezka_url: String(it.rezka_url || ""),
+    genres: Array.isArray(it.genres) ? it.genres.slice() : [],
+    age_rating: String(it.age_rating || ""),
     source: String(state.activeSourceTab || it.source || "hdrezka"),
     title: displayTitle(it) || it.title || it.orig_title || "Velarium",
     orig_title: it.orig_title || "",
@@ -1265,7 +1269,8 @@ export function showXRayPauseShelf({ force = false } = {}) {
   shelf.classList.remove("hidden");
   scheduleDesktopRemoteStatePush(80);
 
-  if (!cachedXRay && item._xrayFetching !== langKey) {
+  const isLocalTitle = Boolean(item.is_local_file || String(item.id || "").startsWith("local_"));
+  if (!isLocalTitle && !cachedXRay && item._xrayFetching !== langKey) {
     item._xrayFetching = langKey;
     const reqSess = state.playerSessionId;
     if (state.xrayAbortController) {
@@ -1812,7 +1817,10 @@ export function renderBookmarksModalList(filterQuery = null) {
       ? String(filterQuery)
       : String(searchInput?.value || "");
 
-  const moments = getSavedMoments();
+  const rawMoments = getSavedMoments();
+  const moments = state.activeProfile?.kids_mode
+    ? rawMoments.filter((m) => isItemSafeForKidsClient(m))
+    : rawMoments;
   if (countEl) countEl.textContent = String(moments.length);
 
   const q = effectiveQuery.trim().toLowerCase();
@@ -2012,9 +2020,11 @@ export function renderBookmarksModalList(filterQuery = null) {
         year: m.year,
         media_type: m.media_type || "movie",
         poster: m.poster,
+        genres: Array.isArray(m.genres) ? m.genres : [],
+        age_rating: m.age_rating || "",
       };
       const sourceTab = m.source || "hdrezka";
-      const { openPlayerModal } = await import("./player.js?v=20261111v3");
+      const { openPlayerModal } = await import("./player.js?v=20261111v4");
       openPlayerModal(targetItem, sourceTab, m.season || 1, m.episode || 1, m.time || 0);
     });
   });

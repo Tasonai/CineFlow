@@ -2,7 +2,7 @@ import {
   RECENT_SEARCHES_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261111v3";
+} from "./state.js?v=20261111v4";
 import {
   displayPoster,
   displayTitle,
@@ -12,7 +12,7 @@ import {
   t,
   translateCareer,
   transliterateRuToEn,
-} from "./i18n.js?v=20261111v3";
+} from "./i18n.js?v=20261111v4";
 import {
   clampFloatingPopover,
   closeFloatingPopovers,
@@ -22,7 +22,7 @@ import {
   logDebug,
   syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261111v3";
+} from "./utils.js?v=20261111v4";
 import {
   attachSmartPosterFallback,
   getDefaultPlayableSourceTab,
@@ -30,13 +30,13 @@ import {
   loadCatalog,
   resolveSeriesEpisodeInfo,
   updateActiveFiltersBadge,
-} from "./catalog.js?v=20261111v3";
+} from "./catalog.js?v=20261111v4";
 import {
   buildFallbackAvatarSvg,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261111v3";
-import { openPlayerModal } from "./player.js?v=20261111v3";
+} from "./modals.js?v=20261111v4";
+import { openPlayerModal } from "./player.js?v=20261111v4";
 
 let liveSearchReqId = 0;
 let debounceTimer = null;
@@ -608,7 +608,7 @@ export function initCatalogLiveSearch() {
     debounceTimer = setTimeout(async () => {
       liveSearchReqId += 1;
       const rId = liveSearchReqId;
-      const profSnap = state.activeProfile?.id || "main";
+      const profSnap = state.activeProfileId || state.activeProfile?.id || "main";
       abortLiveSearchInFlight();
       const ctrl = new AbortController();
       liveSearchAbortCtrl = ctrl;
@@ -621,13 +621,13 @@ export function initCatalogLiveSearch() {
           throw new Error(`HTTP ${res.status}`);
         }
         const data = await res.json();
-        if (rId !== liveSearchReqId || (state.activeProfile?.id || "main") !== profSnap) return;
+        if (rId !== liveSearchReqId || (state.activeProfileId || state.activeProfile?.id || "main") !== profSnap) return;
         const mergedPersons =
           Array.isArray(data.persons) && data.persons.length > 0 ? data.persons : localPersons;
         renderLiveSearchHits(trimmed, data.items || localMatches, false, mergedPersons);
       } catch (err) {
         if (err && err.name === "AbortError") return;
-        if (rId !== liveSearchReqId || (state.activeProfile?.id || "main") !== profSnap) return;
+        if (rId !== liveSearchReqId || (state.activeProfileId || state.activeProfile?.id || "main") !== profSnap) return;
         renderLiveSearchHits(trimmed, localMatches, false, localPersons);
       }
     }, 200);
