@@ -365,7 +365,7 @@ class TestRoadmapFeatures(unittest.TestCase):
             ):
                 self.assertTrue(os.path.isfile(os.path.join(stage_core, rel_req)), f"Missing staged file: {rel_req}")
             self.assertFalse(os.path.exists(os.path.join(stage_core, "data")))
-        for exe_cand in ("Velarium-Setup-2.7.13-x64.exe", "Velarium-Setup-2.7.11-x64.exe", "Velarium-Setup-2.7.10-x64.exe", "Velarium-Setup-2.7.9-x64.exe", "Velarium-Setup-2.7.8-x64.exe", "Velarium-Setup-2.7.7-x64.exe", "Velarium-Setup-2.7.5-x64.exe", "Velarium-Setup-2.7.4-x64.exe", "Velarium-Setup-2.7.2-x64.exe", "CineFlow-Setup-2.7.2-x64.exe"):
+        for exe_cand in ("Velarium-Setup-2.7.14-x64.exe", "Velarium-Setup-2.7.13-x64.exe", "Velarium-Setup-2.7.11-x64.exe", "Velarium-Setup-2.7.10-x64.exe", "Velarium-Setup-2.7.9-x64.exe", "Velarium-Setup-2.7.8-x64.exe", "Velarium-Setup-2.7.7-x64.exe", "Velarium-Setup-2.7.5-x64.exe", "Velarium-Setup-2.7.4-x64.exe", "Velarium-Setup-2.7.2-x64.exe", "CineFlow-Setup-2.7.2-x64.exe"):
             win_setup_exe = os.path.join(BASE_DIR, "dist", exe_cand)
             if os.path.isfile(win_setup_exe):
                 self.assertGreater(os.path.getsize(win_setup_exe), 20 * 1024 * 1024)

@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261111v4";
+import { state } from "./state.js?v=20261111v5";
 import {
   displayBackdrop,
   displayDescription,
@@ -11,7 +11,7 @@ import {
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261111v4";
+} from "./i18n.js?v=20261111v5";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -27,7 +27,7 @@ import {
   showVideoOsd,
   supportsNativePiP,
   syncCustomSelect,
-} from "./utils.js?v=20261111v4";
+} from "./utils.js?v=20261111v5";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
@@ -37,7 +37,7 @@ import {
   savePlayerPrefs,
   startAmbilightLoop,
   stopAmbilightLoop,
-} from "./audio-dsp.js?v=20261111v4";
+} from "./audio-dsp.js?v=20261111v5";
 import {
   getDefaultPlayableSourceTab,
   getPreferredStudioForItem,
@@ -46,8 +46,8 @@ import {
   loadCatalog,
   matchPreferredStudioInList,
   savePreferredStudioForItem,
-} from "./catalog.js?v=20261111v4";
-import { renderModalCastSection } from "./modals.js?v=20261111v4";
+} from "./catalog.js?v=20261111v5";
+import { renderModalCastSection } from "./modals.js?v=20261111v5";
 import {
   activateSelectedSubtitleTrack,
   buildRemuxSubtitlesList,
@@ -57,11 +57,11 @@ import {
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
   revokeLocalVideoBlobUrl,
-} from "./subtitles.js?v=20261111v4";
+} from "./subtitles.js?v=20261111v5";
 import {
   clearVideoStallWatchdog,
   getVideoForwardBufferSec,
-} from "./player-watchdog.js?v=20261111v4";
+} from "./player-watchdog.js?v=20261111v5";
 import {
   buildRemuxStreamEndpoint,
   clearRemuxDurationPoll,
@@ -69,20 +69,20 @@ import {
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261111v4";
+} from "./player-remux.js?v=20261111v5";
 import {
   closeAllVcPopovers,
   isStageFullscreen,
   syncCustomVideoControlsUI,
   syncVcPopoverOpenClass,
   toggleStageFullscreen,
-} from "./player-ui-controls.js?v=20261111v4";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261111v4";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v4";
+} from "./player-ui-controls.js?v=20261111v5";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261111v5";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v5";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261111v4";
+} from "./player-seasons.js?v=20261111v5";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -90,17 +90,17 @@ import {
   renderModalGenresAndSubheader,
   renderModalProvidersSidebar,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261111v4";
+} from "./player-meta.js?v=20261111v5";
 import {
   getDetectedCreditsStartSec,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261111v4";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261111v4";
-import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261111v4";
+} from "./player-intro-credits.js?v=20261111v5";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261111v5";
+import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261111v5";
 import {
   playVideoUrl,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261111v4";
+} from "./player.js?v=20261111v5";
 
 export function isHdRezkaStreamDeadOrExpired(video) {
   if (!video || state.activeSourceTab !== "hdrezka" || state.remuxMeta?.active) {
@@ -2333,7 +2333,7 @@ import {
   resetAudioOffset,
   seekEffectivePlayback,
   switchRemuxAudioTrack,
-} from "./player-streams-4k.js?v=20261111v4";
+} from "./player-streams-4k.js?v=20261111v5";
 export {
   adjustAudioOffset,
   loadBackup4KReleases,

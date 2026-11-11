@@ -5,17 +5,17 @@ Product Passport, Local Privacy & License Agreement
 
 PRODUCT INFORMATION
   Product Name:    Velarium
-  Release Version: 2.7.13 (64-bit x64 Edition)
+  Release Version: 2.7.14 (64-bit x64 Edition)
   Developer:       Atoma
   Release Year:    2026
   Target Platform: Microsoft Windows 10 & Windows 11 (x64)
 
 0. RELEASE NOTES (CHANGELOG)
-What's new in Velarium 2.7.13:
-• Seamless Seeking in 4K UHD & Stremio Remux: fixed backward seeks resetting playback to 0:00 on live /api/remux-stream pipelines, and increased the FFmpeg keyframe and Matroska Cues probe buffer for large 4K MKV files.
-• Rapid Seek Coalescing & Frame Bridge: consecutive -10 / +10 seek presses (ArrowLeft / ArrowRight, J / L) coalesce into a single FFmpeg seek with cumulative OSD feedback (−10, −20, −30 sec), while the last rendered video frame is held on screen to prevent black flashes during seeks and audio track switches.
-• Yearly & Monthly Watch Digest ("Velarium Wrapped"): interactive summary in the Statistics modal featuring a 12-month watch-time chart, period filters ("All Time", "This Year", "This Month"), series marathon records, and favorite directors, actors, and genres.
-• Video Player & Native macOS / Windows Shell Polish: floating timeline scrubber preview card with chapter badges, reliable Space key play/pause in fullscreen mode, smooth vertical scrolling over catalog cards, and caption button fixes in Windows WebView2.
+What's new in Velarium 2.7.14:
+• Comprehensive Security & Network Hardening: added dual-stack IPv4/IPv6 DNS rebinding and SSRF protection across media proxies and FFmpeg pipelines, stricter cross-site request guards on the local API, pre-launch SHA-256 installer verification for OTA updates, and sandboxed Kinorium challenge handling.
+• Household Profile Isolation & Kids Mode Protection: switching or deleting a profile now cleanly closes playback without leaking watch progress across accounts, PIN verification covers all locked Kids profiles during backup export/import, and Kids Mode filtering extends to saved moments, similar titles, and local files.
+• Video Player, 4K Remux & X-Ray Reliability: fixed X-Ray soundtrack and actor lookups via iTunes and Wikipedia, eliminated race conditions during rapid episode, voiceover, and source tab switches, improved FFmpeg Remux subtitle delivery, and restored TV Mode fullscreen toggling alongside Space key play/pause.
+• Performance, Memory Efficiency & Native macOS / Windows Polish: removed global lock contention during mirror PoW solving and offline download progress persistence, unified horizontal shelf resize observers, hardened SQLite WAL connection pooling, and refined Windows WebView2 and macOS native window handling.
 
 1. OVERVIEW & CORE CAPABILITIES
 Velarium unifies your personal movie tracking library, high-bitrate streaming, and regional streaming availability inside a single matte-dark desktop interface:
@@ -38,7 +38,7 @@ Velarium unifies your personal movie tracking library, high-bitrate streaming, a
 • All personal preferences, backups, and sync caches remain exclusively inside the local "data" directory on your machine.
 
 3. LICENSE TERMS
-• Velarium 2.7.13 is provided by Atoma for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
+• Velarium 2.7.14 is provided by Atoma for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
 • Velarium operates solely as a local client-side media interface and metadata aggregator and does not host or distribute media content on any server.
 • Bundled open-source runtime components (Python 3.11 Embeddable Runtime, FFmpeg 9 GPL, TorrServer MatriX) remain covered by their respective licenses.
 

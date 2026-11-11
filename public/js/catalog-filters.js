@@ -1,11 +1,11 @@
-import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261111v4";
+import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261111v5";
 import {
   displayTitle,
   getItemGenreEntries,
   t,
   translateGenre,
   translateStudioName,
-} from "./i18n.js?v=20261111v4";
+} from "./i18n.js?v=20261111v5";
 import {
   clampFloatingPopover,
   closeFloatingPopovers,
@@ -17,26 +17,26 @@ import {
   showToast,
   syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261111v4";
+} from "./utils.js?v=20261111v5";
 import {
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261111v4";
+} from "./catalog-hero.js?v=20261111v5";
 import {
   applyEnabledServicesVisibility,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261111v4";
+} from "./catalog-media-resolver.js?v=20261111v5";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261111v4";
-import { switchNotificationsTab } from "./catalog-notifications.js?v=20261111v4";
-import { syncSearchClearButton } from "./catalog-live-search.js?v=20261111v4";
-import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261111v4";
-import { openQuickPeekModal } from "./modals.js?v=20261111v4";
-import { loadCatalog } from "./catalog.js?v=20261111v4";
+} from "./catalog-shelves.js?v=20261111v5";
+import { switchNotificationsTab } from "./catalog-notifications.js?v=20261111v5";
+import { syncSearchClearButton } from "./catalog-live-search.js?v=20261111v5";
+import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261111v5";
+import { openQuickPeekModal } from "./modals.js?v=20261111v5";
+import { loadCatalog } from "./catalog.js?v=20261111v5";
 
 export function updateActiveFiltersBadge() {
   let drawerCount = 0;

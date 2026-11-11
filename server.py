@@ -66,7 +66,7 @@ from backend.system_service import (
     sync_lan_listener as _backend_sync_lan_listener,
 )
 
-APP_VERSION = "2.7.13"
+APP_VERSION = "2.7.14"
 _PATHS = resolve_runtime_paths(__file__)
 BASE_DIR = _PATHS["base_dir"]
 PUBLIC_DIR = _PATHS["public_dir"]

@@ -2,7 +2,7 @@ import {
   NOTIF_DESKTOP_ALERTED_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261111v4";
+} from "./state.js?v=20261111v5";
 import {
   displayPoster,
   displayTitle,
@@ -10,7 +10,7 @@ import {
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261111v4";
+} from "./i18n.js?v=20261111v5";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -21,17 +21,17 @@ import {
   matchCatalogItemSafe,
   pluralRu,
   saveSeenNotificationsSet,
-} from "./utils.js?v=20261111v4";
-import { openQuickPeekModal } from "./modals.js?v=20261111v4";
-import { openPlayerModal } from "./player.js?v=20261111v4";
-import { openSettingsModal } from "./settings.js?v=20261111v4";
-import { isItemSafeForKidsClient } from "./features.js?v=20261111v4";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261111v4";
+} from "./utils.js?v=20261111v5";
+import { openQuickPeekModal } from "./modals.js?v=20261111v5";
+import { openPlayerModal } from "./player.js?v=20261111v5";
+import { openSettingsModal } from "./settings.js?v=20261111v5";
+import { isItemSafeForKidsClient } from "./features.js?v=20261111v5";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261111v5";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261111v4";
+} from "./catalog-media-resolver.js?v=20261111v5";
 
 let _notifCacheEpoch = "";
 let _notifCacheItems = [];

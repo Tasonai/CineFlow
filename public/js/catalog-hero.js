@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261111v4";
+import { state } from "./state.js?v=20261111v5";
 import {
   displayBackdrop,
   displayCountries,
@@ -8,26 +8,26 @@ import {
   isEn,
   t,
   translateGenre,
-} from "./i18n.js?v=20261111v4";
+} from "./i18n.js?v=20261111v5";
 import {
   cssUrl,
   escapeHtml,
   iconSvg,
   setAmbientColor,
-} from "./utils.js?v=20261111v4";
-import { openQuickPeekModal } from "./modals.js?v=20261111v4";
-import { openPlayerModal } from "./player.js?v=20261111v4";
+} from "./utils.js?v=20261111v5";
+import { openQuickPeekModal } from "./modals.js?v=20261111v5";
+import { openPlayerModal } from "./player.js?v=20261111v5";
 import {
   _hashItemKey,
   filterCatalogItemsByGenreAndYear,
   seededShuffle,
-} from "./catalog-filters.js?v=20261111v4";
+} from "./catalog-filters.js?v=20261111v5";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261111v4";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261111v4";
+} from "./catalog-media-resolver.js?v=20261111v5";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261111v5";
 
 const LAST_HERO_ID_STORAGE_KEY = "velarium_last_hero_id";
 let _heroRecordedThisLaunch = false;
