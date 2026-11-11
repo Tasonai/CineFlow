@@ -1,14 +1,16 @@
-import { PLAYER_PREFS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v2";
-import { t } from "./i18n.js?v=20261111v2";
-import { isIosOrIpadOs, showToast, syncCustomSelect } from "./utils.js?v=20261111v2";
+import { PLAYER_PREFS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v3";
+import { t } from "./i18n.js?v=20261111v3";
+import { isIosOrIpadOs, showToast, syncCustomSelect } from "./utils.js?v=20261111v3";
 import {
+  buildRemuxStreamEndpoint,
   closePlayerModal,
+  getEffectivePlaybackTiming,
   isStageFullscreen,
   playVideoUrl,
   setPipBackgroundMode,
   syncCustomVideoControlsUI,
   syncPipDockUI,
-} from "./player.js?v=20261111v2";
+} from "./player.js?v=20261111v3";
 
 export function getAudioPresetLabel(preset) {
   const map = {
@@ -326,11 +328,24 @@ export function applyAudioBoostToVideo(video, boostLevel = state.audioBoost, pre
           state.currentStreamUrl &&
           /^https?:\/\//i.test(state.currentStreamUrl)
         ) {
-          const curPos = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+          const { cur: effCur } = getEffectivePlaybackTiming(video);
+          const curPos = Math.max(
+            effCur > 2 ? effCur : 0,
+            Number(state.lastKnownPlaybackTime) > 2 ? Number(state.lastKnownPlaybackTime) : 0,
+            Number.isFinite(video.currentTime) ? video.currentTime : 0
+          );
           video.setAttribute("crossorigin", "anonymous");
-          playVideoUrl(state.currentStreamUrl, curPos, state.playerSessionId, {
-            keepRemuxMeta: Boolean(state.remuxMeta?.active),
-          });
+          if (state.remuxMeta?.active && state.remuxMeta.rawSourceUrl) {
+            const nextRemuxUrl = buildRemuxStreamEndpoint(state.remuxMeta, curPos);
+            playVideoUrl(nextRemuxUrl, curPos, state.playerSessionId, {
+              keepRemuxMeta: true,
+              newRemuxOffsetSec: curPos,
+            });
+          } else {
+            playVideoUrl(state.currentStreamUrl, curPos, state.playerSessionId, {
+              keepRemuxMeta: false,
+            });
+          }
         }
         return;
       }
@@ -852,7 +867,10 @@ export function sampleAmbilightFrame() {
     return;
   }
   try {
-    const baseCol = state.activeItem?.ambient_color || "#242427";
+    const rawCol = String(state.activeItem?.ambient_color || "").trim();
+    const baseCol = /^(#[0-9a-fA-F]{3,8}|rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+(?:\s*,\s*[\d.]+)?\s*\))$/.test(rawCol)
+      ? rawCol
+      : "#242427";
     const nextBg = `radial-gradient(circle at 24% 50%, ${baseCol} 0%, transparent 64%), radial-gradient(circle at 76% 50%, ${baseCol} 0%, transparent 64%)`;
     if (glowEl.dataset.appliedColor !== baseCol) {
       glowEl.style.background = nextBg;

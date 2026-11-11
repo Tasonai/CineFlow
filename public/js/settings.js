@@ -10,14 +10,14 @@ import {
   profileStorageKey,
   profileStorageKeyFor,
   state,
-} from "./state.js?v=20261111v2";
+} from "./state.js?v=20261111v3";
 import {
   applyStaticDomTranslations,
   displayAddonDescription,
   isEn,
   syncLanguageSegmentedControlUI,
   t,
-} from "./i18n.js?v=20261111v2";
+} from "./i18n.js?v=20261111v3";
 import {
   closeCustomSelectMenu,
   copyTextToClipboard,
@@ -33,32 +33,32 @@ import {
   syncAllCustomSelects,
   syncCustomSelect,
   syncScrollTopButton,
-} from "./utils.js?v=20261111v2";
-import { applyEnabledServicesVisibility, isServiceEnabled } from "./catalog-media-resolver.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
+import { applyEnabledServicesVisibility, isServiceEnabled } from "./catalog-media-resolver.js?v=20261111v3";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261111v2";
-import { renderHero } from "./catalog-hero.js?v=20261111v2";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261111v2";
+} from "./catalog-shelves.js?v=20261111v3";
+import { renderHero } from "./catalog-hero.js?v=20261111v3";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261111v3";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
-} from "./catalog-filters.js?v=20261111v2";
+} from "./catalog-filters.js?v=20261111v3";
 import {
   clearCatalogFrontendCache,
   loadCatalog,
   renderLoginBannerIfNeeded,
   updateFriendsFilterDropdown,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261111v2";
-import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261111v2";
-import { loadStremioStreams } from "./player-streams.js?v=20261111v2";
-import { renderModalProvidersSidebar } from "./player-meta.js?v=20261111v2";
+} from "./catalog.js?v=20261111v3";
+import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261111v3";
+import { loadStremioStreams } from "./player-streams.js?v=20261111v3";
+import { renderModalProvidersSidebar } from "./player-meta.js?v=20261111v3";
 import {
   refreshOpenPlayerLanguageUI,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261111v2";
+} from "./player.js?v=20261111v3";
 import {
   applyProfilesPayload,
   ensureKidsPinVerifiedForAdminAction,
@@ -71,12 +71,12 @@ import {
   renderProfilesModalUI,
   renderTvCastModalUI,
   startOneClickKinoriumLogin,
-} from "./features.js?v=20261111v2";
+} from "./features.js?v=20261111v3";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   syncDesktopConnectedRemotesUI,
-} from "./remote.js?v=20261111v2";
+} from "./remote.js?v=20261111v3";
 import {
   changeUserCountryInstant,
   closeOnboardingModal,
@@ -87,7 +87,7 @@ import {
   setOnboardingStep,
   skipOnboardingModal,
   submitOnboardingModal,
-} from "./settings-onboarding.js?v=20261111v2";
+} from "./settings-onboarding.js?v=20261111v3";
 import {
   buildFullBackupPayload,
   checkAppUpdates,
@@ -99,7 +99,7 @@ import {
   saveUpdaterSettingsImmediate,
   startAppUpdateDownload,
   updateBackupSummaryStat,
-} from "./settings-updater.js?v=20261111v2";
+} from "./settings-updater.js?v=20261111v3";
 
 export {
   buildFullBackupPayload,
@@ -584,7 +584,7 @@ export function renderIntegrationsList() {
                 autocomplete="off"
                 aria-label="${escapeAttr(t("ID или ссылка на профиль", "Profile ID or URL"))}"
                 value="${escapeAttr(currentInputVal)}"
-                placeholder="${t("ID или ссылка на профиль (например 51670)", "Profile ID or URL (e.g. 51670)")}"
+                placeholder="${escapeAttr(t("ID или ссылка на профиль (например 51670)", "Profile ID or URL (e.g. 51670)"))}"
               />
               <input
                 type="password"
@@ -613,7 +613,7 @@ export function renderIntegrationsList() {
               autocomplete="off"
               aria-label="${escapeAttr(t("ID или ссылка на профиль", "Profile ID or URL"))}"
               value="${escapeAttr(currentInputVal)}"
-              placeholder="${t("ID или ссылка на профиль (например 51670)", "Profile ID or URL (e.g. 51670)")}"
+              placeholder="${escapeAttr(t("ID или ссылка на профиль (например 51670)", "Profile ID or URL (e.g. 51670)"))}"
             />
             <input
               type="password"
@@ -1098,8 +1098,9 @@ export async function triggerLanSync() {
     try {
       const bms =
         localStorage.getItem(profileStorageKeyFor(BOOKMARKS_STORAGE_KEY, activeProf)) ||
-        localStorage.getItem("velarium_moments") ||
-        localStorage.getItem("saved_moments");
+        (activeProf === "main"
+          ? localStorage.getItem("velarium_moments") || localStorage.getItem("saved_moments")
+          : null);
       if (bms) localBookmarks = JSON.parse(bms);
     } catch (err) { window.logDebug?.("Settings", err); }
 
@@ -1453,10 +1454,10 @@ export function renderStremioAddonsList() {
       <div class="atv-stremio-addon-actions">
         ${
           !addon.builtin && isLocalHost
-            ? `<button type="button" class="atv-btn-secondary atv-btn-xs atv-btn-danger-text btn-remove-stremio-addon" title="${t("Удалить аддон", "Remove addon")}">${t("Удалить", "Remove")}</button>`
+            ? `<button type="button" class="atv-btn-secondary atv-btn-xs atv-btn-danger-text btn-remove-stremio-addon" title="${escapeAttr(t("Удалить аддон", "Remove addon"))}">${t("Удалить", "Remove")}</button>`
             : ""
         }
-        <label class="srv-toggle-wrap" title="${isEnabled ? t("Отключить аддон", "Disable addon") : t("Включить аддон", "Enable addon")}">
+        <label class="srv-toggle-wrap" title="${escapeAttr(isEnabled ? t("Отключить аддон", "Disable addon") : t("Включить аддон", "Enable addon"))}">
           <span class="srv-toggle">
             <input type="checkbox" role="switch" class="stremio-addon-toggle" aria-label="${escapeAttr(addon.name || addon.id || t("Аддон Stremio", "Stremio addon"))}" ${isEnabled ? "checked" : ""} />
             <span class="srv-toggle-slider"></span>

@@ -24,6 +24,7 @@ import urllib.request
 from typing import Any, Dict, List, Tuple
 
 from backend.hdrezka import HDRezkaClient
+from backend.net_security import default_safe_public_opener
 
 _XRAY_CACHE_LOCK = threading.Lock()
 _XRAY_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
@@ -557,13 +558,10 @@ def handle_title_meta(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
                 if desc_val:
                     kin_extras_holder["description"] = desc_val
                 eff_k_ep = str(kin_extras_holder.get("kinorium_id") or kin_kid or "").strip()
-            if (
-                eff_k_ep.isdigit()
-                and desc_val
-                and str(getattr(ctx.kinorium_service, "_profile_id", "main") or "main") == req_prof_id_tm
-            ):
+            if eff_k_ep.isdigit() and desc_val:
                 with ctx.kinorium_service._state_lock:
-                    ctx.kinorium_service.state.setdefault("descriptions_by_kid", {})[eff_k_ep] = desc_val
+                    if str(getattr(ctx.kinorium_service, "_profile_id", "main") or "main") == req_prof_id_tm:
+                        ctx.kinorium_service.state.setdefault("descriptions_by_kid", {})[eff_k_ep] = desc_val
             if (
                 media_type == "series"
                 and reconcile_fut is None
@@ -1244,7 +1242,7 @@ def _build_xray_payload(
                 itunes_url,
                 headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Velarium/2.7"},
             )
-            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            opener = default_safe_public_opener()
             with opener.open(req, timeout=2.4) as resp:
                 data = json.loads(resp.read(524288).decode("utf-8", errors="replace"))
             results = data.get("results") if isinstance(data, dict) else []
@@ -1464,7 +1462,7 @@ def _fetch_wikipedia_xray_trivia(
                 "Accept": "application/json",
             },
         )
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        opener = default_safe_public_opener()
         with opener.open(req, timeout=2.2) as resp:
             data = json.loads(resp.read(524288).decode("utf-8", errors="replace"))
         pages = ((data.get("query") or {}).get("pages") or {}) if isinstance(data, dict) else {}
@@ -1850,6 +1848,20 @@ def handle_xray_saved_tracks_post(handler: Any, qs: Dict[str, Any], parsed: Any,
     if hasattr(handler, "_require_authorized_client_if_lan") and not handler._require_authorized_client_if_lan(body):
         return True
     prof_id = _norm_xray_profile_id(body.get("profile_id"), ctx)
+    pm = getattr(ctx, "profile_manager", None)
+    if pm is not None:
+        if hasattr(pm, "is_profile_kids_pin_locked") and pm.is_profile_kids_pin_locked(prof_id) and prof_id != _get_active_profile_id_for_xray(ctx):
+            if hasattr(handler, "_require_kids_pin_if_locked") and not handler._require_kids_pin_if_locked(str(body.get("pin") or "")):
+                return True
+        if hasattr(pm, "is_kids_mode_active") and pm.is_kids_mode_active():
+            track_check = body.get("track") if isinstance(body.get("track"), dict) else body
+            m_title = str(track_check.get("media_title") or body.get("media_title") or "").strip()
+            m_id = str(track_check.get("media_id") or body.get("media_id") or "").strip()
+            if (m_title or m_id) and hasattr(ctx, "build_trusted_item_for_kids_check") and hasattr(pm, "is_item_kids_safe"):
+                cand_xray = ctx.build_trusted_item_for_kids_check(item_id=m_id, title=m_title)
+                if (cand_xray.get("genres") or cand_xray.get("description") or cand_xray.get("age_rating")) and not pm.is_item_kids_safe(cand_xray):
+                    handler._send_json({"ok": False, "error": "Restricted in Kids Mode"}, status=403)
+                    return True
     action = str(body.get("action") or "toggle").strip().lower()
     track_in = body.get("track") if isinstance(body.get("track"), dict) else body
     title = str(track_in.get("title") or "").strip()[:240]

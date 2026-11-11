@@ -1280,8 +1280,10 @@ final class VelariumAppController: NSObject, NSApplicationDelegate, NSWindowDele
 
     func handleScriptMessage(_ message: WKScriptMessage) {
         let originHost = message.frameInfo.securityOrigin.host.lowercased()
+        let originPort = message.frameInfo.securityOrigin.port
         guard message.frameInfo.isMainFrame,
               (originHost == "127.0.0.1" || originHost == "localhost"),
+              originPort == Int(serverPort),
               let body = message.body as? [String: Any],
               let action = body["action"] as? String else { return }
 

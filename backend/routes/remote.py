@@ -722,7 +722,7 @@ def handle_sync_merge(handler: Any, qs: Dict[str, Any], parsed: Any, body: Any =
     if ctx is None and body is not None and not isinstance(body, dict):
         ctx = body
         body = None
-    if not isinstance(body, dict) or not body:
+    if not isinstance(body, dict):
         try:
             body = handler._read_json_body()
         except Exception:
@@ -854,6 +854,10 @@ def handle_sync_merge(handler: Any, qs: Dict[str, Any], parsed: Any, body: Any =
 
 
 def handle_sync_peers(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
+    req_auth = getattr(handler, "_require_authorized_client_if_lan", None)
+    if callable(req_auth) and not req_auth(None):
+        return True
+    is_kids = bool(getattr(getattr(ctx, "profile_manager", None), "is_kids_mode_active", lambda: False)())
     lan_ip = ctx.detect_lan_ipv4() if hasattr(ctx, "detect_lan_ipv4") else detect_lan_ipv4()
     port = 8765
     server_addr = getattr(getattr(handler, "server", None), "server_address", None)
@@ -870,8 +874,8 @@ def handle_sync_peers(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -
         "online": True,
     })
 
-    # Discovered DLNA/Smart TV devices
-    dlna_mgr = getattr(ctx, "dlna_manager", None)
+    # Discovered DLNA/Smart TV devices (suppressed in Kids Mode)
+    dlna_mgr = getattr(ctx, "dlna_manager", None) if not is_kids else None
     if dlna_mgr:
         if hasattr(dlna_mgr, "discovered_renderers") and isinstance(getattr(dlna_mgr, "discovered_renderers", None), dict):
             for dev in list(getattr(dlna_mgr, "discovered_renderers", {}).values()):

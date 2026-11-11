@@ -1,5 +1,5 @@
-import { profileStorageKey, state } from "./state.js?v=20261111v2";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261111v2";
+import { profileStorageKey, state } from "./state.js?v=20261111v3";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261111v3";
 import {
   clampStagePopover,
   escapeAttr,
@@ -10,9 +10,9 @@ import {
   showToast,
   showVideoOsd,
   syncScrollTopButton,
-} from "./utils.js?v=20261111v2";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261111v2";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261111v3";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v3";
 import {
   clearAutoplayNextTimer,
   clearRemuxDurationPoll,
@@ -21,10 +21,11 @@ import {
   closeAllVcPopovers,
   getEffectivePlaybackTiming,
   hideXRayPauseShelf,
+  playVideoUrl,
   renderTimelineBookmarks,
   syncCustomControlPopovers,
   syncVcPopoverOpenClass,
-} from "./player.js?v=20261111v2";
+} from "./player.js?v=20261111v3";
 
 export function formatSubtitleOffsetLabel(sec = state.subtitleOffsetSec) {
   const num = Math.round((Number(sec) || 0) * 100) / 100;
@@ -875,9 +876,11 @@ export function renderVocabularyModal(query = "") {
 }
 
 export function revokeLocalVideoBlobUrl(
-  video = typeof document !== "undefined" ? document.getElementById("native-video") : null
+  video = typeof document !== "undefined" ? document.getElementById("native-video") : null,
+  keepUrl = ""
 ) {
   if (video && video._cfLocalBlobUrl) {
+    if (keepUrl && video._cfLocalBlobUrl === keepUrl) return;
     try {
       URL.revokeObjectURL(video._cfLocalBlobUrl);
     } catch (err) {
@@ -1060,20 +1063,24 @@ export function syncIosFullscreenNativeSubtitles(videoEl = null) {
   }
   if (!targetTrack) return;
 
-  try {
-    while (targetTrack.cues && targetTrack.cues.length > 0) {
-      targetTrack.removeCue(targetTrack.cues[0]);
-    }
-  } catch (err) { window.logDebug?.("Subtitles", err); }
-
-  for (let i = 0; i < cues.length; i++) {
-    const c = cues[i];
-    const s = c.start - baseShift + userDelay;
-    const e = c.end - baseShift + userDelay;
-    if (e <= 0 || e <= s) continue;
+  const cueSig = `${state.loadedSubUrl || ""}|${baseShift}|${userDelay}|${cues.length}`;
+  if (targetTrack._cfCueSig !== cueSig || !targetTrack.cues || targetTrack.cues.length === 0) {
     try {
-      targetTrack.addCue(new window.VTTCue(Math.max(0, s), e, c.text));
+      while (targetTrack.cues && targetTrack.cues.length > 0) {
+        targetTrack.removeCue(targetTrack.cues[0]);
+      }
     } catch (err) { window.logDebug?.("Subtitles", err); }
+
+    for (let i = 0; i < cues.length; i++) {
+      const c = cues[i];
+      const s = c.start - baseShift + userDelay;
+      const e = c.end - baseShift + userDelay;
+      if (e <= 0 || e <= s) continue;
+      try {
+        targetTrack.addCue(new window.VTTCue(Math.max(0, s), e, c.text));
+      } catch (err) { window.logDebug?.("Subtitles", err); }
+    }
+    targetTrack._cfCueSig = cueSig;
   }
   try {
     targetTrack.mode = "showing";
@@ -1804,7 +1811,25 @@ export function bindSubtitleFileAndDropListeners() {
           const objUrl = URL.createObjectURL(videoFile);
           video._cfLocalBlobUrl = objUrl;
           state.playerSessionId = (Number(state.playerSessionId) || 0) + 1;
-          state.videoLoadToken = (Number(state.videoLoadToken) || 0) + 1;
+          [
+            "streamAbortController",
+            "backup4kAbortController",
+            "stremioResolveAbortController",
+            "remuxProbeAbortController",
+            "skipIntroAbortController",
+            "trailerAbortController",
+            "preloadAbortController",
+            "xrayAbortController",
+            "providerLinkAbortController",
+            "titleMetaAbortController",
+          ].forEach((ctrlKey) => {
+            if (state[ctrlKey]) {
+              try {
+                state[ctrlKey].abort();
+              } catch (err) { window.logDebug?.("Subtitles", err); }
+              state[ctrlKey] = null;
+            }
+          });
           if (state.videoLoadAbort) {
             try {
               state.videoLoadAbort.abort();
@@ -1845,9 +1870,7 @@ export function bindSubtitleFileAndDropListeners() {
             year: new Date().getFullYear(),
           };
           renderTimelineBookmarks();
-          state.currentStreamUrl = objUrl;
-          video.src = objUrl;
-          video.play().catch(() => {});
+          playVideoUrl(objUrl, 0, state.playerSessionId);
           showToast(t(`Воспроизведение файла «${cleanName}»`, `Playing file "${cleanName}"`));
         }
       }

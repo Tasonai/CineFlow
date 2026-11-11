@@ -729,7 +729,7 @@ class KinoriumService:
             state_dict["account"]["never_count"] = len(rem_never)
         return changed
 
-    def _prepare_state_snapshot_locked(self) -> Tuple[str, Dict[str, Any], Dict[str, str]]:
+    def _prepare_state_snapshot_locked(self) -> Tuple[str, Dict[str, Any], Dict[str, str], int]:
         desc_map = self.state.get("descriptions_by_kid")
         if isinstance(desc_map, dict) and len(desc_map) > 2000:
             keep_keys = list(desc_map.keys())[-2000:]
@@ -738,26 +738,45 @@ class KinoriumService:
         if isinstance(crit_map, dict) and len(crit_map) > 4000:
             keep_ck = list(crit_map.keys())[-4000:]
             self.state["critics_by_kid"] = {k: crit_map[k] for k in keep_ck}
-        state_snapshot = {
-            str(k): (dict(v) if isinstance(v, dict) else (list(v) if isinstance(v, list) else v))
-            for k, v in list(self.state.items())
-        }
+        scrobbles_list = self.state.get("scrobbles")
+        if isinstance(scrobbles_list, list) and len(scrobbles_list) > 2000:
+            self.state["scrobbles"] = scrobbles_list[-2000:]
+        reconcile_ts_map = getattr(self, "_live_ep_reconcile_ts", None)
+        if isinstance(reconcile_ts_map, dict) and len(reconcile_ts_map) > 256:
+            keep_rk = list(reconcile_ts_map.keys())[-256:]
+            self._live_ep_reconcile_ts = {k: reconcile_ts_map[k] for k in keep_rk}
+
+        def _clone_val(val: Any) -> Any:
+            if isinstance(val, dict):
+                return {str(dk): _clone_val(dv) for dk, dv in list(val.items())}
+            if isinstance(val, list):
+                return [_clone_val(iv) for iv in list(val)]
+            return val
+
+        state_snapshot = {str(k): _clone_val(v) for k, v in list(self.state.items())}
         self._save_dirty = False
-        return self._profile_id, state_snapshot, dict(self._section_hashes)
+        self._save_seq = int(getattr(self, "_save_seq", 0)) + 1
+        return self._profile_id, state_snapshot, dict(self._section_hashes), self._save_seq
 
     def _persist_state_snapshot(
         self,
         profile_id: str,
         state_snapshot: Dict[str, Any],
         prev_hashes: Dict[str, str],
+        save_seq: int = 0,
     ) -> None:
         try:
             with self._save_io_lock:
+                if save_seq and save_seq < int(getattr(self, "_last_persisted_seq", 0)) and getattr(self, "_last_persisted_pid", "") == profile_id:
+                    return
                 next_hashes = self._db.save_profile_state(
                     profile_id,
                     state_snapshot,
                     prev_hashes,
                 )
+                if save_seq:
+                    self._last_persisted_seq = save_seq
+                    self._last_persisted_pid = profile_id
             with self._state_lock:
                 if self._profile_id == profile_id:
                     self._section_hashes = next_hashes
@@ -772,13 +791,15 @@ class KinoriumService:
 
     def _write_state_file_locked(self) -> None:
         try:
-            pid, state_snapshot, prev_hashes = self._prepare_state_snapshot_locked()
+            pid, state_snapshot, prev_hashes, save_seq = self._prepare_state_snapshot_locked()
             with self._save_io_lock:
                 self._section_hashes = self._db.save_profile_state(
                     pid,
                     state_snapshot,
                     prev_hashes,
                 )
+                self._last_persisted_seq = save_seq
+                self._last_persisted_pid = pid
         except Exception:
             # e.g. "dictionary changed size during iteration" while another thread mutates state:
             # keep the change dirty and retry shortly instead of silently losing it.
@@ -1085,28 +1106,28 @@ class KinoriumService:
             meta_by_orig = self._live_meta_by_orig
             meta_by_ru = self._live_meta_by_ru
 
-        if item_id and not str(item_id).isdigit() and item_id in meta_by_id:
-            hit = meta_by_id[item_id]
-            if _year_ok(hit):
-                return hit
-        if kid:
-            if str(kid) in meta_by_id:
-                return meta_by_id[str(kid)]
-            if f"kin_{kid}" in meta_by_id:
-                return meta_by_id[f"kin_{kid}"]
-        for no in _title_variants(orig_title):
-            if no in meta_by_orig and _year_ok(meta_by_orig[no]):
-                return meta_by_orig[no]
-        for nr in _title_variants(title):
-            if nr in ("фильм", "сериал"):
-                continue
-            if nr in meta_by_ru and _year_ok(meta_by_ru[nr]):
-                cand = meta_by_ru[nr]
-                # If caller has a Latin orig_title and candidate also has a Latin orig_title, require match
-                if orig_title and cand.get("orig_title"):
-                    if _norm_title(orig_title) != _norm_title(cand["orig_title"]):
-                        continue
-                return cand
+            if item_id and not str(item_id).isdigit() and item_id in meta_by_id:
+                hit = meta_by_id[item_id]
+                if _year_ok(hit):
+                    return hit
+            if kid:
+                if str(kid) in meta_by_id:
+                    return meta_by_id[str(kid)]
+                if f"kin_{kid}" in meta_by_id:
+                    return meta_by_id[f"kin_{kid}"]
+            for no in _title_variants(orig_title):
+                if no in meta_by_orig and _year_ok(meta_by_orig[no]):
+                    return meta_by_orig[no]
+            for nr in _title_variants(title):
+                if nr in ("фильм", "сериал"):
+                    continue
+                if nr in meta_by_ru and _year_ok(meta_by_ru[nr]):
+                    cand = meta_by_ru[nr]
+                    # If caller has a Latin orig_title and candidate also has a Latin orig_title, require match
+                    if orig_title and cand.get("orig_title"):
+                        if _norm_title(orig_title) != _norm_title(cand["orig_title"]):
+                            continue
+                    return cand
         return None
 
     def save_series_live_meta(self, updates: List[Dict[str, Any]]):
@@ -1230,13 +1251,6 @@ class KinoriumService:
         year: Optional[int] = None,
         media_type: str = "",
     ) -> Optional[Dict[str, Any]]:
-        if item_id and item_id.startswith("kin_"):
-            kid = item_id[4:]
-            if kid in self._by_kid:
-                return self._by_kid[kid]
-        elif item_id and item_id.isdigit() and item_id in self._by_kid:
-            return self._by_kid[item_id]
-
         def _compat(cand: Dict[str, Any]) -> bool:
             if year and cand.get("year"):
                 try:
@@ -1246,21 +1260,29 @@ class KinoriumService:
                     pass
             return True
 
-        for no in _title_variants(orig_title):
-            if no in self._by_orig and _compat(self._by_orig[no]):
-                return self._by_orig[no]
-            if no in self._by_ru and _compat(self._by_ru[no]):
-                return self._by_ru[no]
-        for nr in _title_variants(title):
-            if nr in ("фильм", "сериал"):
-                continue
-            if nr in self._by_ru and _compat(self._by_ru[nr]):
-                cand = self._by_ru[nr]
-                if orig_title and cand.get("orig_title") and _norm_title(orig_title) != _norm_title(cand["orig_title"]):
+        with self._state_lock:
+            if item_id and item_id.startswith("kin_"):
+                kid = item_id[4:]
+                if kid in self._by_kid:
+                    return self._by_kid[kid]
+            elif item_id and item_id.isdigit() and item_id in self._by_kid:
+                return self._by_kid[item_id]
+
+            for no in _title_variants(orig_title):
+                if no in self._by_orig and _compat(self._by_orig[no]):
+                    return self._by_orig[no]
+                if no in self._by_ru and _compat(self._by_ru[no]):
+                    return self._by_ru[no]
+            for nr in _title_variants(title):
+                if nr in ("фильм", "сериал"):
                     continue
-                return cand
-            if nr in self._by_orig and _compat(self._by_orig[nr]):
-                return self._by_orig[nr]
+                if nr in self._by_ru and _compat(self._by_ru[nr]):
+                    cand = self._by_ru[nr]
+                    if orig_title and cand.get("orig_title") and _norm_title(orig_title) != _norm_title(cand["orig_title"]):
+                        continue
+                    return cand
+                if nr in self._by_orig and _compat(self._by_orig[nr]):
+                    return self._by_orig[nr]
         return None
 
     def _resolve_kinorium_id(
@@ -1274,25 +1296,26 @@ class KinoriumService:
     ) -> Optional[str]:
         if item_id and item_id.startswith("kin_") and item_id[4:].isdigit():
             return item_id[4:]
-        if item_id and item_id.isdigit() and item_id in self._by_kid:
-            return item_id
-        if item_id and item_id in self._live_meta_by_id:
-            lm_kid = str(self._live_meta_by_id[item_id].get("kinorium_id") or "")
-            if lm_kid.isdigit():
-                return lm_kid
-        rem = self._resolve_remote_item(item_id, title, orig_title)
-        if rem and str(rem.get("kinorium_id") or "").isdigit():
-            return str(rem["kinorium_id"])
-        for nr in _title_variants(title):
-            if nr in self._friend_kid_by_ru and str(self._friend_kid_by_ru[nr]).isdigit():
-                return str(self._friend_kid_by_ru[nr])
-            if nr in self._friend_kid_by_orig and str(self._friend_kid_by_orig[nr]).isdigit():
-                return str(self._friend_kid_by_orig[nr])
-        for no in _title_variants(orig_title):
-            if no in self._friend_kid_by_orig and str(self._friend_kid_by_orig[no]).isdigit():
-                return str(self._friend_kid_by_orig[no])
-            if no in self._friend_kid_by_ru and str(self._friend_kid_by_ru[no]).isdigit():
-                return str(self._friend_kid_by_ru[no])
+        with self._state_lock:
+            if item_id and item_id.isdigit() and item_id in self._by_kid:
+                return item_id
+            if item_id and item_id in self._live_meta_by_id:
+                lm_kid = str(self._live_meta_by_id[item_id].get("kinorium_id") or "")
+                if lm_kid.isdigit():
+                    return lm_kid
+            rem = self._resolve_remote_item(item_id, title, orig_title)
+            if rem and str(rem.get("kinorium_id") or "").isdigit():
+                return str(rem["kinorium_id"])
+            for nr in _title_variants(title):
+                if nr in self._friend_kid_by_ru and str(self._friend_kid_by_ru[nr]).isdigit():
+                    return str(self._friend_kid_by_ru[nr])
+                if nr in self._friend_kid_by_orig and str(self._friend_kid_by_orig[nr]).isdigit():
+                    return str(self._friend_kid_by_orig[nr])
+            for no in _title_variants(orig_title):
+                if no in self._friend_kid_by_orig and str(self._friend_kid_by_orig[no]).isdigit():
+                    return str(self._friend_kid_by_orig[no])
+                if no in self._friend_kid_by_ru and str(self._friend_kid_by_ru[no]).isdigit():
+                    return str(self._friend_kid_by_ru[no])
         if not allow_network:
             return None
         # Live lookup via Kinorium /handlers/Search/ (requires XHR headers)

@@ -1087,7 +1087,11 @@ class OfflineDownloadManager:
             class _SafeRedirect(urllib.request.HTTPRedirectHandler):
                 def redirect_request(self, req, fp, code, msg, headers, newurl):
                     resolved_url = urllib.parse.urljoin(req.full_url, str(newurl or ""))
-                    if not OfflineDownloadManager._is_safe_aux_url(resolved_url, local_port=0):
+                    req_host = (urllib.parse.urlparse(str(req.full_url or "")).hostname or "").lower()
+                    res_host = (urllib.parse.urlparse(str(resolved_url or "")).hostname or "").lower()
+                    is_loop_req = req_host in ("127.0.0.1", "localhost", "::1")
+                    is_loop_res = res_host in ("127.0.0.1", "localhost", "::1")
+                    if (is_loop_req and not is_loop_res) or not OfflineDownloadManager._is_safe_aux_url(resolved_url, local_port=0):
                         if fp is not None:
                             try:
                                 fp.close()
@@ -1108,7 +1112,7 @@ class OfflineDownloadManager:
         if not cls._is_safe_aux_url(url, local_port=local_port):
             raise ValueError("Disallowed auxiliary asset URL")
         parsed_aux = urllib.parse.urlparse(str(url or "").strip())
-        if (parsed_aux.hostname or "").lower() not in ("127.0.0.1", "localhost"):
+        if (parsed_aux.hostname or "").lower() not in ("127.0.0.1", "localhost", "::1"):
             from .net_security import open_safe_public_url
             return open_safe_public_url(
                 url,
@@ -1308,11 +1312,6 @@ class OfflineDownloadManager:
                             }
                         )
                         continue
-                    elif os.path.isfile(dest_vtt_part):
-                        try:
-                            os.remove(dest_vtt_part)
-                        except OSError:
-                            pass
                     elif os.path.isfile(dest_vtt_part):
                         try:
                             os.remove(dest_vtt_part)

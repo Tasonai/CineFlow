@@ -1,11 +1,11 @@
-import { state } from "./state.js?v=20261111v2";
+import { state } from "./state.js?v=20261111v3";
 import {
   displayTitle,
   hasCyrillicText,
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261111v2";
+} from "./i18n.js?v=20261111v3";
 import {
   closeCustomSelectMenu,
   escapeAttr,
@@ -20,13 +20,13 @@ import {
   showToast,
   showVideoOsd,
   syncScrollTopButton,
-} from "./utils.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
 import {
   getDefaultPlayableSourceTab,
   isEpisodeWatched,
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog.js?v=20261111v2";
+} from "./catalog.js?v=20261111v3";
 import {
   closePlayerModal,
   getEffectivePlaybackTiming,
@@ -34,12 +34,13 @@ import {
   openPlayerModal,
   switchSourceTab,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261111v2";
+} from "./player.js?v=20261111v3";
 import {
   ensureKidsPinVerifiedForAdminAction,
   exitBrowserFullscreenIfNeeded,
   formatBytesHuman,
-} from "./features.js?v=20261111v2";
+  isItemSafeForKidsClient,
+} from "./features.js?v=20261111v3";
 
 // ============================================================================
 // 4. OFFLINE DOWNLOADS MANAGER ("Скачать в дорогу" — MP4 + Audio + RU/EN VTT)
@@ -120,7 +121,10 @@ export function _completedDownloadsSignature(list) {
 
 export function getOfflineCatalogItems() {
   const list = Array.isArray(state.downloadsItems) ? state.downloadsItems : [];
-  const completed = list.filter((it) => it && it.status === "completed");
+  const isKids = Boolean(state.activeProfile?.kids_mode);
+  const completed = list.filter(
+    (it) => it && it.status === "completed" && (!isKids || isItemSafeForKidsClient(it))
+  );
   const grouped = [];
   const seriesMap = new Map();
 
@@ -657,7 +661,9 @@ export function renderDownloadsModalList(downloadsDir = "") {
   const summaryEl = document.getElementById("downloads-modal-summary");
   if (!listEl) return;
 
-  const items = Array.isArray(state.downloadsItems) ? state.downloadsItems : [];
+  const rawItems = Array.isArray(state.downloadsItems) ? state.downloadsItems : [];
+  const isKids = Boolean(state.activeProfile?.kids_mode);
+  const items = isKids ? rawItems.filter((x) => isItemSafeForKidsClient(x)) : rawItems;
   const completedCount = items.filter((x) => x.status === "completed").length;
   const activeCount = items.filter((x) => x.status === "downloading" || x.status === "queued").length;
 
@@ -927,6 +933,10 @@ export function renderDownloadsModalList(downloadsDir = "") {
 
 export async function playOfflineDownload(dlItem) {
   if (!dlItem || !dlItem.play_url) return;
+  if (Boolean(state.activeProfile?.kids_mode) && !isItemSafeForKidsClient(dlItem)) {
+    showToast(t("Контент недоступен в детском профиле", "Content restricted in Kids Mode"));
+    return;
+  }
   closeDownloadsModal();
 
   if (Array.isArray(state.downloadsItems) && !state.downloadsItems.some((x) => x.download_id === dlItem.download_id)) {

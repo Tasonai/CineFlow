@@ -852,7 +852,7 @@ class RemuxStreamEngine:
 
         sub_filter = ""
         clean_sub_file = str(subtitles_file or "").strip()
-        if clean_sub_file and not _CTRL_CHAR_RE.search(clean_sub_file) and ".." not in clean_sub_file:
+        if clean_sub_file and not _CTRL_CHAR_RE.search(clean_sub_file) and ".." not in clean_sub_file and not os.path.isdir(clean_sub_file):
             esc_path = (
                 clean_sub_file.replace("\\", "/")
                 .replace(":", "\\:")
@@ -867,16 +867,13 @@ class RemuxStreamEngine:
             esc_src = clean_src.replace("\\", "/").replace("'", "'\\''").replace(":", "\\:")
             sub_filter = f"subtitles='{esc_src}':si={int(subtitle_index)}:force_style='FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,MarginV=25'"
 
-        if sub_filter and start_sec > 0.5:
-            shift_s = f"{start_sec:.2f}"
-            sub_filter = f"setpts=PTS+{shift_s}/TB,{sub_filter},setpts=PTS-{shift_s}/TB"
-
         need_video_transcode = bool(
             bool(sub_filter)
             or (force_h264 and v_low not in ("h264", "avc", "avc1"))
             or (v_low and v_low not in self._MP4_COPY_SAFE_VCODECS)
         )
 
+        hw_caps = self.get_hw_capabilities()
         cmd: List[str] = [
             self.ffmpeg_path,
             "-hide_banner",
@@ -884,9 +881,9 @@ class RemuxStreamEngine:
             "error",
         ]
         if need_video_transcode and not sub_filter:
-            if self._hw_caps.get("videotoolbox_hwaccel"):
+            if hw_caps.get("videotoolbox_hwaccel"):
                 cmd.extend(["-hwaccel", "videotoolbox"])
-            elif self._hw_caps.get("d3d11va_hwaccel"):
+            elif hw_caps.get("d3d11va_hwaccel"):
                 cmd.extend(["-hwaccel", "d3d11va"])
 
         if clean_src.startswith(("http://", "https://")):
@@ -1085,7 +1082,8 @@ class RemuxStreamEngine:
         timeout_sec: float = 9.0,
         local_file_path: str = "",
     ) -> bytes:
-        clean_local = str(local_file_path or "").strip()
+        clean_local_raw = str(local_file_path or "").strip()
+        clean_local = os.path.abspath(clean_local_raw) if clean_local_raw else ""
         is_local_file = bool(clean_local and os.path.isfile(clean_local))
         clean_src = clean_local if is_local_file else str(source_url or "").strip()
         if not self.is_available() or (not is_local_file and not _is_valid_ffmpeg_http_url(clean_src)):
@@ -1098,13 +1096,14 @@ class RemuxStreamEngine:
             if cached_snap and (now_snap - cached_snap[0]) < 300.0:
                 return cached_snap[1]
         rw_timeout_us = str(int(max(5.0, float(timeout_sec or 9.0)) * 1_000_000))
+        hw_caps = self.get_hw_capabilities()
         cmd: List[str] = [
             self.ffmpeg_path,
             "-hide_banner",
             "-loglevel",
             "error",
         ]
-        if self._hw_caps.get("videotoolbox_hwaccel"):
+        if hw_caps.get("videotoolbox_hwaccel"):
             cmd.extend(["-hwaccel", "videotoolbox"])
         if not is_local_file:
             cmd.extend(

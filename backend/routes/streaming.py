@@ -1697,7 +1697,7 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
             vcodec_candidates.append("")
 
         first_chunk = None
-        chunk_queue: Optional["queue.Queue[Optional[bytes]]"] = None
+        chunk_queue: "queue.Queue[Optional[bytes]]" = queue.Queue(maxsize=48)
 
         for attempt_vcodec in vcodec_candidates:
             with _ACTIVE_REMUX_PROCS_LOCK:
@@ -1874,11 +1874,12 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                 pass
     finally:
         stop_reader.set()
-        while not chunk_queue.empty():
-            try:
-                chunk_queue.get_nowait()
-            except Exception:
-                break
+        if chunk_queue is not None:
+            while not chunk_queue.empty():
+                try:
+                    chunk_queue.get_nowait()
+                except Exception:
+                    break
         if proc:
             with _ACTIVE_REMUX_PROCS_LOCK:
                 _ACTIVE_REMUX_PROCS[:] = [(p, s) for p, s in _ACTIVE_REMUX_PROCS if p is not proc]

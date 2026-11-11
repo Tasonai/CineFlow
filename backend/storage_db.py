@@ -148,6 +148,13 @@ class VelariumStorageDB:
             tid = threading.get_ident()
             stale_conns = []
             with self._read_conns_lock:
+                if self._closed:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    self._local.conn = None
+                    return None
                 if len(self._read_conns) >= 8:
                     alive_tids = {t.ident for t in threading.enumerate() if t.ident is not None}
                     for k_tid in list(self._read_conns.keys()):
@@ -733,7 +740,7 @@ class VelariumStorageDB:
         except Exception:
             return None
 
-    def _prune_cache_namespace_locked(self, cache_name: str, max_entries: int = 4000) -> None:
+    def _prune_cache_namespace_locked(self, cache_name: str, max_entries: int = 4000) -> bool:
         cname = str(cache_name)
         with contextlib.closing(
             self._conn.execute(
@@ -744,7 +751,7 @@ class VelariumStorageDB:
             row = cur.fetchone()
         total = int(row[0] or 0) if row else 0
         if total <= max_entries + 200:
-            return
+            return False
         with contextlib.closing(
             self._conn.execute(
                 """
@@ -758,14 +765,16 @@ class VelariumStorageDB:
         ) as cur_cut:
             cut_row = cur_cut.fetchone()
         cutoff_ts = float(cut_row[0]) if cut_row and cut_row[0] is not None else None
-        if cutoff_ts is not None:
-            self._conn.execute(
-                "DELETE FROM cache_entries WHERE cache_name = ? AND updated_at < ?;",
-                (cname, cutoff_ts),
-            )
+        if cutoff_ts is None:
+            return False
+        self._conn.execute(
+            "DELETE FROM cache_entries WHERE cache_name = ? AND updated_at < ?;",
+            (cname, cutoff_ts),
+        )
         ns_hashes = self._cache_entry_hashes.get(cname)
         if isinstance(ns_hashes, dict):
             ns_hashes.clear()
+        return True
 
     def set_cache_entry(self, cache_name: str, entry_key: str, value: Any) -> None:
         payload = _safe_json_dumps(value)
@@ -781,7 +790,6 @@ class VelariumStorageDB:
                 return
             w_cnt = self._cache_write_counts.get(cname, 0) + 1
             self._cache_write_counts[cname] = w_cnt
-            pruned = False
             with self._write_tx():
                 self._conn.execute(
                     """
@@ -796,9 +804,7 @@ class VelariumStorageDB:
                 if w_cnt >= 40:
                     self._cache_write_counts[cname] = 0
                     self._prune_cache_namespace_locked(cname)
-                    pruned = True
-            if not pruned:
-                prev_hashes[skey] = payload_hash
+            prev_hashes[skey] = payload_hash
 
     def set_cache_entries_batch(self, cache_name: str, entries: Dict[str, Any]) -> None:
         if not entries:
@@ -830,7 +836,6 @@ class VelariumStorageDB:
                 return
             w_cnt = self._cache_write_counts.get(cname, 0) + len(rows)
             self._cache_write_counts[cname] = w_cnt
-            pruned = False
             with self._write_tx():
                 self._conn.executemany(
                     """
@@ -845,10 +850,8 @@ class VelariumStorageDB:
                 if w_cnt >= 40:
                     self._cache_write_counts[cname] = 0
                     self._prune_cache_namespace_locked(cname)
-                    pruned = True
-            if not pruned:
-                for rk, rhash in pending_hashes:
-                    prev_hashes[rk] = rhash
+            for rk, rhash in pending_hashes:
+                prev_hashes[rk] = rhash
 
     def load_cache_dict(self, cache_name: str, max_entries: int = 4000) -> Dict[str, Any]:
         conn = self._reader_conn()

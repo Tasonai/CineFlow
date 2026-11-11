@@ -2499,6 +2499,52 @@ class TestAuditFixes(unittest.TestCase):
         launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
         self.assertIn("put_AreHostObjectsAllowed(settings, FALSE)", launcher_c)
 
+    def test_pass17_security_bugs_and_performance_audit(self):
+        """Pass-17 deep security, bugfix & performance audit regressions."""
+        from backend.updater import _is_disallowed_hostname as updater_disallowed_hostname
+        from backend.routes.system import _is_allowed_stream_embed_url
+        from backend.kinorium_http import extract_user_path, solve_kinorium_js_challenge
+
+        # 1. Updater imports _is_disallowed_hostname without NameError
+        self.assertTrue(updater_disallowed_hostname("localhost"))
+        self.assertTrue(updater_disallowed_hostname("0177.0.0.1"))
+
+        # 2. Stream embed URL validator rejects quotes, whitespace, control chars, and credentials
+        self.assertFalse(_is_allowed_stream_embed_url('https://www.netflix.com/watch/123" --flag'))
+        self.assertFalse(_is_allowed_stream_embed_url("https://user:pass@www.netflix.com/watch/123"))
+        self.assertFalse(_is_allowed_stream_embed_url("https://www.netflix.com/watch/123\n456"))
+        self.assertTrue(_is_allowed_stream_embed_url("https://www.netflix.com/watch/123"))
+
+        # 3. Kinorium extract_user_path rejects unsafe fallback slugs and JS challenge solver blocks JSC shell built-ins
+        self.assertEqual(extract_user_path("../../admin"), "/user/79463/")
+        self.assertEqual(extract_user_path("valid_user_42"), "/valid_user_42/")
+        self.assertEqual(
+            solve_kinorium_js_challenge(server.kinorium_service, "<script>loadString('evil');</script>"),
+            "",
+        )
+
+        # 4. Remuxer burnt-in subtitle PTS shift is applied exactly once on seek
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        remux_py = self._read_text(os.path.join(root, "backend", "remuxer.py"))
+        self.assertEqual(remux_py.count("setpts=PTS+"), 1)
+
+        # 5. Frontend & native wrapper Pass-17 invariants
+        filters_js = self._read_text(os.path.join(root, "public", "js", "catalog-filters.js"))
+        self.assertIn("translateStudioName,", filters_js)
+
+        subtitles_js = self._read_text(os.path.join(root, "public", "js", "subtitles.js"))
+        self.assertIn("revokeLocalVideoBlobUrl(\n  video = typeof document !== \"undefined\" ? document.getElementById(\"native-video\") : null,\n  keepUrl = \"\"", subtitles_js)
+        self.assertIn("targetTrack._cfCueSig = cueSig;", subtitles_js)
+
+        audio_dsp_js = self._read_text(os.path.join(root, "public", "js", "audio-dsp.js"))
+        self.assertIn("getEffectivePlaybackTiming(video)", audio_dsp_js)
+
+        swift_src = self._read_text(os.path.join(root, "macos", "VelariumApp.swift"))
+        self.assertIn("originPort == Int(serverPort)", swift_src)
+
+        launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
+        self.assertIn("IsEqualIID(riid, &IID_IUnknown)", launcher_c)
+
 
 if __name__ == "__main__":
     unittest.main()

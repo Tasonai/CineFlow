@@ -821,12 +821,15 @@ static void set_native_fullscreen(HWND hwnd, int enable) {
 /* COM Event Handlers (Static Singletons) */
 
 static HRESULT STDMETHODCALLTYPE Unknown_QueryInterface_Stub(void *This, REFIID riid, void **ppvObject) {
-    (void)riid;
     if (!ppvObject) {
         return E_POINTER;
     }
-    *ppvObject = This;
-    return S_OK;
+    if (riid && IsEqualIID(riid, &IID_IUnknown)) {
+        *ppvObject = This;
+        return S_OK;
+    }
+    *ppvObject = NULL;
+    return E_NOINTERFACE;
 }
 
 static ULONG STDMETHODCALLTYPE Unknown_AddRef_Stub(void *This) {

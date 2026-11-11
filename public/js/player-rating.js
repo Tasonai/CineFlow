@@ -1,21 +1,21 @@
-import { state } from "./state.js?v=20261111v2";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261111v2";
+import { state } from "./state.js?v=20261111v3";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261111v3";
 import {
   bindStarsHoverRange,
   clampFloatingPopover,
   closeFloatingPopovers,
   showToast,
   withKinoriumActionLock,
-} from "./utils.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
 import {
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261111v2";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261111v2";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261111v2";
-import { isStageFullscreen } from "./player-ui-controls.js?v=20261111v2";
-import { updateModalKinoriumHeader } from "./player-meta.js?v=20261111v2";
+} from "./catalog.js?v=20261111v3";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261111v3";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261111v3";
+import { isStageFullscreen } from "./player-ui-controls.js?v=20261111v3";
+import { updateModalKinoriumHeader } from "./player-meta.js?v=20261111v3";
 import {
   getEpisodeDisplayMeta,
   getEpisodeRatingEntry,
@@ -24,7 +24,7 @@ import {
   resolveSeriesCompletedFlag,
   toggleCurrentEpisodeWatched,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261111v2";
+} from "./player-seasons.js?v=20261111v3";
 
 export function syncPostwatchOverlayMount() {
   const overlay = document.getElementById("kinorium-postwatch-overlay");
@@ -220,6 +220,7 @@ export async function toggleActivePlayerWatched() {
   }
   const item = state.activeItem;
   const curWatched = Boolean(item.kinorium?.watched);
+  const reqProfileId = state.activeProfileId || "main";
   try {
     const res = await fetch("/api/kinorium/watched", {
       method: "POST",
@@ -244,14 +245,17 @@ export async function toggleActivePlayerWatched() {
     if (!res.ok || kStatus?.ok === false || kStatus?.error) {
       throw new Error(kStatus?.error || `HTTP ${res.status}`);
     }
+    if ((state.activeProfileId || "main") !== reqProfileId) return;
     item.kinorium = kStatus;
     state.catalogDirty = true;
     if (kStatus.kinorium_counts) {
       state.kinoriumCounts = { ...state.kinoriumCounts, ...kStatus.kinorium_counts };
       updateKinoriumSectionCounters();
     }
-    updateModalKinoriumHeader(kStatus);
-    renderPostWatchRatingState();
+    if (state.isPlayerOpen && state.activeItem && String(state.activeItem.id || "") === String(item.id || "")) {
+      updateModalKinoriumHeader(kStatus);
+      renderPostWatchRatingState();
+    }
     patchCatalogItemKinoriumInPlace(item, kStatus);
     pushDesktopRemoteStateNow();
     const kinSuffix = kStatus.remote_synced ? t(" в Kinorium", " on Kinorium") : "";
@@ -298,6 +302,7 @@ export async function rateActivePlayerTitle({
     is_series_completed: resolveSeriesCompletedFlag(item),
   };
 
+  const reqProfileId = state.activeProfileId || "main";
   try {
     if (isSeries && resolvedScope === "episode") {
       const sNum = Number(season) || Number(state.activeSeason) || 1;
@@ -329,6 +334,7 @@ export async function rateActivePlayerTitle({
       if (!res.ok || kStatus?.ok === false || kStatus?.error) {
         throw new Error(kStatus?.error || `HTTP ${res.status}`);
       }
+      if ((state.activeProfileId || "main") !== reqProfileId) return null;
       item.kinorium = kStatus;
       state.catalogDirty = true;
       patchCatalogItemKinoriumInPlace(item, kStatus);
@@ -336,7 +342,7 @@ export async function rateActivePlayerTitle({
         state.kinoriumCounts = { ...state.kinoriumCounts, ...kStatus.kinorium_counts };
         updateKinoriumSectionCounters();
       }
-      if (state.activeItem && String(state.activeItem.id || "") === String(item.id || "")) {
+      if (state.isPlayerOpen && state.activeItem && String(state.activeItem.id || "") === String(item.id || "")) {
         updateModalKinoriumHeader(kStatus);
         populateSeasonEpisodeSelectors(item, effMap);
         updateCurrentEpisodeBar(item, state.activeSeason, state.activeEpisode, false);
@@ -385,14 +391,17 @@ export async function rateActivePlayerTitle({
     if (!res.ok || kStatus?.ok === false || kStatus?.error) {
       throw new Error(kStatus?.error || `HTTP ${res.status}`);
     }
+    if ((state.activeProfileId || "main") !== reqProfileId) return null;
     item.kinorium = kStatus;
     state.catalogDirty = true;
     if (kStatus.kinorium_counts) {
       state.kinoriumCounts = { ...state.kinoriumCounts, ...kStatus.kinorium_counts };
       updateKinoriumSectionCounters();
     }
-    updateModalKinoriumHeader(kStatus);
-    renderPostWatchRatingState();
+    if (state.isPlayerOpen && state.activeItem && String(state.activeItem.id || "") === String(item.id || "")) {
+      updateModalKinoriumHeader(kStatus);
+      renderPostWatchRatingState();
+    }
     patchCatalogItemKinoriumInPlace(item, kStatus);
     pushDesktopRemoteStateNow();
     if (clear) {

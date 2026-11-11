@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261111v2";
-import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261111v2";
+import { state } from "./state.js?v=20261111v3";
+import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261111v3";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -11,7 +11,7 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
 import {
   applyAudioBoostToVideo,
   applyVideoCropToVideo,
@@ -23,12 +23,12 @@ import {
   startAmbilightLoop,
   stopAmbilightLoop,
   togglePictureInPicture,
-} from "./audio-dsp.js?v=20261111v2";
+} from "./audio-dsp.js?v=20261111v3";
 import {
   adjustSubtitleOffset,
   formatSubtitleOffsetLabel,
   resetSubtitleOffset,
-} from "./subtitles.js?v=20261111v2";
+} from "./subtitles.js?v=20261111v3";
 import {
   addOrUpdateRemoteBookmark,
   closePlayerModal,
@@ -57,9 +57,9 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   toggleXRayPauseShelf,
-} from "./player.js?v=20261111v2";
-import { openPersonModal } from "./modals.js?v=20261111v2";
-import { attachSmartPosterFallback, isEpisodeWatched } from "./catalog.js?v=20261111v2";
+} from "./player.js?v=20261111v3";
+import { openPersonModal } from "./modals.js?v=20261111v3";
+import { attachSmartPosterFallback, isEpisodeWatched, resolvePreferredPlayTab } from "./catalog.js?v=20261111v3";
 import {
   closeTvCastModal,
   executeRemoteDpadCommand,
@@ -67,7 +67,7 @@ import {
   isItemSafeForKidsClient,
   requestKidsPinVerification,
   setTvMode,
-} from "./features.js?v=20261111v2";
+} from "./features.js?v=20261111v3";
 
 export function isMobileRemoteUrl() {
   if (typeof window === "undefined") return false;
@@ -1013,6 +1013,7 @@ async function _executeRemoteCommandOnDesktop(cmdObj) {
     }
 
     case "open_person": {
+      if (Boolean(state.activeProfile?.kids_mode)) break;
       const personName = String(payload.name || "").trim();
       if (personName) {
         openPersonModal({
@@ -1066,7 +1067,13 @@ async function _executeRemoteCommandOnDesktop(cmdObj) {
         const sNum = Math.max(1, Number(payload.season || itemData.season) || 1);
         const eNum = Math.max(1, Number(payload.episode || itemData.episode) || 1);
         const resumeSec = Math.max(0, Number(payload.resume_time || itemData.current_time) || 0);
-        await openPlayerModal(itemData, "hdrezka", sNum, eNum, resumeSec);
+        await openPlayerModal(
+          itemData,
+          resolvePreferredPlayTab(itemData, sNum, eNum),
+          sNum,
+          eNum,
+          resumeSec
+        );
         showToast(
           t(
             `Запущено с телефона: «${displayTitle(itemData) || itemData.title}»`,

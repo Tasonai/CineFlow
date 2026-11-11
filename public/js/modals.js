@@ -1,4 +1,4 @@
-import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v2";
+import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v3";
 import {
   displayBackdrop,
   displayCountries,
@@ -15,7 +15,7 @@ import {
   translateCareer,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261111v2";
+} from "./i18n.js?v=20261111v3";
 import {
   attachHorizontalWheelScroll,
   bindStarsHoverRange,
@@ -40,11 +40,11 @@ import {
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
   withKinoriumActionLock,
-} from "./utils.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
-} from "./catalog-cards.js?v=20261111v2";
+} from "./catalog-cards.js?v=20261111v3";
 import {
   applyEnabledServicesVisibility,
   getDefaultPlayableSourceTab,
@@ -53,27 +53,27 @@ import {
   patchCatalogItemKinoriumInPlace,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261111v2";
+} from "./catalog-media-resolver.js?v=20261111v3";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261111v2";
-import { renderHero, stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261111v2";
-import { getCatalogFranchiseItemsForItem, updateActiveFiltersBadge } from "./catalog-filters.js?v=20261111v2";
-import { loadCatalog } from "./catalog.js?v=20261111v2";
-import { escapeEpisodeHtml, resolveSeriesCompletedFlag } from "./player-seasons.js?v=20261111v2";
+} from "./catalog-shelves.js?v=20261111v3";
+import { renderHero, stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261111v3";
+import { getCatalogFranchiseItemsForItem, updateActiveFiltersBadge } from "./catalog-filters.js?v=20261111v3";
+import { loadCatalog } from "./catalog.js?v=20261111v3";
+import { escapeEpisodeHtml, resolveSeriesCompletedFlag } from "./player-seasons.js?v=20261111v3";
 import {
   closePlayerModal,
   openPlayerModal,
-} from "./player.js?v=20261111v2";
-import { updateBackupSummaryStat } from "./settings.js?v=20261111v2";
+} from "./player.js?v=20261111v3";
+import { updateBackupSummaryStat } from "./settings.js?v=20261111v3";
 import {
   closeStatsModal,
   formatRelativeWatchDate,
   openStatsModal,
   renderWatchHistoryTab,
   switchStatsModalTab,
-} from "./modals-stats.js?v=20261111v2";
+} from "./modals-stats.js?v=20261111v3";
 import {
   buildCastPeopleArray,
   buildFallbackAvatarSvg,
@@ -87,7 +87,7 @@ import {
   renderPersonStatsStrip,
   syncPersonModalMount,
   triggerPersonSearch,
-} from "./modals-person.js?v=20261111v2";
+} from "./modals-person.js?v=20261111v3";
 
 export {
   buildCastPeopleArray,
@@ -707,10 +707,10 @@ export function renderQuickPeekEpisodes(item, metaObj = null) {
         watchBtn.innerHTML = `${iconSvg("check", 11)}<span>${
           isWatched ? t("Просмотрено", "Watched") : t("Не просмотрено", "Unwatched")
         }</span>`;
-        watchBtn.onclick = async (ev) => {
+        watchBtn.onclick = (ev) => {
           ev.stopPropagation();
-          watchBtn.disabled = true;
-          try {
+          const reqProfileId = state.activeProfileId || "main";
+          withKinoriumActionLock(`qp-ep-watch:${item.id}:${sNum}:${eNum}`, watchBtn, async () => {
             const totalSeasons = seasonNums.length > 0 ? Math.max(...seasonNums) : 1;
             const totalEpsInSeason = releasedArr.length > 0 ? Math.max(...releasedArr) : allEpNums.length;
             const res = await fetch("/api/kinorium/episode-watched", {
@@ -735,17 +735,17 @@ export function renderQuickPeekEpisodes(item, metaObj = null) {
             if (!res.ok || kStatus?.ok === false || kStatus?.error) {
               throw new Error(kStatus?.error || `HTTP ${res.status}`);
             }
+            if ((state.activeProfileId || "main") !== reqProfileId) return;
             item.kinorium = kStatus;
-            syncQuickPeekStatusesUI(item);
-            syncQuickPeekSeasonProgress(item);
-            renderQuickPeekSeriesStatusChip(item);
             patchCatalogItemKinoriumInPlace(item, kStatus);
-            renderQuickPeekEpisodes(item, metaObj);
-            updateQuickPeekPlayButton(item);
-          } catch (err) {
-            watchBtn.disabled = false;
-            showToast(err?.message || t("Ошибка синхронизации с Kinorium", "Kinorium sync error"));
-          }
+            if (state.quickPeekItem === item) {
+              syncQuickPeekStatusesUI(item);
+              syncQuickPeekSeasonProgress(item);
+              renderQuickPeekSeriesStatusChip(item);
+              renderQuickPeekEpisodes(item, metaObj);
+              updateQuickPeekPlayButton(item);
+            }
+          });
         };
         row.appendChild(watchBtn);
       }

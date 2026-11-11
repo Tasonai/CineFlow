@@ -1,22 +1,22 @@
-import { state } from "./state.js?v=20261111v2";
-import { t, isEn, displayTitle } from "./i18n.js?v=20261111v2";
+import { state } from "./state.js?v=20261111v3";
+import { t, isEn, displayTitle } from "./i18n.js?v=20261111v3";
 import {
   pluralRu,
   showToast,
   syncCustomSelect,
-} from "./utils.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
 import {
   attachSmartPosterFallback,
   buildFallbackPosterSvg,
-} from "./catalog-cards.js?v=20261111v2";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261111v2";
+} from "./catalog-cards.js?v=20261111v3";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261111v3";
 import {
   filterReleasedEpisodesForSeason,
   resolveEffectiveSeasonsMap,
   getEpisodeDisplayMeta,
   stepEpisode,
-} from "./player-seasons.js?v=20261111v2";
-import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261111v2";
+} from "./player-seasons.js?v=20261111v3";
+import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261111v3";
 
 let _nextEpTimer = null;
 let _nextEpSecondsLeft = 10;
@@ -148,6 +148,8 @@ export function showPlayerNextEpisodeToast(coords) {
   _nextEpSecondsLeft = 10;
   if (secEl) secEl.textContent = "10";
   if (ringFill) ringFill.style.strokeDashoffset = "0";
+  const sessionSnap = state.playerSessionId;
+  const epSnap = `${state.activeSeason}:${state.activeEpisode}`;
 
   _nextEpTimer = setInterval(async () => {
     const videoEl = document.getElementById("native-video");
@@ -155,6 +157,8 @@ export function showPlayerNextEpisodeToast(coords) {
       !state.isPlayerOpen ||
       !state.autoNextEpisode ||
       state.sleepAtEpisodeEnd ||
+      state.playerSessionId !== sessionSnap ||
+      `${state.activeSeason}:${state.activeEpisode}` !== epSnap ||
       isPostwatchCardPausingAutoplay()
     ) {
       dismissPlayerNextEpisodeToast(false);
@@ -190,6 +194,18 @@ export function dismissPlayerNextEpisodeToast(manual = true) {
   }
 }
 
+let _muteOverrideTimerId = null;
+
+function _scheduleMuteOverrideReset() {
+  if (_muteOverrideTimerId) {
+    clearTimeout(_muteOverrideTimerId);
+  }
+  _muteOverrideTimerId = setTimeout(() => {
+    _muteOverrideTimerId = null;
+    state.internalMuteOverride = false;
+  }, 50);
+}
+
 export function setSleepTimer(mode) {
   if (state.sleepTimerId) {
     clearInterval(state.sleepTimerId);
@@ -221,9 +237,7 @@ export function setSleepTimer(mode) {
         try {
           vid.volume = restoredVol;
         } finally {
-          setTimeout(() => {
-            state.internalMuteOverride = false;
-          }, 50);
+          _scheduleMuteOverrideReset();
         }
       }
     }
@@ -260,9 +274,7 @@ export function setSleepTimer(mode) {
         try {
           vid.volume = Math.max(0, state._preSleepVolume * (state.sleepTimerSecondsLeft / 30));
         } finally {
-          setTimeout(() => {
-            state.internalMuteOverride = false;
-          }, 50);
+          _scheduleMuteOverrideReset();
         }
       }
     }
@@ -289,9 +301,7 @@ export function setSleepTimer(mode) {
         try {
           video.volume = restoredVol;
         } finally {
-          setTimeout(() => {
-            state.internalMuteOverride = false;
-          }, 50);
+          _scheduleMuteOverrideReset();
         }
       }
       clearAutoplayNextTimer();
@@ -395,9 +405,16 @@ export function startAutoplayNextCountdown() {
   updateLabel(isPostwatchCardPausingAutoplay());
   card.classList.remove("hidden");
   document.getElementById("skip-outro-btn")?.classList.add("hidden");
+  const sessionSnap = state.playerSessionId;
+  const epSnap = `${state.activeSeason}:${state.activeEpisode}`;
 
   state.autoplayTimerId = setInterval(async () => {
-    if (!state.isPlayerOpen || !state.autoNextEpisode) {
+    if (
+      !state.isPlayerOpen ||
+      !state.autoNextEpisode ||
+      state.playerSessionId !== sessionSnap ||
+      `${state.activeSeason}:${state.activeEpisode}` !== epSnap
+    ) {
       clearAutoplayNextTimer();
       return;
     }

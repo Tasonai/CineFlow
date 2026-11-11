@@ -878,15 +878,16 @@ class DoHSplitNetworkClient:
                 or not prx_host
                 or prx_host in ("0.0.0.0", "::", "169.254.169.254")
                 or prx_host.startswith(("169.254.", "fe80:"))
-                or (prx_host in ("127.0.0.1", "localhost", "::1") and p_prx.port == 8765)
+                or (
+                    (prx_host in ("127.0.0.1", "localhost", "::1", "::ffff:127.0.0.1") or prx_host.startswith("127."))
+                    and p_prx.port == 8765
+                )
             ):
                 clean_proxy = ""
 
         target_url = clean_url
         if clean_relay:
-            p_rel = urllib.parse.urlparse(clean_relay)
-            rel_host = (p_rel.hostname or "").strip().lower().rstrip(".")
-            if p_rel.scheme in ("http", "https") and rel_host and not _is_disallowed_hostname(rel_host):
+            if validate_safe_external_url(clean_relay):
                 target_url = _wrap_cf_worker_relay_url(clean_relay, clean_url)
             else:
                 clean_relay = ""

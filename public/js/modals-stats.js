@@ -1,4 +1,4 @@
-import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v2";
+import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v3";
 import {
   displayPoster,
   displayTitle,
@@ -8,7 +8,7 @@ import {
   translateGenre,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261111v2";
+} from "./i18n.js?v=20261111v3";
 import {
   closeCustomSelectMenu,
   copyTextToClipboard,
@@ -25,15 +25,15 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261111v2";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261111v3";
 import {
   getDefaultPlayableSourceTab,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261111v2";
-import { openPlayerModal } from "./player.js?v=20261111v2";
-import { updateBackupSummaryStat } from "./settings.js?v=20261111v2";
-import { openPersonModal, openQuickPeekModal } from "./modals.js?v=20261111v2";
+} from "./catalog-media-resolver.js?v=20261111v3";
+import { openPlayerModal } from "./player.js?v=20261111v3";
+import { updateBackupSummaryStat } from "./settings.js?v=20261111v3";
+import { openPersonModal, openQuickPeekModal } from "./modals.js?v=20261111v3";
 
 let _timeFmtRu = null;
 let _timeFmtEn = null;
@@ -1082,7 +1082,7 @@ export async function openStatsModal(initialTab = "analytics") {
 
       <div class="atv-stats-kpi-grid">
         <div class="atv-stats-kpi">
-          <div class="atv-stats-kpi-val">${st.total_watched || 0}</div>
+          <div class="atv-stats-kpi-val">${escapeHtml(String(st.total_watched || 0))}</div>
           <div class="atv-stats-kpi-sub">${t(
             `Всего просмотрено · ${moviesCount} ${pluralRu(moviesCount, "фильм", "фильма", "фильмов")} и ${seriesCount} ${pluralRu(seriesCount, "сериал", "сериала", "сериалов")}`,
             `Total watched · ${moviesCount} ${moviesCount === 1 ? "movie" : "movies"} & ${seriesCount} series`
@@ -1099,14 +1099,14 @@ export async function openStatsModal(initialTab = "analytics") {
           )}</div>
         </div>
         <div class="atv-stats-kpi">
-          <div class="atv-stats-kpi-val atv-inline-icon-label">${iconSvg("star", 18)}<span>${st.avg_user_rating || "—"}</span></div>
+          <div class="atv-stats-kpi-val atv-inline-icon-label">${iconSvg("star", 18)}<span>${escapeHtml(String(st.avg_user_rating || "—"))}</span></div>
           <div class="atv-stats-kpi-sub">${t(
-            `Ваша средняя оценка (${ratedCount} ${pluralRu(ratedCount, "оценка", "оценки", "оценок")}, Kinorium: ${st.avg_kinorium_rating || "—"})`,
-            `Your avg rating (${ratedCount} ${ratedCount === 1 ? "rating" : "ratings"}, Kinorium avg: ${st.avg_kinorium_rating || "—"})`
+            `Ваша средняя оценка (${ratedCount} ${pluralRu(ratedCount, "оценка", "оценки", "оценок")}, Kinorium: ${escapeHtml(String(st.avg_kinorium_rating || "—"))})`,
+            `Your avg rating (${ratedCount} ${ratedCount === 1 ? "rating" : "ratings"}, Kinorium avg: ${escapeHtml(String(st.avg_kinorium_rating || "—"))})`
           )}</div>
         </div>
         <div class="atv-stats-kpi">
-          <div class="atv-stats-kpi-val">${st.watching_count || 0} / ${st.watchlist_count || 0}</div>
+          <div class="atv-stats-kpi-val">${escapeHtml(String(st.watching_count || 0))} / ${escapeHtml(String(st.watchlist_count || 0))}</div>
           <div class="atv-stats-kpi-sub">${t("Смотрю сейчас / Буду смотреть", "Watching Now / Watchlist")}</div>
         </div>
       </div>

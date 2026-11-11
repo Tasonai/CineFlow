@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261111v2";
+import { state } from "./state.js?v=20261111v3";
 import {
   displayDescription,
   displayPoster,
@@ -10,7 +10,7 @@ import {
   translateCareer,
   translateGenre,
   transliterateRuToEn,
-} from "./i18n.js?v=20261111v2";
+} from "./i18n.js?v=20261111v3";
 import {
   escapeAttr,
   escapeHtml,
@@ -19,28 +19,28 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
 import {
   buildFallbackAvatarSvg,
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261111v2";
+} from "./modals.js?v=20261111v3";
 import {
   attachSmartPosterFallback,
   buildFallbackPosterSvg,
-} from "./catalog-cards.js?v=20261111v2";
-import { openPlayerModal } from "./player.js?v=20261111v2";
+} from "./catalog-cards.js?v=20261111v3";
+import { openPlayerModal } from "./player.js?v=20261111v3";
 import {
   getPrimaryRating,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261111v2";
+} from "./catalog-media-resolver.js?v=20261111v3";
 import {
   scheduleHeroAmbientTeaser,
   stopHeroAmbientTeaser,
-} from "./catalog-hero.js?v=20261111v2";
+} from "./catalog-hero.js?v=20261111v3";
 
 export function openMovieRouletteModal() {
   const modal = document.getElementById("movie-roulette-modal");
@@ -626,6 +626,7 @@ async function searchCommandPalette(query) {
 
   let networkTitles = [];
   let networkPersons = [];
+  const reqProfileId = state.activeProfileId || "main";
   try {
     const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&lang=${state.appLang || "ru"}`, {
       signal: _paletteAbortCtrl.signal,
@@ -654,6 +655,8 @@ async function searchCommandPalette(query) {
     window.logDebug?.("CatalogDiscovery", err);
   }
 
+  const modalEl = document.getElementById("command-palette-modal");
+  if (!modalEl || modalEl.classList.contains("hidden") || (state.activeProfileId || "main") !== reqProfileId) return;
   const curInputVal = document.getElementById("command-palette-input")?.value.trim() || "";
   if (curInputVal !== query) return;
 

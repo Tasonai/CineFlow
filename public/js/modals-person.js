@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261111v2";
+import { state } from "./state.js?v=20261111v3";
 import {
   formatRussianTypography,
   hasCyrillicText,
@@ -6,7 +6,7 @@ import {
   t,
   translateCareer,
   transliterateRuToEn,
-} from "./i18n.js?v=20261111v2";
+} from "./i18n.js?v=20261111v3";
 import {
   attachHorizontalWheelScroll,
   closeCustomSelectMenu,
@@ -19,20 +19,21 @@ import {
   showToast,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261111v2";
-import { createPosterCardElement } from "./catalog-cards.js?v=20261111v2";
-import { isServiceEnabled } from "./catalog-media-resolver.js?v=20261111v2";
-import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261111v2";
-import { loadCatalog } from "./catalog.js?v=20261111v2";
-import { escapeEpisodeHtml } from "./player-seasons.js?v=20261111v2";
-import { closePlayerModal } from "./player.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
+import { createPosterCardElement } from "./catalog-cards.js?v=20261111v3";
+import { isServiceEnabled } from "./catalog-media-resolver.js?v=20261111v3";
+import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261111v3";
+import { loadCatalog } from "./catalog.js?v=20261111v3";
+import { escapeEpisodeHtml } from "./player-seasons.js?v=20261111v3";
+import { closePlayerModal } from "./player.js?v=20261111v3";
 import {
   closeQuickPeekModal,
   goBackInModalStack,
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   syncModalBackButtons,
-} from "./modals.js?v=20261111v2";
+} from "./modals.js?v=20261111v3";
+import { isItemSafeForKidsClient } from "./features.js?v=20261111v3";
 
 export function triggerPersonSearch(personName) {
   if (!personName) return;
@@ -411,8 +412,16 @@ export function renderPersonFilmographyGrid({ appendFrom = 0 } = {}) {
   const tabsEl = document.getElementById("person-role-tabs");
   if (!gridEl || !data) return;
 
-  const rolesList = Array.isArray(data.roles) ? data.roles : [];
-  const allItems = Array.isArray(data.all_items) ? data.all_items : [];
+  const isKids = Boolean(state.activeProfile?.kids_mode);
+  const rawRolesList = Array.isArray(data.roles) ? data.roles : [];
+  const rolesList = isKids
+    ? rawRolesList.map((r) => ({
+        ...r,
+        items: Array.isArray(r.items) ? r.items.filter((it) => isItemSafeForKidsClient(it)) : [],
+      }))
+    : rawRolesList;
+  const rawAllItems = Array.isArray(data.all_items) ? data.all_items : [];
+  const allItems = isKids ? rawAllItems.filter((it) => isItemSafeForKidsClient(it)) : rawAllItems;
 
   if (tabsEl && appendFrom <= 0) {
     tabsEl.setAttribute("aria-label", t("Роли в фильмографии", "Filmography roles"));

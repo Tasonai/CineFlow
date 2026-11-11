@@ -1,11 +1,11 @@
-import { state } from "./state.js?v=20261111v2";
+import { state } from "./state.js?v=20261111v3";
 import {
   displayTitle,
   isEn,
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261111v2";
+} from "./i18n.js?v=20261111v3";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -16,41 +16,41 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
   pickPreferredSubtitleIndex,
-} from "./audio-dsp.js?v=20261111v2";
+} from "./audio-dsp.js?v=20261111v3";
 import {
   buildRemuxSubtitlesList,
   mergeCustomExternalSubtitles,
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
-} from "./subtitles.js?v=20261111v2";
+} from "./subtitles.js?v=20261111v3";
 import {
   buildRemuxStreamEndpoint,
   formatAudioOffsetLabel,
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261111v2";
+} from "./player-remux.js?v=20261111v3";
 import {
   syncCustomControlPopovers,
   syncCustomVideoControlsUI,
-} from "./player-ui-controls.js?v=20261111v2";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v2";
+} from "./player-ui-controls.js?v=20261111v3";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v3";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261111v2";
-import { captureVideoFrameBridge, playVideoUrl } from "./player.js?v=20261111v2";
+} from "./player-seasons.js?v=20261111v3";
+import { captureVideoFrameBridge, playVideoUrl } from "./player.js?v=20261111v3";
 import {
   buildNextEpisodePreloadKey,
   hideVideoStreamError,
   isHdRezkaStreamDeadOrExpired,
   loadHDRezkaStream,
-} from "./player-streams.js?v=20261111v2";
+} from "./player-streams.js?v=20261111v3";
 
 function _applyLiveAudioOffsetToCurrentStream() {
   if (state.audioOffsetReloadTimerId) {
@@ -222,10 +222,14 @@ export function seekEffectivePlayback(targetSec, options = {}) {
 
   video.currentTime = clamped;
   if (clamped > 5) {
+    const sessionSnap = state.playerSessionId;
+    const tokenSnap = state.videoLoadToken;
     setTimeout(() => {
       if (
         !state.remuxMeta?.active &&
         state.isPlayerOpen &&
+        state.playerSessionId === sessionSnap &&
+        state.videoLoadToken === tokenSnap &&
         !video.seeking &&
         (Number(video.currentTime) || 0) < 1.5 &&
         Math.abs((Number(state.lastKnownPlaybackTime) || 0) - clamped) < 2

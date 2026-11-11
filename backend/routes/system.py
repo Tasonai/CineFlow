@@ -33,8 +33,15 @@ _ALLOWED_STREAM_EMBED_DOMAINS = (
 
 def _is_allowed_stream_embed_url(raw_url: str) -> bool:
     try:
-        parsed = urlparse(str(raw_url or "").strip())
+        clean_raw = str(raw_url or "").strip()
+        if not clean_raw or len(clean_raw) > 2048:
+            return False
+        if any(ord(c) <= 0x20 or ord(c) == 0x7F or c in ('"', "'", "`", "\\") for c in clean_raw):
+            return False
+        parsed = urlparse(clean_raw)
         if parsed.scheme.lower() != "https":
+            return False
+        if parsed.username or parsed.password:
             return False
         host = (parsed.hostname or "").lower().strip(".")
         if not host:
@@ -224,7 +231,9 @@ def handle_system_update_check_post(handler, qs, parsed, body, ctx):
     if not handler._require_authorized_client_if_lan(body, lang=req_lang):
         return True
     is_local = handler._is_loopback_client()
-    if is_local:
+    if is_local and any(k in body for k in ("update_repo", "update_manifest_url", "auto_check_updates")):
+        if not handler._require_kids_pin_if_locked(str(body.get("pin") or body.get("current_pin") or ""), lang=req_lang):
+            return True
         changed_cfg = False
         if "update_repo" in body:
             ctx.app_prefs["update_repo"] = str(body.get("update_repo") or "").strip()[:160]
@@ -310,6 +319,9 @@ def handle_stream_embed_open_post(handler, qs, parsed, body, ctx):
             status=403,
         )
         return True
+    if hasattr(ctx, "profile_manager") and ctx.profile_manager and ctx.profile_manager.is_kids_mode_active():
+        if not handler._require_kids_pin_if_locked(str(body.get("pin") or ""), lang=req_lang):
+            return True
     raw_url = str(body.get("url") or "").strip()
     if not _is_allowed_stream_embed_url(raw_url):
         handler._send_json(

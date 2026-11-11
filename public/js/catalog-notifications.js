@@ -2,7 +2,7 @@ import {
   NOTIF_DESKTOP_ALERTED_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261111v2";
+} from "./state.js?v=20261111v3";
 import {
   displayPoster,
   displayTitle,
@@ -10,7 +10,7 @@ import {
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261111v2";
+} from "./i18n.js?v=20261111v3";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -21,16 +21,16 @@ import {
   matchCatalogItemSafe,
   pluralRu,
   saveSeenNotificationsSet,
-} from "./utils.js?v=20261111v2";
-import { openQuickPeekModal } from "./modals.js?v=20261111v2";
-import { openPlayerModal } from "./player.js?v=20261111v2";
-import { openSettingsModal } from "./settings.js?v=20261111v2";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
+import { openQuickPeekModal } from "./modals.js?v=20261111v3";
+import { openPlayerModal } from "./player.js?v=20261111v3";
+import { openSettingsModal } from "./settings.js?v=20261111v3";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261111v3";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261111v2";
+} from "./catalog-media-resolver.js?v=20261111v3";
 
 let _notifCacheEpoch = "";
 let _notifCacheItems = [];
@@ -265,16 +265,19 @@ export function switchNotificationsTab(tabKey = "updates") {
 
 let _calendarInFlightPromise = null;
 let _calendarInFlightLang = "";
+let _calendarInFlightProfileId = "";
 
 export async function loadAndRenderReleaseCalendar(forceRefresh = false) {
   const calEl = document.getElementById("notifications-calendar-list");
   if (!calEl) return;
 
   const curLang = state.appLang || "ru";
+  const reqProfileId = state.activeProfileId || "main";
   if (
     !forceRefresh &&
     state.calendarData &&
     state.calendarDataLang === curLang &&
+    state.calendarDataProfileId === reqProfileId &&
     Array.isArray(state.calendarData.upcoming)
   ) {
     renderReleaseCalendarDOM(state.calendarData);
@@ -286,8 +289,14 @@ export async function loadAndRenderReleaseCalendar(forceRefresh = false) {
   )}</div>`;
 
   try {
-    if (!_calendarInFlightPromise || _calendarInFlightLang !== curLang || forceRefresh) {
+    if (
+      !_calendarInFlightPromise ||
+      _calendarInFlightLang !== curLang ||
+      _calendarInFlightProfileId !== reqProfileId ||
+      forceRefresh
+    ) {
       _calendarInFlightLang = curLang;
+      _calendarInFlightProfileId = reqProfileId;
       state.calendarLoading = true;
       const qs = new URLSearchParams({
         lang: curLang,
@@ -298,9 +307,10 @@ export async function loadAndRenderReleaseCalendar(forceRefresh = false) {
       _calendarInFlightPromise = fetch(`/api/calendar?${qs.toString()}`)
         .then(async (res) => {
           const data = await res.json().catch(() => null);
-          if (res.ok && data?.ok) {
+          if (res.ok && data?.ok && (state.activeProfileId || "main") === reqProfileId) {
             state.calendarData = data;
             state.calendarDataLang = curLang;
+            state.calendarDataProfileId = reqProfileId;
             return data;
           }
           return null;
@@ -312,6 +322,7 @@ export async function loadAndRenderReleaseCalendar(forceRefresh = false) {
         });
     }
     const data = await _calendarInFlightPromise;
+    if ((state.activeProfileId || "main") !== reqProfileId) return;
     if (data && data.ok) {
       renderReleaseCalendarDOM(data);
     } else {

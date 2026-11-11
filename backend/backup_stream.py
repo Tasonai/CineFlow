@@ -330,6 +330,7 @@ class BackupStreamingEngine:
         if self.debrid_api_key and len(self.debrid_api_key) >= 4:
             s = s.replace(self.debrid_api_key, "***")
             s = s.replace(urllib.parse.quote(self.debrid_api_key), "***")
+            s = s.replace(urllib.parse.quote(self.debrid_api_key, safe=""), "***")
         return s
 
     _TORR_OPENER: Optional[urllib.request.OpenerDirector] = None
@@ -378,8 +379,10 @@ class BackupStreamingEngine:
             if norm_torr and norm_torr != self.torrserver_url:
                 if self._torr_proc is not None:
                     self.stop_local_torrserver()
-                self.torrserver_url = norm_torr
-                self._torr_tuned = False
+                with self._torr_lock:
+                    self.torrserver_url = norm_torr
+                    self._torr_tuned = False
+                    self._torr_alive_cache = (False, 0.0)
 
     def stop_local_torrserver(self) -> None:
         with self._torr_lock:

@@ -54,7 +54,10 @@ def extract_user_path(raw_input: str) -> str:
     m_num = re.search(r"\b(\d{3,10})\b", s)
     if m_num:
         return f"/user/{m_num.group(1)}/"
-    return "/" + s.strip("/") + "/"
+    slug = s.strip("/")
+    if re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", slug) and ".." not in slug:
+        return f"/{slug}/"
+    return "/user/79463/"
 
 
 def extract_cookie_user_id(raw_cookie: str) -> str:
@@ -178,9 +181,10 @@ def solve_kinorium_js_challenge(self: Any, body: str) -> str:
     """
     if not body or len(body) > 131072 or ("document['cookie']" not in body and "document.cookie" not in body):
         return ""
-    js_code = re.sub(r"</?script[^>]*>", "", body, flags=re.I)
+    script_blocks = re.findall(r"<script[^>]*>([\s\S]*?)</script>", body, flags=re.I)
+    js_code = "\n".join(script_blocks) if script_blocks else re.sub(r"</?script[^>]*>", "", body, flags=re.I)
     if re.search(
-        r"(?:\b(?:require|process|child_process|Deno|Bun|ActiveXObject|WScript|Scripting|FileSystemObject|GetObject|WebSocket|fetch|XMLHttpRequest|importScripts|eval|Function|constructor|globalThis|readFile|load)\b|\\u\{[0-9a-fA-F]+\}|\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2})",
+        r"(?:\b(?:require|process|child_process|Deno|Bun|ActiveXObject|WScript|Scripting|FileSystemObject|GetObject|WebSocket|fetch|XMLHttpRequest|importScripts|eval|Function|constructor|globalThis|readFile|load|loadString|run|readline|jscOptions|DollarVM)\b|\\u\{[0-9a-fA-F]+\}|\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2})",
         js_code,
     ):
         return ""
@@ -376,6 +380,7 @@ def solve_kinorium_js_challenge(self: Any, body: str) -> str:
                 prof_dir = os.path.join(td, "prof")
                 os.makedirs(prof_dir, exist_ok=True)
                 html_file = os.path.join(td, "challenge.html")
+                safe_inline_js = js_code.replace("</", "<\\/")
                 wrapped_html = (
                     "<!doctype html><html><head><meta charset='utf-8'>"
                     "<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'\">"
@@ -383,7 +388,7 @@ def solve_kinorium_js_challenge(self: Any, body: str) -> str:
                     "var __ck=[];Object.defineProperty(document,'cookie',{"
                     "set:function(v){var s=String(v||'').split(';')[0];if(s.indexOf('=')>0)__ck.push(s.trim());},"
                     "get:function(){return __ck.join('; ');}});"
-                    f"try{{{js_code}}}catch(e){{}}"
+                    f"try{{{safe_inline_js}}}catch(e){{}}"
                     "document.body.setAttribute('data-cf-ck',__ck.join('; '));"
                     "</script></body></html>"
                 )

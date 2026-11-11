@@ -93,39 +93,41 @@ def handle_backup_import(handler: Any, qs: Dict[str, Any], parsed: Any, body: Di
         "Enter the 4-digit Kids profile PIN before importing a backup",
     ):
         return True
-    if isinstance(body.get("profiles_bundle"), dict) and ctx.profile_manager.has_any_kids_pin_locked_profile():
-        lock_rem = max(
-            ctx.profile_manager.get_pin_lockout_remaining("main"),
-            ctx.profile_manager.get_pin_lockout_remaining(ctx.profile_manager.get_active_profile_id()),
-        )
-        if lock_rem > 0:
-            handler._send_json(
-                {
-                    "ok": False,
-                    "pin_required": True,
-                    "lockout_seconds": lock_rem,
-                    "error": ctx.msg(
-                        f"Слишком много неверных попыток PIN-кода — подождите {int(lock_rem) + 1} секунд",
-                        f"Too many failed PIN attempts — please wait {int(lock_rem) + 1} seconds",
-                    ),
-                },
-                status=429,
+    if isinstance(body.get("profiles_bundle"), dict):
+        locked_pid = ctx.profile_manager.has_any_kids_pin_locked_profile()
+        if locked_pid:
+            lock_rem = max(
+                ctx.profile_manager.get_pin_lockout_remaining("main"),
+                ctx.profile_manager.get_pin_lockout_remaining(ctx.profile_manager.get_active_profile_id()),
+                ctx.profile_manager.get_pin_lockout_remaining(locked_pid),
             )
-            return True
-        if not ctx.profile_manager.verify_any_kids_pin(import_pin):
-            ctx.profile_manager._record_pin_failure("main")
-            handler._send_json(
-                {
-                    "ok": False,
-                    "pin_required": True,
-                    "error": ctx.msg(
-                        "Для импорта резервной копии сначала введите 4-значный PIN-код детского профиля",
-                        "Enter the 4-digit Kids profile PIN before importing a backup",
-                    ),
-                },
-                status=403,
-            )
-            return True
+            if lock_rem > 0:
+                handler._send_json(
+                    {
+                        "ok": False,
+                        "pin_required": True,
+                        "lockout_seconds": lock_rem,
+                        "error": ctx.msg(
+                            f"Слишком много неверных попыток PIN-кода — подождите {int(lock_rem) + 1} секунд",
+                            f"Too many failed PIN attempts — please wait {int(lock_rem) + 1} seconds",
+                        ),
+                    },
+                    status=429,
+                )
+                return True
+            if not ctx.profile_manager.verify_any_kids_pin(import_pin):
+                handler._send_json(
+                    {
+                        "ok": False,
+                        "pin_required": True,
+                        "error": ctx.msg(
+                            "Для импорта резервной копии сначала введите 4-значный PIN-код детского профиля",
+                            "Enter the 4-digit Kids profile PIN before importing a backup",
+                        ),
+                    },
+                    status=403,
+                )
+                return True
     is_local = handler._is_loopback_client()
     if isinstance(body.get("profiles_bundle"), dict):
         try:
@@ -135,7 +137,7 @@ def handle_backup_import(handler: Any, qs: Dict[str, Any], parsed: Any, body: Di
                 enforce_pin=True,
                 pin=import_pin,
             )
-        except ValueError as exc:
+        except (ValueError, PermissionError) as exc:
             handler._send_json(
                 {
                     "ok": False,

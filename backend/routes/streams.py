@@ -266,30 +266,31 @@ def handle_hdrezka_streams(handler, qs: Dict[str, Any], parsed, ctx) -> bool:
         and not (item_id and item_id.isdigit())
         and title.strip().lower() not in ("", "фильм", "сериал", "видео", "movie", "series")
         and "/films/" not in resolved_r_url.lower()
-        and str(getattr(ctx.kinorium_service, "_profile_id", "main") or "main") == req_prof_id_st
     ):
         st_names = [s.get("name", "") for s in (data.get("studios") or []) if s.get("name")][:4]
-        ctx.kinorium_service.save_series_live_meta(
-            [
-                {
-                    "id": item_id,
-                    "title": title,
-                    "orig_title": orig_title,
-                    "year": year,
-                    "media_type": "series",
-                    "rezka_id": data.get("rezka_id", ""),
-                    "rezka_url": resolved_r_url,
-                    "latest_season": data.get("latest_season", season),
-                    "latest_episode": data.get("latest_episode", episode),
-                    "seasons_map": data.get("seasons_map", {}),
-                    "is_completed": bool(data.get("is_completed", False)),
-                    "series_status_text": data.get("series_status_text", ""),
-                    "studios_summary": ", ".join(st_names) if st_names else "HDRezka",
-                    "studios_count": len(data.get("studios") or []),
-                    "not_found": False,
-                }
-            ]
-        )
+        with ctx.kinorium_service._state_lock:
+            if str(getattr(ctx.kinorium_service, "_profile_id", "main") or "main") == req_prof_id_st:
+                ctx.kinorium_service.save_series_live_meta(
+                    [
+                        {
+                            "id": item_id,
+                            "title": title,
+                            "orig_title": orig_title,
+                            "year": year,
+                            "media_type": "series",
+                            "rezka_id": data.get("rezka_id", ""),
+                            "rezka_url": resolved_r_url,
+                            "latest_season": data.get("latest_season", season),
+                            "latest_episode": data.get("latest_episode", episode),
+                            "seasons_map": data.get("seasons_map", {}),
+                            "is_completed": bool(data.get("is_completed", False)),
+                            "series_status_text": data.get("series_status_text", ""),
+                            "studios_summary": ", ".join(st_names) if st_names else "HDRezka",
+                            "studios_count": len(data.get("studios") or []),
+                            "not_found": False,
+                        }
+                    ]
+                )
     qualities_map = data.get("qualities") or {}
     if not data.get("remux_session") and qualities_map:
         data["raw_qualities"] = dict(qualities_map)

@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261111v2";
-import { t, isEn, displayTitle, hasCyrillicText } from "./i18n.js?v=20261111v2";
+import { state } from "./state.js?v=20261111v3";
+import { t, isEn, displayTitle, hasCyrillicText } from "./i18n.js?v=20261111v3";
 import {
   escapeHtml,
   iconSvg,
@@ -13,23 +13,23 @@ import {
   getEpisodeProgress,
   saveEpisodeProgress,
   syncCustomSelect,
-} from "./utils.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
 import {
   isEpisodeWatched,
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261111v2";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261111v2";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261111v2";
-import { sweepPendingDownloadCleanups } from "./features.js?v=20261111v2";
-import { syncCustomVideoControlsUI } from "./player-ui-controls.js?v=20261111v2";
-import { closeSubtitleDictPopover, syncSubtitleOffsetUI } from "./subtitles.js?v=20261111v2";
+} from "./catalog.js?v=20261111v3";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261111v3";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261111v3";
+import { sweepPendingDownloadCleanups } from "./features.js?v=20261111v3";
+import { syncCustomVideoControlsUI } from "./player-ui-controls.js?v=20261111v3";
+import { closeSubtitleDictPopover, syncSubtitleOffsetUI } from "./subtitles.js?v=20261111v3";
 import {
   getNextEpisodeCoords,
   clearAutoplayNextTimer,
   dismissPlayerNextEpisodeToast,
-} from "./player-autoplay.js?v=20261111v2";
+} from "./player-autoplay.js?v=20261111v3";
 
 const _RU_MONTH_MAP = {
   января: "Jan",
@@ -46,9 +46,9 @@ const _RU_MONTH_MAP = {
   декабря: "Dec",
 };
 const _RU_MONTH_RE = new RegExp(Object.keys(_RU_MONTH_MAP).join("|"), "gi");
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v2";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v2";
-import { reportScrobbleProgress } from "./player-scrobble.js?v=20261111v2";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v3";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v3";
+import { reportScrobbleProgress } from "./player-scrobble.js?v=20261111v3";
 import {
   loadBackup4KReleases,
   loadHDRezkaStream,
@@ -57,19 +57,19 @@ import {
   loadStremioStreams,
   resetVideoElementForStreamChange,
   switchSourceTab,
-} from "./player-streams.js?v=20261111v2";
-import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261111v2";
+} from "./player-streams.js?v=20261111v3";
+import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261111v3";
 import {
   OFFICIAL_STREAMING_SERVICES,
   syncMediaSessionMetadata,
   updateModalKinoriumHeader,
-} from "./player-meta.js?v=20261111v2";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261111v2";
+} from "./player-meta.js?v=20261111v3";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261111v3";
 import {
   hideXRayPauseShelf,
   closeBookmarkNoteDialog,
   renderTimelineBookmarks,
-} from "./player-bookmarks.js?v=20261111v2";
+} from "./player-bookmarks.js?v=20261111v3";
 
 export function hasStartedWatchingCurrentEpisode(item, seasonNum, epNum) {
   if (state.creditsOverlayShownThisEpisode) return true;
@@ -783,6 +783,9 @@ export async function switchToSeriesSeasonEpisode(targetSeason, targetEpisode) {
   state._nextEpToastDismissed = false;
   state.autoplayCancelledThisEpisode = false;
   state.introSkippedThisEpisode = false;
+  state.postwatchShownThisEpisode = false;
+  state.postwatchDismissedThisEpisode = false;
+  state.creditsOverlayShownThisEpisode = false;
   state.probeCreditsStartSec = 0;
   state._lastPreloadDoneKey = "";
   state.subtitleOffsetSec = 0;
@@ -972,6 +975,9 @@ export async function stepEpisode(delta) {
     state.audioOffsetReloadTimerId = null;
   }
   state.introSkippedThisEpisode = false;
+  state.postwatchShownThisEpisode = false;
+  state.postwatchDismissedThisEpisode = false;
+  state.creditsOverlayShownThisEpisode = false;
   state.probeCreditsStartSec = 0;
   state._lastPreloadDoneKey = "";
   state.subtitleOffsetSec = 0;
@@ -1079,6 +1085,7 @@ export async function markEpisodesBatch(mode = "upto") {
       ? seasonEps
       : seasonEps.filter((e) => e <= state.activeEpisode);
   if (targetEps.length === 0) return;
+  const reqProfileId = state.activeProfileId || "main";
 
   try {
     const res = await fetch("/api/kinorium/watched-episodes-batch", {
@@ -1106,6 +1113,7 @@ export async function markEpisodesBatch(mode = "upto") {
     if (!res.ok || kStatus?.ok === false || kStatus?.error) {
       throw new Error(kStatus?.error || `HTTP ${res.status}`);
     }
+    if ((state.activeProfileId || "main") !== reqProfileId) return;
     item.kinorium = kStatus;
     state.catalogDirty = true;
     patchCatalogItemKinoriumInPlace(item, kStatus);
@@ -1165,6 +1173,7 @@ export async function toggleCurrentEpisodeWatched() {
   const totalSeasons = sKeys.length > 0 ? Math.max(...sKeys) : 0;
   const seasonEps = resolvedMap?.[String(sNum)];
   const totalEpsInSeason = Array.isArray(seasonEps) && seasonEps.length > 0 ? Math.max(...seasonEps) : 0;
+  const reqProfileId = state.activeProfileId || "main";
 
   try {
     const res = await fetch("/api/kinorium/episode-watched", {
@@ -1191,6 +1200,7 @@ export async function toggleCurrentEpisodeWatched() {
     if (!res.ok || kStatus?.ok === false || kStatus?.error) {
       throw new Error(kStatus?.error || `HTTP ${res.status}`);
     }
+    if ((state.activeProfileId || "main") !== reqProfileId) return;
     item.kinorium = kStatus;
     state.catalogDirty = true;
     patchCatalogItemKinoriumInPlace(item, kStatus);

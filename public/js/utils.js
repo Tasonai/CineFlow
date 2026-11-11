@@ -5,9 +5,9 @@ import {
   WATCH_HISTORY_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261111v2";
-import { isEn, t } from "./i18n.js?v=20261111v2";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261111v2";
+} from "./state.js?v=20261111v3";
+import { isEn, t } from "./i18n.js?v=20261111v3";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261111v3";
 
 export function escapeAttr(val) {
   return String(val ?? "")
@@ -463,8 +463,10 @@ export function recordWatchHistoryEntry(item, season = 1, episode = 1, currentTi
   } catch (err) { window.logDebug?.("Utils", err); }
 }
 let _episodeProgressCache = null;
+let _episodeProgressCacheKey = "";
 let _localProgressEpoch = 0;
 let _seenNotificationsCache = null;
+let _seenNotificationsCacheKey = "";
 let _uiPrefsCache = null;
 
 export function getLocalProgressEpoch() {
@@ -475,10 +477,12 @@ if (typeof window !== "undefined") {
   window.addEventListener("storage", (ev) => {
     if (!ev || !ev.key || ev.key.startsWith(EPISODE_PROGRESS_STORAGE_KEY)) {
       _episodeProgressCache = null;
+      _episodeProgressCacheKey = "";
       _localProgressEpoch += 1;
     }
     if (!ev || !ev.key || ev.key.startsWith(SEEN_NOTIFICATIONS_STORAGE_KEY)) {
       _seenNotificationsCache = null;
+      _seenNotificationsCacheKey = "";
     }
     if (!ev || !ev.key || ev.key.startsWith(WATCH_HISTORY_STORAGE_KEY)) {
       _watchHistoryCache = null;
@@ -492,21 +496,26 @@ if (typeof window !== "undefined") {
 
 export function invalidateLocalCaches() {
   _episodeProgressCache = null;
+  _episodeProgressCacheKey = "";
   _localProgressEpoch += 1;
   _seenNotificationsCache = null;
+  _seenNotificationsCacheKey = "";
   _watchHistoryCache = null;
   _watchHistoryCacheKey = "";
   _uiPrefsCache = null;
 }
 
 export function getEpisodeProgressMap() {
-  if (_episodeProgressCache) return _episodeProgressCache;
+  const storageKey = profileStorageKey(EPISODE_PROGRESS_STORAGE_KEY);
+  if (_episodeProgressCache && _episodeProgressCacheKey === storageKey) return _episodeProgressCache;
   try {
-    const raw = localStorage.getItem(profileStorageKey(EPISODE_PROGRESS_STORAGE_KEY));
+    const raw = localStorage.getItem(storageKey);
     _episodeProgressCache = raw ? JSON.parse(raw) || {} : {};
+    _episodeProgressCacheKey = storageKey;
     return _episodeProgressCache;
   } catch (_) {
     _episodeProgressCache = {};
+    _episodeProgressCacheKey = storageKey;
     return _episodeProgressCache;
   }
 }
@@ -555,9 +564,11 @@ export function saveEpisodeProgress(item, season = 1, episode = 1, currentTime =
       map[titleKey] = map[titleKey] || {};
       map[titleKey][epKey] = entry;
     }
+    const storageKey = profileStorageKey(EPISODE_PROGRESS_STORAGE_KEY);
     _episodeProgressCache = map;
+    _episodeProgressCacheKey = storageKey;
     _localProgressEpoch += 1;
-    localStorage.setItem(profileStorageKey(EPISODE_PROGRESS_STORAGE_KEY), JSON.stringify(map));
+    localStorage.setItem(storageKey, JSON.stringify(map));
   } catch (err) { window.logDebug?.("Utils", err); }
 }
 export function getUiPrefs() {
@@ -587,21 +598,26 @@ export function saveUiPrefs(patch) {
   } catch (err) { window.logDebug?.("Utils", err); }
 }
 export function getSeenNotificationsSet() {
-  if (_seenNotificationsCache) return _seenNotificationsCache;
+  const storageKey = profileStorageKey(SEEN_NOTIFICATIONS_STORAGE_KEY);
+  if (_seenNotificationsCache && _seenNotificationsCacheKey === storageKey) return _seenNotificationsCache;
   try {
-    const raw = localStorage.getItem(profileStorageKey(SEEN_NOTIFICATIONS_STORAGE_KEY));
+    const raw = localStorage.getItem(storageKey);
     const arr = raw ? JSON.parse(raw) : [];
     _seenNotificationsCache = new Set(Array.isArray(arr) ? arr : []);
+    _seenNotificationsCacheKey = storageKey;
     return _seenNotificationsCache;
   } catch (_) {
     _seenNotificationsCache = new Set();
+    _seenNotificationsCacheKey = storageKey;
     return _seenNotificationsCache;
   }
 }
 export function saveSeenNotificationsSet(seenSet) {
+  const storageKey = profileStorageKey(SEEN_NOTIFICATIONS_STORAGE_KEY);
   _seenNotificationsCache = seenSet instanceof Set ? seenSet : new Set(seenSet || []);
+  _seenNotificationsCacheKey = storageKey;
   try {
-    localStorage.setItem(profileStorageKey(SEEN_NOTIFICATIONS_STORAGE_KEY), JSON.stringify(Array.from(_seenNotificationsCache)));
+    localStorage.setItem(storageKey, JSON.stringify(Array.from(_seenNotificationsCache)));
   } catch (err) { window.logDebug?.("Utils", err); }
 }
 export function pluralRu(n, one, few, many) {

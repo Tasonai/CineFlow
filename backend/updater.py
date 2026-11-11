@@ -30,7 +30,11 @@ import urllib.parse
 import urllib.request
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from backend.doh import _is_valid_public_ip_addr, validate_safe_external_url
+from backend.doh import (
+    _is_disallowed_hostname,
+    _is_valid_public_ip_addr,
+    validate_safe_external_url,
+)
 
 logger = logging.getLogger("Velarium.Updater")
 

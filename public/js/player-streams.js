@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261111v2";
+import { state } from "./state.js?v=20261111v3";
 import {
   displayBackdrop,
   displayDescription,
@@ -11,7 +11,7 @@ import {
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261111v2";
+} from "./i18n.js?v=20261111v3";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -27,7 +27,7 @@ import {
   showVideoOsd,
   supportsNativePiP,
   syncCustomSelect,
-} from "./utils.js?v=20261111v2";
+} from "./utils.js?v=20261111v3";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
@@ -37,7 +37,7 @@ import {
   savePlayerPrefs,
   startAmbilightLoop,
   stopAmbilightLoop,
-} from "./audio-dsp.js?v=20261111v2";
+} from "./audio-dsp.js?v=20261111v3";
 import {
   getDefaultPlayableSourceTab,
   getPreferredStudioForItem,
@@ -46,8 +46,8 @@ import {
   loadCatalog,
   matchPreferredStudioInList,
   savePreferredStudioForItem,
-} from "./catalog.js?v=20261111v2";
-import { renderModalCastSection } from "./modals.js?v=20261111v2";
+} from "./catalog.js?v=20261111v3";
+import { renderModalCastSection } from "./modals.js?v=20261111v3";
 import {
   activateSelectedSubtitleTrack,
   buildRemuxSubtitlesList,
@@ -57,11 +57,11 @@ import {
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
   revokeLocalVideoBlobUrl,
-} from "./subtitles.js?v=20261111v2";
+} from "./subtitles.js?v=20261111v3";
 import {
   clearVideoStallWatchdog,
   getVideoForwardBufferSec,
-} from "./player-watchdog.js?v=20261111v2";
+} from "./player-watchdog.js?v=20261111v3";
 import {
   buildRemuxStreamEndpoint,
   clearRemuxDurationPoll,
@@ -69,20 +69,20 @@ import {
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261111v2";
+} from "./player-remux.js?v=20261111v3";
 import {
   closeAllVcPopovers,
   isStageFullscreen,
   syncCustomVideoControlsUI,
   syncVcPopoverOpenClass,
   toggleStageFullscreen,
-} from "./player-ui-controls.js?v=20261111v2";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261111v2";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v2";
+} from "./player-ui-controls.js?v=20261111v3";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261111v3";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v3";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261111v2";
+} from "./player-seasons.js?v=20261111v3";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -90,17 +90,17 @@ import {
   renderModalGenresAndSubheader,
   renderModalProvidersSidebar,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261111v2";
+} from "./player-meta.js?v=20261111v3";
 import {
   getDetectedCreditsStartSec,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261111v2";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261111v2";
-import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261111v2";
+} from "./player-intro-credits.js?v=20261111v3";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261111v3";
+import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261111v3";
 import {
   playVideoUrl,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261111v2";
+} from "./player.js?v=20261111v3";
 
 export function isHdRezkaStreamDeadOrExpired(video) {
   if (!video || state.activeSourceTab !== "hdrezka" || state.remuxMeta?.active) {
@@ -350,7 +350,7 @@ function _ensureOfficialEmbedRectListeners() {
 
 export async function openOfficialEmbeddedStream(targetUrl) {
   const cleanUrl = String(targetUrl || "").trim();
-  if (!cleanUrl) return;
+  if (!cleanUrl || !/^https?:\/\//i.test(cleanUrl)) return;
   state.officialEmbedActive = true;
   _ensureOfficialEmbedRectListeners();
   const rect = _measureOfficialEmbedViewportRect();
@@ -491,8 +491,16 @@ export async function switchSourceTab(tabName, resumeTime = null, options = {}) 
       renderModalProvidersSidebar(state.activeItem);
     }
 
+    const sessionId = state.playerSessionId;
     startAmbilightLoop();
     await loadOfficialServiceTab(tabName, { ...options, embedMode: false });
+    if (
+      !state.isPlayerOpen ||
+      state.playerSessionId !== sessionId ||
+      state.activeOfficialService !== tabName
+    ) {
+      return;
+    }
 
     const alreadyPlayingOrLoadingInternal =
       prevTab === internalTab &&
@@ -716,7 +724,8 @@ export async function loadOfficialServiceTab(serviceId, options = {}) {
     ) {
       return;
     }
-    const bgUrl = displayBackdrop(item) || displayPoster(item) || "";
+    const rawBgUrl = displayBackdrop(item) || displayPoster(item) || "";
+    const bgUrl = /^(https?:\/\/|\/)/i.test(rawBgUrl) ? rawBgUrl.replace(/['"()\\]/g, "") : "";
     const titleStr = displayTitle(item);
     const subStr = [secondaryTitle(item), item.year].filter(Boolean).join(" · ");
     const statusBadgeText = isResolving
@@ -1528,6 +1537,7 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
             }),
           });
           const tjson = await tres.json();
+          if (!state.isPlayerOpen || state.playerSessionId !== sessionId || preloadAbort.signal.aborted) return;
           if (tjson && tjson.ok && tjson.stream_url) {
             const warmUrl = tjson.stream_url.includes("&play")
               ? tjson.stream_url.replace("&play", "&preload")
@@ -1564,6 +1574,7 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
             }),
           });
           const djson = await dres.json();
+          if (!state.isPlayerOpen || state.playerSessionId !== sessionId || preloadAbort.signal.aborted) return;
           if (djson && djson.ok && djson.stream_url) {
             fetch(djson.stream_url, { method: "HEAD", signal: preloadAbort.signal }).catch(() => {});
             state.preloadedNextEpisode = {
@@ -1641,6 +1652,7 @@ export async function preloadNextEpisodeIfNeeded(curSec, durSec) {
               }),
             });
             const tjson = await tres.json();
+            if (!state.isPlayerOpen || state.playerSessionId !== sessionId || preloadAbort.signal.aborted) return;
             if (tjson && tjson.ok && tjson.stream_url) {
               warmStreamUrl = tjson.stream_url;
               preFileIdx = Number(tjson.file_index) || 1;
@@ -2324,7 +2336,7 @@ import {
   resetAudioOffset,
   seekEffectivePlayback,
   switchRemuxAudioTrack,
-} from "./player-streams-4k.js?v=20261111v2";
+} from "./player-streams-4k.js?v=20261111v3";
 export {
   adjustAudioOffset,
   loadBackup4KReleases,
