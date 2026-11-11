@@ -375,7 +375,7 @@ class StremioAddonEngine:
             return False
         try:
             from backend.net_security import is_allowed_media_source_url
-            return bool(is_allowed_media_source_url(u))
+            return bool(is_allowed_media_source_url(u, allow_torrserver_loopback=False))
         except Exception:
             return False
 

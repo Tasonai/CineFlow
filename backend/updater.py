@@ -712,7 +712,7 @@ class AppUpdater:
             )
 
         def _worker() -> None:
-            part_path = f"{dest_path}.part"
+            part_path = f"{dest_path}.{os.getpid()}.{threading.get_ident()}.part"
             try:
                 opener = self._build_safe_opener()
                 req = urllib.request.Request(
@@ -757,7 +757,7 @@ class AppUpdater:
                     raise RuntimeError(f"Installer size mismatch ({downloaded} vs {target_expected_size} bytes)")
 
                 actual_sha = hasher.hexdigest().lower()
-                sha_ok = True
+                sha_ok = False
                 if target_sha:
                     if actual_sha != target_sha.lower():
                         raise RuntimeError(
@@ -817,7 +817,9 @@ class AppUpdater:
                 }
             file_path = str(self._status.get("file_path") or "").strip()
             expected_sha = str(self._status.get("expected_sha256") or "").strip()
-            sha256_verified = bool(self._status.get("sha256_verified")) or not expected_sha
+            sha256_verified = bool(expected_sha) and bool(self._status.get("sha256_verified"))
+            if not sha256_verified:
+                auto_reveal = True
         if not file_path or not os.path.isfile(file_path):
             st = self.get_status()
             return {

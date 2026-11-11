@@ -2414,6 +2414,45 @@ class TestAuditFixes(unittest.TestCase):
         self.assertIn("_launchBackup4kCandidate", ps_js)
         self.assertIn("isLoopbackMediaUrl", ps_js)
 
+    def test_pass15_security_bugs_and_performance_audit(self):
+        """Pass-15 deep security, bugfix & performance audit regressions."""
+        from backend.remuxer import _is_valid_ffmpeg_http_url
+        from backend.stremio import StremioAddonEngine
+        from backend.downloads import OfflineDownloadManager
+        from backend.routes.meta import _clean_xray_http_url, _norm_xray_profile_id
+
+        # 1. SSRF loopback & private IP guards in Stremio, Downloads, and Remuxer
+        self.assertFalse(StremioAddonEngine.is_safe_public_http_url("http://127.0.0.1:8090/stream/movie.mkv"))
+        self.assertFalse(OfflineDownloadManager._is_safe_aux_url("http://127.0.0.1:8090/stream/movie.mkv"))
+        self.assertFalse(_is_valid_ffmpeg_http_url("http://192.168.1.1/stream.mp4"))
+        self.assertFalse(_is_valid_ffmpeg_http_url("http://169.254.169.254/latest/meta-data/"))
+        self.assertTrue(_is_valid_ffmpeg_http_url("http://127.0.0.1:8090/stream/movie.mkv?link=abc&index=1&play"))
+
+        # 2. X-Ray saved tracks URL & profile ID sanitization
+        self.assertEqual(_clean_xray_http_url("javascript:alert(1)"), "")
+        self.assertEqual(_clean_xray_http_url("data:text/html,<script>"), "")
+        self.assertEqual(_clean_xray_http_url("https://open.spotify.com/track/123"), "https://open.spotify.com/track/123")
+        self.assertEqual(_norm_xray_profile_id("../../etc/passwd", None), "default")
+        self.assertEqual(_norm_xray_profile_id("prof_kids_1", None), "prof_kids_1")
+
+        # 3. Frontend & native wrapper invariants
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        hotkeys_js = self._read_text(os.path.join(root, "public", "js", "app-hotkeys.js"))
+        self.assertIn("switchSourceTab,", hotkeys_js)
+
+        bookmarks_js = self._read_text(os.path.join(root, "public", "js", "player-bookmarks.js"))
+        self.assertNotIn("apiJson(", bookmarks_js)
+        self.assertIn("memoKey: sceneMemoKey", bookmarks_js)
+
+        player_js = self._read_text(os.path.join(root, "public", "js", "player.js"))
+        self.assertIn("OFFICIAL_STREAMING_SERVICES.has(state.activeOfficialService)", player_js)
+
+        swift_src = self._read_text(os.path.join(root, "macos", "VelariumApp.swift"))
+        self.assertIn("guard message.frameInfo.isMainFrame", swift_src)
+
+        launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
+        self.assertIn("is_safe_browser_url_w", launcher_c)
+
 
 if __name__ == "__main__":
     unittest.main()

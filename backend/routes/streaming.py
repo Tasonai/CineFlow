@@ -138,18 +138,19 @@ def touch_stream_activity() -> float:
 def terminate_active_remux_procs() -> None:
     """Terminates all active FFmpeg remux processes cleanly."""
     with _ACTIVE_REMUX_PROCS_LOCK:
-        for remux_p, remux_stop in list(_ACTIVE_REMUX_PROCS):
-            try:
-                remux_stop.set()
-                if remux_p.poll() is None:
-                    remux_p.terminate()
-                    remux_p.wait(timeout=0.6)
-            except Exception:
-                try:
-                    remux_p.kill()
-                except Exception:
-                    pass
+        active_snap = list(_ACTIVE_REMUX_PROCS)
         _ACTIVE_REMUX_PROCS.clear()
+    for remux_p, remux_stop in active_snap:
+        try:
+            remux_stop.set()
+            if remux_p.poll() is None:
+                remux_p.terminate()
+                remux_p.wait(timeout=0.6)
+        except Exception:
+            try:
+                remux_p.kill()
+            except Exception:
+                pass
 
 
 def _safe_media_content_type(raw_ctype: str) -> str:
@@ -530,6 +531,12 @@ def _release_or_close_media_conn(
                         resp.close()
                     except Exception:
                         pass
+                if resp is not None and hasattr(resp, "isclosed") and not resp.isclosed():
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+                    return
                 edge_u = str(getattr(conn, "_velarium_edge_url", "") or "")
                 p = urllib.parse.urlparse(edge_u) if edge_u else None
                 scheme = (p.scheme if p and p.scheme else ("https" if isinstance(conn, http.client.HTTPSConnection) else "http")).lower()
@@ -685,6 +692,10 @@ def _open_resilient_media_upstream(
 
                 if resp.status in (301, 302, 303, 307, 308):
                     loc = resp.getheader("Location") or ""
+                    try:
+                        resp.close()
+                    except Exception:
+                        pass
                     conn.close()
                     conn = None
                     if not loc:
@@ -701,6 +712,10 @@ def _open_resilient_media_upstream(
                     resp_ct = (resp.getheader("Content-Type") or "").lower()
                     is_hls_resp = "mpegurl" in resp_ct or (p.path or "").lower().endswith(".m3u8") or ":hls:" in cur_url.lower()
                     if req_start_byte > 0 and resp.status == 200 and not is_hls_resp:
+                        try:
+                            resp.close()
+                        except Exception:
+                            pass
                         conn.close()
                         conn = None
                         _evict_voidboost_edge_and_mark_dead(base_url, cur_url)
@@ -717,6 +732,10 @@ def _open_resilient_media_upstream(
 
                 if resp.status == 416:
                     return conn, resp
+                try:
+                    resp.close()
+                except Exception:
+                    pass
                 conn.close()
                 conn = None
                 if resp.status >= 500 or resp.status in (403, 404, 429):
@@ -1037,7 +1056,23 @@ def handle_proxy_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                 # continuously at full line speed even when WKWebView pauses between decode bursts.
                 proxy_queue: "queue.Queue[Optional[bytes]]" = queue.Queue(maxsize=24)
                 stop_proxy = threading.Event()
+                conn_box_lock = threading.Lock()
                 conn_box: List[Any] = [conn, upstream, False]  # [conn, upstream, pump_completed]
+
+                def _close_conn_box() -> None:
+                    with conn_box_lock:
+                        c_cur, u_cur = conn_box[0], conn_box[1]
+                        conn_box[0] = None
+                    if u_cur is not None:
+                        try:
+                            u_cur.close()
+                        except Exception:
+                            pass
+                    if c_cur is not None:
+                        try:
+                            c_cur.close()
+                        except Exception:
+                            pass
 
                 def _pump_proxy_upstream() -> None:
                     resume_attempts = 0
@@ -1045,7 +1080,10 @@ def handle_proxy_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                     pump_bytes_read = 0
                     try:
                         while not stop_proxy.is_set():
-                            cur_up = conn_box[1]
+                            with conn_box_lock:
+                                cur_up = conn_box[1]
+                            if cur_up is None:
+                                break
                             read_fn = getattr(cur_up, "read1", None) or cur_up.read
                             upstream_dropped = False
                             try:
@@ -1083,16 +1121,10 @@ def handle_proxy_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                                 break
 
                             resume_attempts += 1
-                            _evict_voidboost_edge_and_mark_dead(
-                                clean_url,
-                                str(getattr(conn_box[0], "_velarium_edge_url", "") or ""),
-                            )
-                            try:
-                                if conn_box[0] is not None:
-                                    conn_box[0].close()
-                            except Exception:
-                                pass
-                            conn_box[0] = None
+                            with conn_box_lock:
+                                old_edge_u = str(getattr(conn_box[0], "_velarium_edge_url", "") or "")
+                            _evict_voidboost_edge_and_mark_dead(clean_url, old_edge_u)
+                            _close_conn_box()
                             next_start = range_start + pump_bytes_read
                             if range_end_str:
                                 next_end = int(range_end_str)
@@ -1115,19 +1147,26 @@ def handle_proxy_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                                     evict_cached_edge=(resume_attempts > 1),
                                     abort_event=stop_proxy,
                                 )
-                                conn_box[0] = new_c
-                                conn_box[1] = new_u
+                                with conn_box_lock:
+                                    if stop_proxy.is_set():
+                                        try:
+                                            new_u.close()
+                                        except Exception:
+                                            pass
+                                        try:
+                                            new_c.close()
+                                        except Exception:
+                                            pass
+                                        break
+                                    conn_box[0] = new_c
+                                    conn_box[1] = new_u
                                 if new_u.status != 206:
                                     break
                             except Exception:
                                 break
                     finally:
                         if stop_proxy.is_set() and not conn_box[2]:
-                            try:
-                                if conn_box[0] is not None:
-                                    conn_box[0].close()
-                            except Exception:
-                                pass
+                            _close_conn_box()
                         while not stop_proxy.is_set():
                             try:
                                 proxy_queue.put(None, timeout=0.4)
@@ -1153,11 +1192,7 @@ def handle_proxy_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                 finally:
                     stop_proxy.set()
                     if not conn_box[2]:
-                        try:
-                            if conn_box[0] is not None:
-                                conn_box[0].close()
-                        except Exception:
-                            pass
+                        _close_conn_box()
                     while not proxy_queue.empty():
                         try:
                             proxy_queue.get_nowait()
@@ -1167,16 +1202,13 @@ def handle_proxy_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
                         pump_future.result(timeout=0.3)
                     except Exception:
                         pass
-                    conn = conn_box[0]
-                    upstream = conn_box[1]
+                    with conn_box_lock:
+                        conn = conn_box[0]
+                        upstream = conn_box[1]
                     if expected_len > 0 and bytes_forwarded == expected_len and conn_box[2]:
                         conn_reusable = True
                     elif pump_future.done():
-                        try:
-                            if conn is not None:
-                                conn.close()
-                        except Exception:
-                            pass
+                        _close_conn_box()
                         conn = None
                     else:
                         conn = None
@@ -1539,18 +1571,7 @@ def handle_remux_stream(handler, qs: Dict[str, Any], parsed, ctx, head_only: boo
     temp_sub_path = ""
     if burn_sub and sub_param:
         try:
-            if os.path.isabs(sub_param) and os.path.isfile(sub_param):
-                real_cand = os.path.realpath(sub_param)
-                allowed_roots = [os.path.realpath(tempfile.gettempdir())]
-                dl_root = getattr(ctx.download_manager, "downloads_dir", "")
-                if dl_root:
-                    allowed_roots.append(os.path.realpath(dl_root))
-                if any(
-                    real_cand.startswith(r + os.sep) and real_cand.lower().endswith((".srt", ".vtt", ".ass", ".ssa"))
-                    for r in allowed_roots
-                ):
-                    temp_sub_path = real_cand
-            elif sub_param.startswith("/api/downloads/sub/"):
+            if sub_param.startswith("/api/downloads/sub/"):
                 parts = sub_param.strip("/").split("/")
                 if len(parts) >= 4:
                     dl_id = parts[3]
@@ -2035,14 +2056,7 @@ def handle_downloads_poster(handler, qs: Dict[str, Any], parsed, ctx, head_only:
 
     with open(ppath, "rb") as pf:
         img_bytes = pf.read()
-    if img_bytes[:4] == b"\x89PNG":
-        ctype = "image/png"
-    elif img_bytes[:4] == b"RIFF" and img_bytes[8:12] == b"WEBP":
-        ctype = "image/webp"
-    elif img_bytes[:6] in (b"GIF87a", b"GIF89a"):
-        ctype = "image/gif"
-    else:
-        ctype = "image/jpeg"
+    ctype = _sniff_raster_image_type(img_bytes[:16]) or "image/jpeg"
     handler.send_response(200)
     handler.send_header("Content-Type", ctype)
     handler.send_header("Content-Length", str(len(img_bytes)))

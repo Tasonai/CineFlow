@@ -10,30 +10,30 @@ import {
   profileStorageKey,
   profileStorageKeyFor,
   state,
-} from "./state.js?v=20261110v3";
-import { isEn, t } from "./i18n.js?v=20261110v3";
+} from "./state.js?v=20261111v1";
+import { isEn, t } from "./i18n.js?v=20261111v1";
 import {
   escapeHtml,
   getWatchHistoryList,
   invalidateLocalCaches,
   showToast,
-} from "./utils.js?v=20261110v3";
-import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261110v3";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261110v3";
-import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261110v3";
-import { loadCatalog, updateKinoriumUserBadge } from "./catalog.js?v=20261110v3";
+} from "./utils.js?v=20261111v1";
+import { applyEnabledServicesVisibility } from "./catalog-media-resolver.js?v=20261111v1";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261111v1";
+import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261111v1";
+import { loadCatalog, updateKinoriumUserBadge } from "./catalog.js?v=20261111v1";
 import {
   applyProfilesPayload,
   ensureKidsPinVerifiedForAdminAction,
   promptKidsPinModal,
   reloadProfileLocalPlayerPrefs,
-} from "./features.js?v=20261110v3";
+} from "./features.js?v=20261111v1";
 import {
   _adminPinPayload,
   applyAppLanguage,
   renderIntegrationsList,
   renderStremioAddonsList,
-} from "./settings.js?v=20261110v3";
+} from "./settings.js?v=20261111v1";
 
 export function updateBackupSummaryStat() {
   const el = document.getElementById("backup-summary-stat");
@@ -659,12 +659,18 @@ export async function openDownloadedInstaller({ reveal = false } = {}) {
           )
     );
     if (isMac && !reveal) {
+      if (window._velariumInstallerReloadTimer) {
+        clearInterval(window._velariumInstallerReloadTimer);
+      }
       const prevVer = String(state.appVersion || "");
       let checks = 0;
       const reloadTimer = setInterval(async () => {
         checks += 1;
         if (checks > 24) {
           clearInterval(reloadTimer);
+          if (window._velariumInstallerReloadTimer === reloadTimer) {
+            window._velariumInstallerReloadTimer = null;
+          }
           return;
         }
         try {
@@ -673,6 +679,9 @@ export async function openDownloadedInstaller({ reveal = false } = {}) {
             const stJson = await stRes.json().catch(() => ({}));
             if (stJson?.version && stJson.version !== prevVer) {
               clearInterval(reloadTimer);
+              if (window._velariumInstallerReloadTimer === reloadTimer) {
+                window._velariumInstallerReloadTimer = null;
+              }
               window.location.reload();
             }
           }
@@ -680,6 +689,7 @@ export async function openDownloadedInstaller({ reveal = false } = {}) {
           // Server is restarting; keep polling until new version responds
         }
       }, 900);
+      window._velariumInstallerReloadTimer = reloadTimer;
     }
     return true;
   } catch (_) {
@@ -698,7 +708,7 @@ export async function startAppUpdateDownload() {
     await openDownloadedInstaller({ reveal: false });
     return;
   }
-  if (!upd.asset_url && relPageUrl) {
+  if (!upd.asset_url && relPageUrl && /^https?:\/\//i.test(relPageUrl)) {
     window.open(relPageUrl, "_blank", "noopener,noreferrer");
     return;
   }

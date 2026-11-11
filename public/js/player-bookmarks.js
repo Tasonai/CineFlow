@@ -1,4 +1,4 @@
-import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261110v3";
+import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v1";
 import {
   displayPoster,
   displayTitle,
@@ -6,7 +6,7 @@ import {
   isEn,
   t,
   transliterateRuToEn,
-} from "./i18n.js?v=20261110v3";
+} from "./i18n.js?v=20261111v1";
 import {
   attachHorizontalWheelScroll,
   clampStagePopover,
@@ -20,15 +20,15 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261110v3";
-import { attachSmartPosterFallback } from "./catalog.js?v=20261110v3";
-import { openPersonModal } from "./modals.js?v=20261110v3";
-import { buildFallbackAvatarSvg } from "./modals-person.js?v=20261110v3";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261110v3";
-import { seekEffectivePlayback } from "./player-streams.js?v=20261110v3";
-import { findActiveChapterLabel, syncVcPopoverOpenClass } from "./player-ui-controls.js?v=20261110v3";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261110v3";
-import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261110v3";
+} from "./utils.js?v=20261111v1";
+import { attachSmartPosterFallback } from "./catalog.js?v=20261111v1";
+import { openPersonModal } from "./modals.js?v=20261111v1";
+import { buildFallbackAvatarSvg } from "./modals-person.js?v=20261111v1";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v1";
+import { seekEffectivePlayback } from "./player-streams.js?v=20261111v1";
+import { findActiveChapterLabel, syncVcPopoverOpenClass } from "./player-ui-controls.js?v=20261111v1";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v1";
+import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261111v1";
 
 let _bookmarkDialogWasPlaying = false;
 let _activeEditingMoment = null;
@@ -512,6 +512,7 @@ export function resolveActiveXRaySceneContext(curSec = null, durSec = null) {
     phase,
     chapterLabel,
     chapterNorm,
+    memoKey: sceneMemoKey,
     dialogueText: windowLines.length > 0 ? _normalizeSceneMatchText(windowLines.join(" ")) : "",
     musicText: musicLines.length > 0 ? _normalizeSceneMatchText(musicLines.join(" ")) : "",
     hasSubWindow: windowLines.length > 0,
@@ -879,10 +880,13 @@ function _renderXRaySoundtrackAndTrivia(item, xrayPayload, sceneCtx = resolveAct
         const isGenericScene = /^(официальный саундтрек|official soundtrack)$/i.test(rawScene);
         const sceneHint = isGenericScene ? "" : rawScene;
         const copyLabel = `${trackArtist} — ${trackTitle}`;
-        const extUrl = tr.apple_music_url || tr.spotify_url || tr.youtube_url || "";
-        const spotifyUrl = tr.spotify_url && tr.apple_music_url ? tr.spotify_url : "";
-        const hasPreview = Boolean(tr.preview_url);
-        const artworkUrl = String(tr.artwork_url || "").trim();
+        const rawExtUrl = String(tr.apple_music_url || tr.spotify_url || tr.youtube_url || "").trim();
+        const extUrl = /^https?:\/\//i.test(rawExtUrl) ? rawExtUrl : "";
+        const rawSpotifyUrl = String(tr.spotify_url && tr.apple_music_url ? tr.spotify_url : "").trim();
+        const spotifyUrl = /^https?:\/\//i.test(rawSpotifyUrl) ? rawSpotifyUrl : "";
+        const hasPreview = Boolean(tr.preview_url && /^https?:\/\//i.test(String(tr.preview_url).trim()));
+        const rawArtworkUrl = String(tr.artwork_url || "").trim();
+        const artworkUrl = /^https?:\/\//i.test(rawArtworkUrl) ? rawArtworkUrl : "";
         const scenePillHtml =
           inScene && badgeText
             ? `<span class="atv-xray-scene-pill">${escapeHtml(badgeText)}</span>`
@@ -962,7 +966,7 @@ function _renderXRaySoundtrackAndTrivia(item, xrayPayload, sceneCtx = resolveAct
           saveBtn.onclick = async (e) => {
             e.stopPropagation();
             try {
-              const res = await apiJson("/api/xray/saved-tracks", {
+              const resp = await fetch("/api/xray/saved-tracks", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -983,6 +987,7 @@ function _renderXRaySoundtrackAndTrivia(item, xrayPayload, sceneCtx = resolveAct
                   },
                 }),
               });
+              const res = resp.ok ? await resp.json() : null;
               if (res && res.ok) {
                 tr.is_saved = Boolean(res.is_saved);
                 if (res.track_id) tr.track_id = res.track_id;
@@ -2008,7 +2013,7 @@ export function renderBookmarksModalList(filterQuery = null) {
         poster: m.poster,
       };
       const sourceTab = m.source || "hdrezka";
-      const { openPlayerModal } = await import("./player.js?v=20261110v3");
+      const { openPlayerModal } = await import("./player.js?v=20261111v1");
       openPlayerModal(targetItem, sourceTab, m.season || 1, m.episode || 1, m.time || 0);
     });
   });

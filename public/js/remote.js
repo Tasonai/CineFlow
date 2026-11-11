@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261110v3";
-import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261110v3";
+import { state } from "./state.js?v=20261111v1";
+import { displayPoster, displayTitle, t, translateStudioName } from "./i18n.js?v=20261111v1";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -11,7 +11,7 @@ import {
   showToast,
   showVideoOsd,
   syncCustomSelect,
-} from "./utils.js?v=20261110v3";
+} from "./utils.js?v=20261111v1";
 import {
   applyAudioBoostToVideo,
   applyVideoCropToVideo,
@@ -23,12 +23,12 @@ import {
   startAmbilightLoop,
   stopAmbilightLoop,
   togglePictureInPicture,
-} from "./audio-dsp.js?v=20261110v3";
+} from "./audio-dsp.js?v=20261111v1";
 import {
   adjustSubtitleOffset,
   formatSubtitleOffsetLabel,
   resetSubtitleOffset,
-} from "./subtitles.js?v=20261110v3";
+} from "./subtitles.js?v=20261111v1";
 import {
   addOrUpdateRemoteBookmark,
   closePlayerModal,
@@ -57,9 +57,9 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   toggleXRayPauseShelf,
-} from "./player.js?v=20261110v3";
-import { openPersonModal } from "./modals.js?v=20261110v3";
-import { attachSmartPosterFallback, isEpisodeWatched } from "./catalog.js?v=20261110v3";
+} from "./player.js?v=20261111v1";
+import { openPersonModal } from "./modals.js?v=20261111v1";
+import { attachSmartPosterFallback, isEpisodeWatched } from "./catalog.js?v=20261111v1";
 import {
   closeTvCastModal,
   executeRemoteDpadCommand,
@@ -67,7 +67,7 @@ import {
   isItemSafeForKidsClient,
   requestKidsPinVerification,
   setTvMode,
-} from "./features.js?v=20261110v3";
+} from "./features.js?v=20261111v1";
 
 export function isMobileRemoteUrl() {
   if (typeof window === "undefined") return false;
@@ -4259,6 +4259,10 @@ export function initMobileRemoteController() {
 
   const pollStateLoop = async () => {
     while (true) {
+      if (typeof document !== "undefined" && document.hidden) {
+        await new Promise((r) => setTimeout(r, 3000));
+        continue;
+      }
       try {
         const params = new URLSearchParams({
           k: pairKey,
@@ -4271,7 +4275,7 @@ export function initMobileRemoteController() {
         if (res.status === 403) {
           rState.authFailed = true;
           renderRemoteUI();
-          await new Promise((r) => setTimeout(r, 4000));
+          await new Promise((r) => setTimeout(r, 12000));
           continue;
         }
         if (res.ok) {

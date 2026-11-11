@@ -320,7 +320,10 @@ class DesktopRemoteBroker:
             "server_now_ms": int(ts * 1000),
         }
         if include_state:
-            snap["state"] = copy.deepcopy(self._state)
+            snap["state"] = {
+                k: (list(v) if isinstance(v, list) else (dict(v) if isinstance(v, dict) else v))
+                for k, v in self._state.items()
+            }
         return snap
 
     def get_snapshot(self) -> Dict[str, Any]:

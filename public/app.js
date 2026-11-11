@@ -5,7 +5,7 @@ import {
   UI_PREFS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./js/state.js?v=20261110v3";
+} from "./js/state.js?v=20261111v1";
 import {
   applyStaticDomTranslations,
   displayPoster,
@@ -14,7 +14,7 @@ import {
   secondaryTitle,
   syncLanguageSegmentedControlUI,
   t,
-} from "./js/i18n.js?v=20261110v3";
+} from "./js/i18n.js?v=20261111v1";
 import {
   attachHorizontalWheelScroll,
   clampFloatingPopover,
@@ -47,7 +47,7 @@ import {
   trapModalTabKey,
   triggerVideoCenterIndicator,
   withKinoriumActionLock,
-} from "./js/utils.js?v=20261110v3";
+} from "./js/utils.js?v=20261111v1";
 import {
   applyAudioBoostToVideo,
   applySubtitleStylePrefs,
@@ -62,7 +62,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./js/audio-dsp.js?v=20261110v3";
+} from "./js/audio-dsp.js?v=20261111v1";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -97,7 +97,7 @@ import {
   updateActiveFiltersBadge,
   updateKinoriumSectionCounters,
   updateKinoriumUserBadge,
-} from "./js/catalog.js?v=20261110v3";
+} from "./js/catalog.js?v=20261111v1";
 import {
   buildFallbackAvatarSvg,
   closePersonModal,
@@ -111,7 +111,7 @@ import {
   switchStatsModalTab,
   initQuickPeekBindings,
   syncQuickPeekStatusesUI,
-} from "./js/modals.js?v=20261110v3";
+} from "./js/modals.js?v=20261111v1";
 import {
   activateSelectedSubtitleTrack,
   adjustAudioOffset,
@@ -175,20 +175,20 @@ import {
   updateMiniPlayerTitle,
   updateModalKinoriumHeader,
   wakeVideoControls,
-} from "./js/player.js?v=20261110v3";
+} from "./js/player.js?v=20261111v1";
 import {
   adjustSubtitleOffset,
   bindSubtitleFileAndDropListeners,
   closeSubtitleDictPopover,
   resetSubtitleOffset,
   syncSubtitleOffsetUI,
-} from "./js/subtitles.js?v=20261110v3";
+} from "./js/subtitles.js?v=20261111v1";
 import {
   initDesktopRemoteAgent,
   initMobileRemoteController,
   isMobileRemoteUrl,
   pushDesktopRemoteStateNow,
-} from "./js/remote.js?v=20261110v3";
+} from "./js/remote.js?v=20261111v1";
 import {
   applyAppLanguage,
   checkAppUpdates,
@@ -201,11 +201,11 @@ import {
   renderSettingsCountryUI,
   requestCloseSettingsModal,
   switchSettingsTab,
-} from "./js/settings.js?v=20261110v3";
+} from "./js/settings.js?v=20261111v1";
 import {
   initBookmarksListeners,
   openBookmarksModal,
-} from "./js/player-bookmarks.js?v=20261110v3";
+} from "./js/player-bookmarks.js?v=20261111v1";
 import {
   applyPendingTvDeepLinkIfReady,
   applyProfilesPayload,
@@ -219,15 +219,15 @@ import {
   initRoadmapFeatures,
   reloadProfileLocalPlayerPrefs,
   renderHeaderProfileSwitcher,
-} from "./js/features.js?v=20261110v3";
-import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261110v3";
+} from "./js/features.js?v=20261111v1";
+import { openDownloadsModal, setOfflineMode } from "./js/features-downloads.js?v=20261111v1";
 import {
   initCatalogLiveSearch,
   closeLiveSearchPopover,
   resetCatalogFiltersForGlobalSearch,
   syncSearchClearButton,
-} from "./js/catalog-live-search.js?v=20261110v3";
-import { initGlobalHotkeys } from "./js/app-hotkeys.js?v=20261110v3";
+} from "./js/catalog-live-search.js?v=20261111v1";
+import { initGlobalHotkeys } from "./js/app-hotkeys.js?v=20261111v1";
 
 function initVelariumApp() {
   document.documentElement.classList.toggle("is-ios-device", isIosOrIpadOs());

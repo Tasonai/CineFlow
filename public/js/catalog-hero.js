@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261110v3";
+import { state } from "./state.js?v=20261111v1";
 import {
   displayBackdrop,
   displayCountries,
@@ -8,26 +8,26 @@ import {
   isEn,
   t,
   translateGenre,
-} from "./i18n.js?v=20261110v3";
+} from "./i18n.js?v=20261111v1";
 import {
   cssUrl,
   escapeHtml,
   iconSvg,
   setAmbientColor,
-} from "./utils.js?v=20261110v3";
-import { openQuickPeekModal } from "./modals.js?v=20261110v3";
-import { openPlayerModal } from "./player.js?v=20261110v3";
+} from "./utils.js?v=20261111v1";
+import { openQuickPeekModal } from "./modals.js?v=20261111v1";
+import { openPlayerModal } from "./player.js?v=20261111v1";
 import {
   _hashItemKey,
   filterCatalogItemsByGenreAndYear,
   seededShuffle,
-} from "./catalog-filters.js?v=20261110v3";
+} from "./catalog-filters.js?v=20261111v1";
 import {
   isServiceEnabled,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261110v3";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261110v3";
+} from "./catalog-media-resolver.js?v=20261111v1";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261111v1";
 
 const LAST_HERO_ID_STORAGE_KEY = "velarium_last_hero_id";
 let _heroRecordedThisLaunch = false;
@@ -123,9 +123,12 @@ export function scheduleHeroAmbientTeaser(featured) {
       const res = await fetch(`/api/trailer?${qParams.toString()}`, { signal: abort.signal });
       if (!res.ok) return;
       const data = await res.json();
-      const ytId =
+      const rawYtId = String(
         (state.appLang === "en" ? (data.en_video_id || data.ru_video_id) : (data.ru_video_id || data.en_video_id)) ||
-        data.youtube_id;
+          data.youtube_id ||
+          ""
+      ).trim();
+      const ytId = /^[A-Za-z0-9_-]{6,20}$/.test(rawYtId) ? rawYtId : "";
       if (state.isPlayerOpen || !ytId) return;
 
       const origin =
@@ -133,7 +136,7 @@ export function scheduleHeroAmbientTeaser(featured) {
           ? `&origin=${encodeURIComponent(window.location.origin)}`
           : "";
       // Omit playlist=... so YouTube never renders Prev/Next playlist buttons in the center
-      const iframeSrc = `https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&playsinline=1&modestbranding=1&rel=0&showinfo=0&enablejsapi=1${origin}`;
+      const iframeSrc = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(ytId)}?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&playsinline=1&modestbranding=1&rel=0&showinfo=0&enablejsapi=1${origin}`;
 
       let isMuted = true;
       let revealed = false;
@@ -141,7 +144,7 @@ export function scheduleHeroAmbientTeaser(featured) {
       teaserWrap.innerHTML = `
         <div class="atv-hero-teaser-stage">
           <iframe
-            src="${iframeSrc}"
+            src="${escapeAttr(iframeSrc)}"
             title="Hero Teaser"
             tabindex="-1"
             allow="autoplay; encrypted-media"

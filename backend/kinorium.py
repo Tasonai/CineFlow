@@ -2488,9 +2488,12 @@ class KinoriumService:
                     }
                     new_cw_head = cw_entry
 
+        cw_snap: List[Dict[str, Any]] = []
         if self._profile_id == start_pid:
+            should_save_cw = False
             with self._state_lock:
                 if self._profile_id == start_pid:
+                    should_save_cw = True
                     live_cw = [
                         x
                         for x in self.state.get("continue_watching", [])
@@ -2519,9 +2522,10 @@ class KinoriumService:
                                 stash.pop(kin_prefixed, None)
                             if nr:
                                 stash.pop(f"title:{nr}", None)
-            is_milestone = bool(just_scrobbled or just_scrobbled_episode or auto_completed_series or promoted_to_watching)
-            self._save_state(immediate=is_milestone, bump_version=is_milestone)
-            cw_snap = list(self.state["continue_watching"])
+                    cw_snap = list(self.state["continue_watching"])
+            if should_save_cw:
+                is_milestone = bool(just_scrobbled or just_scrobbled_episode or auto_completed_series or promoted_to_watching)
+                self._save_state(immediate=is_milestone, bump_version=is_milestone)
         if should_mark_watched:
             eff_remote_synced = remote_ep_synced if media_type == "series" else remote_movie_synced
         elif promoted_to_watching:

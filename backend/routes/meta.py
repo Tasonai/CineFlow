@@ -1715,9 +1715,28 @@ def _get_active_profile_id_for_xray(ctx: Any) -> str:
 
 
 _XRAY_SAVED_TRACKS_MEM: Dict[str, List[Dict[str, Any]]] = {}
+_XRAY_PROF_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+
+def _norm_xray_profile_id(raw_id: Any, ctx: Any) -> str:
+    cand = str(raw_id or "").strip()
+    if cand and _XRAY_PROF_ID_RE.match(cand):
+        return cand
+    active_id = _get_active_profile_id_for_xray(ctx)
+    return active_id if _XRAY_PROF_ID_RE.match(active_id) else "default"
+
+
+def _clean_xray_http_url(raw_url: Any) -> str:
+    s = str(raw_url or "").strip()
+    if not s or any(ord(c) < 32 for c in s):
+        return ""
+    if s.lower().startswith(("https://", "http://")):
+        return s[:1024]
+    return ""
 
 
 def _get_saved_xray_tracks(ctx: Any, profile_id: str) -> List[Dict[str, Any]]:
+    profile_id = _norm_xray_profile_id(profile_id, ctx)
     d = getattr(ctx, "__dict__", {})
     storage_db = d.get("storage_db") if isinstance(d, dict) and "storage_db" in d else getattr(type(ctx), "storage_db", None)
     if storage_db is None and not hasattr(ctx, "_main_module"):
@@ -1736,6 +1755,7 @@ def _get_saved_xray_tracks(ctx: Any, profile_id: str) -> List[Dict[str, Any]]:
 
 
 def _save_xray_tracks_list(ctx: Any, profile_id: str, items: List[Dict[str, Any]]) -> None:
+    profile_id = _norm_xray_profile_id(profile_id, ctx)
     clean = [dict(x) for x in items if isinstance(x, dict)][:250]
     d = getattr(ctx, "__dict__", {})
     storage_db = d.get("storage_db") if isinstance(d, dict) and "storage_db" in d else getattr(type(ctx), "storage_db", None)
@@ -1746,6 +1766,9 @@ def _save_xray_tracks_list(ctx: Any, profile_id: str, items: List[Dict[str, Any]
             storage_db.set_kv("xray_saved_tracks", profile_id, clean)
         except Exception:
             pass
+    if profile_id not in _XRAY_SAVED_TRACKS_MEM and len(_XRAY_SAVED_TRACKS_MEM) >= 32:
+        oldest_prof = next(iter(_XRAY_SAVED_TRACKS_MEM))
+        _XRAY_SAVED_TRACKS_MEM.pop(oldest_prof, None)
     _XRAY_SAVED_TRACKS_MEM[profile_id] = clean
 
 
@@ -1772,7 +1795,7 @@ def _enrich_xray_payload_with_saved_tracks(payload: Dict[str, Any], ctx: Any) ->
 
 
 def handle_xray_saved_tracks_get(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> bool:
-    prof_id = str(qs.get("profile_id", [""])[0] or "").strip() or _get_active_profile_id_for_xray(ctx)
+    prof_id = _norm_xray_profile_id(qs.get("profile_id", [""])[0], ctx)
     saved = _get_saved_xray_tracks(ctx, prof_id)
     handler._send_json(
         {
@@ -1786,11 +1809,13 @@ def handle_xray_saved_tracks_get(handler: Any, qs: Dict[str, Any], parsed: Any, 
 
 
 def handle_xray_saved_tracks_post(handler: Any, qs: Dict[str, Any], parsed: Any, body: Dict[str, Any], ctx: Any) -> bool:
-    prof_id = str(body.get("profile_id") or "").strip() or _get_active_profile_id_for_xray(ctx)
+    if hasattr(handler, "_require_authorized_client_if_lan") and not handler._require_authorized_client_if_lan(body):
+        return True
+    prof_id = _norm_xray_profile_id(body.get("profile_id"), ctx)
     action = str(body.get("action") or "toggle").strip().lower()
     track_in = body.get("track") if isinstance(body.get("track"), dict) else body
-    title = str(track_in.get("title") or "").strip()
-    artist = str(track_in.get("artist") or "").strip()
+    title = str(track_in.get("title") or "").strip()[:240]
+    artist = str(track_in.get("artist") or "").strip()[:240]
     track_id = _compute_xray_track_id({"track_id": track_in.get("track_id"), "title": title, "artist": artist})
     if not title and not track_in.get("track_id"):
         handler._send_json({"ok": False, "error": "Track title is required"}, status=400)
@@ -1809,15 +1834,15 @@ def handle_xray_saved_tracks_post(handler: Any, qs: Dict[str, Any], parsed: Any,
             "track_id": track_id,
             "title": title or str((saved[existing_idx] if existing_idx >= 0 else {}).get("title") or ""),
             "artist": artist or str((saved[existing_idx] if existing_idx >= 0 else {}).get("artist") or ""),
-            "album": str(track_in.get("album") or "").strip(),
-            "scene": str(track_in.get("scene") or "").strip(),
-            "media_title": str(track_in.get("media_title") or body.get("media_title") or "").strip(),
-            "media_id": str(track_in.get("media_id") or body.get("media_id") or "").strip(),
-            "preview_url": str(track_in.get("preview_url") or "").strip(),
-            "artwork_url": str(track_in.get("artwork_url") or "").strip(),
-            "apple_music_url": str(track_in.get("apple_music_url") or "").strip(),
-            "spotify_url": str(track_in.get("spotify_url") or "").strip(),
-            "youtube_url": str(track_in.get("youtube_url") or "").strip(),
+            "album": str(track_in.get("album") or "").strip()[:240],
+            "scene": str(track_in.get("scene") or "").strip()[:500],
+            "media_title": str(track_in.get("media_title") or body.get("media_title") or "").strip()[:240],
+            "media_id": str(track_in.get("media_id") or body.get("media_id") or "").strip()[:120],
+            "preview_url": _clean_xray_http_url(track_in.get("preview_url")),
+            "artwork_url": _clean_xray_http_url(track_in.get("artwork_url")),
+            "apple_music_url": _clean_xray_http_url(track_in.get("apple_music_url")),
+            "spotify_url": _clean_xray_http_url(track_in.get("spotify_url")),
+            "youtube_url": _clean_xray_http_url(track_in.get("youtube_url")),
             "saved_at": int(time.time()),
         }
         if existing_idx >= 0:

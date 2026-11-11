@@ -1,7 +1,7 @@
-import { state } from "./state.js?v=20261110v3";
-import { t } from "./i18n.js?v=20261110v3";
-import { formatTime } from "./utils.js?v=20261110v3";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261110v3";
+import { state } from "./state.js?v=20261111v1";
+import { t } from "./i18n.js?v=20261111v1";
+import { formatTime } from "./utils.js?v=20261111v1";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v1";
 
 export function getDetectedCreditsStartSec(dur) {
   if (!dur || dur < 120) return null;
@@ -70,7 +70,7 @@ export function renderTimelineChapterMarkers(dur) {
     const chSec = Number(ch?.start ?? ch?.time ?? ch?.start_sec) || 0;
     if (chSec > 2 && chSec < dur - 2) {
       const chPct = Math.max(0, Math.min(100, (chSec / dur) * 100)).toFixed(2);
-      const chTitle = String(ch?.title || ch?.label || `${t("Глава", "Chapter")} (${formatTime(chSec)})`).replace(/"/g, "&quot;");
+      const chTitle = escapeAttr(String(ch?.title || ch?.label || `${t("Глава", "Chapter")} (${formatTime(chSec)})`));
       html += `<div class="atv-vc-chapter-tick" style="left:${chPct}%" title="${chTitle}"></div>`;
     }
   });

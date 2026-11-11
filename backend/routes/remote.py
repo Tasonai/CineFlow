@@ -553,7 +553,15 @@ def handle_handoff(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> b
     orig_title = qs.get("orig_title", [""])[0].strip()
     year = qs.get("year", [""])[0].strip()
     media_type = qs.get("media_type", ["movie"])[0].strip()
-    poster = qs.get("poster", [""])[0].strip()
+    raw_poster = qs.get("poster", [""])[0].strip()
+    poster = raw_poster if raw_poster.lower().startswith(("https://", "http://", "/")) else ""
+
+    req_headers = getattr(handler, "headers", None)
+    if req_headers is not None:
+        sfs = (req_headers.get("Sec-Fetch-Site") or "").strip().lower()
+        if sfs == "cross-site":
+            handler._send_json({"ok": False, "error": "Forbidden cross-site request"}, status=403)
+            return True
 
     if hasattr(ctx, "profile_manager") and ctx.profile_manager and ctx.profile_manager.is_kids_mode_active():
         cand = ctx.build_trusted_item_for_kids_check(
@@ -571,6 +579,9 @@ def handle_handoff(handler: Any, qs: Dict[str, Any], parsed: Any, ctx: Any) -> b
         if hasattr(handler, "_is_loopback_client")
         else True
     )
+    if not is_local and hasattr(handler, "_require_authorized_client_if_lan"):
+        if not handler._require_authorized_client_if_lan():
+            return True
     if (
         is_local
         and hasattr(ctx, "app_prefs")
@@ -798,14 +809,22 @@ def handle_sync_merge(handler: Any, qs: Dict[str, Any], parsed: Any, body: Any =
             store.set(bm_key, merged_bm_list)
 
             # Merge per-series preferred studios by key with last-write-wins
-            st_map = {str(k): v for k, v in cur_st.items() if isinstance(v, dict)}
-            for k, v in in_studios.items():
-                if not k or not isinstance(v, dict):
+            st_map = {str(k)[:128]: v for k, v in cur_st.items() if isinstance(v, dict)}
+            for k, v in list(in_studios.items())[:500]:
+                k_str = str(k or "").strip()[:128]
+                if not k_str or not isinstance(v, dict):
                     continue
-                existing = st_map.get(str(k))
+                existing = st_map.get(k_str)
                 if not existing or _sync_ts(v, "updated_at") >= _sync_ts(existing, "updated_at"):
-                    st_map[str(k)] = v
+                    st_map[k_str] = v
                     merged_studios_count += 1
+            if len(st_map) > 500:
+                sorted_st_keys = sorted(
+                    st_map.keys(),
+                    key=lambda kk: _sync_ts(st_map[kk], "updated_at"),
+                    reverse=True,
+                )[:500]
+                st_map = {kk: st_map[kk] for kk in sorted_st_keys}
             merged_studios_map = st_map
             store.set(st_key, merged_studios_map)
     else:

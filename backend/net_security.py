@@ -441,8 +441,10 @@ def is_allowed_media_source_url(
                 if not is_strictly_public_ip_obj(ip_cand):
                     verdict = False
                     break
-        except (socket.gaierror, socket.herror, TimeoutError, OSError):
+        except (socket.gaierror, socket.herror):
             verdict = True
+        except (TimeoutError, OSError):
+            verdict = False
         except Exception:
             return False
 
@@ -625,7 +627,8 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
             if not _is_valid_public_ip_addr(new_host):
                 raise urllib.error.URLError(f"Disallowed redirect to private IP: {new_host}")
         except ValueError:
-            pass
+            if not is_allowed_media_source_url(resolved, allow_torrserver_loopback=False):
+                raise urllib.error.URLError(f"Disallowed redirect host: {new_host}")
 
         parsed_old_logical = urllib.parse.urlparse(base_for_join)
         if parsed_old_logical.scheme.lower() == "https" and parsed_new.scheme.lower() == "http":

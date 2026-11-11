@@ -1,5 +1,5 @@
-import { state } from "./state.js?v=20261110v3";
-import { t, isEn, displayTitle, hasCyrillicText } from "./i18n.js?v=20261110v3";
+import { state } from "./state.js?v=20261111v1";
+import { t, isEn, displayTitle, hasCyrillicText } from "./i18n.js?v=20261111v1";
 import {
   escapeHtml,
   iconSvg,
@@ -13,23 +13,23 @@ import {
   getEpisodeProgress,
   saveEpisodeProgress,
   syncCustomSelect,
-} from "./utils.js?v=20261110v3";
+} from "./utils.js?v=20261111v1";
 import {
   isEpisodeWatched,
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261110v3";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261110v3";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261110v3";
-import { sweepPendingDownloadCleanups } from "./features.js?v=20261110v3";
-import { syncCustomVideoControlsUI } from "./player-ui-controls.js?v=20261110v3";
-import { closeSubtitleDictPopover, syncSubtitleOffsetUI } from "./subtitles.js?v=20261110v3";
+} from "./catalog.js?v=20261111v1";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261111v1";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261111v1";
+import { sweepPendingDownloadCleanups } from "./features.js?v=20261111v1";
+import { syncCustomVideoControlsUI } from "./player-ui-controls.js?v=20261111v1";
+import { closeSubtitleDictPopover, syncSubtitleOffsetUI } from "./subtitles.js?v=20261111v1";
 import {
   getNextEpisodeCoords,
   clearAutoplayNextTimer,
   dismissPlayerNextEpisodeToast,
-} from "./player-autoplay.js?v=20261110v3";
+} from "./player-autoplay.js?v=20261111v1";
 
 const _RU_MONTH_MAP = {
   января: "Jan",
@@ -46,9 +46,9 @@ const _RU_MONTH_MAP = {
   декабря: "Dec",
 };
 const _RU_MONTH_RE = new RegExp(Object.keys(_RU_MONTH_MAP).join("|"), "gi");
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261110v3";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261110v3";
-import { reportScrobbleProgress } from "./player-scrobble.js?v=20261110v3";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v1";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v1";
+import { reportScrobbleProgress } from "./player-scrobble.js?v=20261111v1";
 import {
   loadBackup4KReleases,
   loadHDRezkaStream,
@@ -57,19 +57,19 @@ import {
   loadStremioStreams,
   resetVideoElementForStreamChange,
   switchSourceTab,
-} from "./player-streams.js?v=20261110v3";
-import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261110v3";
+} from "./player-streams.js?v=20261111v1";
+import { loadSkipIntroSegments } from "./player-intro-credits.js?v=20261111v1";
 import {
   OFFICIAL_STREAMING_SERVICES,
   syncMediaSessionMetadata,
   updateModalKinoriumHeader,
-} from "./player-meta.js?v=20261110v3";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261110v3";
+} from "./player-meta.js?v=20261111v1";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261111v1";
 import {
   hideXRayPauseShelf,
   closeBookmarkNoteDialog,
   renderTimelineBookmarks,
-} from "./player-bookmarks.js?v=20261110v3";
+} from "./player-bookmarks.js?v=20261111v1";
 
 export function hasStartedWatchingCurrentEpisode(item, seasonNum, epNum) {
   if (state.creditsOverlayShownThisEpisode) return true;
@@ -356,7 +356,11 @@ export function populateSeasonEpisodeSelectors(item, seasonsMap = null) {
     if (epNavGroup) epNavGroup.classList.add("hidden");
     if (curEpBar) curEpBar.classList.add("hidden");
     if (epStripRow) epStripRow.classList.add("hidden");
-    if (epStripBar) epStripBar.classList.add("hidden");
+    if (epStripBar) {
+      epStripBar._epCtx = null;
+      epStripBar._lastHoverEpBtn = null;
+      epStripBar.classList.add("hidden");
+    }
     if (seasonProgBox) seasonProgBox.classList.add("hidden");
     syncEpisodesStripDrawerUI();
     syncCustomVideoControlsUI();

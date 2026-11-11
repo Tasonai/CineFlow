@@ -1,5 +1,5 @@
-import { profileStorageKey, state } from "./state.js?v=20261110v3";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261110v3";
+import { profileStorageKey, state } from "./state.js?v=20261111v1";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261111v1";
 import {
   clampStagePopover,
   escapeAttr,
@@ -10,9 +10,9 @@ import {
   showToast,
   showVideoOsd,
   syncScrollTopButton,
-} from "./utils.js?v=20261110v3";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261110v3";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261110v3";
+} from "./utils.js?v=20261111v1";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261111v1";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261111v1";
 import {
   clearAutoplayNextTimer,
   clearRemuxDurationPoll,
@@ -24,7 +24,7 @@ import {
   renderTimelineBookmarks,
   syncCustomControlPopovers,
   syncVcPopoverOpenClass,
-} from "./player.js?v=20261110v3";
+} from "./player.js?v=20261111v1";
 
 export function formatSubtitleOffsetLabel(sec = state.subtitleOffsetSec) {
   const num = Math.round((Number(sec) || 0) * 100) / 100;
@@ -286,6 +286,10 @@ export function clearCustomSubtitleOverlay(keepLoadedCache = false) {
     state.subWindowAbortController = null;
   }
   state.subWindowAdvancing = false;
+  if (_activeDictWordEl) {
+    _activeDictWordEl.classList.remove("is-active-word");
+    _activeDictWordEl = null;
+  }
   if (!keepLoadedCache) {
     closeSubtitleDictPopover(false);
     state.subFetchReqId = (state.subFetchReqId || 0) + 1;
@@ -837,8 +841,9 @@ export function renderVocabularyModal(query = "") {
       const alts = Array.isArray(item.alternatives) && item.alternatives.length > 0
         ? `<span class="atv-vocab-item-alts">${escapeHtml(item.alternatives.join(", "))}</span>`
         : "";
+      const safeId = escapeAttr(String(item.id || ""));
       return `
-        <div class="atv-vocab-item" data-vocab-id="${item.id}">
+        <div class="atv-vocab-item" data-vocab-id="${safeId}">
           <div class="atv-vocab-item-main">
             <div class="atv-vocab-item-head">
               <span class="atv-vocab-item-word">${w}</span>
@@ -852,7 +857,7 @@ export function renderVocabularyModal(query = "") {
             t("Удалить из словаря", "Remove from vocabulary")
           )}" title="${escapeAttr(
             t("Удалить из словаря", "Remove from vocabulary")
-          )}" data-del-id="${item.id}">
+          )}" data-del-id="${safeId}">
             <svg class="atv-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
         </div>

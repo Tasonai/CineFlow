@@ -1045,7 +1045,7 @@ class OfflineDownloadManager:
                     return True
                 return False
             from backend.net_security import is_allowed_media_source_url
-            return bool(is_allowed_media_source_url(u))
+            return bool(is_allowed_media_source_url(u, allow_torrserver_loopback=False))
         except Exception:
             return False
 
@@ -1067,7 +1067,7 @@ class OfflineDownloadManager:
             if host in ("127.0.0.1", "localhost", "::1"):
                 return bool(local_port and int(local_port) > 0 and port == int(local_port) and (parsed.path or "").startswith("/api/person-photo"))
             from backend.net_security import is_allowed_media_source_url
-            return bool(is_allowed_media_source_url(u))
+            return bool(is_allowed_media_source_url(u, allow_torrserver_loopback=False))
         except Exception:
             return False
 
@@ -1695,12 +1695,6 @@ class OfflineDownloadManager:
             except Exception:
                 pass
         finally:
-            for stream_pipe in (proc.stdout, proc.stderr):
-                if stream_pipe is not None:
-                    try:
-                        stream_pipe.close()
-                    except Exception:
-                        pass
             if proc.poll() is None:
                 try:
                     proc.kill()
@@ -1710,6 +1704,12 @@ class OfflineDownloadManager:
                 proc.wait(timeout=2.0)
             except Exception:
                 pass
+            for stream_pipe in (proc.stdout, proc.stderr):
+                if stream_pipe is not None:
+                    try:
+                        stream_pipe.close()
+                    except Exception:
+                        pass
             with self._lock:
                 if self._active_procs.get(did) is proc:
                     self._active_procs.pop(did, None)
@@ -1828,7 +1828,7 @@ class OfflineDownloadManager:
             )
             if is_active:
                 if len(self._cancelled_ids) >= 512:
-                    self._cancelled_ids.clear()
+                    self._cancelled_ids.intersection_update(self._items.keys())
                 self._cancelled_ids.add(did)
             if entry and entry.get("status") in ("queued", "downloading"):
                 entry["status"] = "cancelled"

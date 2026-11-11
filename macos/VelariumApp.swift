@@ -1026,7 +1026,9 @@ final class VelariumAppController: NSObject, NSApplicationDelegate, NSWindowDele
             }
             return nil
         }
-        if let targetUrl = navigationAction.request.url {
+        if let targetUrl = navigationAction.request.url,
+           let scheme = targetUrl.scheme?.lowercased(),
+           (scheme == "https" || scheme == "http") {
             NSWorkspace.shared.open(targetUrl)
         }
         return nil
@@ -1038,7 +1040,11 @@ final class VelariumAppController: NSObject, NSApplicationDelegate, NSWindowDele
         if let url = navigationAction.request.url, let scheme = url.scheme?.lowercased() {
             let webSchemes: Set<String> = ["http", "https", "blob", "about", "data"]
             if !webSchemes.contains(scheme) {
-                NSWorkspace.shared.open(url)
+                if webView === self.webView,
+                   navigationAction.navigationType == .linkActivated,
+                   scheme == "mailto" {
+                    NSWorkspace.shared.open(url)
+                }
                 decisionHandler(.cancel, preferences)
                 return
             }
@@ -1271,7 +1277,8 @@ final class VelariumAppController: NSObject, NSApplicationDelegate, NSWindowDele
     // MARK: - Script Message Handler (JS <-> Native Bridge)
 
     func handleScriptMessage(_ message: WKScriptMessage) {
-        guard let body = message.body as? [String: Any],
+        guard message.frameInfo.isMainFrame,
+              let body = message.body as? [String: Any],
               let action = body["action"] as? String else { return }
 
         switch action {
@@ -1290,7 +1297,10 @@ final class VelariumAppController: NSObject, NSApplicationDelegate, NSWindowDele
             let lang = (body["lang"] as? String) ?? "ru"
             openBuiltInKinoriumLoginWindow(isEnglish: lang.lowercased().hasPrefix("en"))
         case "openExternalUrl":
-            if let uStr = body["url"] as? String, let u = URL(string: uStr) {
+            if let uStr = body["url"] as? String,
+               let u = URL(string: uStr),
+               let scheme = u.scheme?.lowercased(),
+               (scheme == "https" || scheme == "http") {
                 NSWorkspace.shared.open(u)
             }
         case "notifyEpisode":

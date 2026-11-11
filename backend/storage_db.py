@@ -164,7 +164,7 @@ class VelariumStorageDB:
                 pass
             return conn
         except Exception:
-            return self._conn if not self._closed else None
+            return None
 
     def _reader_conn(self) -> Optional[sqlite3.Connection]:
         if self._closed:
@@ -175,7 +175,6 @@ class VelariumStorageDB:
 
     @contextlib.contextmanager
     def _write_tx(self) -> Iterator[None]:
-        self._writer_thread_id = threading.get_ident()
         if self._tx_depth > 0:
             sp_name = f"sp_{self._tx_depth}"
             self._conn.execute(f"SAVEPOINT {sp_name};")
@@ -202,6 +201,7 @@ class VelariumStorageDB:
             except sqlite3.Error:
                 pass
         self._conn.execute("BEGIN IMMEDIATE;")
+        self._writer_thread_id = threading.get_ident()
         self._tx_depth = 1
         try:
             yield

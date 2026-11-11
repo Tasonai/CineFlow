@@ -1413,8 +1413,23 @@ static int run_native_webview2_window(
     return g_webview_init_failed ? 0 : 1;
 }
 
+static int is_safe_browser_url_w(const wchar_t *u) {
+    if (!u || !u[0]) {
+        return 0;
+    }
+    if (_wcsnicmp(u, L"https://", 8) != 0 && _wcsnicmp(u, L"http://", 7) != 0) {
+        return 0;
+    }
+    for (const wchar_t *p = u; *p; ++p) {
+        if (*p <= 0x20 || *p == L'"') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void open_velarium_window_fallback(const wchar_t *app_dir, const wchar_t *target_url) {
-    const wchar_t *url = (target_url && target_url[0]) ? target_url : VELARIUM_URL;
+    const wchar_t *url = (target_url && is_safe_browser_url_w(target_url)) ? target_url : VELARIUM_URL;
     wchar_t browser_exe[MAX_PATH * 2];
     if (find_chromium_browser(browser_exe, MAX_PATH * 2)) {
         int win_w = 1280, win_h = 780, win_x = 60, win_y = 30;
@@ -1508,7 +1523,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
                 }
             }
         }
-        if (stream_url && wcsncmp(stream_url, L"https://", 8) == 0) {
+        if (stream_url && _wcsnicmp(stream_url, L"https://", 8) == 0 && is_safe_browser_url_w(stream_url)) {
             if (!run_native_webview2_window(hInstance, app_dir, stream_url, VELARIUM_STREAM_WND_CLASS, has_bounds, sx, sy, sw, sh)) {
                 open_velarium_window_fallback(app_dir, stream_url);
             }

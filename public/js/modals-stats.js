@@ -1,4 +1,4 @@
-import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261110v3";
+import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v1";
 import {
   displayPoster,
   displayTitle,
@@ -8,7 +8,7 @@ import {
   translateGenre,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261110v3";
+} from "./i18n.js?v=20261111v1";
 import {
   closeCustomSelectMenu,
   copyTextToClipboard,
@@ -25,15 +25,15 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261110v3";
-import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261110v3";
+} from "./utils.js?v=20261111v1";
+import { attachSmartPosterFallback } from "./catalog-cards.js?v=20261111v1";
 import {
   getDefaultPlayableSourceTab,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261110v3";
-import { openPlayerModal } from "./player.js?v=20261110v3";
-import { updateBackupSummaryStat } from "./settings.js?v=20261110v3";
-import { openPersonModal, openQuickPeekModal } from "./modals.js?v=20261110v3";
+} from "./catalog-media-resolver.js?v=20261111v1";
+import { openPlayerModal } from "./player.js?v=20261111v1";
+import { updateBackupSummaryStat } from "./settings.js?v=20261111v1";
+import { openPersonModal, openQuickPeekModal } from "./modals.js?v=20261111v1";
 
 let _timeFmtRu = null;
 let _timeFmtEn = null;
@@ -351,7 +351,7 @@ export function computeClientWatchWrapAnalytics(st = {}, period = state.statsWra
         })
       : allHistEntries;
 
-  const wrapSig = `${Number(state.catalogIndexVersion) || 0}|${state.appLang || "ru"}|${normPeriod}|${(state.catalogItems || []).length}|${allHistEntries.length}|${allHistEntries[0]?.watched_at || allHistEntries[0]?.updatedAt || 0}|${st?.total_watched || st?.counts?.watched || 0}|${st?.rated_count || st?.counts?.rated || 0}|${(st?.top_favorites || st?.favorites || []).length}|${(st?.top_directors || []).length}|${(st?.top_actors || []).length}`;
+  const wrapSig = `${state.activeProfile?.id || "main"}|${Number(state.catalogIndexVersion) || 0}|${state.appLang || "ru"}|${normPeriod}|${(state.catalogItems || []).length}|${allHistEntries.length}|${allHistEntries[0]?.watched_at || allHistEntries[0]?.updatedAt || 0}|${st?.total_watched || st?.counts?.watched || 0}|${st?.rated_count || st?.counts?.rated || 0}|${(st?.top_favorites || st?.favorites || []).length}|${(st?.top_directors || []).length}|${(st?.top_actors || []).length}`;
   if (wrapSig === _lastWatchWrapSig && _lastWatchWrapVal) {
     return _lastWatchWrapVal;
   }
@@ -474,6 +474,9 @@ export function computeClientWatchWrapAnalytics(st = {}, period = state.statsWra
         }
       }
     }
+  });
+
+  histEntries.forEach((h) => {
     if (h?.media_type === "series" && (h.title || h.id)) {
       const sKey = String(h.kinorium_id || h.id || h.title).toLowerCase();
       const rec = seriesEpCounter.get(sKey) || {
@@ -489,9 +492,6 @@ export function computeClientWatchWrapAnalytics(st = {}, period = state.statsWra
       rec.seasonSet.add(Number(h.season) || 1);
       seriesEpCounter.set(sKey, rec);
     }
-  });
-
-  histEntries.forEach((h) => {
     const ts = Number(h?.watched_at || h?.updatedAt || 0);
     if (!ts) return;
     const dt = new Date(ts);
@@ -514,7 +514,12 @@ export function computeClientWatchWrapAnalytics(st = {}, period = state.statsWra
   const serverMarathon = Number(st.cinema_wrap?.longest_marathon_episodes || st.series_records?.longest_marathon_episodes) || 0;
   const longestMarathon = Math.max(localMaxBinge, normPeriod === "all" ? serverMarathon : 0, histEntries.length > 0 ? 1 : 0);
 
-  let bestStreakDays = Number(st.cinema_wrap?.best_streak_days || st.series_records?.best_streak_days) || (histEntries.length > 0 ? 1 : 0);
+  let bestStreakDays =
+    normPeriod === "all"
+      ? Number(st.cinema_wrap?.best_streak_days || st.series_records?.best_streak_days) || (histEntries.length > 0 ? 1 : 0)
+      : histEntries.length > 0
+      ? 1
+      : 0;
   if (dayBuckets.size >= 2) {
     const sortedDays = Array.from(dayBuckets.keys()).sort();
     let curSt = 1;
@@ -531,7 +536,8 @@ export function computeClientWatchWrapAnalytics(st = {}, period = state.statsWra
     }
   }
 
-  let mostBingedSeries = st.series_records?.most_binged_series || st.cinema_wrap?.most_binged_series || null;
+  let mostBingedSeries =
+    normPeriod === "all" ? st.series_records?.most_binged_series || st.cinema_wrap?.most_binged_series || null : null;
   seriesEpCounter.forEach((rec) => {
     const cnt = rec.epSet.size;
     if (!mostBingedSeries || cnt > (Number(mostBingedSeries.episodes_count) || 0)) {

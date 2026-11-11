@@ -180,7 +180,7 @@ def solve_kinorium_js_challenge(self: Any, body: str) -> str:
         return ""
     js_code = re.sub(r"</?script[^>]*>", "", body, flags=re.I)
     if re.search(
-        r"\b(?:require|process|child_process|Deno|Bun|ActiveXObject|WScript|WebSocket|fetch|importScripts)\b",
+        r"(?:\b(?:require|process|child_process|Deno|Bun|ActiveXObject|WScript|Scripting|FileSystemObject|GetObject|WebSocket|fetch|XMLHttpRequest|importScripts|eval|Function|constructor|globalThis|readFile|load)\b|\\u[0-9a-fA-F]{4}|\\x[0-9a-fA-F]{2})",
         js_code,
     ):
         return ""
@@ -311,8 +311,9 @@ def solve_kinorium_js_challenge(self: Any, body: str) -> str:
             import tempfile as _tempfile
 
             cscript_shim = (
-                "var __cf_emit = function(s){ try { WScript.Echo(s); } catch(e){} };\n"
-                "var ActiveXObject = undefined, GetObject = undefined, WScript_safe = undefined;\n"
+                "var __cf_wsh_echo = (typeof WScript !== 'undefined' && WScript.Echo) ? function(s){ try { WScript.Echo(s); } catch(e){} } : function(){};\n"
+                "var __cf_emit = function(s){ __cf_wsh_echo(s); };\n"
+                "var ActiveXObject = undefined, GetObject = undefined, WScript = undefined, Scripting = undefined;\n"
                 "var cookies = [];\n"
                 "var console = { log: function(){}, warn: function(){}, error: function(){} };\n"
                 "var document = {\n"

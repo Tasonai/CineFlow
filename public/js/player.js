@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261110v3";
+import { state } from "./state.js?v=20261111v1";
 import {
   displayBackdrop,
   displayCountries,
@@ -15,7 +15,7 @@ import {
   translateGenre,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261110v3";
+} from "./i18n.js?v=20261111v1";
 import {
   clampFloatingPopover,
   clampStagePopover,
@@ -51,7 +51,7 @@ import {
   syncSearchInputHasQueryUI,
   syncToastContainerMount,
   triggerVideoCenterIndicator,
-} from "./utils.js?v=20261110v3";
+} from "./utils.js?v=20261111v1";
 import {
   applyAudioBoostToVideo,
   applySavedPlayerPrefsToVideo,
@@ -68,7 +68,7 @@ import {
   stopAmbilightLoop,
   togglePictureInPicture,
   updatePlayerGearActiveDot,
-} from "./audio-dsp.js?v=20261110v3";
+} from "./audio-dsp.js?v=20261111v1";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -86,8 +86,8 @@ import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261110v3";
-import { setOfflineMode } from "./features-downloads.js?v=20261110v3";
+} from "./catalog.js?v=20261111v1";
+import { setOfflineMode } from "./features-downloads.js?v=20261111v1";
 import {
   closePersonModal,
   closeQuickPeekModal,
@@ -95,13 +95,13 @@ import {
   openQuickPeekModal,
   refreshOpenPersonModalUI,
   renderModalCastSection,
-} from "./modals.js?v=20261110v3";
-import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261110v3";
+} from "./modals.js?v=20261111v1";
+import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261111v1";
 import {
   refreshDownloadsState,
   sweepPendingDownloadCleanups,
   syncNativeNowPlaying,
-} from "./features.js?v=20261110v3";
+} from "./features.js?v=20261111v1";
 import {
   activateSelectedSubtitleTrack,
   adjustSubtitleOffset,
@@ -125,8 +125,8 @@ import {
   syncSubtitleOffsetUI,
   triggerLocalSubtitleFilePicker,
   updateCustomSubtitleOverlay,
-} from "./subtitles.js?v=20261110v3";
-import { pushDesktopRemoteStateNow, bindRemoteVideoListeners } from "./remote.js?v=20261110v3";
+} from "./subtitles.js?v=20261111v1";
+import { pushDesktopRemoteStateNow, bindRemoteVideoListeners } from "./remote.js?v=20261111v1";
 import {
   clearVideoStallWatchdog,
   cleanupAbrPreloadVideo,
@@ -139,7 +139,7 @@ import {
   getVideoForwardBufferSec,
   checkVideoPlaybackFreeze,
   sortQualityKeysLowToHigh,
-} from "./player-watchdog.js?v=20261110v3";
+} from "./player-watchdog.js?v=20261111v1";
 import {
   estimateItemDurationSec,
   buildRemuxStreamEndpoint,
@@ -149,7 +149,7 @@ import {
   clearRemuxDurationPoll,
   scheduleRemuxFullDurationProbe,
   prepareRemuxAudioSwitch,
-} from "./player-remux.js?v=20261110v3";
+} from "./player-remux.js?v=20261111v1";
 import {
   hasOpenVcPopover,
   closeAllVcPopovers,
@@ -170,7 +170,7 @@ import {
   positionStagePopover,
   toggleQuickOriginalAudio,
   syncCustomControlPopovers,
-} from "./player-ui-controls.js?v=20261110v3";
+} from "./player-ui-controls.js?v=20261111v1";
 import {
   getNextEpisodeCoords,
   showPlayerNextEpisodeToast,
@@ -179,14 +179,14 @@ import {
   clearAutoplayNextTimer,
   isPostwatchCardPausingAutoplay,
   startAutoplayNextCountdown,
-} from "./player-autoplay.js?v=20261110v3";
+} from "./player-autoplay.js?v=20261111v1";
 import {
   syncPipDockUI,
   setPipBackgroundMode,
   restoreFullPlayerFromPip,
   updateMiniPlayerTitle,
   setMiniPlayerMode,
-} from "./player-pip-dock.js?v=20261110v3";
+} from "./player-pip-dock.js?v=20261111v1";
 import {
   escapeEpisodeHtml,
   getEpisodeDisplayMeta,
@@ -202,7 +202,7 @@ import {
   toggleCurrentEpisodeWatched,
   hasStartedWatchingCurrentEpisode,
   markOutgoingEpisodeWatched,
-} from "./player-seasons.js?v=20261110v3";
+} from "./player-seasons.js?v=20261111v1";
 import {
   isHdRezkaStreamDeadOrExpired as _isHdRezkaStreamDeadOrExpired,
   _localizeOfflineSubLabel,
@@ -232,7 +232,7 @@ import {
   loadStremioStreams,
   loadBackup4KReleases,
   _tryRecoverHdRezkaPlayback as _tryRecoverHdRezkaPlaybackImpl,
-} from "./player-streams.js?v=20261110v3";
+} from "./player-streams.js?v=20261111v1";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -247,7 +247,7 @@ import {
   renderModalSimilarItems,
   captureVideoScreenshot,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261110v3";
+} from "./player-meta.js?v=20261111v1";
 import {
   hideXRayPauseShelf,
   showXRayPauseShelf,
@@ -264,7 +264,7 @@ import {
   addOrUpdateRemoteBookmark,
   deleteRemoteBookmarkByIdOrTime,
   renderTimelineBookmarks,
-} from "./player-bookmarks.js?v=20261110v3";
+} from "./player-bookmarks.js?v=20261111v1";
 import {
   syncPostwatchOverlayMount,
   renderPostWatchRatingState,
@@ -273,7 +273,7 @@ import {
   initPlayerStatusAndRatingBindings,
   rateActivePlayerTitle as _rateActivePlayerTitle,
   toggleActivePlayerWatched as _toggleActivePlayerWatched,
-} from "./player-rating.js?v=20261110v3";
+} from "./player-rating.js?v=20261111v1";
 
 export {
   syncPostwatchOverlayMount,
@@ -295,7 +295,7 @@ import {
   getDetectedCreditsStartSec,
   renderTimelineChapterMarkers,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261110v3";
+} from "./player-intro-credits.js?v=20261111v1";
 
 export {
   getDetectedCreditsStartSec,
@@ -303,7 +303,7 @@ export {
   loadSkipIntroSegments,
 };
 
-import { reportScrobbleProgress } from "./player-scrobble.js?v=20261110v3";
+import { reportScrobbleProgress } from "./player-scrobble.js?v=20261111v1";
 
 export { reportScrobbleProgress };
 
@@ -1088,6 +1088,7 @@ export function seamlessSwitchVideoQuality(targetKey, options = {}) {
   const commitSeamlessSwap = () => {
     cleanupAbrPreloadVideo();
     if (!state.isPlayerOpen || sessionId !== state.playerSessionId) return;
+    state.abrSwitching = true;
     const liveVideo = document.getElementById("native-video");
     if (!liveVideo) return;
     const { cur: rawLiveCur } = getEffectivePlaybackTiming(liveVideo);
@@ -1426,6 +1427,7 @@ export function playVideoUrl(streamUrl, startTime = 0, sessionId = state.playerS
     }
     const wasStartedBefore = hasStartedPlayingOnce;
     hasStartedPlayingOnce = true;
+    state.abrSwitching = false;
     state.lastPlaybackAdvanceTs = Date.now();
     if (state.waitingSpinnerTimerId) {
       clearTimeout(state.waitingSpinnerTimerId);
@@ -2873,7 +2875,7 @@ export function refreshOpenPlayerLanguageUI(langChanged = false) {
     renderPostWatchRatingState();
   }
 
-  if (state.activeOfficialService && OFFICIAL_STREAMING_SERVICES[state.activeOfficialService]) {
+  if (state.activeOfficialService && OFFICIAL_STREAMING_SERVICES.has(state.activeOfficialService)) {
     loadOfficialServiceTab(state.activeOfficialService, { embedMode: state.officialEmbedActive });
   }
 

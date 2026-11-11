@@ -215,6 +215,9 @@ class CinemaRequestHandler(BaseHTTPRequestHandler):
         return True
 
     def _is_trusted_origin(self) -> bool:
+        sfs = (self.headers.get("Sec-Fetch-Site") or "").strip().lower()
+        if sfs == "cross-site":
+            return False
         origin = (self.headers.get("Origin") or "").strip()
         if not origin:
             return True

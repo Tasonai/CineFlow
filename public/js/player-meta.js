@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261110v3";
+import { state } from "./state.js?v=20261111v1";
 import {
   displayCountries,
   displayDescription,
@@ -13,7 +13,7 @@ import {
   t,
   translateGenre,
   translateStudioName,
-} from "./i18n.js?v=20261110v3";
+} from "./i18n.js?v=20261111v1";
 import {
   escapeAttr,
   escapeHtml,
@@ -27,8 +27,8 @@ import {
   showVideoOsd,
   syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261110v3";
-import { getPlayerPrefs, savePlayerPrefs } from "./audio-dsp.js?v=20261110v3";
+} from "./utils.js?v=20261111v1";
+import { getPlayerPrefs, savePlayerPrefs } from "./audio-dsp.js?v=20261111v1";
 import {
   applyEnabledServicesVisibility,
   attachSmartPosterFallback,
@@ -39,19 +39,19 @@ import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261110v3";
-import { openQuickPeekModal, renderModalCastSection } from "./modals.js?v=20261110v3";
-import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261110v3";
-import { syncNativeNowPlaying } from "./features.js?v=20261110v3";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261110v3";
+} from "./catalog.js?v=20261111v1";
+import { openQuickPeekModal, renderModalCastSection } from "./modals.js?v=20261111v1";
+import { confirmServiceLogin, triggerServiceLoginFlow } from "./settings.js?v=20261111v1";
+import { syncNativeNowPlaying } from "./features.js?v=20261111v1";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v1";
 import {
   getEpisodeDisplayMeta,
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261110v3";
-import { switchSourceTab, syncOfficialEmbeddedStreamRect } from "./player-streams.js?v=20261110v3";
-import { setMiniPlayerMode } from "./player-pip-dock.js?v=20261110v3";
-import { closePlayerModal } from "./player.js?v=20261110v3";
+} from "./player-seasons.js?v=20261111v1";
+import { switchSourceTab, syncOfficialEmbeddedStreamRect } from "./player-streams.js?v=20261111v1";
+import { setMiniPlayerMode } from "./player-pip-dock.js?v=20261111v1";
+import { closePlayerModal } from "./player.js?v=20261111v1";
 
 export const OFFICIAL_STREAMING_SERVICES = new Set(["appletv", "netflix", "prime", "disney", "max", "playerpl"]);
 
@@ -796,6 +796,7 @@ export async function captureVideoScreenshot() {
     showToast(t("Не удалось сделать снимок кадра для этого потока", "Could not capture a frame from this stream"));
     return;
   }
+  const snapSessionId = state.playerSessionId;
   try {
     showToast(t("Создание снимка кадра...", "Capturing frame..."));
     const qs = new URLSearchParams({
@@ -803,6 +804,7 @@ export async function captureVideoScreenshot() {
       ss: String(Math.max(0, Math.round(cur * 100) / 100)),
     });
     const res = await fetch(`/api/video-snapshot?${qs.toString()}`);
+    if (!state.isPlayerOpen || state.playerSessionId !== snapSessionId) return;
     if (!res.ok) {
       showToast(t("Не удалось сохранить кадр для текущего потока", "Could not save frame from current stream"));
       return;

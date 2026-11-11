@@ -10,14 +10,14 @@ import {
   profileStorageKey,
   profileStorageKeyFor,
   state,
-} from "./state.js?v=20261110v3";
+} from "./state.js?v=20261111v1";
 import {
   applyStaticDomTranslations,
   displayAddonDescription,
   isEn,
   syncLanguageSegmentedControlUI,
   t,
-} from "./i18n.js?v=20261110v3";
+} from "./i18n.js?v=20261111v1";
 import {
   closeCustomSelectMenu,
   copyTextToClipboard,
@@ -33,32 +33,32 @@ import {
   syncAllCustomSelects,
   syncCustomSelect,
   syncScrollTopButton,
-} from "./utils.js?v=20261110v3";
-import { applyEnabledServicesVisibility, isServiceEnabled } from "./catalog-media-resolver.js?v=20261110v3";
+} from "./utils.js?v=20261111v1";
+import { applyEnabledServicesVisibility, isServiceEnabled } from "./catalog-media-resolver.js?v=20261111v1";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261110v3";
-import { renderHero } from "./catalog-hero.js?v=20261110v3";
-import { renderNotificationsBell } from "./catalog-notifications.js?v=20261110v3";
+} from "./catalog-shelves.js?v=20261111v1";
+import { renderHero } from "./catalog-hero.js?v=20261111v1";
+import { renderNotificationsBell } from "./catalog-notifications.js?v=20261111v1";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
-} from "./catalog-filters.js?v=20261110v3";
+} from "./catalog-filters.js?v=20261111v1";
 import {
   clearCatalogFrontendCache,
   loadCatalog,
   renderLoginBannerIfNeeded,
   updateFriendsFilterDropdown,
   updateKinoriumUserBadge,
-} from "./catalog.js?v=20261110v3";
-import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261110v3";
-import { loadStremioStreams } from "./player-streams.js?v=20261110v3";
-import { renderModalProvidersSidebar } from "./player-meta.js?v=20261110v3";
+} from "./catalog.js?v=20261111v1";
+import { openQuickPeekModal, openStatsModal, refreshOpenPersonModalUI, syncModalBackButtons } from "./modals.js?v=20261111v1";
+import { loadStremioStreams } from "./player-streams.js?v=20261111v1";
+import { renderModalProvidersSidebar } from "./player-meta.js?v=20261111v1";
 import {
   refreshOpenPlayerLanguageUI,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261110v3";
+} from "./player.js?v=20261111v1";
 import {
   applyProfilesPayload,
   ensureKidsPinVerifiedForAdminAction,
@@ -71,12 +71,12 @@ import {
   renderProfilesModalUI,
   renderTvCastModalUI,
   startOneClickKinoriumLogin,
-} from "./features.js?v=20261110v3";
+} from "./features.js?v=20261111v1";
 import {
   loadAndRenderRemotePairingPanel,
   pushDesktopRemoteStateNow,
   syncDesktopConnectedRemotesUI,
-} from "./remote.js?v=20261110v3";
+} from "./remote.js?v=20261111v1";
 import {
   changeUserCountryInstant,
   closeOnboardingModal,
@@ -87,7 +87,7 @@ import {
   setOnboardingStep,
   skipOnboardingModal,
   submitOnboardingModal,
-} from "./settings-onboarding.js?v=20261110v3";
+} from "./settings-onboarding.js?v=20261111v1";
 import {
   buildFullBackupPayload,
   checkAppUpdates,
@@ -99,7 +99,7 @@ import {
   saveUpdaterSettingsImmediate,
   startAppUpdateDownload,
   updateBackupSummaryStat,
-} from "./settings-updater.js?v=20261110v3";
+} from "./settings-updater.js?v=20261111v1";
 
 export {
   buildFullBackupPayload,
@@ -235,7 +235,8 @@ export async function triggerServiceLoginFlow(serviceId, customUrl = null) {
   const integ = state.integrations[serviceId];
   if (!integ) return;
 
-  const loginUrl = customUrl || integ.login_url;
+  const loginUrl = String(customUrl || integ.login_url || "").trim();
+  if (!/^https?:\/\//i.test(loginUrl)) return;
   window.open(loginUrl, "_blank", "noopener,noreferrer,width=1180,height=740");
 
   if (!integ.logged_in) {
@@ -514,9 +515,11 @@ export function renderIntegrationsList() {
       row.classList.add("kinorium-card");
       const acc = state.kinoriumAccount || {};
       const isConnected = Boolean(acc.connected && acc.user_id);
-      const profileUrl =
+      const rawProfileUrl = String(
         acc.profile_url ||
-        (acc.user_id ? `https://en.kinorium.com/user/${acc.user_id}/` : "https://en.kinorium.com/");
+          (acc.user_id ? `https://en.kinorium.com/user/${encodeURIComponent(acc.user_id)}/` : "https://en.kinorium.com/")
+      ).trim();
+      const profileUrl = /^https?:\/\//i.test(rawProfileUrl) ? rawProfileUrl : "https://en.kinorium.com/";
       const currentInputVal = acc.profile_url || acc.user_id || "";
       const showFullForm = !isConnected || Boolean(state.kinoriumFormExpanded);
       const cookiePlaceholder = acc.has_session_cookie

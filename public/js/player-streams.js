@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261110v3";
+import { state } from "./state.js?v=20261111v1";
 import {
   displayBackdrop,
   displayDescription,
@@ -11,7 +11,7 @@ import {
   t,
   translateSizeLabel,
   translateStudioName,
-} from "./i18n.js?v=20261110v3";
+} from "./i18n.js?v=20261111v1";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -27,7 +27,7 @@ import {
   showVideoOsd,
   supportsNativePiP,
   syncCustomSelect,
-} from "./utils.js?v=20261110v3";
+} from "./utils.js?v=20261111v1";
 import {
   applyAudioBoostToVideo,
   getPlayerPrefs,
@@ -37,7 +37,7 @@ import {
   savePlayerPrefs,
   startAmbilightLoop,
   stopAmbilightLoop,
-} from "./audio-dsp.js?v=20261110v3";
+} from "./audio-dsp.js?v=20261111v1";
 import {
   getDefaultPlayableSourceTab,
   getPreferredStudioForItem,
@@ -46,8 +46,8 @@ import {
   loadCatalog,
   matchPreferredStudioInList,
   savePreferredStudioForItem,
-} from "./catalog.js?v=20261110v3";
-import { renderModalCastSection } from "./modals.js?v=20261110v3";
+} from "./catalog.js?v=20261111v1";
+import { renderModalCastSection } from "./modals.js?v=20261111v1";
 import {
   activateSelectedSubtitleTrack,
   buildRemuxSubtitlesList,
@@ -57,11 +57,11 @@ import {
   populateSubtitlesSelector,
   refreshRemuxSubtitleTracks,
   revokeLocalVideoBlobUrl,
-} from "./subtitles.js?v=20261110v3";
+} from "./subtitles.js?v=20261111v1";
 import {
   clearVideoStallWatchdog,
   getVideoForwardBufferSec,
-} from "./player-watchdog.js?v=20261110v3";
+} from "./player-watchdog.js?v=20261111v1";
 import {
   buildRemuxStreamEndpoint,
   clearRemuxDurationPoll,
@@ -69,20 +69,20 @@ import {
   getEffectivePlaybackTiming,
   prepareRemuxAudioSwitch,
   syncAudioOffsetUI,
-} from "./player-remux.js?v=20261110v3";
+} from "./player-remux.js?v=20261111v1";
 import {
   closeAllVcPopovers,
   isStageFullscreen,
   syncCustomVideoControlsUI,
   syncVcPopoverOpenClass,
   toggleStageFullscreen,
-} from "./player-ui-controls.js?v=20261110v3";
-import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261110v3";
-import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261110v3";
+} from "./player-ui-controls.js?v=20261111v1";
+import { getNextEpisodeCoords } from "./player-autoplay.js?v=20261111v1";
+import { updateMiniPlayerTitle } from "./player-pip-dock.js?v=20261111v1";
 import {
   populateSeasonEpisodeSelectors,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261110v3";
+} from "./player-seasons.js?v=20261111v1";
 import {
   OFFICIAL_STREAMING_SERVICES,
   _mergeItemProviders,
@@ -90,17 +90,17 @@ import {
   renderModalGenresAndSubheader,
   renderModalProvidersSidebar,
   syncMediaSessionMetadata,
-} from "./player-meta.js?v=20261110v3";
+} from "./player-meta.js?v=20261111v1";
 import {
   getDetectedCreditsStartSec,
   loadSkipIntroSegments,
-} from "./player-intro-credits.js?v=20261110v3";
-import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261110v3";
-import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261110v3";
+} from "./player-intro-credits.js?v=20261111v1";
+import { syncCustomControlPopovers } from "./player-ui-controls.js?v=20261111v1";
+import { hideXRayPauseShelf, closeBookmarkNoteDialog } from "./player-bookmarks.js?v=20261111v1";
 import {
   playVideoUrl,
   syncPlayerOfflineControlsUI,
-} from "./player.js?v=20261110v3";
+} from "./player.js?v=20261111v1";
 
 export function isHdRezkaStreamDeadOrExpired(video) {
   if (!video || state.activeSourceTab !== "hdrezka" || state.remuxMeta?.active) {
@@ -1001,14 +1001,16 @@ export function renderTrailerEmbed(lang = "ru") {
   if (btnRu) btnRu.classList.toggle("active", lang === "ru");
   if (btnEn) btnEn.classList.toggle("active", lang === "en");
 
-  const embedUrl =
+  const rawEmbedUrl =
     lang === "en"
       ? state.trailerData.en_embed_url || state.trailerData.default_embed_url
       : state.trailerData.ru_embed_url || state.trailerData.default_embed_url;
-  const ytUrl =
+  const embedUrl = /^https?:\/\//i.test(String(rawEmbedUrl || "").trim()) ? String(rawEmbedUrl).trim() : "";
+  const rawYtUrl =
     lang === "en"
       ? state.trailerData.en_youtube_url || state.trailerData.ru_youtube_url
       : state.trailerData.ru_youtube_url || state.trailerData.en_youtube_url;
+  const ytUrl = /^https?:\/\//i.test(String(rawYtUrl || "").trim()) ? String(rawYtUrl).trim() : "";
 
   if (btnYt && ytUrl) {
     btnYt.onclick = () => window.open(ytUrl, "_blank", "noopener,noreferrer");
@@ -1028,7 +1030,7 @@ export function renderTrailerEmbed(lang = "ru") {
     state.trailerPlaying = true;
     trailerStage.innerHTML = `
       <iframe
-        src="${apiEmbedUrl}"
+        src="${escapeAttr(apiEmbedUrl)}"
         title="${escapeAttr(t("Трейлер", "Trailer"))}"
         referrerpolicy="strict-origin-when-cross-origin"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -1268,6 +1270,7 @@ export async function renderErrorStudiosPanel() {
       });
       if (item.rezka_url) p.set("rezka_url", item.rezka_url);
       const res = await fetch(`/api/title-meta?${p.toString()}`);
+      if (!state.isPlayerOpen || state.activeItem !== item) return;
       if (res.ok) {
         const meta = await res.json();
         if (Array.isArray(meta.studios) && meta.studios.length > 0) {
@@ -2321,7 +2324,7 @@ import {
   resetAudioOffset,
   seekEffectivePlayback,
   switchRemuxAudioTrack,
-} from "./player-streams-4k.js?v=20261110v3";
+} from "./player-streams-4k.js?v=20261111v1";
 export {
   adjustAudioOffset,
   loadBackup4KReleases,

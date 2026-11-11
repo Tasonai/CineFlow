@@ -298,6 +298,7 @@ class BackupStreamingEngine:
         self._torr_lock = threading.Lock()
         self._torr_tuned: bool = False
         self._torr_alive_cache: Tuple[bool, float] = (False, 0.0)
+        self._torr_preflight_pool = None
         self._cache_lock = threading.Lock()
         self._debrid_cache: Dict[str, Tuple[str, float]] = {}
 

@@ -869,7 +869,8 @@ class DoHSplitNetworkClient:
 
         if clean_proxy:
             p_prx = urllib.parse.urlparse(clean_proxy)
-            if p_prx.scheme not in ("http", "https") or not p_prx.hostname:
+            prx_host = (p_prx.hostname or "").strip().lower().rstrip(".")
+            if p_prx.scheme not in ("http", "https") or not prx_host or prx_host in ("0.0.0.0", "169.254.169.254"):
                 clean_proxy = ""
 
         target_url = clean_url
@@ -920,6 +921,7 @@ class DoHSplitNetworkClient:
                         cf_worker_relay=clean_relay,
                         use_doh=use_doh_flag,
                         pre_resolved_map=resolved_map,
+                        use_cookies=False,
                         verify_tls=False,
                     )
                     return self._execute_once(target_url, method, data, merged_headers, op_relaxed, timeout, decode_body=decode_body)

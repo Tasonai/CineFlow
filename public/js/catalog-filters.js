@@ -1,10 +1,10 @@
-import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261110v3";
+import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261111v1";
 import {
   displayTitle,
   getItemGenreEntries,
   t,
   translateGenre,
-} from "./i18n.js?v=20261110v3";
+} from "./i18n.js?v=20261111v1";
 import {
   clampFloatingPopover,
   closeFloatingPopovers,
@@ -16,26 +16,26 @@ import {
   showToast,
   syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261110v3";
+} from "./utils.js?v=20261111v1";
 import {
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261110v3";
+} from "./catalog-hero.js?v=20261111v1";
 import {
   applyEnabledServicesVisibility,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261110v3";
+} from "./catalog-media-resolver.js?v=20261111v1";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261110v3";
-import { switchNotificationsTab } from "./catalog-notifications.js?v=20261110v3";
-import { syncSearchClearButton } from "./catalog-live-search.js?v=20261110v3";
-import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261110v3";
-import { openQuickPeekModal } from "./modals.js?v=20261110v3";
-import { loadCatalog } from "./catalog.js?v=20261110v3";
+} from "./catalog-shelves.js?v=20261111v1";
+import { switchNotificationsTab } from "./catalog-notifications.js?v=20261111v1";
+import { syncSearchClearButton } from "./catalog-live-search.js?v=20261111v1";
+import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261111v1";
+import { openQuickPeekModal } from "./modals.js?v=20261111v1";
+import { loadCatalog } from "./catalog.js?v=20261111v1";
 
 export function updateActiveFiltersBadge() {
   let drawerCount = 0;
@@ -537,10 +537,8 @@ export function renderActiveFilterChips() {
       if (ch.reloadCatalog) {
         loadCatalog();
       } else {
-        if (ch.refreshHero) {
-          renderHero();
-          renderContinueWatching();
-        }
+        renderHero();
+        renderContinueWatching();
         renderCatalogShelves({ skipHero: true });
       }
     };

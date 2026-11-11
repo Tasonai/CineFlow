@@ -27,7 +27,13 @@ def _is_valid_ffmpeg_http_url(url: str) -> bool:
         _ = parsed.port
     except ValueError:
         return False
-    return bool(parsed.scheme in ("http", "https") and parsed.hostname)
+    if not (parsed.scheme in ("http", "https") and parsed.hostname):
+        return False
+    try:
+        from .net_security import is_allowed_media_source_url
+        return bool(is_allowed_media_source_url(s, allow_torrserver_loopback=True))
+    except Exception:
+        return False
 
 
 def build_ffmpeg_env(source_url: str = "") -> Dict[str, str]:
@@ -584,7 +590,8 @@ class RemuxStreamEngine:
                         "_ts": time.time(),
                         "_failed": True,
                     }
-                    self._probe_inflight.pop(inflight_key, None)
+                    if self._probe_inflight.get(inflight_key) is inflight_ev:
+                        self._probe_inflight.pop(inflight_key, None)
                 inflight_ev.set()
                 return {"ok": False, "error": err_msg, "remux_available": True}
             parsed = json.loads(proc.stdout)
@@ -597,7 +604,8 @@ class RemuxStreamEngine:
                     "_ts": time.time(),
                     "_failed": True,
                 }
-                self._probe_inflight.pop(inflight_key, None)
+                if self._probe_inflight.get(inflight_key) is inflight_ev:
+                    self._probe_inflight.pop(inflight_key, None)
             inflight_ev.set()
             return {"ok": False, "error": "Timeout probing torrent stream (peers warming up)", "remux_available": True}
         except Exception as exc:
@@ -609,7 +617,8 @@ class RemuxStreamEngine:
                     "_ts": time.time(),
                     "_failed": True,
                 }
-                self._probe_inflight.pop(inflight_key, None)
+                if self._probe_inflight.get(inflight_key) is inflight_ev:
+                    self._probe_inflight.pop(inflight_key, None)
             inflight_ev.set()
             return {"ok": False, "error": str(exc), "remux_available": True}
 
@@ -715,7 +724,8 @@ class RemuxStreamEngine:
                 for k_old in list(self._probe_cache.keys())[:30]:
                     self._probe_cache.pop(k_old, None)
             self._probe_cache[cache_key] = {**raw_result, "_ts": now}
-            self._probe_inflight.pop(inflight_key, None)
+            if self._probe_inflight.get(inflight_key) is inflight_ev:
+                self._probe_inflight.pop(inflight_key, None)
         inflight_ev.set()
         return self._localize_probe_payload(raw_result, ui_lang=ui_lang)
 
@@ -839,10 +849,18 @@ class RemuxStreamEngine:
 
         sub_filter = ""
         clean_sub_file = str(subtitles_file or "").strip()
-        if clean_sub_file:
-            esc_path = clean_sub_file.replace("\\", "/").replace("'", "'\\''").replace(":", "\\:")
+        if clean_sub_file and not _CTRL_CHAR_RE.search(clean_sub_file) and ".." not in clean_sub_file:
+            esc_path = (
+                clean_sub_file.replace("\\", "/")
+                .replace(":", "\\:")
+                .replace("'", "'\\''")
+                .replace(",", "\\,")
+                .replace(";", "\\;")
+                .replace("[", "\\[")
+                .replace("]", "\\]")
+            )
             sub_filter = f"subtitles='{esc_path}':force_style='FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,MarginV=25'"
-        elif subtitle_index is not None and int(subtitle_index) >= 0:
+        elif subtitle_index is not None and int(subtitle_index) >= 0 and not any(ch in clean_src for ch in ("'", ",", ";", "[", "]")):
             esc_src = clean_src.replace("\\", "/").replace("'", "'\\''").replace(":", "\\:")
             sub_filter = f"subtitles='{esc_src}':si={int(subtitle_index)}:force_style='FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=3,MarginV=25'"
 
