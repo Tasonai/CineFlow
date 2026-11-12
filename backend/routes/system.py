@@ -304,6 +304,44 @@ def handle_system_update_open_post(handler, qs, parsed, body, ctx):
     return True
 
 
+def handle_system_shutdown_post(handler, qs, parsed, body, ctx):
+    if not handler._is_loopback_client():
+        handler._send_json({"ok": False, "error": "Loopback only"}, status=403)
+        return True
+    stop_tok = str(handler.headers.get("X-Velarium-Local-Stop") or "").strip()
+    if stop_tok != "velarium-installer-stop":
+        handler._send_json({"ok": False, "error": "Missing local installer stop token"}, status=403)
+        return True
+    handler._send_json({"ok": True, "shutting_down": True}, status=200)
+
+    def _deferred_shutdown() -> None:
+        import time as _time
+
+        _time.sleep(0.06)
+        try:
+            _close_active_stream_embed_proc()
+        except Exception:
+            pass
+        try:
+            bse = getattr(ctx, "backup_stream_engine", None)
+            if bse is not None and hasattr(bse, "stop_torrserver"):
+                bse.stop_torrserver()
+        except Exception:
+            pass
+        try:
+            rt = getattr(ctx, "server_runtime", None) or {}
+            srv = rt.get("server")
+            if srv is not None:
+                srv.shutdown()
+        except Exception:
+            pass
+        _time.sleep(0.18)
+        os._exit(0)
+
+    threading.Thread(target=_deferred_shutdown, name="VelariumInstallerStop", daemon=True).start()
+    return True
+
+
 def handle_stream_embed_open_post(handler, qs, parsed, body, ctx):
     app_lang = ctx.app_prefs.get("app_lang", "ru")
     req_lang = ctx.norm_app_lang(body.get("lang", app_lang), app_lang)

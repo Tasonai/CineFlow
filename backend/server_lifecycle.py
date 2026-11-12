@@ -266,6 +266,23 @@ def stop_stale_velarium_server_on_port(port: int, app_version: str = "") -> None
     except Exception:
         return
 
+    try:
+        stop_req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/system/shutdown",
+            data=b"{}",
+            headers={
+                "Content-Type": "application/json",
+                "Origin": f"http://127.0.0.1:{port}",
+                "X-Velarium-Local-Stop": "velarium-installer-stop",
+            },
+            method="POST",
+        )
+        with opener.open(stop_req, timeout=0.8):
+            pass
+        time.sleep(0.35)
+    except Exception:
+        pass
+
     if sys.platform == "darwin":
         try:
             out = subprocess.check_output(
@@ -278,6 +295,36 @@ def stop_stale_velarium_server_on_port(port: int, app_version: str = "") -> None
                 if pid_s.strip().isdigit() and int(pid_s.strip()) != os.getpid():
                     os.kill(int(pid_s.strip()), 15)
             time.sleep(0.45)
+        except Exception:
+            pass
+    elif sys.platform == "win32":
+        try:
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            out = subprocess.check_output(
+                ["netstat", "-ano", "-p", "tcp"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2.5,
+                creationflags=creationflags,
+            )
+            port_suffix = f":{port}"
+            killed_any = False
+            for ln in out.splitlines():
+                parts = ln.split()
+                if len(parts) >= 5 and parts[0].upper() == "TCP" and parts[3].upper() == "LISTENING":
+                    if parts[1].endswith(port_suffix) and parts[4].isdigit():
+                        pid_val = int(parts[4])
+                        if pid_val > 0 and pid_val != os.getpid():
+                            subprocess.run(
+                                ["taskkill", "/F", "/PID", str(pid_val)],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                timeout=2.0,
+                                creationflags=creationflags,
+                            )
+                            killed_any = True
+            if killed_any:
+                time.sleep(0.35)
         except Exception:
             pass
 

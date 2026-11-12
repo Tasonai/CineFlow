@@ -550,7 +550,11 @@ class AppUpdater:
                 last_err_msg = str(e)
 
         with self._lock:
-            if self._status.get("state") in ("downloading", "installing"):
+            cur_st = self._status.get("state")
+            if cur_st == "downloading" or (
+                cur_st == "installing"
+                and (time.time() - float(self._status.get("install_started_at") or 0.0)) < 15.0
+            ):
                 return self.get_status()
             self._status["last_checked_at"] = now
             if parsed_info is None:
@@ -599,6 +603,8 @@ class AppUpdater:
                     "asset_url": parsed_info["asset_url"],
                     "asset_size": parsed_info["asset_size"],
                     "expected_sha256": parsed_info["expected_sha256"],
+                    "file_path": existing_file if already_downloaded else "",
+                    "sha256_verified": bool(self._status.get("sha256_verified")) if already_downloaded else False,
                     "error": "",
                 }
             )
@@ -654,7 +660,10 @@ class AppUpdater:
         with self._lock:
             if self._status.get("state") == "downloading" and self._download_thread and self._download_thread.is_alive():
                 return self.get_status()
-            if self._status.get("state") == "installing":
+            if (
+                self._status.get("state") == "installing"
+                and (time.time() - float(self._status.get("install_started_at") or 0.0)) < 15.0
+            ):
                 return self.get_status()
             existing_file = str(self._status.get("file_path") or "").strip()
             if (
@@ -738,7 +747,10 @@ class AppUpdater:
         with self._lock:
             if self._status.get("state") == "downloading" and self._download_thread and self._download_thread.is_alive():
                 return self.get_status()
-            if self._status.get("state") == "installing":
+            if (
+                self._status.get("state") == "installing"
+                and (time.time() - float(self._status.get("install_started_at") or 0.0)) < 15.0
+            ):
                 return self.get_status()
             self._cancel_requested = False
             self._status.update(

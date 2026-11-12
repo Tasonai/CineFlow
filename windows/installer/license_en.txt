@@ -5,17 +5,17 @@ Product Passport, Local Privacy & License Agreement
 
 PRODUCT INFORMATION
   Product Name:    Velarium
-  Release Version: 2.7.17 (64-bit x64 Edition)
+  Release Version: 2.7.18 (64-bit x64 Edition)
   Developer:       Atoma
   Release Year:    2026
   Target Platform: Microsoft Windows 10 & Windows 11 (x64)
 
 0. RELEASE NOTES (CHANGELOG)
-What's new in Velarium 2.7.17:
-• Fixed runtime\_bz2.pyd File Lock During Windows In-App Updates: resolved an issue where runtime\pythonw.exe matched the grandparent PID filter when Setup.exe was launched from inside Velarium, keeping Python extension modules (_bz2.pyd, python311.dll) locked during extraction.
-• Kernel-Level Write-Unlock Verification Before File Extraction: the bundled shutdown helper now normalizes Windows 8.3 paths and verifies GENERIC_WRITE availability across runtime\, Velarium.exe, WebView2Loader.dll, and ffmpeg.exe before handing control back to NSIS.
-• Isolated Update Staging & Atomic macOS Bundle Swap: SHA-256-verified installers run from a dedicated OS temp directory with detached file descriptors, and macOS .dmg updates execute via pure POSIX /bin/sh and ditto with automatic rollback.
-• Fluid Full-Bleed Widescreen Layout (7–12 Poster Columns): full-bleed Netflix & Apple TV widescreen layout scaling cleanly across large displays.
+What's new in Velarium 2.7.18:
+• Eliminated runtime\_bz2.pyd Write Errors During Windows 10 & Windows 11 Updates: replaced the legacy 32-bit nsExec stub with native ExecWait execution so Windows 11 Defender and Smart App Control never block the pre-install shutdown helper.
+• Kernel Restart Manager (rstrtmgr.dll) & TCP Port Table Process Release: before extracting files, Setup queries the Windows kernel for every process holding open handles or image mappings inside runtime\ and backend\bin\ or listening on ports 8765 and 8090, cleanly stopping background pythonw.exe instances.
+• Atomic Same-Volume NTFS Locked-Binary Relocation: if an antivirus scanner or system service briefly holds a .pyd, .dll, or .exe handle open, Setup atomically moves the old binary aside into .old_bins on the same volume and writes the new file without modal write-error dialogs.
+• Automatic Stale-Server Replacement & Fluid Widescreen Layout (7–12 Columns): Velarium.exe verifies the running local backend version on launch and seamlessly replaces stale processes after an update, paired with full-bleed widescreen poster grids.
 
 1. OVERVIEW & CORE CAPABILITIES
 Velarium unifies your personal movie tracking library, high-bitrate streaming, and regional streaming availability inside a single matte-dark desktop interface:
@@ -38,7 +38,7 @@ Velarium unifies your personal movie tracking library, high-bitrate streaming, a
 • All personal preferences, backups, and sync caches remain exclusively inside the local "data" directory on your machine.
 
 3. LICENSE TERMS
-• Velarium 2.7.17 is provided by Atoma for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
+• Velarium 2.7.18 is provided by Atoma for personal, non-commercial use on an "AS IS" basis without warranties of any kind.
 • Velarium operates solely as a local client-side media interface and metadata aggregator and does not host or distribute media content on any server.
 • Bundled open-source runtime components (Python 3.11 Embeddable Runtime, FFmpeg 9 GPL, TorrServer MatriX) remain covered by their respective licenses.
 

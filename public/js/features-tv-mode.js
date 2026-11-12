@@ -1,22 +1,22 @@
-import { state } from "./state.js?v=20261112v4";
-import { t } from "./i18n.js?v=20261112v4";
+import { state } from "./state.js?v=20261113v1";
+import { t } from "./i18n.js?v=20261113v1";
 import {
   closeCustomSelectMenu,
   closeFloatingPopovers,
   isCustomSelectMenuOpen,
   showToast,
   showVideoOsd,
-} from "./utils.js?v=20261112v4";
-import { savePlayerPrefs } from "./audio-dsp.js?v=20261112v4";
+} from "./utils.js?v=20261113v1";
+import { savePlayerPrefs } from "./audio-dsp.js?v=20261113v1";
 import {
   closeCommandPalette,
   closeMovieRouletteModal,
-} from "./catalog.js?v=20261112v4";
+} from "./catalog.js?v=20261113v1";
 import {
   closePersonModal,
   closeQuickPeekModal,
   closeStatsModal,
-} from "./modals.js?v=20261112v4";
+} from "./modals.js?v=20261113v1";
 import {
   closeAllVcPopovers,
   closePlayerModal,
@@ -29,15 +29,15 @@ import {
   toggleStageFullscreen,
   toggleVideoPlayPause,
   wakeVideoControls,
-} from "./player.js?v=20261112v4";
-import { closeOnboardingModal } from "./settings.js?v=20261112v4";
-import { closeDownloadsModal } from "./features-downloads.js?v=20261112v4";
-import { closeTvCastModal } from "./features-cast.js?v=20261112v4";
+} from "./player.js?v=20261113v1";
+import { closeOnboardingModal } from "./settings.js?v=20261113v1";
+import { closeDownloadsModal } from "./features-downloads.js?v=20261113v1";
+import { closeTvCastModal } from "./features-cast.js?v=20261113v1";
 import {
   closeKidsPinModal,
   closeProfilePopover,
   closeProfilesModal,
-} from "./features.js?v=20261112v4";
+} from "./features.js?v=20261113v1";
 
 // ============================================================================
 // 5. TV MODE (D-Pad / Gamepad Spatial Navigation + AirPlay / DLNA / QR)

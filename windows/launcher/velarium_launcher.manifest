@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
   <assemblyIdentity
-    version="2.7.17.0"
+    version="2.7.18.0"
     processorArchitecture="amd64"
     name="Atoma.Velarium.Launcher"
     type="win32"
   />
-  <description>Velarium 2.7.17 — Unified Local Cinema by Atoma</description>
+  <description>Velarium 2.7.18 — Unified Local Cinema by Atoma</description>
   <dependency>
     <dependentAssembly>
       <assemblyIdentity

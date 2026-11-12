@@ -15,6 +15,7 @@
 #include <stdlib.h>
 
 #define VELARIUM_PORT 8765
+#define VELARIUM_APP_VERSION "2.7.18"
 #define VELARIUM_URL  L"http://127.0.0.1:8765"
 #define VELARIUM_WND_CLASS L"VelariumDesktopWindow"
 #define VELARIUM_STREAM_WND_CLASS L"VelariumStreamWindow"
@@ -443,6 +444,112 @@ static int is_server_port_open(unsigned short port) {
     return alive;
 }
 
+static int is_matching_velarium_server_running(unsigned short port) {
+    SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == INVALID_SOCKET) {
+        return 0;
+    }
+    DWORD timeout_ms = 500;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout_ms, sizeof(timeout_ms));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout_ms, sizeof(timeout_ms));
+
+    struct sockaddr_in addr;
+    ZeroMemory(&addr, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        closesocket(sock);
+        return 0;
+    }
+
+    const char *req =
+        "GET /api/system/status HTTP/1.0\r\n"
+        "Host: 127.0.0.1:8765\r\n"
+        "Connection: close\r\n\r\n";
+    send(sock, req, (int)strlen(req), 0);
+
+    char buf[4096];
+    int total = 0;
+    while (total < (int)sizeof(buf) - 1) {
+        int n = recv(sock, buf + total, (int)sizeof(buf) - 1 - total, 0);
+        if (n <= 0) {
+            break;
+        }
+        total += n;
+    }
+    buf[total] = '\0';
+    closesocket(sock);
+
+    if (total <= 0) {
+        return 0;
+    }
+    if (strstr(buf, "200") == NULL) {
+        return 0;
+    }
+    if (strstr(buf, "\"version\": \"" VELARIUM_APP_VERSION "\"") != NULL ||
+        strstr(buf, "\"version\":\"" VELARIUM_APP_VERSION "\"") != NULL) {
+        return 1;
+    }
+    return 0;
+}
+
+static void request_local_server_http_shutdown(unsigned short port) {
+    SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock == INVALID_SOCKET) {
+        return;
+    }
+    u_long nonblock = 1;
+    ioctlsocket(sock, FIONBIO, &nonblock);
+
+    struct sockaddr_in addr;
+    ZeroMemory(&addr, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+    int connected = 0;
+    int rc = connect(sock, (struct sockaddr *)&addr, sizeof(addr));
+    if (rc == 0) {
+        connected = 1;
+    } else if (WSAGetLastError() == WSAEWOULDBLOCK) {
+        fd_set wfds;
+        FD_ZERO(&wfds);
+        FD_SET(sock, &wfds);
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 150000;
+        if (select(0, NULL, &wfds, NULL, &tv) > 0) {
+            int so_err = 0;
+            int optlen = sizeof(so_err);
+            if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (char *)&so_err, &optlen) == 0 && so_err == 0) {
+                connected = 1;
+            }
+        }
+    }
+    if (connected) {
+        nonblock = 0;
+        ioctlsocket(sock, FIONBIO, &nonblock);
+        DWORD timeout_ms = 200;
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&timeout_ms, sizeof(timeout_ms));
+        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char *)&timeout_ms, sizeof(timeout_ms));
+        const char *req =
+            "POST /api/system/shutdown HTTP/1.0\r\n"
+            "Host: 127.0.0.1:8765\r\n"
+            "Origin: http://127.0.0.1:8765\r\n"
+            "X-Velarium-Local-Stop: velarium-installer-stop\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: 2\r\n"
+            "Connection: close\r\n\r\n"
+            "{}";
+        send(sock, req, (int)strlen(req), 0);
+        char resp[256];
+        recv(sock, resp, sizeof(resp) - 1, 0);
+    }
+    closesocket(sock);
+}
+
 static BOOL CALLBACK close_legacy_velarium_windows_cb(HWND hwnd, LPARAM lParam) {
     int close_native = (int)lParam;
     wchar_t cls[128];
@@ -526,10 +633,23 @@ static void normalize_win_dir_path(const wchar_t *src, wchar_t *dst, size_t cap)
     if (!src || src[0] == L'\0') {
         return;
     }
+    while (*src == L' ' || *src == L'\t' || *src == L'"' || *src == L'\'') {
+        src++;
+    }
     wchar_t tmp[MAX_PATH * 2];
     wcsncpy(tmp, src, MAX_PATH * 2 - 1);
     tmp[MAX_PATH * 2 - 1] = L'\0';
     size_t len = wcslen(tmp);
+    while (len > 0 && (
+        tmp[len - 1] == L'"' ||
+        tmp[len - 1] == L'\'' ||
+        tmp[len - 1] == L' ' ||
+        tmp[len - 1] == L'\t' ||
+        tmp[len - 1] == L'\r' ||
+        tmp[len - 1] == L'\n'
+    )) {
+        tmp[--len] = L'\0';
+    }
     while (len > 3 && (tmp[len - 1] == L'\\' || tmp[len - 1] == L'/')) {
         tmp[--len] = L'\0';
     }
@@ -542,6 +662,56 @@ static void normalize_win_dir_path(const wchar_t *src, wchar_t *dst, size_t cap)
     while (dlen > 3 && (dst[dlen - 1] == L'\\' || dst[dlen - 1] == L'/')) {
         dst[--dlen] = L'\0';
     }
+}
+
+static const wchar_t *win_path_basename(const wchar_t *path) {
+    if (!path) {
+        return L"";
+    }
+    const wchar_t *base = path;
+    for (const wchar_t *p = path; *p != L'\0'; p++) {
+        if (*p == L'\\' || *p == L'/') {
+            base = p + 1;
+        }
+    }
+    return base;
+}
+
+static int is_known_velarium_exe_basename(const wchar_t *base) {
+    if (!base || base[0] == L'\0') {
+        return 0;
+    }
+    if (_wcsicmp(base, L"pythonw.exe") == 0 ||
+        _wcsicmp(base, L"python.exe") == 0 ||
+        _wcsicmp(base, L"Velarium.exe") == 0 ||
+        _wcsicmp(base, L"CineFlow.exe") == 0 ||
+        _wcsicmp(base, L"torrserver.exe") == 0 ||
+        _wcsicmp(base, L"ffmpeg.exe") == 0 ||
+        _wcsicmp(base, L"ffprobe.exe") == 0) {
+        return 1;
+    }
+    return 0;
+}
+
+static int is_never_terminate_system_basename(const wchar_t *base) {
+    if (!base || base[0] == L'\0') {
+        return 1;
+    }
+    if (_wcsicmp(base, L"explorer.exe") == 0 ||
+        _wcsicmp(base, L"svchost.exe") == 0 ||
+        _wcsicmp(base, L"csrss.exe") == 0 ||
+        _wcsicmp(base, L"lsass.exe") == 0 ||
+        _wcsicmp(base, L"winlogon.exe") == 0 ||
+        _wcsicmp(base, L"services.exe") == 0 ||
+        _wcsicmp(base, L"MsMpEng.exe") == 0 ||
+        _wcsicmp(base, L"Uninstall.exe") == 0 ||
+        _wcsicmp(base, L"Au_.exe") == 0) {
+        return 1;
+    }
+    if (wcsistr_ascii(base, "setup") || wcsistr_ascii(base, "install") || wcsistr_ascii(base, "uninst")) {
+        return 1;
+    }
+    return 0;
 }
 
 static int is_app_runtime_or_launcher_binary(const wchar_t *rel_path) {
@@ -562,6 +732,400 @@ static int is_app_runtime_or_launcher_binary(const wchar_t *rel_path) {
         return 1;
     }
     return 0;
+}
+
+static int terminate_pid_and_wait(DWORD pid) {
+    HANDLE hTerm = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid);
+    if (!hTerm) {
+        hTerm = OpenProcess(PROCESS_TERMINATE, FALSE, pid);
+        if (!hTerm) {
+            return 0;
+        }
+        BOOL ok = TerminateProcess(hTerm, 0);
+        CloseHandle(hTerm);
+        return ok ? 1 : 0;
+    }
+    BOOL ok = TerminateProcess(hTerm, 0);
+    WaitForSingleObject(hTerm, 3500);
+    CloseHandle(hTerm);
+    return ok ? 1 : 0;
+}
+
+static int can_safely_terminate_pid(DWORD pid, DWORD self_pid, DWORD parent_pid, int require_known_exe) {
+    if (pid == 0 || pid == self_pid) {
+        return 0;
+    }
+    HANDLE hQuery = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!hQuery) {
+        return 0;
+    }
+    wchar_t raw_img[MAX_PATH * 2];
+    DWORD img_len = MAX_PATH * 2;
+    int allow = 0;
+    if (QueryFullProcessImageNameW(hQuery, 0, raw_img, &img_len)) {
+        const wchar_t *base = win_path_basename(raw_img);
+        if (!is_never_terminate_system_basename(base) &&
+            !wcsistr_ascii(raw_img, "\\data\\updates_stage\\")) {
+            int known_app = is_known_velarium_exe_basename(base);
+            if (parent_pid != 0 && pid == parent_pid && !known_app) {
+                allow = 0;
+            } else if (require_known_exe) {
+                allow = known_app;
+            } else {
+                allow = 1;
+            }
+        }
+    }
+    CloseHandle(hQuery);
+    return allow;
+}
+
+/* ============================================================================
+ * Win32 Kernel Restart Manager (rstrtmgr.dll) & TCP Table (iphlpapi.dll) ABI
+ * ============================================================================ */
+
+typedef struct {
+    DWORD dwProcessId;
+    FILETIME ProcessStartTime;
+} VEL_RM_UNIQUE_PROCESS;
+
+typedef struct {
+    VEL_RM_UNIQUE_PROCESS Process;
+    WCHAR strAppName[256];
+    WCHAR strServiceShortName[64];
+    int ApplicationType;
+    ULONG AppStatus;
+    DWORD TSSessionId;
+    BOOL bRestartable;
+} VEL_RM_PROCESS_INFO;
+
+typedef DWORD (WINAPI *PFN_RmStartSession)(DWORD *pSessionHandle, DWORD dwSessionFlags, WCHAR strSessionKey[]);
+typedef DWORD (WINAPI *PFN_RmEndSession)(DWORD dwSessionHandle);
+typedef DWORD (WINAPI *PFN_RmRegisterResources)(
+    DWORD dwSessionHandle,
+    UINT nFiles,
+    LPCWSTR rgsFileNames[],
+    UINT nApplications,
+    void *rgApplications,
+    UINT nServices,
+    LPCWSTR rgsServiceNames[]
+);
+typedef DWORD (WINAPI *PFN_RmGetList)(
+    DWORD dwSessionHandle,
+    UINT *pnProcInfoNeeded,
+    UINT *pnProcInfo,
+    VEL_RM_PROCESS_INFO rgAffectedApps[],
+    LPDWORD lpdwRebootReasons
+);
+
+typedef struct {
+    DWORD dwState;
+    DWORD dwLocalAddr;
+    DWORD dwLocalPort;
+    DWORD dwRemoteAddr;
+    DWORD dwRemotePort;
+    DWORD dwOwningPid;
+    int dwOffloadState;
+} VEL_MIB_TCPROW2;
+
+typedef struct {
+    DWORD dwNumEntries;
+    VEL_MIB_TCPROW2 table[1];
+} VEL_MIB_TCPTABLE2;
+
+typedef ULONG (WINAPI *PFN_GetTcpTable2)(VEL_MIB_TCPTABLE2 *TcpTable, PULONG SizePointer, BOOL Order);
+
+static int is_binary_extension_w(const wchar_t *name) {
+    if (!name) {
+        return 0;
+    }
+    const wchar_t *dot = wcsrchr(name, L'.');
+    if (!dot) {
+        return 0;
+    }
+    return (_wcsicmp(dot, L".exe") == 0 ||
+            _wcsicmp(dot, L".dll") == 0 ||
+            _wcsicmp(dot, L".pyd") == 0);
+}
+
+static int terminate_restart_manager_holders(const wchar_t *norm_dir, DWORD self_pid, DWORD parent_pid) {
+    HMODULE hRm = LoadLibraryExW(L"rstrtmgr.dll", NULL, 0x00000800 /* LOAD_LIBRARY_SEARCH_SYSTEM32 */);
+    if (!hRm) {
+        hRm = LoadLibraryW(L"rstrtmgr.dll");
+    }
+    if (!hRm) {
+        return 0;
+    }
+    PFN_RmStartSession fnStart = (PFN_RmStartSession)(void *)GetProcAddress(hRm, "RmStartSession");
+    PFN_RmEndSession fnEnd = (PFN_RmEndSession)(void *)GetProcAddress(hRm, "RmEndSession");
+    PFN_RmRegisterResources fnReg = (PFN_RmRegisterResources)(void *)GetProcAddress(hRm, "RmRegisterResources");
+    PFN_RmGetList fnGetList = (PFN_RmGetList)(void *)GetProcAddress(hRm, "RmGetList");
+    if (!fnStart || !fnEnd || !fnReg || !fnGetList) {
+        FreeLibrary(hRm);
+        return 0;
+    }
+
+    static const wchar_t *scan_subdirs[] = { L"", L"\\runtime", L"\\backend\\bin" };
+    int killed_total = 0;
+    HANDLE heap = GetProcessHeap();
+
+    for (size_t s = 0; s < sizeof(scan_subdirs) / sizeof(scan_subdirs[0]); s++) {
+        wchar_t dir_path[MAX_PATH * 2];
+        _snwprintf(dir_path, MAX_PATH * 2 - 1, L"%s%s", norm_dir, scan_subdirs[s]);
+        dir_path[MAX_PATH * 2 - 1] = L'\0';
+
+        wchar_t pattern[MAX_PATH * 2];
+        _snwprintf(pattern, MAX_PATH * 2 - 1, L"%s\\*.*", dir_path);
+        pattern[MAX_PATH * 2 - 1] = L'\0';
+
+        WIN32_FIND_DATAW ffd;
+        HANDLE hFind = FindFirstFileW(pattern, &ffd);
+        if (hFind == INVALID_HANDLE_VALUE) {
+            continue;
+        }
+
+        wchar_t *batch_buf = (wchar_t *)HeapAlloc(heap, HEAP_ZERO_MEMORY, 64 * (MAX_PATH * 2) * sizeof(wchar_t));
+        LPCWSTR batch_ptrs[64];
+        UINT batch_count = 0;
+
+        if (batch_buf) {
+            do {
+                if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                    continue;
+                }
+                if (!is_binary_extension_w(ffd.cFileName)) {
+                    continue;
+                }
+                if (is_never_terminate_system_basename(ffd.cFileName)) {
+                    continue;
+                }
+                wchar_t *slot = batch_buf + (batch_count * (MAX_PATH * 2));
+                _snwprintf(slot, MAX_PATH * 2 - 1, L"%s\\%s", dir_path, ffd.cFileName);
+                slot[MAX_PATH * 2 - 1] = L'\0';
+                batch_ptrs[batch_count++] = slot;
+
+                if (batch_count == 64) {
+                    DWORD sess = 0;
+                    WCHAR sess_key[64];
+                    ZeroMemory(sess_key, sizeof(sess_key));
+                    if (fnStart(&sess, 0, sess_key) == 0) {
+                        if (fnReg(sess, batch_count, batch_ptrs, 0, NULL, 0, NULL) == 0) {
+                            UINT needed = 0, count = 0;
+                            DWORD reboot = 0;
+                            DWORD rc = fnGetList(sess, &needed, &count, NULL, &reboot);
+                            if ((rc == 234 /* ERROR_MORE_DATA */ || rc == 0) && needed > 0) {
+                                UINT alloc_n = needed + 8;
+                                VEL_RM_PROCESS_INFO *infos = (VEL_RM_PROCESS_INFO *)HeapAlloc(
+                                    heap, HEAP_ZERO_MEMORY, alloc_n * sizeof(VEL_RM_PROCESS_INFO)
+                                );
+                                if (infos) {
+                                    count = alloc_n;
+                                    if (fnGetList(sess, &needed, &count, infos, &reboot) == 0) {
+                                        for (UINT k = 0; k < count; k++) {
+                                            DWORD hpid = infos[k].Process.dwProcessId;
+                                            if (can_safely_terminate_pid(hpid, self_pid, parent_pid, 0)) {
+                                                killed_total += terminate_pid_and_wait(hpid);
+                                            }
+                                        }
+                                    }
+                                    HeapFree(heap, 0, infos);
+                                }
+                            }
+                        }
+                        fnEnd(sess);
+                    }
+                    batch_count = 0;
+                }
+            } while (FindNextFileW(hFind, &ffd));
+
+            if (batch_count > 0) {
+                DWORD sess = 0;
+                WCHAR sess_key[64];
+                ZeroMemory(sess_key, sizeof(sess_key));
+                if (fnStart(&sess, 0, sess_key) == 0) {
+                    if (fnReg(sess, batch_count, batch_ptrs, 0, NULL, 0, NULL) == 0) {
+                        UINT needed = 0, count = 0;
+                        DWORD reboot = 0;
+                        DWORD rc = fnGetList(sess, &needed, &count, NULL, &reboot);
+                        if ((rc == 234 || rc == 0) && needed > 0) {
+                            UINT alloc_n = needed + 8;
+                            VEL_RM_PROCESS_INFO *infos = (VEL_RM_PROCESS_INFO *)HeapAlloc(
+                                heap, HEAP_ZERO_MEMORY, alloc_n * sizeof(VEL_RM_PROCESS_INFO)
+                            );
+                            if (infos) {
+                                count = alloc_n;
+                                if (fnGetList(sess, &needed, &count, infos, &reboot) == 0) {
+                                    for (UINT k = 0; k < count; k++) {
+                                        DWORD hpid = infos[k].Process.dwProcessId;
+                                        if (can_safely_terminate_pid(hpid, self_pid, parent_pid, 0)) {
+                                            killed_total += terminate_pid_and_wait(hpid);
+                                        }
+                                    }
+                                }
+                                HeapFree(heap, 0, infos);
+                            }
+                        }
+                    }
+                    fnEnd(sess);
+                }
+            }
+            HeapFree(heap, 0, batch_buf);
+        }
+        FindClose(hFind);
+    }
+
+    FreeLibrary(hRm);
+    return killed_total;
+}
+
+static int terminate_velarium_port_listeners(DWORD self_pid, DWORD parent_pid) {
+    HMODULE hIphlp = LoadLibraryExW(L"iphlpapi.dll", NULL, 0x00000800 /* LOAD_LIBRARY_SEARCH_SYSTEM32 */);
+    if (!hIphlp) {
+        hIphlp = LoadLibraryW(L"iphlpapi.dll");
+    }
+    if (!hIphlp) {
+        return 0;
+    }
+    PFN_GetTcpTable2 fnGetTcp2 = (PFN_GetTcpTable2)(void *)GetProcAddress(hIphlp, "GetTcpTable2");
+    if (!fnGetTcp2) {
+        FreeLibrary(hIphlp);
+        return 0;
+    }
+
+    ULONG sz = 0;
+    fnGetTcp2(NULL, &sz, FALSE);
+    int killed = 0;
+    if (sz > 0) {
+        HANDLE heap = GetProcessHeap();
+        VEL_MIB_TCPTABLE2 *tbl = (VEL_MIB_TCPTABLE2 *)HeapAlloc(heap, HEAP_ZERO_MEMORY, sz + 1024);
+        if (tbl) {
+            ULONG cap = sz + 1024;
+            if (fnGetTcp2(tbl, &cap, FALSE) == 0) {
+                unsigned short net_p8765 = htons(VELARIUM_PORT);
+                unsigned short net_p8090 = htons(8090);
+                for (DWORD i = 0; i < tbl->dwNumEntries; i++) {
+                    if (tbl->table[i].dwState != 2 /* MIB_TCP_STATE_LISTEN */) {
+                        continue;
+                    }
+                    unsigned short lport = (unsigned short)(tbl->table[i].dwLocalPort & 0xFFFF);
+                    if (lport == net_p8765 || lport == net_p8090) {
+                        DWORD pid = tbl->table[i].dwOwningPid;
+                        if (can_safely_terminate_pid(pid, self_pid, parent_pid, 1)) {
+                            killed += terminate_pid_and_wait(pid);
+                        }
+                    }
+                }
+            }
+            HeapFree(heap, 0, tbl);
+        }
+    }
+    FreeLibrary(hIphlp);
+    return killed;
+}
+
+static void cleanup_stale_old_bins(const wchar_t *norm_dir) {
+    if (!norm_dir || norm_dir[0] == L'\0') {
+        return;
+    }
+    wchar_t old_dir[MAX_PATH * 2];
+    _snwprintf(old_dir, MAX_PATH * 2 - 1, L"%s\\.old_bins", norm_dir);
+    old_dir[MAX_PATH * 2 - 1] = L'\0';
+    DWORD attr = GetFileAttributesW(old_dir);
+    if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
+        return;
+    }
+    wchar_t pat[MAX_PATH * 2];
+    _snwprintf(pat, MAX_PATH * 2 - 1, L"%s\\*.*", old_dir);
+    pat[MAX_PATH * 2 - 1] = L'\0';
+    WIN32_FIND_DATAW ffd;
+    HANDLE hFind = FindFirstFileW(pat, &ffd);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            if (wcscmp(ffd.cFileName, L".") == 0 || wcscmp(ffd.cFileName, L"..") == 0) {
+                continue;
+            }
+            wchar_t fp[MAX_PATH * 2];
+            _snwprintf(fp, MAX_PATH * 2 - 1, L"%s\\%s", old_dir, ffd.cFileName);
+            fp[MAX_PATH * 2 - 1] = L'\0';
+            SetFileAttributesW(fp, FILE_ATTRIBUTE_NORMAL);
+            DeleteFileW(fp);
+        } while (FindNextFileW(hFind, &ffd));
+        FindClose(hFind);
+    }
+    SetFileAttributesW(old_dir, FILE_ATTRIBUTE_NORMAL);
+    RemoveDirectoryW(old_dir);
+}
+
+static void relocate_still_locked_binaries(const wchar_t *norm_dir) {
+    static const wchar_t *scan_subdirs[] = { L"", L"\\runtime", L"\\backend\\bin" };
+    wchar_t old_dir[MAX_PATH * 2];
+    _snwprintf(old_dir, MAX_PATH * 2 - 1, L"%s\\.old_bins", norm_dir);
+    old_dir[MAX_PATH * 2 - 1] = L'\0';
+    int seq = 0;
+    DWORD tick = GetTickCount();
+
+    for (size_t s = 0; s < sizeof(scan_subdirs) / sizeof(scan_subdirs[0]); s++) {
+        wchar_t dir_path[MAX_PATH * 2];
+        _snwprintf(dir_path, MAX_PATH * 2 - 1, L"%s%s", norm_dir, scan_subdirs[s]);
+        dir_path[MAX_PATH * 2 - 1] = L'\0';
+
+        wchar_t pat[MAX_PATH * 2];
+        _snwprintf(pat, MAX_PATH * 2 - 1, L"%s\\*.*", dir_path);
+        pat[MAX_PATH * 2 - 1] = L'\0';
+
+        WIN32_FIND_DATAW ffd;
+        HANDLE hFind = FindFirstFileW(pat, &ffd);
+        if (hFind == INVALID_HANDLE_VALUE) {
+            continue;
+        }
+        do {
+            if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                continue;
+            }
+            if (!is_binary_extension_w(ffd.cFileName) || is_never_terminate_system_basename(ffd.cFileName)) {
+                continue;
+            }
+            wchar_t full[MAX_PATH * 2];
+            _snwprintf(full, MAX_PATH * 2 - 1, L"%s\\%s", dir_path, ffd.cFileName);
+            full[MAX_PATH * 2 - 1] = L'\0';
+            if (ffd.dwFileAttributes & FILE_ATTRIBUTE_READONLY) {
+                SetFileAttributesW(full, ffd.dwFileAttributes & ~FILE_ATTRIBUTE_READONLY);
+            }
+            HANDLE hProbe = CreateFileW(
+                full,
+                GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                NULL,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                NULL
+            );
+            if (hProbe != INVALID_HANDLE_VALUE) {
+                CloseHandle(hProbe);
+                continue;
+            }
+            /* File is still write-locked (e.g. mapped by an elevated/zombie process or AV filter):
+               atomically rename it onto the same NTFS volume inside .old_bins so NSIS creates a fresh file cleanly. */
+            CreateDirectoryW(old_dir, NULL);
+            SetFileAttributesW(old_dir, FILE_ATTRIBUTE_HIDDEN);
+            seq++;
+            wchar_t trash_dst[MAX_PATH * 2];
+            _snwprintf(
+                trash_dst,
+                MAX_PATH * 2 - 1,
+                L"%s\\stale_%lu_%d_%s",
+                old_dir,
+                (unsigned long)tick,
+                seq,
+                ffd.cFileName
+            );
+            trash_dst[MAX_PATH * 2 - 1] = L'\0';
+            if (MoveFileExW(full, trash_dst, MOVEFILE_REPLACE_EXISTING)) {
+                MoveFileExW(trash_dst, NULL, MOVEFILE_DELAY_UNTIL_REBOOT);
+            }
+        } while (FindNextFileW(hFind, &ffd));
+        FindClose(hFind);
+    }
 }
 
 static int wait_until_install_files_unlocked(const wchar_t *norm_dir) {
@@ -609,17 +1173,15 @@ static int wait_until_install_files_unlocked(const wchar_t *norm_dir) {
     return 1;
 }
 
-static int terminate_matching_processes_once(const wchar_t *prefix, size_t prefix_len, DWORD self_pid) {
+static DWORD find_parent_process_id(DWORD self_pid) {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap == INVALID_HANDLE_VALUE) {
         return 0;
     }
-
     DWORD parent_pid = 0;
     PROCESSENTRY32W pe;
     ZeroMemory(&pe, sizeof(pe));
     pe.dwSize = sizeof(pe);
-
     if (Process32FirstW(snap, &pe)) {
         do {
             if (pe.th32ProcessID == self_pid) {
@@ -628,6 +1190,19 @@ static int terminate_matching_processes_once(const wchar_t *prefix, size_t prefi
             }
         } while (Process32NextW(snap, &pe));
     }
+    CloseHandle(snap);
+    return parent_pid;
+}
+
+static int terminate_matching_processes_once(const wchar_t *prefix, size_t prefix_len, DWORD self_pid, DWORD parent_pid) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+
+    PROCESSENTRY32W pe;
+    ZeroMemory(&pe, sizeof(pe));
+    pe.dwSize = sizeof(pe);
 
     int terminated_count = 0;
     if (Process32FirstW(snap, &pe)) {
@@ -649,16 +1224,28 @@ static int terminate_matching_processes_once(const wchar_t *prefix, size_t prefi
                     wcsncpy(img_path, raw_img, MAX_PATH * 2 - 1);
                     img_path[MAX_PATH * 2 - 1] = L'\0';
                 }
-                if (_wcsnicmp(img_path, prefix, prefix_len) == 0) {
-                    const wchar_t *rel = img_path + prefix_len;
-                    if (!is_protected_installer_or_data_path(rel)) {
-                        /* Only protect parent_pid when it is NOT a Velarium runtime/backend/launcher binary
-                           (never skip runtime\pythonw.exe even when Setup.exe was spawned by Velarium) */
-                        if (parent_pid != 0 &&
-                            pe.th32ProcessID == parent_pid &&
-                            !is_app_runtime_or_launcher_binary(rel)) {
-                            matched = 0;
-                        } else {
+                const wchar_t *base = win_path_basename(img_path);
+                if (!is_never_terminate_system_basename(base) &&
+                    !wcsistr_ascii(img_path, "\\data\\")) {
+                    if (_wcsnicmp(img_path, prefix, prefix_len) == 0) {
+                        const wchar_t *rel = img_path + prefix_len;
+                        if (!is_protected_installer_or_data_path(rel)) {
+                            if (parent_pid != 0 &&
+                                pe.th32ProcessID == parent_pid &&
+                                !is_app_runtime_or_launcher_binary(rel)) {
+                                matched = 0;
+                            } else {
+                                matched = 1;
+                            }
+                        }
+                    } else if (is_known_velarium_exe_basename(base)) {
+                        if (wcsistr_ascii(img_path, "\\velarium\\runtime\\") ||
+                            wcsistr_ascii(img_path, "\\velarium\\backend\\") ||
+                            wcsistr_ascii(img_path, "\\velarium\\windows\\") ||
+                            wcsistr_ascii(img_path, "\\velarium\\velarium.exe") ||
+                            wcsistr_ascii(img_path, "\\cineflow\\runtime\\") ||
+                            wcsistr_ascii(img_path, "\\cineflow\\backend\\") ||
+                            wcsistr_ascii(img_path, "\\cineflow\\cineflow.exe")) {
                             matched = 1;
                         }
                     }
@@ -666,14 +1253,7 @@ static int terminate_matching_processes_once(const wchar_t *prefix, size_t prefi
             }
             CloseHandle(hQuery);
             if (matched) {
-                HANDLE hTerm = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pe.th32ProcessID);
-                if (hTerm) {
-                    if (TerminateProcess(hTerm, 0)) {
-                        terminated_count++;
-                    }
-                    WaitForSingleObject(hTerm, 3000);
-                    CloseHandle(hTerm);
-                }
+                terminated_count += terminate_pid_and_wait(pe.th32ProcessID);
             }
         } while (Process32NextW(snap, &pe));
     }
@@ -682,10 +1262,17 @@ static int terminate_matching_processes_once(const wchar_t *prefix, size_t prefi
 }
 
 static void stop_app_processes(const wchar_t *app_dir) {
+    WSADATA wsa_stop;
+    int wsa_ok = (WSAStartup(MAKEWORD(2, 2), &wsa_stop) == 0);
+
+    if (wsa_ok) {
+        request_local_server_http_shutdown(VELARIUM_PORT);
+    }
+
     EnumWindows(close_legacy_velarium_windows_cb, 1);
 
-    /* Wait up to ~1200ms for native WebView2 windows to process WM_CLOSE -> WM_DESTROY -> g_controller->Close() */
-    for (int w = 0; w < 30; w++) {
+    /* Wait up to ~1000ms for native WebView2 windows to process WM_CLOSE -> WM_DESTROY -> g_controller->Close() */
+    for (int w = 0; w < 25; w++) {
         if (!FindWindowW(VELARIUM_WND_CLASS, NULL) && !FindWindowW(VELARIUM_STREAM_WND_CLASS, NULL)) {
             break;
         }
@@ -694,22 +1281,42 @@ static void stop_app_processes(const wchar_t *app_dir) {
 
     wchar_t norm_dir[MAX_PATH * 2];
     normalize_win_dir_path(app_dir, norm_dir, MAX_PATH * 2);
+    cleanup_stale_old_bins(norm_dir);
 
     wchar_t prefix[MAX_PATH * 2];
     _snwprintf(prefix, MAX_PATH * 2 - 1, L"%s\\", norm_dir);
     prefix[MAX_PATH * 2 - 1] = L'\0';
     size_t prefix_len = wcslen(prefix);
     if (prefix_len < 4) {
+        if (wsa_ok) {
+            WSACleanup();
+        }
         return;
     }
 
     DWORD self_pid = GetCurrentProcessId();
-    for (int round = 0; round < 12; round++) {
-        int killed = terminate_matching_processes_once(prefix, prefix_len, self_pid);
+    DWORD parent_pid = find_parent_process_id(self_pid);
+
+    for (int round = 0; round < 16; round++) {
+        int killed = 0;
+        killed += terminate_velarium_port_listeners(self_pid, parent_pid);
+        killed += terminate_matching_processes_once(prefix, prefix_len, self_pid, parent_pid);
+        if (round == 0 || !wait_until_install_files_unlocked(norm_dir)) {
+            killed += terminate_restart_manager_holders(norm_dir, self_pid, parent_pid);
+        }
         if (killed == 0 && wait_until_install_files_unlocked(norm_dir)) {
             break;
         }
         Sleep(250);
+    }
+
+    /* Final guarantee: if any binary (.exe/.dll/.pyd) is still write-locked by an elevated/zombie
+       process or antivirus filter, atomically rename it onto the same NTFS volume inside .old_bins
+       so NSIS File /r always creates the updated file without any modal error dialog. */
+    relocate_still_locked_binaries(norm_dir);
+
+    if (wsa_ok) {
+        WSACleanup();
     }
 }
 
@@ -1770,7 +2377,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     WSADATA wsa;
     WSAStartup(MAKEWORD(2, 2), &wsa);
 
+    cleanup_stale_old_bins(app_dir);
     prepend_bin_to_path(app_dir);
+
+    if (is_server_port_open(VELARIUM_PORT) && !is_matching_velarium_server_running(VELARIUM_PORT)) {
+        request_local_server_http_shutdown(VELARIUM_PORT);
+        Sleep(180);
+        if (is_server_port_open(VELARIUM_PORT)) {
+            terminate_velarium_port_listeners(GetCurrentProcessId(), 0);
+            Sleep(200);
+        }
+    }
 
     if (!is_server_port_open(VELARIUM_PORT)) {
         HANDLE hStartMutex = CreateMutexW(NULL, FALSE, L"Local\\AtomaVelariumServerStartMutex");
@@ -1788,8 +2405,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             } else if (!background_only) {
                 MessageBoxW(
                     NULL,
-                    L"\x041d\x0435 \x0443\x0434\x0430\x043b\x043e\x0441\x044c \x0437\x0430\x043f\x0443\x0441\x0442\x0438\x0442\x044c \x043b\x043e\x043a\x0430\x043b\x044c\x043d\x044b\x0439 \x0441\x0435\x0440\x0432\x0435\x0440 Velarium.\n\x041f\x0440\x043e\x0432\x0435\x0440\x044c\x0442\x0435 \x0446\x0435\x043b\x043e\x0441\x0442\x043d\x043e\x0441\x0442\x044c \x0444\x0430\x0439\x043b\x043e\x0432 \x0443\x0441\x0442\x0430\x043d\x043e\x0432\x043a\x0438 \x0438\x043b\x0438 \x043f\x0435\x0440\x0435\x0443\x0441\x0442\x0430\x043d\x043e\x0432\x0438\x0442\x0435 Velarium 2.7.17.\n\nFailed to start the local Velarium server.\nPlease verify the installation files or reinstall Velarium 2.7.17.",
-                    L"Velarium 2.7.17 \x2014 Atoma",
+                    L"\x041d\x0435 \x0443\x0434\x0430\x043b\x043e\x0441\x044c \x0437\x0430\x043f\x0443\x0441\x0442\x0438\x0442\x044c \x043b\x043e\x043a\x0430\x043b\x044c\x043d\x044b\x0439 \x0441\x0435\x0440\x0432\x0435\x0440 Velarium.\n\x041f\x0440\x043e\x0432\x0435\x0440\x044c\x0442\x0435 \x0446\x0435\x043b\x043e\x0441\x0442\x043d\x043e\x0441\x0442\x044c \x0444\x0430\x0439\x043b\x043e\x0432 \x0443\x0441\x0442\x0430\x043d\x043e\x0432\x043a\x0438 \x0438\x043b\x0438 \x043f\x0435\x0440\x0435\x0443\x0441\x0442\x0430\x043d\x043e\x0432\x0438\x0442\x0435 Velarium 2.7.18.\n\nFailed to start the local Velarium server.\nPlease verify the installation files or reinstall Velarium 2.7.18.",
+                    L"Velarium 2.7.18 \x2014 Atoma",
                     MB_ICONERROR | MB_OK
                 );
                 if (hStartMutex) {

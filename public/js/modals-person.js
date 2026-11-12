@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261112v4";
+import { state } from "./state.js?v=20261113v1";
 import {
   formatRussianTypography,
   hasCyrillicText,
@@ -6,7 +6,7 @@ import {
   t,
   translateCareer,
   transliterateRuToEn,
-} from "./i18n.js?v=20261112v4";
+} from "./i18n.js?v=20261113v1";
 import {
   attachHorizontalWheelScroll,
   closeCustomSelectMenu,
@@ -19,26 +19,26 @@ import {
   showToast,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261112v4";
-import { createPosterCardElement } from "./catalog-cards.js?v=20261112v4";
-import { isServiceEnabled } from "./catalog-media-resolver.js?v=20261112v4";
-import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261112v4";
+} from "./utils.js?v=20261113v1";
+import { createPosterCardElement } from "./catalog-cards.js?v=20261113v1";
+import { isServiceEnabled } from "./catalog-media-resolver.js?v=20261113v1";
+import { updateActiveFiltersBadge } from "./catalog-filters.js?v=20261113v1";
 import {
   loadCatalog,
   renderCatalogShelves,
   renderContinueWatching,
   renderHero,
-} from "./catalog.js?v=20261112v4";
-import { escapeEpisodeHtml } from "./player-seasons.js?v=20261112v4";
-import { closePlayerModal } from "./player.js?v=20261112v4";
+} from "./catalog.js?v=20261113v1";
+import { escapeEpisodeHtml } from "./player-seasons.js?v=20261113v1";
+import { closePlayerModal } from "./player.js?v=20261113v1";
 import {
   closeQuickPeekModal,
   goBackInModalStack,
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   syncModalBackButtons,
-} from "./modals.js?v=20261112v4";
-import { isItemSafeForKidsClient } from "./features.js?v=20261112v4";
+} from "./modals.js?v=20261113v1";
+import { isItemSafeForKidsClient } from "./features.js?v=20261113v1";
 
 export function triggerPersonSearch(personName) {
   if (!personName) return;

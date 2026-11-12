@@ -804,7 +804,7 @@ class TestAuditFixes(unittest.TestCase):
         # Verify NSIS installer script metadata, installer language dialog, and app language custom page
         nsi_path = os.path.join(root, "windows", "installer", "velarium.nsi")
         nsi_txt = self._read_text(nsi_path)
-        self.assertIn('!define APP_VERSION "2.7.17"', nsi_txt)
+        self.assertIn('!define APP_VERSION "2.7.18"', nsi_txt)
         self.assertIn('!define APP_PUBLISHER "Atoma"', nsi_txt)
         self.assertIn("!insertmacro MUI_LANGDLL_DISPLAY", nsi_txt)
         self.assertIn("Page custom AppLangPageCreate AppLangPageLeave", nsi_txt)
@@ -2772,24 +2772,109 @@ class TestAuditFixes(unittest.TestCase):
                 if staged_dmg and os.path.exists(staged_dmg):
                     shutil.rmtree(os.path.dirname(staged_dmg), ignore_errors=True)
 
-        # 3. NSIS script SecCore never calls old "$INSTDIR\Velarium.exe" --stop and stops $INSTDIR unconditionally
+        # 3. NSIS script SecCore uses native ExecWait (not 32-bit nsExec self-patching stub) for VelariumStop.exe,
+        #    strips trailing slashes from $INSTDIR, and relocates any still-locked binaries to .old_bins before File /r
         nsi_src = self._read_text(os.path.join(root, "windows", "installer", "velarium.nsi"))
         sec_core = nsi_src.split("Section \"$(SecCoreName)\" SecCore", 1)[1].split("SectionEnd", 1)[0]
         self.assertNotIn('"$INSTDIR\\Velarium.exe" --stop', sec_core)
         self.assertNotIn('"$LegacyInstallDir\\CineFlow.exe" --stop', sec_core)
         self.assertNotIn('${If} ${FileExists} "$INSTDIR\\Velarium.exe"', sec_core)
-        self.assertIn("VelariumStop.exe", sec_core)
-        self.assertIn('--stop-dir "$INSTDIR"', sec_core)
+        self.assertNotIn('nsExec::ExecToLog \'"$PLUGINSDIR\\VelariumStop.exe"', sec_core)
+        self.assertIn('ExecWait \'"$PLUGINSDIR\\VelariumStop.exe" --stop-dir "$R0"\'', sec_core)
+        self.assertLess(
+            sec_core.index('!insertmacro RelocateLockedBinariesInDir "$R0" "$R0\\runtime" "rt"'),
+            sec_core.index('File /r "${STAGE_CORE_DIR}\\*.*"'),
+        )
 
-        # 4. Windows launcher C source never skips grandparent_pid (which is runtime\pythonw.exe during in-app OTA!)
-        #    and verifies GENERIC_WRITE unlock on runtime\_bz2.pyd and python311.dll before returning to NSIS
+        # 4. Windows launcher C source implements Restart Manager (rstrtmgr.dll), TCP listener sweep (GetTcpTable2),
+        #    quote-safe path normalization, same-volume MoveFileExW fallback, and version-verified port check
         launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
+        self.assertIn(f'#define VELARIUM_APP_VERSION "{server.APP_VERSION}"', launcher_c)
         self.assertIn("--stop-dir", launcher_c)
         self.assertIn("is_protected_installer_or_data_path", launcher_c)
         self.assertNotIn("grandparent_pid", launcher_c)
         self.assertIn("is_app_runtime_or_launcher_binary", launcher_c)
+        self.assertIn("terminate_restart_manager_holders", launcher_c)
+        self.assertIn("rstrtmgr.dll", launcher_c)
+        self.assertIn("terminate_velarium_port_listeners", launcher_c)
+        self.assertIn("GetTcpTable2", launcher_c)
+        self.assertIn("relocate_still_locked_binaries", launcher_c)
+        self.assertIn("MoveFileExW", launcher_c)
+        self.assertIn("is_matching_velarium_server_running", launcher_c)
         self.assertIn("wait_until_install_files_unlocked", launcher_c)
         self.assertIn("_bz2.pyd", launcher_c)
+
+        # 5. /api/system/shutdown strictly enforces loopback + X-Velarium-Local-Stop token + CSRF Origin
+        import threading
+        import time
+        import urllib.error
+        import urllib.request
+
+        httpd = server.CinemaThreadingHTTPServer(("127.0.0.1", 0), server.CinemaRequestHandler)
+        httpd.server_context = server.SERVER_CONTEXT
+        port = httpd.server_address[1]
+        t_srv = threading.Thread(target=httpd.serve_forever, daemon=True)
+        t_srv.start()
+        try:
+            opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+            # Missing X-Velarium-Local-Stop header -> 403
+            req_no_tok = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/system/shutdown",
+                data=b"{}",
+                headers={"Content-Type": "application/json", "Origin": f"http://127.0.0.1:{port}"},
+                method="POST",
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx_err:
+                opener.open(req_no_tok, timeout=2.0)
+            self.assertEqual(ctx_err.exception.code, 403)
+
+            # Untrusted cross-origin Origin -> 403 even with token
+            req_bad_origin = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/system/shutdown",
+                data=b"{}",
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": "https://evil.example",
+                    "X-Velarium-Local-Stop": "velarium-installer-stop",
+                },
+                method="POST",
+            )
+            with self.assertRaises(urllib.error.HTTPError) as ctx_err2:
+                opener.open(req_bad_origin, timeout=2.0)
+            self.assertEqual(ctx_err2.exception.code, 403)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+        # 6. AppUpdater expires stale 'installing' state after 15s and clears old file_path when newer release arrives
+        with tempfile.TemporaryDirectory() as tmp_upd:
+            u2 = AppUpdater(current_version="2.7.15", storage_dir=tmp_upd, settings_getter=lambda: {"update_repo": "Tasonai/CineFlow"})
+            old_exe = os.path.join(tmp_upd, "Velarium-Setup-2.7.16-x64.exe")
+            with open(old_exe, "wb") as fp:
+                fp.write(b"MZ_OLD")
+            with u2._lock:
+                u2._status.update(
+                    {
+                        "state": "installing",
+                        "install_started_at": time.time() - 25.0,
+                        "latest_version": "2.7.16",
+                        "file_path": old_exe,
+                        "sha256_verified": True,
+                    }
+                )
+            fake_manifest = {
+                "version": "2.7.18",
+                "platforms": {
+                    "macos": {"name": "Velarium.dmg", "url": "https://github.com/Tasonai/CineFlow/releases/download/v2.7.18/Velarium.dmg", "size": 100, "sha256": "a" * 64},
+                    "windows": {"name": "Velarium-Setup-2.7.18-x64.exe", "url": "https://github.com/Tasonai/CineFlow/releases/download/v2.7.18/Velarium-Setup-2.7.18-x64.exe", "size": 100, "sha256": "b" * 64},
+                },
+            }
+            with mock.patch.object(u2, "_http_get_json", return_value=fake_manifest):
+                chk_st = u2.check_for_updates(force=True)
+            self.assertEqual(chk_st.get("latest_version"), "2.7.18")
+            self.assertEqual(chk_st.get("state"), "available")
+            self.assertEqual(chk_st.get("file_path"), "")
+            self.assertFalse(chk_st.get("sha256_verified"))
 
 
 if __name__ == "__main__":

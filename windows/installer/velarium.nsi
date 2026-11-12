@@ -1,15 +1,15 @@
 ; ============================================================================
-; Velarium 2.7.17 — Official Windows x64 Installer Script (NSIS 3 Modern UI 2)
+; Velarium 2.7.18 — Official Windows x64 Installer Script (NSIS 3 Modern UI 2)
 ; Developer / Publisher: Atoma
 ; ============================================================================
 
 Unicode True
 
 !ifndef APP_VERSION
-  !define APP_VERSION "2.7.17"
+  !define APP_VERSION "2.7.18"
 !endif
 !ifndef APP_VERSION_QUAD
-  !define APP_VERSION_QUAD "2.7.17.0"
+  !define APP_VERSION_QUAD "2.7.18.0"
 !endif
 !define APP_NAME "Velarium"
 !define APP_PUBLISHER "Atoma"
@@ -90,6 +90,7 @@ Var DynamicWelcomeTitle
 Var DynamicWelcomeText
 Var DynamicFinishTitle
 Var DynamicFinishText
+Var LockedBinSeq
 
 ; ============================================================================
 ; Modern UI 2 Visual & Branding Configuration
@@ -217,8 +218,8 @@ LangString UpgradeOptCustom ${LANG_ENGLISH} "Customize installation settings, in
 LangString UpgradeNotesCaption ${LANG_RUSSIAN} "Список изменений по сравнению с предыдущей версией:"
 LangString UpgradeNotesCaption ${LANG_ENGLISH} "What is new compared to the previous version:"
 
-LangString UpgradeChangelogText ${LANG_RUSSIAN} "Изменения в выпуске Velarium ${APP_VERSION}:$\r$\n$\r$\n• Надёжное автообновление без вылета установщика:$\r$\n  - Исправлена ошибка, при которой запуск обновления изнутри приложения завершал процесс самого установщика вместе с закрытием окна Velarium.$\r$\n  - Проверенный по SHA-256 пакет изолируется во временном каталоге %TEMP% без удержания дескрипторов рабочей папки и порта 8765.$\r$\n  - Мастер установки использует собственный модуль безопасной остановки фоновых процессов с защитой родительских PID и папки пользовательских данных data.$\r$\n$\r$\n• Резиновая полноэкранная вёрстка (Netflix и Apple TV):$\r$\n  - Снято ограничение центрального контейнера 1540 пикселей — шапка, Hero-витрина и полки каталога плавно раскрываются на всю ширину монитора без пустых полей по бокам.$\r$\n  - Автоматическое масштабирование сетки постеров до 7, 8, 9, 10 и 12 колонок на экранах Full HD, 2K, Ultrawide и 4K с мгновенным перерасчётом карточек."
-LangString UpgradeChangelogText ${LANG_ENGLISH} "What is new in Velarium ${APP_VERSION}:$\r$\n$\r$\n• Reliable In-App Auto-Update Without Installer Self-Termination:$\r$\n  - Fixed an issue where launching an update from inside Velarium caused the shutdown helper to terminate the staged installer right after closing the app window.$\r$\n  - SHA-256-verified installers are staged in an isolated %TEMP% directory with detached file descriptors.$\r$\n  - Setup uses its own bundled process-stop helper with parent PID protection and strict data folder exclusion.$\r$\n$\r$\n• Fluid Full-Bleed Widescreen Layout (Netflix & Apple TV Style):$\r$\n  - Removed the 1540px center container cap so the header, Hero showcase, and catalog shelves expand smoothly across fullscreen displays.$\r$\n  - Adaptive 7, 8, 9, 10, and 12-column poster grids across 1080p, 2K/QHD, Ultrawide, and 4K monitors."
+LangString UpgradeChangelogText ${LANG_RUSSIAN} "Изменения в выпуске Velarium ${APP_VERSION}:$\r$\n$\r$\n• Полное устранение блокировки файлов runtime\_bz2.pyd на Windows 10 и 11:$\r$\n  - Устаревший 32-разрядный вызов nsExec заменён на прямой системный вызов ExecWait без блокировок со стороны защитника Windows 11.$\r$\n  - Интеграция с системным диспетчером ядра Windows Restart Manager (rstrtmgr.dll) и таблицей портов TCP 8765 / 8090 для точного завершения фонового сервера pythonw.exe.$\r$\n  - Атомарное перемещение удерживаемых библиотек (.pyd, .dll, .exe) в скрытый буфер .old_bins на том же диске NTFS без диалоговых окон с ошибками записи.$\r$\n$\r$\n• Резиновая полноэкранная вёрстка (Netflix и Apple TV):$\r$\n  - Шапка, Hero-витрина и полки каталога плавно раскрываются на всю ширину монитора (7, 8, 9, 10 и 12 колонок постеров на экранах Full HD, 2K, Ultrawide и 4K)."
+LangString UpgradeChangelogText ${LANG_ENGLISH} "What is new in Velarium ${APP_VERSION}:$\r$\n$\r$\n• Eliminated runtime\_bz2.pyd File-Lock Errors on Windows 10 & 11:$\r$\n  - Replaced legacy 32-bit nsExec execution with native ExecWait so Windows 11 Defender and Smart App Control never block the shutdown helper.$\r$\n  - Integrated Windows Kernel Restart Manager (rstrtmgr.dll) and TCP port 8765 / 8090 inspection to cleanly stop all background pythonw.exe processes.$\r$\n  - Added atomic same-volume NTFS relocation (.old_bins) for any binary briefly held by antivirus scanners so file extraction never stalls.$\r$\n$\r$\n• Fluid Full-Bleed Widescreen Layout (Netflix & Apple TV Style):$\r$\n  - Adaptive 7, 8, 9, 10, and 12-column poster grids scaling smoothly across 1080p, 2K/QHD, Ultrawide, and 4K displays."
 
 LangString LicenseHeaderTitle ${LANG_RUSSIAN} "Описание и условия использования"
 LangString LicenseHeaderTitle ${LANG_ENGLISH} "Product Overview & License Terms"
@@ -528,26 +529,93 @@ FunctionEnd
 ; ============================================================================
 ; Installation Sections
 ; ============================================================================
+!macro StripTrailingSlash OutVar InStr
+  StrCpy ${OutVar} "${InStr}"
+  _sts_loop_${OutVar}:
+    StrLen $R9 ${OutVar}
+    IntCmp $R9 3 _sts_done_${OutVar} _sts_done_${OutVar} 0
+    StrCpy $R8 ${OutVar} 1 -1
+    StrCmp $R8 "\" 0 +3
+      StrCpy ${OutVar} ${OutVar} -1
+      Goto _sts_loop_${OutVar}
+    StrCmp $R8 "/" 0 _sts_done_${OutVar}
+      StrCpy ${OutVar} ${OutVar} -1
+      Goto _sts_loop_${OutVar}
+  _sts_done_${OutVar}:
+!macroend
+
+!macro RelocateLockedBinariesInDir BaseRoot TargetDir TagPrefix
+  ${If} ${FileExists} "${TargetDir}\*.*"
+    FindFirst $R6 $R7 "${TargetDir}\*.*"
+    _rlb_loop_${TagPrefix}:
+      StrCmp $R7 "" _rlb_done_${TagPrefix}
+      StrCmp $R7 "." _rlb_next_${TagPrefix}
+      StrCmp $R7 ".." _rlb_next_${TagPrefix}
+      IfFileExists "${TargetDir}\$R7\*.*" _rlb_next_${TagPrefix} 0
+      StrCmp $R7 "Uninstall.exe" _rlb_next_${TagPrefix}
+      StrCmp $R7 "Au_.exe" _rlb_next_${TagPrefix}
+      SetFileAttributes "${TargetDir}\$R7" NORMAL
+      ClearErrors
+      FileOpen $R8 "${TargetDir}\$R7" a
+      IfErrors _rlb_locked_${TagPrefix} 0
+      FileClose $R8
+      Goto _rlb_next_${TagPrefix}
+    _rlb_locked_${TagPrefix}:
+      CreateDirectory "${BaseRoot}\.old_bins"
+      SetFileAttributes "${BaseRoot}\.old_bins" HIDDEN
+      IntOp $LockedBinSeq $LockedBinSeq + 1
+      ClearErrors
+      Rename "${TargetDir}\$R7" "${BaseRoot}\.old_bins\${TagPrefix}-$LockedBinSeq-$R7"
+      Delete /REBOOTOK "${BaseRoot}\.old_bins\${TagPrefix}-$LockedBinSeq-$R7"
+    _rlb_next_${TagPrefix}:
+      FindNext $R6 $R7
+      Goto _rlb_loop_${TagPrefix}
+    _rlb_done_${TagPrefix}:
+      FindClose $R6
+  ${EndIf}
+!macroend
+
 Section "$(SecCoreName)" SecCore
   SectionIn RO
 
+  StrCpy $LockedBinSeq 0
   InitPluginsDir
-  File /oname=$PLUGINSDIR\VelariumStop.exe "${STAGE_CORE_DIR}\Velarium.exe"
+  SetOutPath "$PLUGINSDIR"
+  File /oname=VelariumStop.exe "${STAGE_CORE_DIR}\Velarium.exe"
 
-  ; Stop any running Velarium or legacy CineFlow processes using the bundled safe helper
-  ; (run unconditionally if $INSTDIR exists so runtime\pythonw.exe is stopped even after an interrupted install)
-  ${If} ${FileExists} "$INSTDIR\*.*"
+  ; Stop any running Velarium or legacy CineFlow processes using native GUI ExecWait
+  ; (avoids nsExec 32-bit self-modifying .tmp stub blocks and ensures runtime\pythonw.exe is terminated)
+  !insertmacro StripTrailingSlash $R0 "$INSTDIR"
+  ${If} ${FileExists} "$R0\*.*"
     DetailPrint "Stopping running Velarium background processes..."
-    nsExec::ExecToLog '"$PLUGINSDIR\VelariumStop.exe" --stop-dir "$INSTDIR"'
-    nsExec::ExecToLog 'taskkill /F /IM Velarium.exe /IM torrserver.exe'
-    Sleep 400
+    RMDir /r "$R0\.old_bins"
+    ExecWait '"$PLUGINSDIR\VelariumStop.exe" --stop-dir "$R0"' $R1
+    ${If} ${FileExists} "$R0\runtime\_bz2.pyd"
+      ClearErrors
+      FileOpen $R2 "$R0\runtime\_bz2.pyd" a
+      ${If} ${Errors}
+        nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -Command "Get-Process pythonw,python,Velarium,CineFlow,torrserver,ffmpeg,ffprobe -ErrorAction SilentlyContinue | Where-Object { $$_.Path -and ($$_.Path -like \"*\\Velarium\\*\" -or $$_.Path -like \"*\\CineFlow\\*\") } | Stop-Process -Force -ErrorAction SilentlyContinue"'
+        Pop $R3
+        nsExec::ExecToLog 'taskkill /F /IM Velarium.exe /IM torrserver.exe'
+        Pop $R3
+        Sleep 400
+      ${Else}
+        FileClose $R2
+      ${EndIf}
+    ${EndIf}
+    !insertmacro RelocateLockedBinariesInDir "$R0" "$R0" "core"
+    !insertmacro RelocateLockedBinariesInDir "$R0" "$R0\runtime" "rt"
+    !insertmacro RelocateLockedBinariesInDir "$R0" "$R0\backend\bin" "bin"
   ${EndIf}
   ${If} $LegacyInstallDir != ""
-  ${AndIf} ${FileExists} "$LegacyInstallDir\*.*"
-    DetailPrint "Stopping legacy CineFlow background processes..."
-    nsExec::ExecToLog '"$PLUGINSDIR\VelariumStop.exe" --stop-dir "$LegacyInstallDir"'
-    nsExec::ExecToLog 'taskkill /F /IM CineFlow.exe'
-    Sleep 250
+    !insertmacro StripTrailingSlash $R4 "$LegacyInstallDir"
+    ${If} ${FileExists} "$R4\*.*"
+      DetailPrint "Stopping legacy CineFlow background processes..."
+      ExecWait '"$PLUGINSDIR\VelariumStop.exe" --stop-dir "$R4"' $R1
+      !insertmacro RelocateLockedBinariesInDir "$R4" "$R4" "legcore"
+      !insertmacro RelocateLockedBinariesInDir "$R4" "$R4\runtime" "legrt"
+      !insertmacro RelocateLockedBinariesInDir "$R4" "$R4\backend\bin" "legbin"
+    ${EndIf}
   ${EndIf}
 
   SetOverwrite on
@@ -587,7 +655,7 @@ Section "$(SecCoreName)" SecCore
 
   ; Persist chosen Application Language (ru / en) into $INSTDIR\data\server_settings.json
   DetailPrint "Applying initial Velarium interface language ($SelectedAppLang)..."
-  nsExec::ExecToLog '"$INSTDIR\runtime\pythonw.exe" "$INSTDIR\windows\apply_install_prefs.py" --install-dir "$INSTDIR" --app-lang "$SelectedAppLang"'
+  ExecWait '"$INSTDIR\runtime\pythonw.exe" "$INSTDIR\windows\apply_install_prefs.py" --install-dir "$INSTDIR" --app-lang "$SelectedAppLang"' $R1
 
   ; Save installation metadata in HKCU\Software\Atoma\Velarium
   WriteRegStr HKCU "${APP_REG_KEY}" "InstallDir" "$INSTDIR"
@@ -665,7 +733,7 @@ FunctionEnd
 Section "Uninstall"
   ; Cleanly stop running Velarium background server / TorrServer processes
   ${If} ${FileExists} "$INSTDIR\Velarium.exe"
-    nsExec::ExecToLog '"$INSTDIR\Velarium.exe" --stop'
+    ExecWait '"$INSTDIR\Velarium.exe" --stop' $0
   ${EndIf}
 
   ; Remove shortcuts & registry entries
@@ -681,6 +749,7 @@ Section "Uninstall"
   Delete "$INSTDIR\Uninstall.exe"
   Delete "$INSTDIR\server.py"
   Delete "$INSTDIR\README.md"
+  RMDir /r "$INSTDIR\.old_bins"
   RMDir /r "$INSTDIR\backend"
   RMDir /r "$INSTDIR\public"
   RMDir /r "$INSTDIR\runtime"

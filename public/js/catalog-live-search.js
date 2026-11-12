@@ -2,7 +2,7 @@ import {
   RECENT_SEARCHES_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261112v4";
+} from "./state.js?v=20261113v1";
 import {
   displayPoster,
   displayTitle,
@@ -12,7 +12,7 @@ import {
   t,
   translateCareer,
   transliterateRuToEn,
-} from "./i18n.js?v=20261112v4";
+} from "./i18n.js?v=20261113v1";
 import {
   clampFloatingPopover,
   closeFloatingPopovers,
@@ -22,7 +22,7 @@ import {
   logDebug,
   syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261112v4";
+} from "./utils.js?v=20261113v1";
 import {
   attachSmartPosterFallback,
   getDefaultPlayableSourceTab,
@@ -30,13 +30,13 @@ import {
   loadCatalog,
   resolveSeriesEpisodeInfo,
   updateActiveFiltersBadge,
-} from "./catalog.js?v=20261112v4";
+} from "./catalog.js?v=20261113v1";
 import {
   buildFallbackAvatarSvg,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261112v4";
-import { openPlayerModal } from "./player.js?v=20261112v4";
+} from "./modals.js?v=20261113v1";
+import { openPlayerModal } from "./player.js?v=20261113v1";
 
 let liveSearchReqId = 0;
 let debounceTimer = null;
