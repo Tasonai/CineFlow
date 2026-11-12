@@ -2,7 +2,7 @@
 // Manages "Continue Watching", "Curated Collections" (Friends' picks, In your taste,
 // Short movies tonight, Top Kinorium/IMDb), and separated/unified catalog shelves.
 
-import { state } from "./state.js?v=20261111v5";
+import { state } from "./state.js?v=20261112v1";
 import {
   displayBackdrop,
   displayPoster,
@@ -11,7 +11,7 @@ import {
   isEn,
   t,
   translateStudioName,
-} from "./i18n.js?v=20261111v5";
+} from "./i18n.js?v=20261112v1";
 import {
   attachHorizontalWheelScroll,
   escapeAttr,
@@ -23,36 +23,36 @@ import {
   matchCatalogItemSafe,
   showToast,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261111v5";
+} from "./utils.js?v=20261112v1";
 import {
   buildPersonPhotoCard,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261111v5";
+} from "./modals.js?v=20261112v1";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
   renderPosterCardsInto,
-} from "./catalog-cards.js?v=20261111v5";
+} from "./catalog-cards.js?v=20261112v1";
 import {
   filterCatalogItemsByGenreAndYear,
   sortCatalogItems,
-} from "./catalog-filters.js?v=20261111v5";
+} from "./catalog-filters.js?v=20261112v1";
 import {
   formatRemainingTime,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261111v5";
-import { renderHero } from "./catalog-hero.js?v=20261111v5";
-import { renderNotificationsBell, renderReleaseCalendarShelf } from "./catalog-notifications.js?v=20261111v5";
+} from "./catalog-media-resolver.js?v=20261112v1";
+import { renderHero } from "./catalog-hero.js?v=20261112v1";
+import { renderNotificationsBell, renderReleaseCalendarShelf } from "./catalog-notifications.js?v=20261112v1";
 import {
   clearCatalogFrontendCache,
   loadCatalog,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261111v5";
-import { getOfflineCatalogItems } from "./features-downloads.js?v=20261111v5";
+} from "./catalog.js?v=20261112v1";
+import { getOfflineCatalogItems } from "./features-downloads.js?v=20261112v1";
 
 export function renderContinueWatching() {
   renderNotificationsBell();
@@ -148,7 +148,7 @@ export function renderContinueWatching() {
     }
   }
   section.classList.remove("hidden");
-  const CW_INITIAL_LIMIT = 12;
+  const CW_INITIAL_LIMIT = 16;
   const renderedCw = state.cwExpanded ? visibleCw : visibleCw.slice(0, CW_INITIAL_LIMIT);
   const cwRenderSig = `${state.appLang || "ru"}|${state.mediaTypeFilter || "all"}|${state.cwExpanded ? 1 : 0}|${visibleCw.length}|${state.catalogIndexVersion || 0}|${state.liveSeriesUpdatesVersion || 0}|${getLocalProgressEpoch()}|${renderedCw.map((c) => `${c.id || c.title}:${Math.round((c.progress || 0) * 100)}:${c.current_time || 0}:${c.season || 0}:${c.episode || 0}:${c.is_new_episode ? 1 : 0}:${c.studio || ""}`).join(",")}`;
   if (grid._cwRenderSig === cwRenderSig && grid.children.length > 0) {
@@ -570,7 +570,7 @@ export function renderCuratedShelves(allItemsSorted = []) {
         })
         .filter((x) => x.sim >= 10.5 && getBestScore(x.it) >= 7.0)
         .sort((a, b) => b.sim - a.sim)
-        .slice(0, 14)
+        .slice(0, 20)
         .map((x) => x.it);
       if (becausePicks.length >= 3) {
         shelves.push({
@@ -593,7 +593,7 @@ export function renderCuratedShelves(allItemsSorted = []) {
       const dirPicks = unwatchedPool
         .filter((it) => (it.directors || []).some((d) => favDirectorsMap.has(String(d || "").trim().toLowerCase())))
         .sort((a, b) => getBestScore(b) - getBestScore(a))
-        .slice(0, 14);
+        .slice(0, 20);
       if (dirPicks.length >= 2) {
         const sampleDirs = Array.from(favDirectorsMap.values()).slice(0, 2).join(", ");
         shelves.push({
@@ -621,7 +621,7 @@ export function renderCuratedShelves(allItemsSorted = []) {
       .filter((entry) => entry.score > 9 && getBestScore(entry.item) >= 7.0)
       .sort((a, b) => b.score - a.score)
       .map((entry) => entry.item)
-      .slice(0, 14);
+      .slice(0, 20);
     if (tastePicks.length >= 3) {
       shelves.push({
         id: "curated-taste",
@@ -659,7 +659,7 @@ export function renderCuratedShelves(allItemsSorted = []) {
         }
       });
     }
-    shortMovies = shortMovies.slice(0, 14);
+    shortMovies = shortMovies.slice(0, 20);
     if (shortMovies.length >= 3) {
       shelves.push({
         id: "curated-short-evening",
@@ -674,7 +674,7 @@ export function renderCuratedShelves(allItemsSorted = []) {
   const topRated = unwatchedPool
     .filter((it) => getBestScore(it) >= 8.0)
     .sort((a, b) => getBestScore(b) - getBestScore(a))
-    .slice(0, 14);
+    .slice(0, 20);
   if (topRated.length >= 3) {
     shelves.push({
       id: "curated-top-8",

@@ -1,22 +1,22 @@
-import { state } from "./state.js?v=20261111v5";
-import { t, isEn, displayTitle } from "./i18n.js?v=20261111v5";
+import { state } from "./state.js?v=20261112v1";
+import { t, isEn, displayTitle } from "./i18n.js?v=20261112v1";
 import {
   pluralRu,
   showToast,
   syncCustomSelect,
-} from "./utils.js?v=20261111v5";
+} from "./utils.js?v=20261112v1";
 import {
   attachSmartPosterFallback,
   buildFallbackPosterSvg,
-} from "./catalog-cards.js?v=20261111v5";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261111v5";
+} from "./catalog-cards.js?v=20261112v1";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261112v1";
 import {
   filterReleasedEpisodesForSeason,
   resolveEffectiveSeasonsMap,
   getEpisodeDisplayMeta,
   stepEpisode,
-} from "./player-seasons.js?v=20261111v5";
-import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261111v5";
+} from "./player-seasons.js?v=20261112v1";
+import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261112v1";
 
 let _nextEpTimer = null;
 let _nextEpSecondsLeft = 10;

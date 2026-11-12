@@ -1,4 +1,4 @@
-import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261111v5";
+import { BOOKMARKS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261112v1";
 import {
   displayPoster,
   displayTitle,
@@ -6,7 +6,7 @@ import {
   isEn,
   t,
   transliterateRuToEn,
-} from "./i18n.js?v=20261111v5";
+} from "./i18n.js?v=20261112v1";
 import {
   attachHorizontalWheelScroll,
   clampStagePopover,
@@ -20,15 +20,15 @@ import {
   restoreModalTriggerFocus,
   showToast,
   syncScrollTopButton,
-} from "./utils.js?v=20261111v5";
-import { attachSmartPosterFallback } from "./catalog.js?v=20261111v5";
-import { openPersonModal } from "./modals.js?v=20261111v5";
-import { buildFallbackAvatarSvg } from "./modals-person.js?v=20261111v5";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261111v5";
-import { seekEffectivePlayback } from "./player-streams.js?v=20261111v5";
-import { findActiveChapterLabel, syncVcPopoverOpenClass } from "./player-ui-controls.js?v=20261111v5";
-import { exitBrowserFullscreenIfNeeded, isItemSafeForKidsClient } from "./features.js?v=20261111v5";
-import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261111v5";
+} from "./utils.js?v=20261112v1";
+import { attachSmartPosterFallback } from "./catalog.js?v=20261112v1";
+import { openPersonModal } from "./modals.js?v=20261112v1";
+import { buildFallbackAvatarSvg } from "./modals-person.js?v=20261112v1";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261112v1";
+import { seekEffectivePlayback } from "./player-streams.js?v=20261112v1";
+import { findActiveChapterLabel, syncVcPopoverOpenClass } from "./player-ui-controls.js?v=20261112v1";
+import { exitBrowserFullscreenIfNeeded, isItemSafeForKidsClient } from "./features.js?v=20261112v1";
+import { scheduleDesktopRemoteStatePush } from "./remote.js?v=20261112v1";
 
 let _bookmarkDialogWasPlaying = false;
 let _activeEditingMoment = null;
@@ -2024,7 +2024,7 @@ export function renderBookmarksModalList(filterQuery = null) {
         age_rating: m.age_rating || "",
       };
       const sourceTab = m.source || "hdrezka";
-      const { openPlayerModal } = await import("./player.js?v=20261111v5");
+      const { openPlayerModal } = await import("./player.js?v=20261112v1");
       openPlayerModal(targetItem, sourceTab, m.season || 1, m.episode || 1, m.time || 0);
     });
   });

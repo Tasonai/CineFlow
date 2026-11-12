@@ -241,7 +241,7 @@ class TestFrontendIntegrity(unittest.TestCase):
     def test_v26_responsive_offline_tv_and_native_wrappers_invariants(self):
         with open(os.path.join(PUBLIC_DIR, "index.html"), "r", encoding="utf-8") as f:
             html = f.read()
-        self.assertIn("?v=20261111v5", html)
+        self.assertIn("?v=20261112v1", html)
 
         css_combined = ""
         for css_file in sorted(glob.glob(os.path.join(PUBLIC_DIR, "css", "*.css"))):
@@ -567,6 +567,32 @@ class TestFrontendIntegrity(unittest.TestCase):
                 [],
                 f"{css_file} has unguarded :hover selectors outside @media (hover: hover) and (pointer: fine): {unguarded_hover}",
             )
+
+    def test_fluid_widescreen_fullscreen_layout_invariants(self):
+        with open(os.path.join(PUBLIC_DIR, "css", "base-and-hero.css"), "r", encoding="utf-8") as f:
+            css_base = f.read()
+        with open(os.path.join(PUBLIC_DIR, "css", "catalog-and-player-layout.css"), "r", encoding="utf-8") as f:
+            css_cat = f.read()
+        with open(os.path.join(PUBLIC_DIR, "js", "catalog-cards.js"), "r", encoding="utf-8") as f:
+            js_cards = f.read()
+        with open(os.path.join(PUBLIC_DIR, "js", "catalog-filters.js"), "r", encoding="utf-8") as f:
+            js_filters = f.read()
+
+        self.assertIn("--layout-gutter: clamp(28px, 3.6vw, 68px);", css_base)
+        self.assertNotIn("max-width: 1540px;", css_base)
+        self.assertIn("max-width: none;", css_base)
+        for col_bp in (
+            "@media (min-width: 1720px)",
+            "@media (min-width: 2080px)",
+            "@media (min-width: 2480px)",
+            "@media (min-width: 3000px)",
+            "@media (min-width: 3400px)",
+        ):
+            self.assertIn(col_bp, css_cat)
+        self.assertIn(".atv-posters-grid:not(.atv-person-grid)", css_cat)
+        self.assertIn("export function getCatalogGridColumnCount", js_cards)
+        self.assertIn("const effectivePageSize = gridCols > 6 ? gridCols * 2 : PAGE_SIZE;", js_cards)
+        self.assertIn("_velariumGridColsMediaBound", js_filters)
 
 
 if __name__ == "__main__":

@@ -611,9 +611,12 @@ summary:focus-visible,
 }
 
 @media (max-width: 1280px) {
+  :root {
+    --layout-gutter: 24px;
+  }
   .atv-header {
     flex-wrap: wrap;
-    padding: max(12px, env(safe-area-inset-top, 0px)) max(24px, env(safe-area-inset-right, 0px)) 12px max(24px, env(safe-area-inset-left, 0px));
+    padding: max(12px, env(safe-area-inset-top, 0px)) max(var(--layout-gutter), env(safe-area-inset-right, 0px)) 12px max(var(--layout-gutter), env(safe-area-inset-left, 0px));
     gap: 12px;
   }
   .atv-nav-pills {
@@ -624,7 +627,7 @@ summary:focus-visible,
 
 @media (max-width: 1120px) {
   .atv-main {
-    padding: 14px max(24px, env(safe-area-inset-right, 0px)) calc(56px + env(safe-area-inset-bottom, 0px)) max(24px, env(safe-area-inset-left, 0px));
+    padding: 14px max(var(--layout-gutter), env(safe-area-inset-right, 0px)) calc(56px + env(safe-area-inset-bottom, 0px)) max(var(--layout-gutter), env(safe-area-inset-left, 0px));
   }
   .atv-hero {
     min-height: 390px;
@@ -715,11 +718,14 @@ summary:focus-visible,
 }
 
 @media (max-width: 720px) {
+  :root {
+    --layout-gutter: 16px;
+  }
   .atv-header {
-    padding: max(10px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px));
+    padding: max(10px, env(safe-area-inset-top, 0px)) max(var(--layout-gutter), env(safe-area-inset-right, 0px)) 10px max(var(--layout-gutter), env(safe-area-inset-left, 0px));
   }
   .atv-main {
-    padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(48px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+    padding: 12px max(var(--layout-gutter), env(safe-area-inset-right, 0px)) calc(48px + env(safe-area-inset-bottom, 0px)) max(var(--layout-gutter), env(safe-area-inset-left, 0px));
   }
   .atv-hero {
     min-height: 350px;

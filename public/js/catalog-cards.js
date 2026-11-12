@@ -2,14 +2,14 @@
 // Handles poster card rendering, poster image fallbacks, smart badges,
 // live trailer hover previews, and the card action context menu.
 
-import { state } from "./state.js?v=20261111v5";
+import { state } from "./state.js?v=20261112v1";
 import {
   displayPoster,
   displayTitle,
   formatCriticsRating,
   isEn,
   t,
-} from "./i18n.js?v=20261111v5";
+} from "./i18n.js?v=20261112v1";
 import {
   copyTextToClipboard,
   escapeAttr,
@@ -20,24 +20,24 @@ import {
   pluralRu,
   showToast,
   withKinoriumActionLock,
-} from "./utils.js?v=20261111v5";
+} from "./utils.js?v=20261112v1";
 import {
   openPlayerModal,
-} from "./player.js?v=20261111v5";
+} from "./player.js?v=20261112v1";
 import {
   openTvCastModal,
-} from "./features.js?v=20261111v5";
+} from "./features.js?v=20261112v1";
 import {
   openQuickPeekModal,
-} from "./modals.js?v=20261111v5";
+} from "./modals.js?v=20261112v1";
 import {
   isServiceEnabled,
   resolveSeriesEpisodeInfo,
   resolvePreferredPlayTab,
   getFriendsAverageScore,
   patchCatalogItemKinoriumInPlace,
-} from "./catalog-media-resolver.js?v=20261111v5";
-import { stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261111v5";
+} from "./catalog-media-resolver.js?v=20261112v1";
+import { stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261112v1";
 
 export function buildPosterBadgesHtml(item, precomputedEpInfo = null) {
   const offlineSaved = findOfflineDownloadForTitle(item);
@@ -797,9 +797,37 @@ export function buildPageNumbers(currentPage, totalPages) {
   return result;
 }
 
+export function getCatalogGridColumnCount(viewportW = null) {
+  if (typeof viewportW === "number" && Number.isFinite(viewportW)) {
+    if (viewportW >= 3400) return 12;
+    if (viewportW >= 3000) return 10;
+    if (viewportW >= 2480) return 9;
+    if (viewportW >= 2080) return 8;
+    if (viewportW >= 1720) return 7;
+    if (viewportW >= 1440) return 6;
+    if (viewportW >= 920) return 4;
+    if (viewportW >= 580) return 3;
+    return 2;
+  }
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+    if (window.matchMedia("(min-width: 3400px)").matches) return 12;
+    if (window.matchMedia("(min-width: 3000px)").matches) return 10;
+    if (window.matchMedia("(min-width: 2480px)").matches) return 9;
+    if (window.matchMedia("(min-width: 2080px)").matches) return 8;
+    if (window.matchMedia("(min-width: 1720px)").matches) return 7;
+    if (window.matchMedia("(max-width: 579px)").matches) return 2;
+    if (window.matchMedia("(max-width: 919px)").matches) return 3;
+    if (window.matchMedia("(max-width: 1439px)").matches) return 4;
+    return 6;
+  }
+  return 6;
+}
+
 export function renderPosterCardsInto(gridEl, items) {
   const PAGE_SIZE = 12;
-  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const gridCols = gridEl?.classList?.contains("atv-person-grid") ? 6 : getCatalogGridColumnCount();
+  const effectivePageSize = gridCols > 6 ? gridCols * 2 : PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(items.length / effectivePageSize));
   const pageStateKey = `${gridEl.id}:${state.kinoriumSection}:${state.kinoriumSubType}:${state.mediaTypeFilter}:${state.providerFilter}:${state.genreFilter}:${state.yearFilter}:${state.collectionFilter || "all"}:${state.hideWatched}:${state.friendsFilter}:${state.selectedFriend}:${state.sortBy}:${state.searchQuery.trim()}`;
   let currentPage = Math.max(1, Math.min(totalPages, state.gridPages[pageStateKey] || 1));
 
@@ -814,8 +842,8 @@ export function renderPosterCardsInto(gridEl, items) {
     }
     state.gridPages[pageStateKey] = currentPage;
 
-    const startIdx = (currentPage - 1) * PAGE_SIZE;
-    const slice = items.slice(startIdx, startIdx + PAGE_SIZE);
+    const startIdx = (currentPage - 1) * effectivePageSize;
+    const slice = items.slice(startIdx, startIdx + effectivePageSize);
     const sliceSig = slice
       .map((it) => {
         const ks = it?.kinorium || {};
@@ -823,7 +851,7 @@ export function renderPosterCardsInto(gridEl, items) {
         return `${it?.id || it?.title || ""}:${ks.watched ? 1 : 0}:${ks.in_watchlist ? 1 : 0}:${ks.watching ? 1 : 0}:${ks.has_new_episode ? 1 : 0}:${ks.user_rating || 0}:${ks.next_season || 0}:${ks.next_episode || 0}:${hasOff}`;
       })
       .join("|");
-    const gridRenderSig = `${pageStateKey}|p:${currentPage}/${totalPages}|n:${items.length}|l:${state.appLang || "ru"}|lv:${state.liveSeriesUpdatesVersion || 0}|${sliceSig}`;
+    const gridRenderSig = `${pageStateKey}|ps:${effectivePageSize}|p:${currentPage}/${totalPages}|n:${items.length}|l:${state.appLang || "ru"}|lv:${state.liveSeriesUpdatesVersion || 0}|${sliceSig}`;
     if (gridEl._gridRenderSig === gridRenderSig && gridEl.childElementCount > 0) {
       if (scrollToTop) {
         const sectionEl = gridEl.closest(".atv-section");

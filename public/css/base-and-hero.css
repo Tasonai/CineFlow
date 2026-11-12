@@ -17,6 +17,7 @@
   --radius-control: 10px;
   --radius-card: 12px;
   --radius-sheet: 18px;
+  --layout-gutter: clamp(28px, 3.6vw, 68px);
   --z-header: 60;
   --z-scroll-top: 90;
   --z-floating-player: 95;
@@ -187,7 +188,7 @@ html.is-windows * {
   top: -260px;
   left: 50%;
   transform: translate3d(-50%, 0, 0);
-  width: 1360px;
+  width: min(92vw, 2200px);
   height: 680px;
   background: radial-gradient(ellipse at 50% 42%, var(--ambient-color) 0%, transparent 68%);
   opacity: 0.14;
@@ -205,7 +206,7 @@ html.is-windows * {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: max(14px, env(safe-area-inset-top, 0px)) max(44px, env(safe-area-inset-right, 0px)) 14px max(44px, env(safe-area-inset-left, 0px));
+  padding: max(14px, env(safe-area-inset-top, 0px)) max(var(--layout-gutter), env(safe-area-inset-right, 0px)) 14px max(var(--layout-gutter), env(safe-area-inset-left, 0px));
   background: #0e0e10;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -349,8 +350,11 @@ html.is-windows * {
 }
 
 @media (min-width: 1121px) and (max-width: 1380px) {
+  :root {
+    --layout-gutter: 28px;
+  }
   .atv-header {
-    padding: max(12px, env(safe-area-inset-top, 0px)) max(28px, env(safe-area-inset-right, 0px)) 12px max(28px, env(safe-area-inset-left, 0px));
+    padding: max(12px, env(safe-area-inset-top, 0px)) max(var(--layout-gutter), env(safe-area-inset-right, 0px)) 12px max(var(--layout-gutter), env(safe-area-inset-left, 0px));
     gap: 14px;
   }
   .atv-search {
@@ -502,13 +506,14 @@ html.is-windows * {
   transform: scale(0.94);
 }
 
-/* Main Layout */
+/* Main Layout — fluid full-bleed streaming layout (Netflix / Apple TV style) */
 .atv-main {
   position: relative;
   z-index: 10;
-  max-width: 1540px;
-  margin: 0 auto;
-  padding: 16px max(44px, env(safe-area-inset-right, 0px)) calc(72px + env(safe-area-inset-bottom, 0px)) max(44px, env(safe-area-inset-left, 0px));
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 16px max(var(--layout-gutter), env(safe-area-inset-right, 0px)) calc(72px + env(safe-area-inset-bottom, 0px)) max(var(--layout-gutter), env(safe-area-inset-left, 0px));
 }
 
 /* Classic Apple TV Hero Showcase — borderless, calm vignette */
@@ -616,6 +621,33 @@ html.is-windows * {
 .atv-hero-buttons > button {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+@media (min-width: 1680px) {
+  .atv-search {
+    width: clamp(248px, 16vw, 340px);
+  }
+  .atv-hero-content {
+    padding: clamp(42px, 3vw, 56px) clamp(46px, 3.2vw, 64px);
+  }
+  .atv-hero-kicker,
+  .atv-hero-title,
+  .atv-hero-desc {
+    max-width: min(700px, 43vw);
+  }
+  .atv-hero-title {
+    font-size: clamp(42px, 2.45vw, 54px);
+  }
+  .atv-hero-desc {
+    font-size: clamp(15px, 0.88vw, 16.5px);
+  }
+}
+
+@media (min-width: 1680px) and (min-height: 860px) {
+  .atv-hero {
+    min-height: clamp(460px, min(52vh, 27.5vw), 640px);
+    border-radius: 20px;
+  }
 }
 
 /* Classic Pre-Liquid-Glass Apple TV Buttons: solid matte, borderless, calm 10px radius */

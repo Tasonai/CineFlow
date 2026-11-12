@@ -1,11 +1,11 @@
-import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261111v5";
+import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261112v1";
 import {
   displayTitle,
   getItemGenreEntries,
   t,
   translateGenre,
   translateStudioName,
-} from "./i18n.js?v=20261111v5";
+} from "./i18n.js?v=20261112v1";
 import {
   clampFloatingPopover,
   closeFloatingPopovers,
@@ -17,26 +17,27 @@ import {
   showToast,
   syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261111v5";
+} from "./utils.js?v=20261112v1";
 import {
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261111v5";
+} from "./catalog-hero.js?v=20261112v1";
 import {
   applyEnabledServicesVisibility,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261111v5";
+} from "./catalog-media-resolver.js?v=20261112v1";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261111v5";
-import { switchNotificationsTab } from "./catalog-notifications.js?v=20261111v5";
-import { syncSearchClearButton } from "./catalog-live-search.js?v=20261111v5";
-import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261111v5";
-import { openQuickPeekModal } from "./modals.js?v=20261111v5";
-import { loadCatalog } from "./catalog.js?v=20261111v5";
+} from "./catalog-shelves.js?v=20261112v1";
+import { switchNotificationsTab } from "./catalog-notifications.js?v=20261112v1";
+import { syncSearchClearButton } from "./catalog-live-search.js?v=20261112v1";
+import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261112v1";
+import { openQuickPeekModal } from "./modals.js?v=20261112v1";
+import { getCatalogGridColumnCount } from "./catalog-cards.js?v=20261112v1";
+import { loadCatalog } from "./catalog.js?v=20261112v1";
 
 export function updateActiveFiltersBadge() {
   let drawerCount = 0;
@@ -1152,4 +1153,39 @@ export function initCatalogToolbarAndFilterBindings() {
       loadCatalog();
     };
   });
+
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function" && !window._velariumGridColsMediaBound) {
+    window._velariumGridColsMediaBound = true;
+    let lastCols = getCatalogGridColumnCount();
+    let colsSyncRaf = 0;
+    const onGridBreakpointChange = () => {
+      if (colsSyncRaf) cancelAnimationFrame(colsSyncRaf);
+      colsSyncRaf = requestAnimationFrame(() => {
+        colsSyncRaf = 0;
+        const nextCols = getCatalogGridColumnCount();
+        if (nextCols === lastCols) return;
+        lastCols = nextCols;
+        if (Array.isArray(state.catalogItems) && state.catalogItems.length > 0) {
+          renderCatalogShelves({ skipHero: true });
+        }
+      });
+    };
+    [
+      "(min-width: 1720px)",
+      "(min-width: 2080px)",
+      "(min-width: 2480px)",
+      "(min-width: 3000px)",
+      "(min-width: 3400px)",
+      "(max-width: 1439px)",
+      "(max-width: 919px)",
+      "(max-width: 579px)",
+    ].forEach((mqStr) => {
+      const mql = window.matchMedia(mqStr);
+      if (typeof mql.addEventListener === "function") {
+        mql.addEventListener("change", onGridBreakpointChange);
+      } else if (typeof mql.addListener === "function") {
+        mql.addListener(onGridBreakpointChange);
+      }
+    });
+  }
 }
