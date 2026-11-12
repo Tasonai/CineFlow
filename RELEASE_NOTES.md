@@ -1,13 +1,13 @@
-**Что нового в Velarium 2.7.16:**
-• **Надёжное автообновление без вылета установщика (Windows и macOS)**: исправлена ошибка, при которой запуск обновления изнутри приложения завершал процесс самого установщика вместе с закрытием окна Velarium. Проверенный по `SHA-256` пакет теперь изолируется в системном временном каталоге `%TEMP%` без удержания дескрипторов рабочей папки и порта `8765`.
-• **Безопасная остановка фоновых процессов при обновлении с прошлых версий**: мастер установки Windows больше не вызывает старый исполняемый файл с диска, а использует встроенный модуль остановки с защитой родительской цепочки PID и папки пользовательских данных `data`.
-• **Атомарное обновление на macOS без зависимости от Xcode Command Line Tools**: фоновая замена `/Applications/Velarium.app` переведена на чистый системный сценарий POSIX `/bin/sh` и `ditto` с автоматическим откатом из резервной копии при любой ошибке копирования.
-• **Резиновая полноэкранная вёрстка (7–12 колонок постеров)**: сохранён полноэкранный широкоформатный интерфейс в стиле Netflix и Apple TV с автоматическим перерасчётом сетки на больших мониторах.
+**Что нового в Velarium 2.7.17:**
+• **Исправлена блокировка `runtime\_bz2.pyd` при автообновлении на Windows**: устранена ошибка, из-за которой фоновый процесс `runtime\pythonw.exe` при запуске установщика изнутри приложения попадал в исключения родительской цепочки PID и продолжал удерживать бинарные модули Python (`_bz2.pyd`, `python311.dll`).
+• **Проверка снятия блокировок файлов на уровне ядра Windows**: перед началом распаковки файлов помощник остановки теперь дожидается фактического освобождения на запись (`GENERIC_WRITE`) всех библиотек и модулей `runtime\`, `Velarium.exe`, `WebView2Loader.dll` и `ffmpeg.exe`, а также приводит короткие пути Windows к каноническому виду.
+• **Изолированный запуск обновления и атомарная замена на macOS**: проверенные по `SHA-256` пакеты запускаются из отдельного временного каталога `%TEMP%`, а на macOS обновление выполняется через системный сценарий POSIX `/bin/sh` и `ditto` с откатом при ошибках.
+• **Резиновая полноэкранная вёрстка (7–12 колонок постеров)**: широкоформатный интерфейс в стиле Netflix и Apple TV плавно адаптируется под полную ширину больших мониторов.
 
 <!-- EN -->
 
-**What's new in Velarium 2.7.16:**
-• **Reliable In-App Auto-Update Without Installer Self-Termination (Windows & macOS)**: fixed an issue where launching an update from inside Velarium caused the shutdown helper to terminate the staged installer right after closing the app window. `SHA-256`-verified installers are now staged in an isolated OS temp directory with detached file descriptors.
-• **Safe Process Shutdown Across Legacy Upgrades**: the Windows NSIS setup wizard now extracts and runs its own bundled process-stop helper with parent/grandparent PID protection and strict `data` folder exclusion, ensuring clean upgrades even from `2.7.14` and `2.7.15`.
-• **Atomic macOS Bundle Swap Without Xcode Command Line Tools**: background `.dmg` installation now runs via pure POSIX `/bin/sh` and `ditto` with automatic backup rollback if bundle replacement fails.
-• **Fluid Full-Bleed Widescreen Layout (7–12 Poster Columns)**: includes the full-bleed Netflix & Apple TV widescreen layout with responsive `matchMedia` grid scaling across large displays.
+**What's new in Velarium 2.7.17:**
+• **Fixed `runtime\_bz2.pyd` File Lock During Windows In-App Updates**: resolved an issue where `runtime\pythonw.exe` matched the grandparent PID filter when `Setup.exe` was launched from inside Velarium, keeping Python extension modules (`_bz2.pyd`, `python311.dll`) locked during extraction.
+• **Kernel-Level Write-Unlock Verification Before File Extraction**: the bundled shutdown helper now normalizes Windows 8.3 paths and verifies `GENERIC_WRITE` availability across `runtime\`, `Velarium.exe`, `WebView2Loader.dll`, and `ffmpeg.exe` before handing control back to NSIS.
+• **Isolated Update Staging & Atomic macOS Bundle Swap**: `SHA-256`-verified installers run from a dedicated OS temp directory with detached file descriptors, and macOS `.dmg` updates execute via pure POSIX `/bin/sh` and `ditto` with automatic rollback.
+• **Fluid Full-Bleed Widescreen Layout (7–12 Poster Columns)**: full-bleed Netflix & Apple TV widescreen layout scaling cleanly across large displays.

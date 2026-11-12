@@ -1,21 +1,21 @@
-import { state } from "./state.js?v=20261112v3";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261112v3";
+import { state } from "./state.js?v=20261112v4";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261112v4";
 import {
   bindStarsHoverRange,
   clampFloatingPopover,
   closeFloatingPopovers,
   showToast,
   withKinoriumActionLock,
-} from "./utils.js?v=20261112v3";
+} from "./utils.js?v=20261112v4";
 import {
   isServiceEnabled,
   patchCatalogItemKinoriumInPlace,
   updateKinoriumSectionCounters,
-} from "./catalog.js?v=20261112v3";
-import { refreshOpenPersonModalUI } from "./modals.js?v=20261112v3";
-import { pushDesktopRemoteStateNow } from "./remote.js?v=20261112v3";
-import { isStageFullscreen } from "./player-ui-controls.js?v=20261112v3";
-import { updateModalKinoriumHeader } from "./player-meta.js?v=20261112v3";
+} from "./catalog.js?v=20261112v4";
+import { refreshOpenPersonModalUI } from "./modals.js?v=20261112v4";
+import { pushDesktopRemoteStateNow } from "./remote.js?v=20261112v4";
+import { isStageFullscreen } from "./player-ui-controls.js?v=20261112v4";
+import { updateModalKinoriumHeader } from "./player-meta.js?v=20261112v4";
 import {
   getEpisodeDisplayMeta,
   getEpisodeRatingEntry,
@@ -24,7 +24,7 @@ import {
   resolveSeriesCompletedFlag,
   toggleCurrentEpisodeWatched,
   updateCurrentEpisodeBar,
-} from "./player-seasons.js?v=20261112v3";
+} from "./player-seasons.js?v=20261112v4";
 
 export function syncPostwatchOverlayMount() {
   const overlay = document.getElementById("kinorium-postwatch-overlay");

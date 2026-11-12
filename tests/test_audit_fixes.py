@@ -804,7 +804,7 @@ class TestAuditFixes(unittest.TestCase):
         # Verify NSIS installer script metadata, installer language dialog, and app language custom page
         nsi_path = os.path.join(root, "windows", "installer", "velarium.nsi")
         nsi_txt = self._read_text(nsi_path)
-        self.assertIn('!define APP_VERSION "2.7.16"', nsi_txt)
+        self.assertIn('!define APP_VERSION "2.7.17"', nsi_txt)
         self.assertIn('!define APP_PUBLISHER "Atoma"', nsi_txt)
         self.assertIn("!insertmacro MUI_LANGDLL_DISPLAY", nsi_txt)
         self.assertIn("Page custom AppLangPageCreate AppLangPageLeave", nsi_txt)
@@ -2772,19 +2772,24 @@ class TestAuditFixes(unittest.TestCase):
                 if staged_dmg and os.path.exists(staged_dmg):
                     shutil.rmtree(os.path.dirname(staged_dmg), ignore_errors=True)
 
-        # 3. NSIS script SecCore never calls old "$INSTDIR\Velarium.exe" --stop (protects 2.7.14/2.7.15 -> next upgrade)
+        # 3. NSIS script SecCore never calls old "$INSTDIR\Velarium.exe" --stop and stops $INSTDIR unconditionally
         nsi_src = self._read_text(os.path.join(root, "windows", "installer", "velarium.nsi"))
         sec_core = nsi_src.split("Section \"$(SecCoreName)\" SecCore", 1)[1].split("SectionEnd", 1)[0]
         self.assertNotIn('"$INSTDIR\\Velarium.exe" --stop', sec_core)
         self.assertNotIn('"$LegacyInstallDir\\CineFlow.exe" --stop', sec_core)
+        self.assertNotIn('${If} ${FileExists} "$INSTDIR\\Velarium.exe"', sec_core)
         self.assertIn("VelariumStop.exe", sec_core)
         self.assertIn('--stop-dir "$INSTDIR"', sec_core)
 
-        # 4. Windows launcher C source supports --stop-dir and excludes data\ and Setup/Uninstall processes
+        # 4. Windows launcher C source never skips grandparent_pid (which is runtime\pythonw.exe during in-app OTA!)
+        #    and verifies GENERIC_WRITE unlock on runtime\_bz2.pyd and python311.dll before returning to NSIS
         launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
         self.assertIn("--stop-dir", launcher_c)
         self.assertIn("is_protected_installer_or_data_path", launcher_c)
-        self.assertIn("grandparent_pid", launcher_c)
+        self.assertNotIn("grandparent_pid", launcher_c)
+        self.assertIn("is_app_runtime_or_launcher_binary", launcher_c)
+        self.assertIn("wait_until_install_files_unlocked", launcher_c)
+        self.assertIn("_bz2.pyd", launcher_c)
 
 
 if __name__ == "__main__":

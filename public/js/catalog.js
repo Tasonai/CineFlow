@@ -3,7 +3,7 @@ import {
   PREFERRED_STUDIOS_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261112v3";
+} from "./state.js?v=20261112v4";
 import {
   displayBackdrop,
   displayCountries,
@@ -18,7 +18,7 @@ import {
   translateGenre,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261112v3";
+} from "./i18n.js?v=20261112v4";
 import {
   attachHorizontalWheelScroll,
   copyTextToClipboard,
@@ -43,25 +43,25 @@ import {
   syncCustomSelect,
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261112v3";
-import { getPlayerPrefs } from "./audio-dsp.js?v=20261112v3";
+} from "./utils.js?v=20261112v4";
+import { getPlayerPrefs } from "./audio-dsp.js?v=20261112v4";
 import {
   buildPersonPhotoCard,
   maybePausePlayerForOverlay,
   maybeResumePlayerAfterOverlay,
   openPersonModal,
   openQuickPeekModal,
-} from "./modals.js?v=20261112v3";
-import { openPlayerModal, renderModalProvidersSidebar, switchSourceTab } from "./player.js?v=20261112v3";
-import { confirmServiceLogin, openSettingsModal, triggerServiceLoginFlow } from "./settings.js?v=20261112v3";
-import { openTvCastModal, renderHeaderProfileSwitcher } from "./features.js?v=20261112v3";
-import { getOfflineCatalogItems, setOfflineMode } from "./features-downloads.js?v=20261112v3";
+} from "./modals.js?v=20261112v4";
+import { openPlayerModal, renderModalProvidersSidebar, switchSourceTab } from "./player.js?v=20261112v4";
+import { confirmServiceLogin, openSettingsModal, triggerServiceLoginFlow } from "./settings.js?v=20261112v4";
+import { openTvCastModal, renderHeaderProfileSwitcher } from "./features.js?v=20261112v4";
+import { getOfflineCatalogItems, setOfflineMode } from "./features-downloads.js?v=20261112v4";
 import {
   renderContinueWatching,
   parseItemDurationMinutes,
   renderCuratedShelves,
   renderCatalogShelves,
-} from "./catalog-shelves.js?v=20261112v3";
+} from "./catalog-shelves.js?v=20261112v4";
 import {
   buildPosterBadgesHtml,
   buildFallbackPosterSvg,
@@ -74,7 +74,7 @@ import {
   renderPosterCardsInto,
   cancelPendingCardBatch,
   appendPosterCardsProgressive,
-} from "./catalog-cards.js?v=20261112v3";
+} from "./catalog-cards.js?v=20261112v4";
 import {
   stopHeroAmbientTeaser,
   scheduleHeroAmbientTeaser,
@@ -84,13 +84,13 @@ import {
   renderHeroSlide,
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261112v3";
+} from "./catalog-hero.js?v=20261112v4";
 import {
   collectNewEpisodeNotifications,
   switchNotificationsTab,
   loadAndRenderReleaseCalendar,
   renderNotificationsBell,
-} from "./catalog-notifications.js?v=20261112v3";
+} from "./catalog-notifications.js?v=20261112v4";
 import {
   openMovieRouletteModal,
   closeMovieRouletteModal,
@@ -99,7 +99,7 @@ import {
   openCommandPalette,
   closeCommandPalette,
   initCommandPalette,
-} from "./catalog-discovery.js?v=20261112v3";
+} from "./catalog-discovery.js?v=20261112v4";
 import {
   updateActiveFiltersBadge,
   updateDynamicCatalogFilters,
@@ -112,7 +112,7 @@ import {
   sortCatalogItems,
   resetCatalogDrawerFiltersUI,
   initCatalogToolbarAndFilterBindings,
-} from "./catalog-filters.js?v=20261112v3";
+} from "./catalog-filters.js?v=20261112v4";
 import {
   isEpisodeWatched,
   normalizeStudioBrand,
@@ -133,7 +133,7 @@ import {
   getFriendsAverageScore,
   patchCatalogItemKinoriumInPlace,
   getPrimaryRating,
-} from "./catalog-media-resolver.js?v=20261112v3";
+} from "./catalog-media-resolver.js?v=20261112v4";
 
 export {
   renderContinueWatching,

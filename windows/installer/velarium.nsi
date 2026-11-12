@@ -1,15 +1,15 @@
 ; ============================================================================
-; Velarium 2.7.16 — Official Windows x64 Installer Script (NSIS 3 Modern UI 2)
+; Velarium 2.7.17 — Official Windows x64 Installer Script (NSIS 3 Modern UI 2)
 ; Developer / Publisher: Atoma
 ; ============================================================================
 
 Unicode True
 
 !ifndef APP_VERSION
-  !define APP_VERSION "2.7.16"
+  !define APP_VERSION "2.7.17"
 !endif
 !ifndef APP_VERSION_QUAD
-  !define APP_VERSION_QUAD "2.7.16.0"
+  !define APP_VERSION_QUAD "2.7.17.0"
 !endif
 !define APP_NAME "Velarium"
 !define APP_PUBLISHER "Atoma"
@@ -535,21 +535,22 @@ Section "$(SecCoreName)" SecCore
   File /oname=$PLUGINSDIR\VelariumStop.exe "${STAGE_CORE_DIR}\Velarium.exe"
 
   ; Stop any running Velarium or legacy CineFlow processes using the bundled safe helper
-  ; so older installed launchers (<=2.7.15) cannot terminate a staged Setup executable inside data/
-  ${If} ${FileExists} "$INSTDIR\Velarium.exe"
+  ; (run unconditionally if $INSTDIR exists so runtime\pythonw.exe is stopped even after an interrupted install)
+  ${If} ${FileExists} "$INSTDIR\*.*"
     DetailPrint "Stopping running Velarium background processes..."
     nsExec::ExecToLog '"$PLUGINSDIR\VelariumStop.exe" --stop-dir "$INSTDIR"'
     nsExec::ExecToLog 'taskkill /F /IM Velarium.exe /IM torrserver.exe'
     Sleep 400
   ${EndIf}
   ${If} $LegacyInstallDir != ""
-  ${AndIf} ${FileExists} "$LegacyInstallDir\CineFlow.exe"
+  ${AndIf} ${FileExists} "$LegacyInstallDir\*.*"
     DetailPrint "Stopping legacy CineFlow background processes..."
     nsExec::ExecToLog '"$PLUGINSDIR\VelariumStop.exe" --stop-dir "$LegacyInstallDir"'
     nsExec::ExecToLog 'taskkill /F /IM CineFlow.exe'
     Sleep 250
   ${EndIf}
 
+  SetOverwrite on
   SetOutPath "$INSTDIR"
   File /r "${STAGE_CORE_DIR}\*.*"
 

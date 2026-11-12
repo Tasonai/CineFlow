@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-title Сборка установщика Velarium 2.7.16 для Windows (Atoma)
+title Сборка установщика Velarium 2.7.17 для Windows (Atoma)
 
 cd /d "%~dp0\.."
-echo Запуск сборки установщика Velarium 2.7.16 (Windows x64)...
+echo Запуск сборки установщика Velarium 2.7.17 (Windows x64)...
 python windows\build_windows_installer.py
 if errorlevel 1 (
     echo Ошибка при сборке установщика Velarium.
@@ -12,6 +12,6 @@ if errorlevel 1 (
 )
 
 echo ============================================================
-echo Готово! Установщик создан: dist\Velarium-Setup-2.7.16-x64.exe
+echo Готово! Установщик создан: dist\Velarium-Setup-2.7.17-x64.exe
 echo ============================================================
 pause

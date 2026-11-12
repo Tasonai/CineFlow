@@ -1,4 +1,4 @@
-import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261112v3";
+import { WATCH_HISTORY_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261112v4";
 import {
   displayBackdrop,
   displayCountries,
@@ -15,7 +15,7 @@ import {
   translateCareer,
   translateStudioName,
   transliterateRuToEn,
-} from "./i18n.js?v=20261112v3";
+} from "./i18n.js?v=20261112v4";
 import {
   attachHorizontalWheelScroll,
   bindStarsHoverRange,
@@ -40,11 +40,11 @@ import {
   syncScrollTopButton,
   syncSearchInputHasQueryUI,
   withKinoriumActionLock,
-} from "./utils.js?v=20261112v3";
+} from "./utils.js?v=20261112v4";
 import {
   attachSmartPosterFallback,
   createPosterCardElement,
-} from "./catalog-cards.js?v=20261112v3";
+} from "./catalog-cards.js?v=20261112v4";
 import {
   applyEnabledServicesVisibility,
   getDefaultPlayableSourceTab,
@@ -53,27 +53,27 @@ import {
   patchCatalogItemKinoriumInPlace,
   resolvePreferredPlayTab,
   resolveSeriesEpisodeInfo,
-} from "./catalog-media-resolver.js?v=20261112v3";
+} from "./catalog-media-resolver.js?v=20261112v4";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261112v3";
-import { renderHero, stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261112v3";
-import { getCatalogFranchiseItemsForItem, updateActiveFiltersBadge } from "./catalog-filters.js?v=20261112v3";
-import { loadCatalog } from "./catalog.js?v=20261112v3";
-import { escapeEpisodeHtml, resolveSeriesCompletedFlag } from "./player-seasons.js?v=20261112v3";
+} from "./catalog-shelves.js?v=20261112v4";
+import { renderHero, stopHeroAmbientTeaser } from "./catalog-hero.js?v=20261112v4";
+import { getCatalogFranchiseItemsForItem, updateActiveFiltersBadge } from "./catalog-filters.js?v=20261112v4";
+import { loadCatalog } from "./catalog.js?v=20261112v4";
+import { escapeEpisodeHtml, resolveSeriesCompletedFlag } from "./player-seasons.js?v=20261112v4";
 import {
   closePlayerModal,
   openPlayerModal,
-} from "./player.js?v=20261112v3";
-import { updateBackupSummaryStat } from "./settings.js?v=20261112v3";
+} from "./player.js?v=20261112v4";
+import { updateBackupSummaryStat } from "./settings.js?v=20261112v4";
 import {
   closeStatsModal,
   formatRelativeWatchDate,
   openStatsModal,
   renderWatchHistoryTab,
   switchStatsModalTab,
-} from "./modals-stats.js?v=20261112v3";
+} from "./modals-stats.js?v=20261112v4";
 import {
   buildCastPeopleArray,
   buildFallbackAvatarSvg,
@@ -87,7 +87,7 @@ import {
   renderPersonStatsStrip,
   syncPersonModalMount,
   triggerPersonSearch,
-} from "./modals-person.js?v=20261112v3";
+} from "./modals-person.js?v=20261112v4";
 
 export {
   buildCastPeopleArray,
