@@ -595,7 +595,7 @@ final class VelariumAppController: NSObject, NSApplicationDelegate, NSWindowDele
         let existingPath = fm.fileExists(atPath: targetAppPath) ? targetAppPath : (fm.fileExists(atPath: legacyAppPath) ? legacyAppPath : "")
         guard !existingPath.isEmpty else { return false }
 
-        let currentVer = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.7.15"
+        let currentVer = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.7.16"
         var installedVer = "2.5.x"
         let targetPlistPath = (existingPath as NSString).appendingPathComponent("Contents/Info.plist")
         if let plistData = try? Data(contentsOf: URL(fileURLWithPath: targetPlistPath)),
@@ -648,13 +648,49 @@ final class VelariumAppController: NSObject, NSApplicationDelegate, NSWindowDele
                 }
                 Thread.sleep(forTimeInterval: 0.5)
 
+                let stageAppPath = "/Applications/.Velarium.app.new.\(ProcessInfo.processInfo.processIdentifier)"
+                let backupAppPath = "/Applications/.Velarium.app.old.\(ProcessInfo.processInfo.processIdentifier)"
+                if fm.fileExists(atPath: stageAppPath) {
+                    try? fm.removeItem(atPath: stageAppPath)
+                }
+                let dittoTask = Process()
+                dittoTask.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+                dittoTask.arguments = [currentBundlePath, stageAppPath]
+                try dittoTask.run()
+                dittoTask.waitUntilExit()
+                if dittoTask.terminationStatus != 0 {
+                    try? fm.removeItem(atPath: stageAppPath)
+                    throw NSError(domain: "VelariumUpgrade", code: Int(dittoTask.terminationStatus), userInfo: [
+                        NSLocalizedDescriptionKey: "ditto failed with exit code \(dittoTask.terminationStatus)"
+                    ])
+                }
+                let xattrTask = Process()
+                xattrTask.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+                xattrTask.arguments = ["-cr", stageAppPath]
+                try? xattrTask.run()
+                xattrTask.waitUntilExit()
+
+                if fm.fileExists(atPath: backupAppPath) {
+                    try? fm.removeItem(atPath: backupAppPath)
+                }
                 if fm.fileExists(atPath: targetAppPath) {
-                    try fm.removeItem(atPath: targetAppPath)
+                    try fm.moveItem(atPath: targetAppPath, toPath: backupAppPath)
                 }
                 if fm.fileExists(atPath: legacyAppPath) {
                     try? fm.removeItem(atPath: legacyAppPath)
                 }
-                try fm.copyItem(atPath: currentBundlePath, toPath: targetAppPath)
+                do {
+                    try fm.moveItem(atPath: stageAppPath, toPath: targetAppPath)
+                    if fm.fileExists(atPath: backupAppPath) {
+                        try? fm.removeItem(atPath: backupAppPath)
+                    }
+                } catch {
+                    if fm.fileExists(atPath: backupAppPath) && !fm.fileExists(atPath: targetAppPath) {
+                        try? fm.moveItem(atPath: backupAppPath, toPath: targetAppPath)
+                    }
+                    try? fm.removeItem(atPath: stageAppPath)
+                    throw error
+                }
                 NSWorkspace.shared.openApplication(
                     at: URL(fileURLWithPath: targetAppPath),
                     configuration: NSWorkspace.OpenConfiguration(),

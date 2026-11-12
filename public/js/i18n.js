@@ -1,4 +1,4 @@
-import { state } from "./state.js?v=20261112v2";
+import { state } from "./state.js?v=20261112v3";
 
 export function isEn() {
   return state.appLang === "en";

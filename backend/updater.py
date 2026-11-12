@@ -23,6 +23,7 @@ import socket
 import ssl
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -607,9 +608,38 @@ class AppUpdater:
         home_dl = os.path.expanduser("~/Downloads")
         if os.path.isdir(home_dl) and os.access(home_dl, os.W_OK):
             return home_dl
+        try:
+            temp_dl = os.path.join(tempfile.gettempdir(), "Velarium-Updates")
+            os.makedirs(temp_dl, mode=0o700, exist_ok=True)
+            if os.access(temp_dl, os.W_OK):
+                return temp_dl
+        except OSError:
+            pass
         fallback_dl = os.path.join(self.storage_dir, "updates")
         os.makedirs(fallback_dl, exist_ok=True)
         return fallback_dl
+
+    @staticmethod
+    def _create_isolated_stage_dir() -> str:
+        """Create a 0o700 staging directory in OS temp (never inside $INSTDIR or storage_dir)."""
+        base_tmp = tempfile.gettempdir()
+        now_ts = time.time()
+        try:
+            for entry in os.scandir(base_tmp):
+                if entry.name.startswith("velarium_upd_") and entry.is_dir(follow_symlinks=False):
+                    try:
+                        if (now_ts - entry.stat(follow_symlinks=False).st_mtime) > 21600:
+                            shutil.rmtree(entry.path, ignore_errors=True)
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+        stage_dir = tempfile.mkdtemp(prefix="velarium_upd_")
+        try:
+            os.chmod(stage_dir, 0o700)
+        except OSError:
+            pass
+        return stage_dir
 
     def start_download(
         self,
@@ -848,20 +878,15 @@ class AppUpdater:
             }
 
         exec_path = file_path
+        stage_dir_created = ""
         if not auto_reveal and sha256_verified and expected_sha:
             try:
-                stage_dir = os.path.join(self.storage_dir, "updates_stage")
-                os.makedirs(stage_dir, mode=0o700, exist_ok=True)
-                try:
-                    os.chmod(stage_dir, 0o700)
-                except OSError:
-                    pass
-                staged_file = os.path.join(stage_dir, os.path.basename(file_path))
-                if os.path.islink(staged_file) or os.path.exists(staged_file):
-                    os.unlink(staged_file)
+                stage_dir_created = self._create_isolated_stage_dir()
+                staged_file = os.path.join(stage_dir_created, os.path.basename(file_path))
+                file_mode = 0o700 if file_path.lower().endswith(".exe") else 0o600
                 verify_hasher = hashlib.sha256()
                 with open(file_path, "rb") as src_fp, open(
-                    os.open(staged_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb"
+                    os.open(staged_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, file_mode), "wb"
                 ) as dst_fp:
                     while True:
                         blk = src_fp.read(256 * 1024)
@@ -870,10 +895,7 @@ class AppUpdater:
                         verify_hasher.update(blk)
                         dst_fp.write(blk)
                 if verify_hasher.hexdigest().lower() != expected_sha.lower():
-                    try:
-                        os.unlink(staged_file)
-                    except OSError:
-                        pass
+                    shutil.rmtree(stage_dir_created, ignore_errors=True)
                     st = self.get_status()
                     return {
                         "ok": False,
@@ -883,6 +905,8 @@ class AppUpdater:
                     }
                 exec_path = staged_file
             except Exception as stage_err:
+                if stage_dir_created:
+                    shutil.rmtree(stage_dir_created, ignore_errors=True)
                 st = self.get_status()
                 return {
                     "ok": False,
@@ -894,73 +918,113 @@ class AppUpdater:
         try:
             if sys.platform == "darwin":
                 if auto_reveal:
-                    subprocess.Popen(["open", "-R", file_path])
+                    subprocess.Popen(["open", "-R", file_path], close_fds=True)
                 elif sha256_verified and exec_path.lower().endswith(".dmg") and os.access("/Applications", os.W_OK):
-                    upd_script = (
-                        "import os, shutil, subprocess, tempfile, time\n"
-                        "os.chdir('/tmp')\n"
-                        f"dmg = {exec_path!r}\n"
-                        f"self_pid = {os.getpid()}\n"
-                        "mnt = tempfile.mkdtemp(prefix='velarium_dmg_')\n"
-                        "stage_app = '/Applications/.Velarium.app.new'\n"
-                        "try:\n"
-                        "    subprocess.run(['/usr/bin/xattr', '-cr', dmg], check=False)\n"
-                        "    subprocess.run(['/usr/bin/hdiutil', 'attach', dmg, '-mountpoint', mnt, '-nobrowse', '-readonly', '-quiet'], input=b'Y\\n', check=True)\n"
-                        "    src_app = os.path.join(mnt, 'Velarium.app')\n"
-                        "    dst_app = '/Applications/Velarium.app'\n"
-                        "    if not os.path.isdir(src_app) and os.path.isdir(os.path.join(mnt, 'CineFlow.app')):\n"
-                        "        src_app = os.path.join(mnt, 'CineFlow.app')\n"
-                        "        dst_app = '/Applications/CineFlow.app'\n"
-                        "    if os.path.isdir(src_app):\n"
-                        "        if os.path.exists(stage_app):\n"
-                        "            shutil.rmtree(stage_app, ignore_errors=True)\n"
-                        "        subprocess.run(['/usr/bin/ditto', src_app, stage_app], check=True)\n"
-                        "        subprocess.run(['/usr/bin/chflags', 'nohidden', stage_app], check=False)\n"
-                        "        subprocess.run(['/usr/bin/xattr', '-cr', stage_app], check=False)\n"
-                        "        time.sleep(0.4)\n"
-                        "        subprocess.run(['/usr/bin/killall', '-TERM', 'Velarium'], check=False)\n"
-                        "        subprocess.run(['/usr/bin/pkill', '-TERM', '-f', '/Applications/Velarium.app/Contents/'], check=False)\n"
-                        "        subprocess.run(['/usr/bin/pkill', '-TERM', '-f', '/Applications/CineFlow.app/Contents/'], check=False)\n"
-                        "        subprocess.run(['/bin/kill', '-TERM', str(self_pid)], check=False)\n"
-                        "        time.sleep(0.9)\n"
-                        "        subprocess.run(['/usr/bin/killall', '-KILL', 'Velarium'], check=False)\n"
-                        "        subprocess.run(['/usr/bin/pkill', '-KILL', '-f', '/Applications/Velarium.app/Contents/'], check=False)\n"
-                        "        subprocess.run(['/bin/kill', '-KILL', str(self_pid)], check=False)\n"
-                        "        time.sleep(0.3)\n"
-                        "        if os.path.exists(dst_app):\n"
-                        "            shutil.rmtree(dst_app, ignore_errors=True)\n"
-                        "        if dst_app == '/Applications/Velarium.app' and os.path.exists('/Applications/CineFlow.app'):\n"
-                        "            shutil.rmtree('/Applications/CineFlow.app', ignore_errors=True)\n"
-                        "        os.replace(stage_app, dst_app)\n"
-                        "        time.sleep(0.35)\n"
-                        "        subprocess.Popen(['/usr/bin/open', '-n', dst_app], cwd='/tmp')\n"
-                        "    else:\n"
-                        "        subprocess.Popen(['/usr/bin/open', dmg], cwd='/tmp')\n"
-                        "except Exception:\n"
-                        "    if os.path.exists(stage_app):\n"
-                        "        shutil.rmtree(stage_app, ignore_errors=True)\n"
-                        "    subprocess.Popen(['/usr/bin/open', dmg], cwd='/tmp')\n"
-                        "finally:\n"
-                        "    subprocess.run(['/usr/bin/hdiutil', 'detach', mnt, '-force', '-quiet'], check=False)\n"
-                        "    shutil.rmtree(mnt, ignore_errors=True)\n"
+                    upd_sh = (
+                        "set -u\n"
+                        "cd /tmp || exit 1\n"
+                        'DMG="$VELARIUM_UPD_DMG"\n'
+                        'OLD_PID="$VELARIUM_UPD_OLD_PID"\n'
+                        'MNT="$(/usr/bin/mktemp -d /tmp/velarium_dmg.XXXXXX)" || exit 1\n'
+                        'STAGE_APP="/Applications/.Velarium.app.new.$$"\n'
+                        'BACKUP_APP="/Applications/.Velarium.app.old.$$"\n'
+                        "cleanup() {\n"
+                        '  /usr/bin/hdiutil detach "$MNT" -force -quiet >/dev/null 2>&1 || true\n'
+                        '  /bin/rm -rf "$MNT" "$STAGE_APP" >/dev/null 2>&1 || true\n'
+                        "}\n"
+                        "trap cleanup EXIT\n"
+                        '/usr/bin/xattr -cr "$DMG" >/dev/null 2>&1 || true\n'
+                        'if ! printf "Y\\n" | /usr/bin/hdiutil attach "$DMG" -mountpoint "$MNT" -nobrowse -readonly -quiet >/dev/null 2>&1; then\n'
+                        '  /usr/bin/open "$DMG" >/dev/null 2>&1 || true\n'
+                        "  exit 1\n"
+                        "fi\n"
+                        'SRC_APP="$MNT/Velarium.app"\n'
+                        'DST_APP="/Applications/Velarium.app"\n'
+                        'if [ ! -d "$SRC_APP" ] && [ -d "$MNT/CineFlow.app" ]; then\n'
+                        '  SRC_APP="$MNT/CineFlow.app"\n'
+                        "fi\n"
+                        'if [ ! -d "$SRC_APP" ]; then\n'
+                        '  /usr/bin/open "$DMG" >/dev/null 2>&1 || true\n'
+                        "  exit 1\n"
+                        "fi\n"
+                        '/bin/rm -rf "$STAGE_APP" >/dev/null 2>&1 || true\n'
+                        'if ! /usr/bin/ditto "$SRC_APP" "$STAGE_APP" >/dev/null 2>&1; then\n'
+                        '  /usr/bin/open "$DMG" >/dev/null 2>&1 || true\n'
+                        "  exit 1\n"
+                        "fi\n"
+                        '/usr/bin/chflags -R nohidden "$STAGE_APP" >/dev/null 2>&1 || true\n'
+                        '/usr/bin/xattr -cr "$STAGE_APP" >/dev/null 2>&1 || true\n'
+                        "/bin/sleep 0.35\n"
+                        "/usr/bin/killall -TERM Velarium >/dev/null 2>&1 || true\n"
+                        '/usr/bin/pkill -TERM -f "/Applications/Velarium.app/Contents/" >/dev/null 2>&1 || true\n'
+                        '/usr/bin/pkill -TERM -f "/Applications/CineFlow.app/Contents/" >/dev/null 2>&1 || true\n'
+                        '[ -n "$OLD_PID" ] && /bin/kill -TERM "$OLD_PID" >/dev/null 2>&1 || true\n'
+                        "/bin/sleep 0.9\n"
+                        "/usr/bin/killall -KILL Velarium >/dev/null 2>&1 || true\n"
+                        '/usr/bin/pkill -KILL -f "/Applications/Velarium.app/Contents/" >/dev/null 2>&1 || true\n'
+                        '[ -n "$OLD_PID" ] && /bin/kill -KILL "$OLD_PID" >/dev/null 2>&1 || true\n'
+                        "/bin/sleep 0.3\n"
+                        '/bin/rm -rf "$BACKUP_APP" >/dev/null 2>&1 || true\n'
+                        'if [ -e "$DST_APP" ]; then\n'
+                        '  /bin/mv "$DST_APP" "$BACKUP_APP" >/dev/null 2>&1 || /bin/rm -rf "$DST_APP" >/dev/null 2>&1 || true\n'
+                        "fi\n"
+                        'if [ -e "/Applications/CineFlow.app" ]; then\n'
+                        '  /bin/rm -rf "/Applications/CineFlow.app" >/dev/null 2>&1 || true\n'
+                        "fi\n"
+                        'if /bin/mv "$STAGE_APP" "$DST_APP" >/dev/null 2>&1; then\n'
+                        '  /bin/rm -rf "$BACKUP_APP" >/dev/null 2>&1 || true\n'
+                        "  /bin/sleep 0.35\n"
+                        '  /usr/bin/open -n "$DST_APP" >/dev/null 2>&1 || true\n'
+                        "else\n"
+                        '  if [ -e "$BACKUP_APP" ] && [ ! -e "$DST_APP" ]; then\n'
+                        '    /bin/mv "$BACKUP_APP" "$DST_APP" >/dev/null 2>&1 || true\n'
+                        "  fi\n"
+                        '  /usr/bin/open "$DMG" >/dev/null 2>&1 || true\n'
+                        "fi\n"
                     )
-                    py_bin = "/usr/bin/python3" if os.path.isfile("/usr/bin/python3") else sys.executable
+                    upd_env = dict(os.environ)
+                    upd_env["VELARIUM_UPD_DMG"] = exec_path
+                    upd_env["VELARIUM_UPD_OLD_PID"] = str(os.getpid())
                     subprocess.Popen(
-                        [py_bin, "-c", upd_script],
+                        ["/bin/sh", "-c", upd_sh],
                         cwd="/tmp",
+                        env=upd_env,
+                        close_fds=True,
                         start_new_session=True,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                     )
                 else:
-                    subprocess.Popen(["open", exec_path])
+                    subprocess.Popen(["open", exec_path], close_fds=True)
             elif sys.platform == "win32":
                 if auto_reveal:
-                    subprocess.Popen(["explorer", f"/select,{os.path.normpath(file_path)}"])
+                    subprocess.Popen(["explorer", f"/select,{os.path.normpath(file_path)}"], close_fds=True)
                 else:
-                    os.startfile(exec_path)  # type: ignore[attr-defined]
+                    launch_dir = os.path.dirname(os.path.abspath(exec_path)) or tempfile.gettempdir()
+                    base_flags = (
+                        getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+                        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+                    )
+                    breakaway_flag = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0x01000000)
+                    try:
+                        subprocess.Popen(
+                            [exec_path],
+                            cwd=launch_dir,
+                            close_fds=True,
+                            creationflags=base_flags | breakaway_flag,
+                        )
+                    except OSError:
+                        try:
+                            subprocess.Popen(
+                                [exec_path],
+                                cwd=launch_dir,
+                                close_fds=True,
+                                creationflags=base_flags,
+                            )
+                        except OSError:
+                            os.startfile(exec_path)  # type: ignore[attr-defined]
             else:
-                subprocess.Popen(["xdg-open", os.path.dirname(file_path) if auto_reveal else exec_path])
+                subprocess.Popen(["xdg-open", os.path.dirname(file_path) if auto_reveal else exec_path], close_fds=True)
 
             with self._lock:
                 self._status["state"] = "installing"
@@ -973,6 +1037,8 @@ class AppUpdater:
                 "updater": st,
             }
         except Exception as e:
+            if stage_dir_created:
+                shutil.rmtree(stage_dir_created, ignore_errors=True)
             st = self.get_status()
             return {
                 "ok": False,

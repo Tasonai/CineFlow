@@ -804,7 +804,7 @@ class TestAuditFixes(unittest.TestCase):
         # Verify NSIS installer script metadata, installer language dialog, and app language custom page
         nsi_path = os.path.join(root, "windows", "installer", "velarium.nsi")
         nsi_txt = self._read_text(nsi_path)
-        self.assertIn('!define APP_VERSION "2.7.15"', nsi_txt)
+        self.assertIn('!define APP_VERSION "2.7.16"', nsi_txt)
         self.assertIn('!define APP_PUBLISHER "Atoma"', nsi_txt)
         self.assertIn("!insertmacro MUI_LANGDLL_DISPLAY", nsi_txt)
         self.assertIn("Page custom AppLangPageCreate AppLangPageLeave", nsi_txt)
@@ -2661,6 +2661,130 @@ class TestAuditFixes(unittest.TestCase):
 
         launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
         self.assertIn("pressed == wParam", launcher_c)
+
+    def test_installer_self_termination_and_staging_invariants(self) -> None:
+        """Regression guard: OTA updater must never stage or run Setup inside $INSTDIR, and NSIS must never invoke old $INSTDIR\\Velarium.exe --stop during upgrades."""
+        import hashlib
+        import shutil
+        from unittest import mock
+        from backend.updater import AppUpdater
+
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        # 1. Windows OTA launch stages outside $INSTDIR/data, sets cwd outside $INSTDIR, and handles Job-Object breakaway fallback
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            fake_instdir = os.path.join(tmp_dir, "Programs", "Velarium")
+            fake_data_dir = os.path.join(fake_instdir, "data")
+            fake_downloads = os.path.join(tmp_dir, "Downloads")
+            os.makedirs(fake_data_dir, exist_ok=True)
+            os.makedirs(fake_downloads, exist_ok=True)
+
+            src_exe = os.path.join(fake_downloads, "Velarium-Setup-9.9.9-x64.exe")
+            payload = b"MZ-FAKE-NSIS-INSTALLER-" * 128
+            expected_sha = hashlib.sha256(payload).hexdigest()
+            with open(src_exe, "wb") as fp:
+                fp.write(payload)
+
+            upd = AppUpdater(current_version="2.7.15", storage_dir=fake_data_dir)
+            with upd._lock:
+                upd._status.update(
+                    {
+                        "state": "downloaded",
+                        "file_path": src_exe,
+                        "expected_sha256": expected_sha,
+                        "sha256_verified": True,
+                    }
+                )
+
+            popen_calls = []
+
+            def fake_popen(cmd, **kwargs):
+                popen_calls.append((cmd, kwargs))
+                if len(popen_calls) == 1:
+                    raise OSError(5, "Access is denied (Job Object breakaway disallowed)")
+                return mock.MagicMock()
+
+            with (
+                mock.patch("backend.updater.sys.platform", "win32"),
+                mock.patch("backend.updater.subprocess.Popen", side_effect=fake_popen),
+            ):
+                res = upd.open_installer(auto_reveal=False)
+
+            self.assertTrue(res.get("ok"), res)
+            self.assertEqual(len(popen_calls), 2)
+            launched_cmd, launched_kw = popen_calls[1]
+            staged_exe = launched_cmd[0]
+            try:
+                self.assertTrue(os.path.isfile(staged_exe))
+                self.assertFalse(
+                    os.path.abspath(staged_exe).startswith(os.path.abspath(fake_instdir) + os.sep),
+                    f"Staged installer {staged_exe} must NEVER be inside $INSTDIR ({fake_instdir})!",
+                )
+                self.assertFalse(
+                    os.path.abspath(launched_kw.get("cwd", "")).startswith(os.path.abspath(fake_instdir)),
+                    f"Installer cwd {launched_kw.get('cwd')} must NEVER lock $INSTDIR ({fake_instdir})!",
+                )
+                self.assertTrue(launched_kw.get("close_fds"))
+            finally:
+                if os.path.exists(staged_exe):
+                    shutil.rmtree(os.path.dirname(staged_exe), ignore_errors=True)
+
+            # 2. macOS OTA launch uses detached POSIX /bin/sh (zero /usr/bin/python3 Xcode CLT dependency)
+            src_dmg = os.path.join(fake_downloads, "Velarium.dmg")
+            with open(src_dmg, "wb") as fp:
+                fp.write(payload)
+            with upd._lock:
+                upd._status.update(
+                    {
+                        "state": "downloaded",
+                        "file_path": src_dmg,
+                        "expected_sha256": expected_sha,
+                        "sha256_verified": True,
+                    }
+                )
+            mac_popen_calls = []
+
+            def fake_mac_popen(cmd, **kwargs):
+                mac_popen_calls.append((cmd, kwargs))
+                return mock.MagicMock()
+
+            with (
+                mock.patch("backend.updater.sys.platform", "darwin"),
+                mock.patch("backend.updater.os.access", return_value=True),
+                mock.patch("backend.updater.subprocess.Popen", side_effect=fake_mac_popen),
+            ):
+                mac_res = upd.open_installer(auto_reveal=False)
+
+            self.assertTrue(mac_res.get("ok"), mac_res)
+            self.assertEqual(len(mac_popen_calls), 1)
+            mac_cmd, mac_kw = mac_popen_calls[0]
+            self.assertEqual(mac_cmd[0], "/bin/sh")
+            self.assertEqual(mac_cmd[1], "-c")
+            self.assertTrue(mac_kw.get("start_new_session"))
+            self.assertTrue(mac_kw.get("close_fds"))
+            staged_dmg = mac_kw.get("env", {}).get("VELARIUM_UPD_DMG", "")
+            try:
+                self.assertTrue(os.path.isfile(staged_dmg))
+                self.assertFalse(
+                    os.path.abspath(staged_dmg).startswith(os.path.abspath(fake_data_dir) + os.sep)
+                )
+            finally:
+                if staged_dmg and os.path.exists(staged_dmg):
+                    shutil.rmtree(os.path.dirname(staged_dmg), ignore_errors=True)
+
+        # 3. NSIS script SecCore never calls old "$INSTDIR\Velarium.exe" --stop (protects 2.7.14/2.7.15 -> next upgrade)
+        nsi_src = self._read_text(os.path.join(root, "windows", "installer", "velarium.nsi"))
+        sec_core = nsi_src.split("Section \"$(SecCoreName)\" SecCore", 1)[1].split("SectionEnd", 1)[0]
+        self.assertNotIn('"$INSTDIR\\Velarium.exe" --stop', sec_core)
+        self.assertNotIn('"$LegacyInstallDir\\CineFlow.exe" --stop', sec_core)
+        self.assertIn("VelariumStop.exe", sec_core)
+        self.assertIn('--stop-dir "$INSTDIR"', sec_core)
+
+        # 4. Windows launcher C source supports --stop-dir and excludes data\ and Setup/Uninstall processes
+        launcher_c = self._read_text(os.path.join(root, "windows", "launcher", "velarium_launcher.c"))
+        self.assertIn("--stop-dir", launcher_c)
+        self.assertIn("is_protected_installer_or_data_path", launcher_c)
+        self.assertIn("grandparent_pid", launcher_c)
 
 
 if __name__ == "__main__":

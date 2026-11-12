@@ -1,15 +1,15 @@
 ; ============================================================================
-; Velarium 2.7.15 — Official Windows x64 Installer Script (NSIS 3 Modern UI 2)
+; Velarium 2.7.16 — Official Windows x64 Installer Script (NSIS 3 Modern UI 2)
 ; Developer / Publisher: Atoma
 ; ============================================================================
 
 Unicode True
 
 !ifndef APP_VERSION
-  !define APP_VERSION "2.7.15"
+  !define APP_VERSION "2.7.16"
 !endif
 !ifndef APP_VERSION_QUAD
-  !define APP_VERSION_QUAD "2.7.15.0"
+  !define APP_VERSION_QUAD "2.7.16.0"
 !endif
 !define APP_NAME "Velarium"
 !define APP_PUBLISHER "Atoma"
@@ -217,8 +217,8 @@ LangString UpgradeOptCustom ${LANG_ENGLISH} "Customize installation settings, in
 LangString UpgradeNotesCaption ${LANG_RUSSIAN} "Список изменений по сравнению с предыдущей версией:"
 LangString UpgradeNotesCaption ${LANG_ENGLISH} "What is new compared to the previous version:"
 
-LangString UpgradeChangelogText ${LANG_RUSSIAN} "Изменения в выпуске Velarium ${APP_VERSION}:$\r$\n$\r$\n• Внешние стриминговые сервисы (Player.pl, Netflix, Apple TV+, Prime Video, Disney+, Max):$\r$\n  - При выборе подключённого сервиса в верхней панели главной страницы отображается полный актуальный каталог его сериалов и фильмов в приоритетном порядке.$\r$\n  - В верхней панели плеера рядом с HDRezka, Stremio и 4K теперь отображаются вкладки всех подключённых стриминговых сервисов для быстрого переключения на любом фильме или сериале (включая глобальный поиск).$\r$\n  - Автоматическое определение прямых ссылок на тайтл в подключённых сервисах.$\r$\n$\r$\n• Мобильный пульт управления (Wi-Fi QR):$\r$\n  - Добавлен полноценный режим Картинка-в-картинке (PiP) с автозапуском воспроизведения и нативный полноэкранный режим на весь экран монитора.$\r$\n  - Отключено случайное масштабирование экрана при быстром двойном нажатии на кнопки пульта.$\r$\n$\r$\n• Интерфейс и установщик Windows:$\r$\n  - Исправлено межбуквенное расстояние и рендеринг шрифтов Segoe UI на Windows 10/11 (устранено слипание букв в заголовках и карточках).$\r$\n  - Адаптирована вёрстка окон установщика под экраны с масштабированием 125%–150% DPI.$\r$\n  - Автоматическое определение установленной версии и обновление в один клик с сохранением пользовательских данных."
-LangString UpgradeChangelogText ${LANG_ENGLISH} "What is new in Velarium ${APP_VERSION}:$\r$\n$\r$\n• External Streaming Services (Player.pl, Netflix, Apple TV+, Prime Video, Disney+, Max):$\r$\n  - Selecting a connected streaming service on the main screen now loads and prioritizes its full catalog of series and movies.$\r$\n  - Connected streaming services now appear directly in the top Player source switcher alongside HDRezka, Stremio, and 4K for every title (including Global Search results).$\r$\n  - Automatic direct title link resolution across connected services.$\r$\n$\r$\n• Wi-Fi QR Phone Remote:$\r$\n  - Added full Picture-in-Picture (PiP) activation with automatic playback readiness and true monitor-wide fullscreen toggle.$\r$\n  - Disabled accidental viewport zooming on rapid double-tap gestures.$\r$\n$\r$\n• Windows Typography & Setup Wizard:$\r$\n  - Improved Segoe UI kerning and letter-spacing across headings, cards, and modals on Windows 10/11.$\r$\n  - High-DPI layout fixes for 125%–150% Windows scaling.$\r$\n  - Automatic existing installation detection with one-click upgrade and changelog preview."
+LangString UpgradeChangelogText ${LANG_RUSSIAN} "Изменения в выпуске Velarium ${APP_VERSION}:$\r$\n$\r$\n• Надёжное автообновление без вылета установщика:$\r$\n  - Исправлена ошибка, при которой запуск обновления изнутри приложения завершал процесс самого установщика вместе с закрытием окна Velarium.$\r$\n  - Проверенный по SHA-256 пакет изолируется во временном каталоге %TEMP% без удержания дескрипторов рабочей папки и порта 8765.$\r$\n  - Мастер установки использует собственный модуль безопасной остановки фоновых процессов с защитой родительских PID и папки пользовательских данных data.$\r$\n$\r$\n• Резиновая полноэкранная вёрстка (Netflix и Apple TV):$\r$\n  - Снято ограничение центрального контейнера 1540 пикселей — шапка, Hero-витрина и полки каталога плавно раскрываются на всю ширину монитора без пустых полей по бокам.$\r$\n  - Автоматическое масштабирование сетки постеров до 7, 8, 9, 10 и 12 колонок на экранах Full HD, 2K, Ultrawide и 4K с мгновенным перерасчётом карточек."
+LangString UpgradeChangelogText ${LANG_ENGLISH} "What is new in Velarium ${APP_VERSION}:$\r$\n$\r$\n• Reliable In-App Auto-Update Without Installer Self-Termination:$\r$\n  - Fixed an issue where launching an update from inside Velarium caused the shutdown helper to terminate the staged installer right after closing the app window.$\r$\n  - SHA-256-verified installers are staged in an isolated %TEMP% directory with detached file descriptors.$\r$\n  - Setup uses its own bundled process-stop helper with parent PID protection and strict data folder exclusion.$\r$\n$\r$\n• Fluid Full-Bleed Widescreen Layout (Netflix & Apple TV Style):$\r$\n  - Removed the 1540px center container cap so the header, Hero showcase, and catalog shelves expand smoothly across fullscreen displays.$\r$\n  - Adaptive 7, 8, 9, 10, and 12-column poster grids across 1080p, 2K/QHD, Ultrawide, and 4K monitors."
 
 LangString LicenseHeaderTitle ${LANG_RUSSIAN} "Описание и условия использования"
 LangString LicenseHeaderTitle ${LANG_ENGLISH} "Product Overview & License Terms"
@@ -531,18 +531,23 @@ FunctionEnd
 Section "$(SecCoreName)" SecCore
   SectionIn RO
 
-  ; Stop any running Velarium or legacy CineFlow processes before updating files
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\VelariumStop.exe "${STAGE_CORE_DIR}\Velarium.exe"
+
+  ; Stop any running Velarium or legacy CineFlow processes using the bundled safe helper
+  ; so older installed launchers (<=2.7.15) cannot terminate a staged Setup executable inside data/
   ${If} ${FileExists} "$INSTDIR\Velarium.exe"
     DetailPrint "Stopping running Velarium background processes..."
-    nsExec::ExecToLog '"$INSTDIR\Velarium.exe" --stop'
-    nsExec::ExecToLog 'taskkill /F /IM Velarium.exe /IM torrserver.exe /IM ffmpeg.exe'
-    Sleep 350
+    nsExec::ExecToLog '"$PLUGINSDIR\VelariumStop.exe" --stop-dir "$INSTDIR"'
+    nsExec::ExecToLog 'taskkill /F /IM Velarium.exe /IM torrserver.exe'
+    Sleep 400
   ${EndIf}
   ${If} $LegacyInstallDir != ""
   ${AndIf} ${FileExists} "$LegacyInstallDir\CineFlow.exe"
     DetailPrint "Stopping legacy CineFlow background processes..."
-    nsExec::ExecToLog '"$LegacyInstallDir\CineFlow.exe" --stop'
+    nsExec::ExecToLog '"$PLUGINSDIR\VelariumStop.exe" --stop-dir "$LegacyInstallDir"'
     nsExec::ExecToLog 'taskkill /F /IM CineFlow.exe'
+    Sleep 250
   ${EndIf}
 
   SetOutPath "$INSTDIR"
@@ -602,7 +607,7 @@ Section "$(SecCoreName)" SecCore
   WriteRegStr HKCU "${UNINST_REG_KEY}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegStr HKCU "${UNINST_REG_KEY}" "Comments" "$(AppDisplayComment)"
   WriteRegDWORD HKCU "${UNINST_REG_KEY}" "VersionMajor" 2
-  WriteRegDWORD HKCU "${UNINST_REG_KEY}" "VersionMinor" 6
+  WriteRegDWORD HKCU "${UNINST_REG_KEY}" "VersionMinor" 7
   WriteRegDWORD HKCU "${UNINST_REG_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINST_REG_KEY}" "NoRepair" 1
 
@@ -619,6 +624,7 @@ Section "$(SecMediaName)" SecMediaEngine
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKCU "${UNINST_REG_KEY}" "EstimatedSize" "$0"
+  SetOutPath "$INSTDIR"
 SectionEnd
 
 Section "$(SecDesktopName)" SecDesktop

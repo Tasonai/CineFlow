@@ -5,9 +5,9 @@ import {
   WATCH_HISTORY_STORAGE_KEY,
   profileStorageKey,
   state,
-} from "./state.js?v=20261112v2";
-import { isEn, t } from "./i18n.js?v=20261112v2";
-import { isAnyOverlayModalOpen } from "./catalog.js?v=20261112v2";
+} from "./state.js?v=20261112v3";
+import { isEn, t } from "./i18n.js?v=20261112v3";
+import { isAnyOverlayModalOpen } from "./catalog.js?v=20261112v3";
 
 export function escapeAttr(val) {
   return String(val ?? "")

@@ -466,11 +466,63 @@ static BOOL CALLBACK close_legacy_velarium_windows_cb(HWND hwnd, LPARAM lParam) 
     return TRUE;
 }
 
+static int wcsistr_ascii(const wchar_t *haystack, const char *needle_lower) {
+    if (!haystack || !needle_lower || !needle_lower[0]) {
+        return 0;
+    }
+    size_t nlen = strlen(needle_lower);
+    for (const wchar_t *p = haystack; *p != L'\0'; p++) {
+        size_t i = 0;
+        for (; i < nlen; i++) {
+            wchar_t ch = p[i];
+            if (ch == L'\0') {
+                return 0;
+            }
+            if (ch >= L'A' && ch <= L'Z') {
+                ch = (wchar_t)(ch - L'A' + L'a');
+            }
+            if (ch != (wchar_t)(unsigned char)needle_lower[i]) {
+                break;
+            }
+        }
+        if (i == nlen) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int is_protected_installer_or_data_path(const wchar_t *rel_path) {
+    if (!rel_path || rel_path[0] == L'\0') {
+        return 1;
+    }
+    while (*rel_path == L'\\' || *rel_path == L'/') {
+        rel_path++;
+    }
+    /* Never terminate anything inside user data/ (including staged updates in data\updates_stage\) */
+    if (_wcsnicmp(rel_path, L"data\\", 5) == 0 || _wcsnicmp(rel_path, L"data/", 5) == 0) {
+        return 1;
+    }
+    const wchar_t *base = rel_path;
+    for (const wchar_t *p = rel_path; *p != L'\0'; p++) {
+        if (*p == L'\\' || *p == L'/') {
+            base = p + 1;
+        }
+    }
+    if (_wcsicmp(base, L"Uninstall.exe") == 0 || _wcsicmp(base, L"Au_.exe") == 0) {
+        return 1;
+    }
+    if (wcsistr_ascii(base, "setup") || wcsistr_ascii(base, "install") || wcsistr_ascii(base, "uninst")) {
+        return 1;
+    }
+    return 0;
+}
+
 static void stop_app_processes(const wchar_t *app_dir) {
     EnumWindows(close_legacy_velarium_windows_cb, 1);
 
-    /* Wait up to ~800ms for native WebView2 windows to process WM_CLOSE -> WM_DESTROY -> g_controller->Close() */
-    for (int w = 0; w < 20; w++) {
+    /* Wait up to ~1200ms for native WebView2 windows to process WM_CLOSE -> WM_DESTROY -> g_controller->Close() */
+    for (int w = 0; w < 30; w++) {
         if (!FindWindowW(VELARIUM_WND_CLASS, NULL) && !FindWindowW(VELARIUM_STREAM_WND_CLASS, NULL)) {
             break;
         }
@@ -486,6 +538,8 @@ static void stop_app_processes(const wchar_t *app_dir) {
     }
 
     DWORD self_pid = GetCurrentProcessId();
+    DWORD parent_pid = 0;
+    DWORD grandparent_pid = 0;
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap == INVALID_HANDLE_VALUE) {
         return;
@@ -497,7 +551,27 @@ static void stop_app_processes(const wchar_t *app_dir) {
 
     if (Process32FirstW(snap, &pe)) {
         do {
-            if (pe.th32ProcessID == 0 || pe.th32ProcessID == self_pid) {
+            if (pe.th32ProcessID == self_pid) {
+                parent_pid = pe.th32ParentProcessID;
+                break;
+            }
+        } while (Process32NextW(snap, &pe));
+    }
+    if (parent_pid != 0 && Process32FirstW(snap, &pe)) {
+        do {
+            if (pe.th32ProcessID == parent_pid) {
+                grandparent_pid = pe.th32ParentProcessID;
+                break;
+            }
+        } while (Process32NextW(snap, &pe));
+    }
+
+    if (Process32FirstW(snap, &pe)) {
+        do {
+            if (pe.th32ProcessID == 0 ||
+                pe.th32ProcessID == self_pid ||
+                (parent_pid != 0 && pe.th32ProcessID == parent_pid) ||
+                (grandparent_pid != 0 && pe.th32ProcessID == grandparent_pid)) {
                 continue;
             }
             HANDLE hQuery = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pe.th32ProcessID);
@@ -508,7 +582,8 @@ static void stop_app_processes(const wchar_t *app_dir) {
             DWORD img_len = MAX_PATH * 2;
             int matched = 0;
             if (QueryFullProcessImageNameW(hQuery, 0, img_path, &img_len)) {
-                if (_wcsnicmp(img_path, prefix, prefix_len) == 0) {
+                if (_wcsnicmp(img_path, prefix, prefix_len) == 0 &&
+                    !is_protected_installer_or_data_path(img_path + prefix_len)) {
                     matched = 1;
                 }
             }
@@ -1501,7 +1576,26 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
     const wchar_t *full_cmd = GetCommandLineW();
     if ((lpCmdLine && wcsstr(lpCmdLine, L"--stop") != NULL) ||
         (full_cmd && wcsstr(full_cmd, L"--stop") != NULL)) {
-        stop_app_processes(app_dir);
+        wchar_t target_stop_dir[MAX_PATH * 2];
+        wcsncpy(target_stop_dir, app_dir, MAX_PATH * 2 - 1);
+        target_stop_dir[MAX_PATH * 2 - 1] = L'\0';
+        int s_argc = 0;
+        LPWSTR *s_argv = CommandLineToArgvW(GetCommandLineW(), &s_argc);
+        if (s_argv) {
+            for (int i = 1; i < s_argc; i++) {
+                if (wcscmp(s_argv[i], L"--stop-dir") == 0 && i + 1 < s_argc && s_argv[i + 1][0] != L'\0') {
+                    wcsncpy(target_stop_dir, s_argv[i + 1], MAX_PATH * 2 - 1);
+                    target_stop_dir[MAX_PATH * 2 - 1] = L'\0';
+                    size_t tlen = wcslen(target_stop_dir);
+                    while (tlen > 3 && (target_stop_dir[tlen - 1] == L'\\' || target_stop_dir[tlen - 1] == L'/')) {
+                        target_stop_dir[--tlen] = L'\0';
+                    }
+                    break;
+                }
+            }
+            LocalFree(s_argv);
+        }
+        stop_app_processes(target_stop_dir);
         return 0;
     }
 
@@ -1582,8 +1676,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             } else if (!background_only) {
                 MessageBoxW(
                     NULL,
-                    L"\x041d\x0435 \x0443\x0434\x0430\x043b\x043e\x0441\x044c \x0437\x0430\x043f\x0443\x0441\x0442\x0438\x0442\x044c \x043b\x043e\x043a\x0430\x043b\x044c\x043d\x044b\x0439 \x0441\x0435\x0440\x0432\x0435\x0440 Velarium.\n\x041f\x0440\x043e\x0432\x0435\x0440\x044c\x0442\x0435 \x0446\x0435\x043b\x043e\x0441\x0442\x043d\x043e\x0441\x0442\x044c \x0444\x0430\x0439\x043b\x043e\x0432 \x0443\x0441\x0442\x0430\x043d\x043e\x0432\x043a\x0438 \x0438\x043b\x0438 \x043f\x0435\x0440\x0435\x0443\x0441\x0442\x0430\x043d\x043e\x0432\x0438\x0442\x0435 Velarium 2.7.15.\n\nFailed to start the local Velarium server.\nPlease verify the installation files or reinstall Velarium 2.7.15.",
-                    L"Velarium 2.7.15 \x2014 Atoma",
+                    L"\x041d\x0435 \x0443\x0434\x0430\x043b\x043e\x0441\x044c \x0437\x0430\x043f\x0443\x0441\x0442\x0438\x0442\x044c \x043b\x043e\x043a\x0430\x043b\x044c\x043d\x044b\x0439 \x0441\x0435\x0440\x0432\x0435\x0440 Velarium.\n\x041f\x0440\x043e\x0432\x0435\x0440\x044c\x0442\x0435 \x0446\x0435\x043b\x043e\x0441\x0442\x043d\x043e\x0441\x0442\x044c \x0444\x0430\x0439\x043b\x043e\x0432 \x0443\x0441\x0442\x0430\x043d\x043e\x0432\x043a\x0438 \x0438\x043b\x0438 \x043f\x0435\x0440\x0435\x0443\x0441\x0442\x0430\x043d\x043e\x0432\x0438\x0442\x0435 Velarium 2.7.16.\n\nFailed to start the local Velarium server.\nPlease verify the installation files or reinstall Velarium 2.7.16.",
+                    L"Velarium 2.7.16 \x2014 Atoma",
                     MB_ICONERROR | MB_OK
                 );
                 if (hStartMutex) {
