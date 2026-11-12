@@ -1582,8 +1582,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
             } else if (!background_only) {
                 MessageBoxW(
                     NULL,
-                    L"\x041d\x0435 \x0443\x0434\x0430\x043b\x043e\x0441\x044c \x0437\x0430\x043f\x0443\x0441\x0442\x0438\x0442\x044c \x043b\x043e\x043a\x0430\x043b\x044c\x043d\x044b\x0439 \x0441\x0435\x0440\x0432\x0435\x0440 Velarium.\n\x041f\x0440\x043e\x0432\x0435\x0440\x044c\x0442\x0435 \x0446\x0435\x043b\x043e\x0441\x0442\x043d\x043e\x0441\x0442\x044c \x0444\x0430\x0439\x043b\x043e\x0432 \x0443\x0441\x0442\x0430\x043d\x043e\x0432\x043a\x0438 \x0438\x043b\x0438 \x043f\x0435\x0440\x0435\x0443\x0441\x0442\x0430\x043d\x043e\x0432\x0438\x0442\x0435 Velarium 2.7.14.\n\nFailed to start the local Velarium server.\nPlease verify the installation files or reinstall Velarium 2.7.14.",
-                    L"Velarium 2.7.14 \x2014 Atoma",
+                    L"\x041d\x0435 \x0443\x0434\x0430\x043b\x043e\x0441\x044c \x0437\x0430\x043f\x0443\x0441\x0442\x0438\x0442\x044c \x043b\x043e\x043a\x0430\x043b\x044c\x043d\x044b\x0439 \x0441\x0435\x0440\x0432\x0435\x0440 Velarium.\n\x041f\x0440\x043e\x0432\x0435\x0440\x044c\x0442\x0435 \x0446\x0435\x043b\x043e\x0441\x0442\x043d\x043e\x0441\x0442\x044c \x0444\x0430\x0439\x043b\x043e\x0432 \x0443\x0441\x0442\x0430\x043d\x043e\x0432\x043a\x0438 \x0438\x043b\x0438 \x043f\x0435\x0440\x0435\x0443\x0441\x0442\x0430\x043d\x043e\x0432\x0438\x0442\x0435 Velarium 2.7.15.\n\nFailed to start the local Velarium server.\nPlease verify the installation files or reinstall Velarium 2.7.15.",
+                    L"Velarium 2.7.15 \x2014 Atoma",
                     MB_ICONERROR | MB_OK
                 );
                 if (hStartMutex) {

@@ -1,5 +1,5 @@
-import { profileStorageKey, state } from "./state.js?v=20261112v1";
-import { displayTitle, isEn, t } from "./i18n.js?v=20261112v1";
+import { profileStorageKey, state } from "./state.js?v=20261112v2";
+import { displayTitle, isEn, t } from "./i18n.js?v=20261112v2";
 import {
   clampStagePopover,
   escapeAttr,
@@ -10,9 +10,9 @@ import {
   showToast,
   showVideoOsd,
   syncScrollTopButton,
-} from "./utils.js?v=20261112v1";
-import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261112v1";
-import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261112v1";
+} from "./utils.js?v=20261112v2";
+import { updatePlayerGearActiveDot } from "./audio-dsp.js?v=20261112v2";
+import { exitBrowserFullscreenIfNeeded } from "./features.js?v=20261112v2";
 import {
   clearAutoplayNextTimer,
   clearRemuxDurationPoll,
@@ -26,8 +26,8 @@ import {
   renderTimelineBookmarks,
   syncCustomControlPopovers,
   syncVcPopoverOpenClass,
-} from "./player.js?v=20261112v1";
-import { closeOfficialEmbeddedStream } from "./player-streams.js?v=20261112v1";
+} from "./player.js?v=20261112v2";
+import { closeOfficialEmbeddedStream } from "./player-streams.js?v=20261112v2";
 
 export function formatSubtitleOffsetLabel(sec = state.subtitleOffsetSec) {
   const num = Math.round((Number(sec) || 0) * 100) / 100;

@@ -1,6 +1,6 @@
-import { PLAYER_PREFS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261112v1";
-import { t } from "./i18n.js?v=20261112v1";
-import { isIosOrIpadOs, showToast, syncCustomSelect } from "./utils.js?v=20261112v1";
+import { PLAYER_PREFS_STORAGE_KEY, profileStorageKey, state } from "./state.js?v=20261112v2";
+import { t } from "./i18n.js?v=20261112v2";
+import { isIosOrIpadOs, showToast, syncCustomSelect } from "./utils.js?v=20261112v2";
 import {
   buildRemuxStreamEndpoint,
   closePlayerModal,
@@ -10,7 +10,7 @@ import {
   setPipBackgroundMode,
   syncCustomVideoControlsUI,
   syncPipDockUI,
-} from "./player.js?v=20261112v1";
+} from "./player.js?v=20261112v2";
 
 export function getAudioPresetLabel(preset) {
   const map = {

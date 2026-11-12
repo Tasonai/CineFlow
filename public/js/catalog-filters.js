@@ -1,11 +1,11 @@
-import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261112v1";
+import { CURATED_SHELVES_STORAGE_KEY, state } from "./state.js?v=20261112v2";
 import {
   displayTitle,
   getItemGenreEntries,
   t,
   translateGenre,
   translateStudioName,
-} from "./i18n.js?v=20261112v1";
+} from "./i18n.js?v=20261112v2";
 import {
   clampFloatingPopover,
   closeFloatingPopovers,
@@ -17,27 +17,27 @@ import {
   showToast,
   syncCustomSelect,
   syncSearchInputHasQueryUI,
-} from "./utils.js?v=20261112v1";
+} from "./utils.js?v=20261112v2";
 import {
   renderHero,
   resetHeroRecordedThisLaunch,
-} from "./catalog-hero.js?v=20261112v1";
+} from "./catalog-hero.js?v=20261112v2";
 import {
   applyEnabledServicesVisibility,
   getFriendsAverageScore,
   isItemWatchedOrCaughtUp,
   isServiceEnabled,
-} from "./catalog-media-resolver.js?v=20261112v1";
+} from "./catalog-media-resolver.js?v=20261112v2";
 import {
   renderCatalogShelves,
   renderContinueWatching,
-} from "./catalog-shelves.js?v=20261112v1";
-import { switchNotificationsTab } from "./catalog-notifications.js?v=20261112v1";
-import { syncSearchClearButton } from "./catalog-live-search.js?v=20261112v1";
-import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261112v1";
-import { openQuickPeekModal } from "./modals.js?v=20261112v1";
-import { getCatalogGridColumnCount } from "./catalog-cards.js?v=20261112v1";
-import { loadCatalog } from "./catalog.js?v=20261112v1";
+} from "./catalog-shelves.js?v=20261112v2";
+import { switchNotificationsTab } from "./catalog-notifications.js?v=20261112v2";
+import { syncSearchClearButton } from "./catalog-live-search.js?v=20261112v2";
+import { openDownloadsModal, setOfflineMode } from "./features-downloads.js?v=20261112v2";
+import { openQuickPeekModal } from "./modals.js?v=20261112v2";
+import { getCatalogGridColumnCount } from "./catalog-cards.js?v=20261112v2";
+import { loadCatalog } from "./catalog.js?v=20261112v2";
 
 export function updateActiveFiltersBadge() {
   let drawerCount = 0;

@@ -1,7 +1,7 @@
-import { state } from "./state.js?v=20261112v1";
-import { t } from "./i18n.js?v=20261112v1";
-import { formatTime, escapeAttr } from "./utils.js?v=20261112v1";
-import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261112v1";
+import { state } from "./state.js?v=20261112v2";
+import { t } from "./i18n.js?v=20261112v2";
+import { formatTime, escapeAttr } from "./utils.js?v=20261112v2";
+import { getEffectivePlaybackTiming } from "./player-remux.js?v=20261112v2";
 
 export function getDetectedCreditsStartSec(dur) {
   if (!dur || dur < 120) return null;

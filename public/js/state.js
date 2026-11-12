@@ -48,7 +48,7 @@ const _initialAppLang = (() => {
 
 export const state = {
   appLang: _initialAppLang,
-  appVersion: "2.7.14",
+  appVersion: "2.7.15",
   launchSeed: Math.floor(Math.random() * 0x7fffffff) || 1,
   providerFilter: "all",
   mediaTypeFilter: "all",
